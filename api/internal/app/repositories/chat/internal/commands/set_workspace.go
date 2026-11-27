@@ -8,14 +8,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetWorkspace writes the workspace a chat belongs to after creation: a bubble
-// gaining worktree ownership, or a thread moved to run in another one.
 type SetWorkspace struct {
 	ID          string
 	WorkspaceID string
-	// Shares runs the chat in a workspace another row owns: a moved thread
-	// must never claim the branch it joins.
-	Shares bool `json:",omitempty"`
+	Shares      bool `json:",omitempty"`
 }
 
 func (c SetWorkspace) AggregateID() string {

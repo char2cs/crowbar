@@ -15,12 +15,10 @@ import (
 type providerEngine struct {
 	exec        DetectExecFn
 	detectFn    func(ctx context.Context, repoPath string) (DetectResult, error)
-	providerFac func(res DetectResult) GitProvider // injectable for tests; nil = production default
-	protected   *ttlCache[[]string]                // protected branches per remote; nil = uncached
+	providerFac func(res DetectResult) GitProvider
+	protected   *ttlCache[[]string]
 }
 
-// newEngine builds the engine over the exec every provider subprocess goes
-// through and the clock its caches expire by.
 func newEngine(execFn DetectExecFn, now func() time.Time) *providerEngine {
 	return &providerEngine{
 		exec: execFn,
@@ -31,9 +29,6 @@ func newEngine(execFn DetectExecFn, now func() time.Time) *providerEngine {
 	}
 }
 
-// protectedBranches returns prov's protected branches for the repo detected as
-// res, served from the per-remote cache when one is configured: every worktree
-// of the repo shares the list. Failures are never cached.
 func (e *providerEngine) protectedBranches(
 	ctx context.Context,
 	prov GitProvider,
@@ -52,8 +47,6 @@ func (e *providerEngine) protectedBranches(
 
 var _ Engine = (*providerEngine)(nil)
 
-// ProtectedBranches returns protected branch names for repoPath.
-// Falls back to DefaultProtectedBranches when the CLI is unavailable.
 func (e *providerEngine) ProtectedBranches(
 	ctx context.Context,
 	repoPath string,
@@ -75,8 +68,6 @@ func (e *providerEngine) ProtectedBranches(
 	return branches, nil
 }
 
-// OwnerAvatarURL returns the avatar URL of the repo owner.
-// Returns "" when the provider is unavailable or the lookup fails.
 func (e *providerEngine) OwnerAvatarURL(
 	ctx context.Context,
 	repoPath string,
@@ -96,8 +87,6 @@ func (e *providerEngine) OwnerAvatarURL(
 	return avatarURL, nil
 }
 
-// OpenPullRequests returns the repo's open-PR head→base graph, or nil when the
-// provider is unavailable. Best-effort: never fails the caller.
 func (e *providerEngine) OpenPullRequests(
 	ctx context.Context,
 	repoPath string,
@@ -117,7 +106,6 @@ func (e *providerEngine) OpenPullRequests(
 	return links, nil
 }
 
-// Capability returns what the engine can do for a given repo.
 func (e *providerEngine) Capability(
 	ctx context.Context,
 	repoPath string,
@@ -132,7 +120,6 @@ func (e *providerEngine) Capability(
 	}, nil
 }
 
-// PollOnView runs an immediate poll for a workspace and returns its state.
 func (e *providerEngine) PollOnView(
 	ctx context.Context,
 	_ string,
@@ -152,7 +139,6 @@ func (e *providerEngine) PollOnView(
 	return e.pollOnce(ctx, prov, res, repoPath, branch)
 }
 
-// StartBackgroundSweep starts the 5-minute global cron sweep.
 func (e *providerEngine) StartBackgroundSweep(
 	ctx context.Context,
 	workspacesFn func() []poll.SweepTarget,
@@ -171,7 +157,6 @@ func (e *providerEngine) StartBackgroundSweep(
 	sweeper.Start(ctx, workspacesFn)
 }
 
-// sweepPollFn returns the poll.PollFn that the sweeper calls per workspace.
 func (e *providerEngine) sweepPollFn() poll.PollFn {
 	return func(
 		ctx context.Context,
@@ -190,7 +175,6 @@ func (e *providerEngine) sweepPollFn() poll.PollFn {
 	}
 }
 
-// providerFor returns the GitProvider for the repo detected as res.
 func (e *providerEngine) providerFor(
 	res DetectResult,
 ) GitProvider {
@@ -200,7 +184,6 @@ func (e *providerEngine) providerFor(
 	return e.defaultProviderFor(res)
 }
 
-// defaultProviderFor returns the production GitProvider for res.
 func (e *providerEngine) defaultProviderFor(
 	res DetectResult,
 ) GitProvider {
@@ -214,9 +197,6 @@ func (e *providerEngine) defaultProviderFor(
 	}
 }
 
-// pollOnce fetches protected status and PR info for a single branch.
-// PR lookup errors are treated as soft degradation: the Protected field is still
-// returned and the error is logged to stderr rather than propagated.
 func (e *providerEngine) pollOnce(
 	ctx context.Context,
 	prov GitProvider,
@@ -240,7 +220,6 @@ func (e *providerEngine) pollOnce(
 	}, nil
 }
 
-// isProtected checks whether branch appears in the repo's protected list.
 func (e *providerEngine) isProtected(
 	ctx context.Context,
 	prov GitProvider,
@@ -261,7 +240,6 @@ func (e *providerEngine) isProtected(
 	return false, nil
 }
 
-// snapToPRInfo converts a poll snapshot PR to a provider PRInfo.
 func snapToPRInfo(
 	snap *poll.PRInfoSnapshot,
 ) *providertypes.PRInfo {
@@ -277,7 +255,6 @@ func snapToPRInfo(
 	}
 }
 
-// prInfoToSnap converts a provider PRInfo to a poll snapshot.
 func prInfoToSnap(
 	pr *providertypes.PRInfo,
 ) *poll.PRInfoSnapshot {

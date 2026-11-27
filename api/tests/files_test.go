@@ -19,16 +19,12 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// documentRef is the resolved ref the document route answers a write with.
 type documentRef struct {
 	Authority   string `json:"authority"`
 	WorkspaceID string `json:"workspaceId"`
 	Path        string `json:"path"`
 }
 
-// TestFiles_TreeSaveReadBack proves the file read/write round trip over a real
-// worktree: the tree lists the committed README, a save writes new content, and a
-// subsequent read returns exactly what was written.
 func TestFiles_TreeSaveReadBack(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -52,8 +48,6 @@ func TestFiles_TreeSaveReadBack(t *testing.T) {
 	assert.Equal(t, content, read.Content)
 }
 
-// TestFiles_CreateRenameDelete walks the file mutation lifecycle: create a file,
-// rename it, then delete it — each step echoing its path through the envelope.
 func TestFiles_CreateRenameDelete(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -78,10 +72,6 @@ func TestFiles_CreateRenameDelete(t *testing.T) {
 	assert.Equal(t, "b.txt", deleted.ID)
 }
 
-// TestFiles_LockedWorkspaceRejectsWrite proves the locked-workspace guard on the
-// file write path: the adopted "main" workspace is locked (a default protected
-// branch), so reads still succeed (200) while a file create or a document save
-// is rejected with 409 (04 §5, 05 §3/§4).
 func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -103,9 +93,6 @@ func TestFiles_LockedWorkspaceRejectsWrite(t *testing.T) {
 	}, http.StatusConflict)
 }
 
-// TestRegression_HostDocumentRefusedOverTCP proves a file outside every
-// workspace is served only to a request that arrived on the local socket: over
-// TCP the read and the write are refused with the code, and the file is untouched.
 func TestRegression_HostDocumentRefusedOverTCP(t *testing.T) {
 	h := newHarness(t)
 	abs := filepath.Join(t.TempDir(), "secret.md")
@@ -121,9 +108,6 @@ func TestRegression_HostDocumentRefusedOverTCP(t *testing.T) {
 	assert.Equal(t, "secret\n", string(got))
 }
 
-// TestRegression_HostDocumentWatchRefusedOverTCP proves a host document's watch
-// is held only over the local socket: over TCP its doc: scope is refused with
-// the code.
 func TestRegression_HostDocumentWatchRefusedOverTCP(t *testing.T) {
 	h := newHarness(t)
 	abs := filepath.Join(t.TempDir(), "a.md")
@@ -137,11 +121,8 @@ func TestRegression_HostDocumentWatchRefusedOverTCP(t *testing.T) {
 	assert.Equal(t, "host_document_requires_local_transport", string(closed.Problem.Code))
 }
 
-// documentChangeBound fails a test whose change never arrives.
 const documentChangeBound = 15 * time.Second
 
-// docChange is the FileChangeEvent a doc: scope's file_change signal carries,
-// or nil for any other frame.
 func docChange(frame map[string]any) map[string]any {
 	if frame["t"] != stream.FrameSignal || frame["kind"] != "file_change" {
 		return nil
@@ -150,7 +131,6 @@ func docChange(frame map[string]any) map[string]any {
 	return data
 }
 
-// changeOf matches a file_change signal for path.
 func changeOf(path string) func(map[string]any) bool {
 	return func(frame map[string]any) bool {
 		ev := docChange(frame)
@@ -158,9 +138,6 @@ func changeOf(path string) func(map[string]any) bool {
 	}
 }
 
-// TestRegression_HostDocumentWatchArmedBeforeRead proves the open order: the
-// watch is armed when the socket opens, so a write between the open and the
-// read is in the read and still arrives as a change.
 func TestRegression_HostDocumentWatchArmedBeforeRead(t *testing.T) {
 	h := newHarness(t)
 	local := kit.ServeLocal(t, h.server.Config.Handler)
@@ -176,8 +153,6 @@ func TestRegression_HostDocumentWatchArmedBeforeRead(t *testing.T) {
 	w.ReadUntil(t, documentChangeBound, changeOf(canonA))
 }
 
-// TestStream_DocScopeSignalsAnExternalChange proves a held document hears its
-// own file's changes, and a closed one's reach no client.
 func TestStream_DocScopeSignalsAnExternalChange(t *testing.T) {
 	h := newHarness(t)
 	local := kit.ServeLocal(t, h.server.Config.Handler)
@@ -207,9 +182,6 @@ func TestStream_DocScopeSignalsAnExternalChange(t *testing.T) {
 	})
 }
 
-// TestRegression_DanglingSymlinkWriteRefused proves a save never creates the
-// file a dangling link in a worktree names: a cloned repo can ship one that
-// points anywhere outside it.
 func TestRegression_DanglingSymlinkWriteRefused(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -223,9 +195,6 @@ func TestRegression_DanglingSymlinkWriteRefused(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-// TestRegression_MissingWorktreeStillOwnsItsPaths proves a path under a
-// worktree gone from disk stays that workspace's document: a save meets the
-// workspace's lock instead of going out as a host file, and nothing is written.
 func TestRegression_MissingWorktreeStillOwnsItsPaths(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -238,9 +207,6 @@ func TestRegression_MissingWorktreeStillOwnsItsPaths(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-// TestRegression_UnicodeSpellingsAreOneDocument proves a file's NFC and NFD
-// spellings resolve to one document, spelled as on disk, on a volume that
-// treats them as one name.
 func TestRegression_UnicodeSpellingsAreOneDocument(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -258,8 +224,6 @@ func TestRegression_UnicodeSpellingsAreOneDocument(t *testing.T) {
 	}
 }
 
-// refusal makes a request the daemon must refuse with 403 and answers the error
-// envelope's machine-readable code.
 func refusal(t *testing.T, h *harness, method, path string, body any) string {
 	t.Helper()
 	resp := h.raw(method, path, body, http.StatusForbidden)
@@ -271,11 +235,6 @@ func refusal(t *testing.T, h *harness, method, path string, body any) string {
 	return env.Code
 }
 
-// workspaceWorktree resolves the on-disk worktree of the imported child
-// workspace from the workspace list (WorkspaceDTO.localPath), so a test can
-// seed content the HTTP surface cannot express — e.g. real binary bytes. The
-// dedicated GET .../workspaces list route is gone (spec §8 step 6); the chat
-// list is where localPath lives now (listWorkspaces).
 func workspaceWorktree(
 	t *testing.T,
 	h *harness,
@@ -292,11 +251,6 @@ func workspaceWorktree(
 	return ""
 }
 
-// TestFiles_CopyBinaryByteFaithful proves the copy verb is a server-side byte
-// copy: a binary file (invalid UTF-8, contains NULs) seeded on disk comes out
-// byte-identical. This is exactly the case the base64 content read corrupts
-// when a client round-trips it through GET+PUT content — the reason the verb
-// exists (Task 28).
 func TestFiles_CopyBinaryByteFaithful(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -319,11 +273,6 @@ func TestFiles_CopyBinaryByteFaithful(t *testing.T) {
 	assert.Equal(t, binary, got, "copy must be byte-identical to the source")
 }
 
-// TestRegression_BinaryUploadByteFaithful proves the content-write verb honors a
-// base64 encoding, so file UPLOAD (read a File as bytes → base64 → PUT content)
-// lands byte-identical on disk. Before the encoding field the write path decoded
-// nothing and wrote the raw string bytes, corrupting any binary (invalid UTF-8,
-// embedded NULs) the moment a client round-tripped it (Task 28/34 escalation).
 func TestRegression_BinaryUploadByteFaithful(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -340,7 +289,6 @@ func TestRegression_BinaryUploadByteFaithful(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, binary, got, "uploaded binary must land byte-identical on disk")
 
-	// It also round-trips back out through the content read as base64.
 	var read struct {
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
@@ -349,8 +297,6 @@ func TestRegression_BinaryUploadByteFaithful(t *testing.T) {
 	assert.Equal(t, "base64", read.Encoding)
 	assert.Equal(t, encoded, read.Content)
 
-	// A plain-text PUT with no encoding still writes UTF-8 unchanged (the
-	// default path is untouched by the new field).
 	h.put(documentsContent, map[string]string{
 		"workspaceId": imported.workspaceID, "path": "note.txt", "content": "héllo\n",
 	}, nil)
@@ -359,10 +305,6 @@ func TestRegression_BinaryUploadByteFaithful(t *testing.T) {
 	assert.Equal(t, "héllo\n", string(text))
 }
 
-// TestFiles_CopyDirectoryRecursiveAndConflicts drives the directory case over
-// the HTTP surface: a nested dir copies recursively (content readable at the
-// copied path), a second copy onto the same destination is a 409, and a
-// missing source is a 404.
 func TestFiles_CopyDirectoryRecursiveAndConflicts(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)

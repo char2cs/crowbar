@@ -1,0 +1,176 @@
+import type { Virtualizer } from '@tanstack/react-virtual'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useDebounce } from '@/hooks/use-debounce'
+import {
+  computeFileTreeSearchHits,
+  filterFileTreeForFffHits,
+  type VisibleFileTreeRow,
+} from '@/features/file-explorer/lib/visible-file-tree-rows'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import type { FileEntry } from '@/features/file-system/types/app'
+
+const SEARCH_DEBOUNCE_MS = 80
+
+export function useTreeSearch({
+  workspaceId,
+  filteredFiles,
+  containerRef,
+}: {
+  workspaceId: string | null
+  filteredFiles: FileEntry[]
+  containerRef: RefObject<HTMLDivElement | null>
+}) {
+  const [isOpen, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [debouncedQuery] = useDebounce(query, SEARCH_DEBOUNCE_MS)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const savedExpandedPathsRef = useRef<Set<string> | null>(null)
+
+  const isActive = query.trim().length > 0
+  const isSearching = isActive && query.trim() !== debouncedQuery.trim()
+  const result = useMemo(
+    () =>
+      filterFileTreeForFffHits(
+        filteredFiles,
+        computeFileTreeSearchHits(filteredFiles, debouncedQuery),
+      ),
+    [filteredFiles, debouncedQuery],
+  )
+  const showResult = isActive && !isSearching
+  const displayedFiles = useMemo(
+    () => (showResult ? result.files : isActive ? [] : filteredFiles),
+    [showResult, isActive, result.files, filteredFiles],
+  )
+  const displayedExpandedPaths = showResult ? result.expandedPaths : undefined
+
+  useEffect(() => {
+    if (!isOpen) return
+    const rafId = requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(rafId)
+  }, [isOpen])
+
+  const close = useCallback(() => {
+    setOpen(false)
+    setQuery('')
+    containerRef.current?.focus()
+  }, [containerRef])
+
+  useEffect(() => {
+    const open = () => setOpen(true)
+    window.addEventListener('file-tree-open-search', open)
+    return () => window.removeEventListener('file-tree-open-search', open)
+  }, [])
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect || rect.width === 0 || rect.height === 0) return
+      e.preventDefault()
+      setOpen(true)
+    }
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [containerRef])
+
+  useEffect(() => {
+    const wsId = workspaceId ?? ''
+    const store = useFileTreeStore.getState()
+    if (debouncedQuery.trim()) {
+      savedExpandedPathsRef.current ??= new Set(store.getExpandedPaths(wsId))
+      store.expandAll(wsId, filteredFiles)
+    } else if (savedExpandedPathsRef.current) {
+      store.setExpandedPaths(wsId, savedExpandedPathsRef.current)
+      savedExpandedPathsRef.current = null
+    }
+  }, [debouncedQuery, filteredFiles, workspaceId])
+
+  return {
+    isOpen,
+    setOpen,
+    query,
+    setQuery,
+    inputRef,
+    close,
+    isActive,
+    isSearching,
+    result,
+    displayedFiles,
+    displayedExpandedPaths,
+  }
+}
+
+export type TreeSearch = ReturnType<typeof useTreeSearch>
+
+export function useTreeSearchNavigation({
+  search,
+  visibleRows,
+  rowVirtualizer,
+  keyboardPath,
+  setFocusedPath,
+}: {
+  search: TreeSearch
+  visibleRows: VisibleFileTreeRow[]
+  rowVirtualizer: Pick<Virtualizer<HTMLDivElement, Element>, 'scrollToIndex'>
+  keyboardPath: string | undefined
+  setFocusedPath: (path: string) => void
+}) {
+  const { isActive, close } = search
+  const { matchedPaths, orderedMatchedPaths } = search.result
+
+  const matchIndexes = useMemo(() => {
+    if (!isActive || matchedPaths.size === 0) return []
+    const rowIndexByPath = new Map(visibleRows.map((row, index) => [row.file.path, index]))
+    const indexes: number[] = []
+    for (const path of orderedMatchedPaths) {
+      const index = rowIndexByPath.get(path)
+      if (index !== undefined) indexes.push(index)
+    }
+    return indexes
+  }, [isActive, matchedPaths, orderedMatchedPaths, visibleRows])
+
+  const onMatch = keyboardPath !== undefined && matchedPaths.has(keyboardPath)
+  const snapIndex = matchIndexes.length > 0 && !onMatch ? matchIndexes[0] : null
+  const cursorPath = snapIndex === null ? keyboardPath : visibleRows[snapIndex]?.file.path
+
+  useEffect(() => {
+    if (snapIndex !== null) rowVirtualizer.scrollToIndex(snapIndex, { align: 'auto' })
+  }, [rowVirtualizer, snapIndex])
+
+  const focusRow = useCallback(
+    (index: number) => {
+      const path = visibleRows[index]?.file.path
+      if (!path) return
+      setFocusedPath(path)
+      rowVirtualizer.scrollToIndex(index, { align: 'auto' })
+    },
+    [rowVirtualizer, setFocusedPath, visibleRows],
+  )
+
+  const navigate = useCallback(
+    (direction: 1 | -1) => {
+      if (matchIndexes.length === 0) return
+      const currentIndex = cursorPath
+        ? visibleRows.findIndex((row) => row.file.path === cursorPath)
+        : -1
+      const fallback = direction > 0 ? matchIndexes[0] : matchIndexes[matchIndexes.length - 1]
+      const next =
+        direction > 0
+          ? matchIndexes.find((index) => index > currentIndex)
+          : [...matchIndexes].reverse().find((index) => index < currentIndex)
+      focusRow(next ?? fallback)
+    },
+    [cursorPath, focusRow, matchIndexes, visibleRows],
+  )
+
+  const closeSearch = useCallback(() => {
+    if (cursorPath) setFocusedPath(cursorPath)
+    close()
+  }, [close, cursorPath, setFocusedPath])
+
+  return { cursorPath, navigate, closeSearch }
+}

@@ -1,9 +1,5 @@
 package main
 
-// The fixture is a small checkout service rather than filler so the diff,
-// review and file panes have readable content. The `main` sources carry real
-// defects (off-by-one loop, divide by empty cart, dropped tax rate) worth reviewing.
-
 const readmeSource = `# checkout
 
 Order-checkout service. Prices are held in integer cents end to end; a float
@@ -87,9 +83,6 @@ export function grandTotal(items: LineItem[], taxRate: number): number {
 }
 `
 
-// branchPricingSource fixes the two crashes and adds the rounding helpers, but
-// deliberately leaves grandTotal dropping taxRate on the floor — that is what
-// the seeded review threads are anchored to.
 const branchPricingSource = `export interface LineItem {
   sku: string;
   unitCents: number;

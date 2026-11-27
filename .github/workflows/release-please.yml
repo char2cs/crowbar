@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.rp.outputs.releases_created }}
-      version: ${{ steps.rp.outputs['desktop/src-tauri--version'] }}
+      version: ${{ steps.rp.outputs['app/mobile/src-tauri--version'] }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: rp

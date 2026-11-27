@@ -7,19 +7,11 @@ import (
 	"testing"
 )
 
-// prodSnapshotBlobs mirrors the production aggregate the perf audit measured:
-// one workspace had 4013 accumulated snapshot blobs totalling ~2.7MB (~672
-// bytes each).
 const (
 	prodSnapshotBlobs = 4013
 	prodSnapshotBytes = 672
 )
 
-// BenchmarkSnapshotRead_New_Get reproduces the asynx v0.8.0 read hot path:
-// SnapshotStore.Get(id) reads the single upserted row keyed by aggregateID.
-// The store is seeded by upserting the same prodSnapshotBlobs versions, which
-// (unlike the old append) collapse to ONE row — the O(1) read the upgrade
-// delivers.
 func BenchmarkSnapshotRead_New_Get(b *testing.B) {
 	s, err := NewSnapshotStore(":memory:")
 	if err != nil {

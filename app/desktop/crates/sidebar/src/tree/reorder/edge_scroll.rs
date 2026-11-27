@@ -1,0 +1,72 @@
+const EDGE_BAND: f32 = 36.0;
+const EDGE_SPEED_MAX: f32 = 14.0;
+
+fn edge_speed(distance: f32) -> f32 {
+    if distance >= EDGE_BAND {
+        return 0.0;
+    }
+    let depth = (1.0 - distance / EDGE_BAND).min(1.0);
+    (depth * EDGE_SPEED_MAX).round().max(1.0)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeScroll {
+    top: f32,
+    bottom: f32,
+}
+
+impl EdgeScroll {
+    pub fn between((top, bottom): (f32, f32)) -> Self {
+        Self { top, bottom }
+    }
+
+    pub fn pull(
+        self,
+        y: f32,
+    ) -> f32 {
+        let up = edge_speed(y - self.top);
+        if up > 0.0 {
+            return -up;
+        }
+        edge_speed(self.bottom - y)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pull_points_towards_the_nearer_edge() {
+        const CASES: [(f32, f32); 6] = [
+            (5.0, -12.0),
+            (95.0, 12.0),
+            (50.0, 0.0),
+            (100.0, 14.0),
+            (125.0, 14.0),
+            (-20.0, -14.0),
+        ];
+        for (y, expected) in CASES {
+            let got = EdgeScroll::between((0.0, 100.0)).pull(y);
+            assert!((got - expected).abs() < 0.01, "y {y}: {got}");
+        }
+    }
+
+    #[test]
+    fn speed_ramps_from_fourteen_at_the_edge_to_one_at_the_band() {
+        let cases = [
+            (0.0, 14.0),
+            (18.0, 7.0),
+            (35.9, 1.0),
+            (36.0, 0.0),
+            (-1.0, 14.0),
+            (100.0, 0.0),
+        ];
+        for (distance, expected) in cases {
+            assert!(
+                (edge_speed(distance) - expected).abs() < f32::EPSILON,
+                "distance {distance}"
+            );
+        }
+    }
+}

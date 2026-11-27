@@ -19,9 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// newTable builds the provider table over the SHIPPED descriptors and a real
-// (in-memory) preference store. The descriptors are the point: a stub catalogue
-// would let the ordering rules agree with a fiction.
 func newTable(t *testing.T, installed func(engineagents.Agent) bool) *provider.Providers {
 	t.Helper()
 	return newTableAt(t, t.TempDir(), installed)
@@ -33,7 +30,7 @@ func newTableAt(t *testing.T, home string, installed func(engineagents.Agent) bo
 	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
 
-	return provider.New(provider.Deps{ // wired as the daemon wires it: a refused override falls back
+	return provider.New(provider.Deps{
 		Agents:    engineagents.New(engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Home:      func() (string, error) { return home, nil },
 		Installed: installed,
@@ -88,8 +85,6 @@ func TestInstallDescriptor_AddsAProviderAndRejectsInvalidOrExisting(t *testing.T
 	assert.True(t, os.IsNotExist(err))
 }
 
-// An uploaded provider whose icon is not plain SVG is installed and served
-// without the icon: the webview injects icons as HTML.
 func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -117,8 +112,6 @@ func TestInstallDescriptor_ServesAnUnsafeIconAsNone(t *testing.T) {
 	require.NoError(t, table.RequireProviderEnabled(t.Context(), "customagent"), "an unsafe icon never blocks its provider")
 }
 
-// A broken override is reported with its findings rather than silently
-// dropping the provider it replaces.
 func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -141,10 +134,6 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 	require.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"))
 }
 
-// A descriptor that loads but fails a static rule (here: a shell as its
-// command) never launches: every spawn goes through this refusal. (An override
-// of a shipped provider is refused in favour of the shipped descriptor instead;
-// this is a provider with no shipped default to fall back to.)
 func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	t.Parallel()
 	table := newTableAt(t, blockedHome(t, "acme"), nil)
@@ -157,9 +146,6 @@ func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	assert.NoError(t, table.RequireProviderEnabled(t.Context(), "codex"), "the shipped codex is untouched")
 }
 
-// A descriptor the gate refuses is not offered to start a chat on, nor made the
-// default: every new chat on it would fail. It stays in DescriptorReports with
-// its file, line and fix.
 func TestResolveProviders_OffersNoProviderTheGateRefuses(t *testing.T) {
 	t.Parallel()
 	table := newTableAt(t, blockedHome(t, "aaa"), func(engineagents.Agent) bool { return true })
@@ -177,8 +163,6 @@ func TestResolveProviders_OffersNoProviderTheGateRefuses(t *testing.T) {
 		"the refused descriptor is still reported, with what to fix")
 }
 
-// blockedHome is a home holding descriptor id: the shipped claude one run as a
-// shell, which the gate refuses and no shipped descriptor stands in for.
 func blockedHome(t *testing.T, id string) string {
 	t.Helper()
 	home := t.TempDir()
@@ -207,11 +191,6 @@ func TestDescriptorReports_SurfacesAHomeFailure(t *testing.T) {
 	require.ErrorIs(t, err, assert.AnError)
 }
 
-// TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor pins the
-// wiring against the real shipped descriptors (design spec 2.5): both
-// shipped providers declare a terminal a brand-new chat may land on —
-// claude's PTY IS claude, and codex's terminal surface is fed by the hooks
-// channel, i.e. the ordinary `codex` PTY every spawn already forks.
 func TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor(t *testing.T) {
 	t.Parallel()
 
@@ -231,8 +210,6 @@ func TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor(t *testing.T
 		"codex's terminal surface rides the hooks channel: spawnable from birth, no session to resume")
 }
 
-// TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor: a turn the provider
-// refused for want of a login names the command that signs its CLI in.
 func TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor(t *testing.T) {
 	t.Parallel()
 
@@ -249,14 +226,6 @@ func TestResolveProviders_CarriesTheSignInCommandFromTheDescriptor(t *testing.T)
 	assert.Equal(t, "codex login", byID["codex"].SignIn)
 }
 
-// TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey pins the wire
-// contract resolveEfforts implements (provider.go): Efforts has a key for
-// every model in Models, PLUS "" for the provider's own default model — a
-// bad "" key previously made the effort picker vanish entirely (regression
-// this guards). Claude's models AND per-model efforts both now resolve from
-// model.manifest: (not model.discover:), synchronously off the embedded
-// model-manifest.json bundle, so this is deterministic with no live probe
-// and no network involved.
 func TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey(t *testing.T) {
 	t.Parallel()
 
@@ -280,8 +249,6 @@ func TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey(t *testing.T) {
 	}
 }
 
-// A provider that states each model's default effort reports it, so a chat whose stored effort is
-// "" (provider default) can show which level that is. Seeded from the last probe's disk cache.
 func TestResolveProviders_ReportsEachDiscoveredModelsDefaultEffort(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -305,8 +272,6 @@ func TestResolveProviders_ReportsEachDiscoveredModelsDefaultEffort(t *testing.T)
 	t.Fatal("codex not listed")
 }
 
-// Connected is the install probe's answer, not a stored flag. It is injected so
-// this never depends on the host having claude or codex on its PATH.
 func TestResolveProviders_ConnectedComesFromTheInstallProbe(t *testing.T) {
 	t.Parallel()
 
@@ -320,8 +285,6 @@ func TestResolveProviders_ConnectedComesFromTheInstallProbe(t *testing.T) {
 	}
 }
 
-// The default is the agent order's first provider that could launch: a disabled
-// or uninstalled one ahead of it is skipped, and none at all is "".
 func TestDefaultProviderID_IsTheFirstEnabledInstalledProviderInTheUsersOrder(t *testing.T) {
 	t.Parallel()
 	all := func(engineagents.Agent) bool { return true }
@@ -352,8 +315,6 @@ func TestDefaultProviderID_IsTheFirstEnabledInstalledProviderInTheUsersOrder(t *
 	}
 }
 
-// A nil probe must default to the REAL one rather than reporting everything
-// disconnected: that is the shape the composition root passes.
 func TestNew_NilInstallProbeDefaultsToTheRealOne(t *testing.T) {
 	t.Parallel()
 
@@ -364,8 +325,6 @@ func TestNew_NilInstallProbeDefaultsToTheRealOne(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Preferenced providers sort before unpreferenced ones, then by priority, then by
-// id. The last tiebreak is what makes the order stable across restarts.
 func TestResolveProviders_OrdersPreferencedFirstThenByPriorityThenByID(t *testing.T) {
 	t.Parallel()
 
@@ -402,9 +361,6 @@ func TestReplaceProviderPreferences_ReportsTheResolvedTable(t *testing.T) {
 	}
 }
 
-// A provider the submission omits reverts to default. Without the delete-first
-// pass it would linger with the priority it had, and the user's reorder would be
-// half applied.
 func TestReplaceProviderPreferences_DropsOmittedRows(t *testing.T) {
 	t.Parallel()
 
@@ -435,9 +391,6 @@ func TestReplaceProviderPreferences_RefusesAnUnknownProvider(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
-// Disabled is a decision the table records and ResolveProviders reports, but
-// reporting is not enforcing: a spawn names a provider id directly and never
-// passes through the list that flag decorates.
 func TestRequireProviderEnabled_RefusesADisabledProvider(t *testing.T) {
 	t.Parallel()
 
@@ -456,8 +409,6 @@ func TestRequireProviderEnabled_RefusesADisabledProvider(t *testing.T) {
 		"a provider with no row is enabled")
 }
 
-// The tool switch is read LIVE, on every call. A chat spawned with tools on must
-// lose them the moment the user turns the switch off in Settings.
 func TestProviderMCPEnabled_FollowsThePreference(t *testing.T) {
 	t.Parallel()
 
@@ -477,8 +428,6 @@ func TestProviderMCPEnabled_FollowsThePreference(t *testing.T) {
 	assert.False(t, on)
 }
 
-// A wiring mistake has to be LOUD: an agent that silently has no tools looks
-// identical to an agent that chose not to use them.
 func TestDispatchMCP_RefusesAnUnconfiguredToolSurface(t *testing.T) {
 	t.Parallel()
 

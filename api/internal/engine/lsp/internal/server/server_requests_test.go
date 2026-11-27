@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/protocol"
 )
 
-// send writes a raw JSON-RPC message from the fake server to the client.
 func (f *fakeServer) send(
 	t *testing.T,
 	raw string,
@@ -52,8 +51,6 @@ func TestServer_AnswersEveryServerRequestWithItsOwnID(t *testing.T) {
 	assert.Contains(t, string(r["error"]), "-32601")
 }
 
-// A server request must never be mistaken for the response to our own request
-// that happens to share its numeric id.
 func TestServer_ServerRequestDoesNotResolveAPendingRequest(t *testing.T) {
 	srv, fake := newTestServer(t)
 
@@ -123,8 +120,6 @@ func TestServerRequests_AMalformedParamsIsAnError(t *testing.T) {
 	}
 }
 
-// executeCommandProvider only filters code actions and lenses; a server that
-// declares it oddly still serves every other feature, with no commands.
 func TestServer_HandshakeWithAnOddExecuteCommandProviderStartsWithNoCommands(t *testing.T) {
 	srv, fake := newTestServer(t)
 

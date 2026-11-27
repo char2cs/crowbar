@@ -16,8 +16,6 @@ import (
 
 var errClosed = errors.New("fake conn: closed")
 
-// fakeConn is a client over channels. With throttle set, each write waits for
-// a token on allow, which is how a test holds the writer still.
 type fakeConn struct {
 	in       chan stream.Request
 	bad      chan error
@@ -93,10 +91,8 @@ func (f *fakeConn) closeCode() int {
 	return f.code
 }
 
-// waitBound fails a test whose awaited frame never comes instead of hanging it.
 const waitBound = 10 * time.Second
 
-// ended waits, bounded, for done to close.
 func ended(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
@@ -132,7 +128,6 @@ func (f *fakeConn) next(t *testing.T) stream.Frame {
 	}
 }
 
-// until reads frames up to and including the first that matches.
 func (f *fakeConn) until(t *testing.T, match func(stream.Frame) bool) []stream.Frame {
 	t.Helper()
 	var seen []stream.Frame
@@ -149,7 +144,6 @@ func syncedOn(scope string) func(stream.Frame) bool {
 	return func(f stream.Frame) bool { return f.T == stream.FrameSynced && f.Scope == scope }
 }
 
-// sub holds scope and returns its snapshot's frames, synced excluded.
 func (f *fakeConn) sub(t *testing.T, scope string) []stream.Frame {
 	t.Helper()
 	f.send(t, stream.OpSub, scope)
@@ -157,8 +151,6 @@ func (f *fakeConn) sub(t *testing.T, scope string) []stream.Frame {
 	return seen[:len(seen)-1]
 }
 
-// served runs hub.Serve on conn, consumes its ready frame and returns a
-// channel closed once Serve returns.
 func served(t *testing.T, hub *appstream.Hub, conn *fakeConn) <-chan struct{} {
 	t.Helper()
 	done := make(chan struct{})
@@ -177,7 +169,6 @@ func served(t *testing.T, hub *appstream.Hub, conn *fakeConn) <-chan struct{} {
 	return done
 }
 
-// entities is a fake entity source: a map snapshotted on attach.
 type entities struct {
 	mu   sync.Mutex
 	rows map[string]string
@@ -203,9 +194,6 @@ func (e *entities) Attach(_ context.Context, _ string, _ int64, emit func(stream
 
 func encodeJSON(_ stream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
 
-// recorder is a fake resource counting its starts and stops per key; a key in
-// fail refuses to start. With gated set, each Start and Stop first waits on
-// gate, after telling entered.
 type recorder struct {
 	mu     sync.Mutex
 	starts map[string]int
@@ -217,8 +205,6 @@ type recorder struct {
 	entered chan string
 	gate    chan struct{}
 
-	// With stopGate set, only each Stop waits on it; a Start entering while a
-	// Stop of its key is still running counts in overlaps.
 	stopGate chan struct{}
 	stopping map[string]bool
 	overlaps int
@@ -275,7 +261,6 @@ func (r *recorder) history() []string {
 	return append([]string(nil), r.log...)
 }
 
-// enteredAs waits, bounded, for the gated recorder to enter what.
 func (r *recorder) enteredAs(t *testing.T, what string) {
 	t.Helper()
 	select {

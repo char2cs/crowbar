@@ -10,28 +10,19 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// slot is one row of an ordered sidebar list: where it sits in the caller's
-// slice, its id, and the order it currently holds.
 type slot struct {
-	at    int
-	id    string
-	order int
-	// rank and createdAt break an order tie the same way the chat writer
-	// does (tree.compareNodes): row kind, then creation time, then id.
+	at        int
+	id        string
+	order     int
 	rank      int
 	createdAt time.Time
 }
 
-// move names a row that has to be written back, by its position in the caller's
-// slice and the order it must now carry.
 type move struct {
 	at    int
 	order int
 }
 
-// place renumbers slots densely, optionally reinserting id at target, and returns only rows whose order
-// changed. The (order, id) read order keeps all-zero migrated rows stable between identical requests;
-// target is clamped so a stale index lands at an end.
 func place(
 	slots []slot,
 	id string,
@@ -51,8 +42,6 @@ func place(
 	return moves
 }
 
-// sortSlots is place()'s (order, id) rule, shared with finalIndexOf so both sort identically. Mutates
-// slots in place.
 func sortSlots(
 	slots []slot,
 ) {
@@ -70,9 +59,6 @@ func sortSlots(
 	})
 }
 
-// finalIndexOf returns id's dense index under place()'s sort and reinsert, or -1. place() reports only
-// order changes, so a reparented row landing on its old index (0 in a new container) needs this to get
-// its parent written. Works on a copy.
 func finalIndexOf(
 	slots []slot,
 	id string,
@@ -108,7 +94,6 @@ func containsID(
 	return slices.ContainsFunc(slots, func(s slot) bool { return s.id == id })
 }
 
-// nodeIndex builds place()'s []slot input from a repo-kind sibling space read off Node.
 func nodeIndex(
 	rows []dtree.Node,
 ) []slot {
@@ -119,7 +104,6 @@ func nodeIndex(
 	return slots
 }
 
-// rankOfKind is tree.Node.Rank for a Node kind.
 func rankOfKind(
 	kind dtree.Kind,
 ) int {

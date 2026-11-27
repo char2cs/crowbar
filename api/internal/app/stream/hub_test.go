@@ -52,8 +52,6 @@ func TestHub_SnapshotThenSyncedThenLiveFrames(t *testing.T) {
 	assert.Greater(t, live.V, snapshot[0].V)
 }
 
-// Writers save then publish, as the operation service does; a sub snapshots
-// meanwhile. For each id the client must see v rise across snapshot and live.
 func TestHub_LiveFramesNeverPrecedeOrUndercutTheSnapshot(t *testing.T) {
 	ids := []string{"a", "b", "c", "d", "e"}
 	hub, src := projectsHub(map[string]string{"a": "0", "b": "0", "c": "0", "d": "0", "e": "0"})
@@ -144,7 +142,7 @@ func TestHub_UnsubStopsFramesForThatScope(t *testing.T) {
 	served(t, hub, conn)
 	conn.sub(t, "projects")
 	conn.send(t, stream.OpUnsub, "projects")
-	conn.sub(t, "chat:c1") // requests are handled in order: the unsub has landed
+	conn.sub(t, "chat:c1")
 
 	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)
 	hub.Entity(chatC1, stream.KindOperation, "op2", "y", 0)
@@ -202,7 +200,6 @@ func TestHub_TooManyScopesAreRefused(t *testing.T) {
 	assert.Equal(t, stream.ReasonRefused, closed.Reason)
 }
 
-// An overlong scope is that scope's refusal, so a holder waiting on it hears why.
 func TestHub_AnOverlongScopeIsRefused(t *testing.T) {
 	hub, _ := projectsHub(map[string]string{})
 	conn := newFakeConn()
@@ -219,7 +216,6 @@ func TestHub_AnOverlongScopeIsRefused(t *testing.T) {
 	assert.Equal(t, problem.InvalidArgument, got.Problem.Code)
 }
 
-// An op the hub does not know is the connection's error, never a held scope's.
 func TestHub_AnUnknownOpIsAConnectionLevelError(t *testing.T) {
 	hub, _ := projectsHub(map[string]string{})
 	conn := newFakeConn()
@@ -243,11 +239,10 @@ func TestHub_AnUndecodableMessageClosesWithUnsupportedData(t *testing.T) {
 	conn.bad <- &json.SyntaxError{}
 
 	ended(t, done)
-	ended(t, conn.closed) // the close is sent from aside
+	ended(t, conn.closed)
 	assert.Equal(t, 1003, conn.closeCode())
 }
 
-// gate is a source whose snapshot, once entered, waits until a live publish is on its way.
 type gate struct{ entered, encoding chan struct{} }
 
 func (g gate) Attach(_ context.Context, _ string, _ int64, emit func(stream.Frame)) error {
@@ -312,7 +307,6 @@ func TestHub_GoneIsAVersionedEntityFrameWithoutData(t *testing.T) {
 	assert.Equal(t, stream.Frame{T: stream.FrameEntity, Scope: "projects", Kind: "operation", ID: "op1", V: v + 1, Gone: true}, gone)
 }
 
-// held is a signal source whose snapshot, once entered, waits to be let go.
 type held struct{ entered, release chan struct{} }
 
 func (s held) Attach(_ context.Context, _ string, _ int64, emit func(stream.Frame)) error {
@@ -332,7 +326,7 @@ func TestHub_AnUnorderedSourceSnapshotsAfterGoingLiveAndOutsideTheLock(t *testin
 
 	conn.send(t, stream.OpSub, "git:w1")
 	ended(t, src.entered)
-	hub.Entity(stream.Projects, stream.KindOperation, "op1", "free", 0) // the lock is not held
+	hub.Entity(stream.Projects, stream.KindOperation, "op1", "free", 0)
 	hub.Signal(stream.Scope{Kind: stream.KindGit, Key: "w1"}, "git_status", "live")
 	close(src.release)
 
@@ -343,7 +337,6 @@ func TestHub_AnUnorderedSourceSnapshotsAfterGoingLiveAndOutsideTheLock(t *testin
 	assert.Equal(t, "git:w1", frames[1].Scope)
 }
 
-// absent answers every snapshot as something that is not there.
 type absent struct{}
 
 func (absent) Attach(context.Context, string, int64, func(stream.Frame)) error {
@@ -359,7 +352,7 @@ func TestHub_ASnapshotOfSomethingAbsentIsRefusedAndReleasesItsResources(t *testi
 	conn := newFakeConn()
 	served(t, hub, conn)
 
-	for range 2 { // refused each time, never coalesced into a snapshot still pending
+	for range 2 {
 		conn.send(t, stream.OpSub, "ws:w9")
 		closed := conn.next(t)
 		require.Equal(t, stream.FrameClosed, closed.T)
@@ -372,8 +365,6 @@ func TestHub_ASnapshotOfSomethingAbsentIsRefusedAndReleasesItsResources(t *testi
 	assert.Equal(t, 2, stops)
 }
 
-// A source that went live before its refused snapshot must not keep the
-// refused scope registered: nothing published to it reaches the client.
 func TestHub_ARefusedLiveSourceHearsNothingMore(t *testing.T) {
 	hub := newHub(map[stream.ScopeKind]appstream.Source{
 		stream.KindGit:      appstream.Unordered(absent{}),
@@ -394,8 +385,6 @@ func TestHub_ARefusedLiveSourceHearsNothingMore(t *testing.T) {
 	}
 }
 
-// An aggregate's subscribers may deliver out of order: an older revision of a
-// key never replaces a newer one, and a value without one always publishes.
 func TestHub_AStaleRevisionIsDropped(t *testing.T) {
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: newEntities(map[string]string{})}, nil)
 	conn := newFakeConn()
@@ -414,8 +403,6 @@ func TestHub_AStaleRevisionIsDropped(t *testing.T) {
 	assert.Less(t, unversioned, other)
 }
 
-// A gone key stays gone: a value read before its deletion and published after
-// it, at a revision no newer than the deletion's or with none, is dropped.
 func TestHub_AGoneKeyIsNotBroughtBackByAStaleValue(t *testing.T) {
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: newEntities(map[string]string{})}, nil)
 	conn := newFakeConn()

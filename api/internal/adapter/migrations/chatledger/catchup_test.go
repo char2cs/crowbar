@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// later is what an older build, run on the upgraded home, records in chat-a
-// after the conversion: a prompt and its answer, an hour on.
 func later() LegacyChat {
 	turn := func(id, role string, seq, order int64, start time.Time, end *time.Time, text string) LegacyTurn {
 		return LegacyTurn{
@@ -31,16 +29,12 @@ func later() LegacyChat {
 	}}
 }
 
-// both is chat-a as the legacy files hold it once later() is added.
 func both() LegacyChat {
 	all := chatA()
 	all.Turns = append(all.Turns, later().Turns...)
 	return all
 }
 
-// Turns an older build added to a converted chat are imported after the rows
-// the conversion wrote, as converting the whole chat would have placed them,
-// once: the next boot finds nothing owed and writes nothing.
 func TestBoot_TurnsAnOlderBuildAddedToAConvertedChatAreImported(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -55,8 +49,6 @@ func TestBoot_TurnsAnOlderBuildAddedToAConvertedChatAreImported(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
 
-// A boot stopped after the catch-up landed but before it was noted finds the
-// rows already there: it adds none twice.
 func TestBoot_ACatchUpThatLandedUnnotedIsNotImportedTwice(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -73,8 +65,6 @@ func TestBoot_ACatchUpThatLandedUnnotedIsNotImportedTwice(t *testing.T) {
 	assert.Equal(t, want, held(t, h, "chat-a"))
 }
 
-// A chat this build has since written to holds rows the legacy files never
-// will: its additions are noted and warned of once, never merged into it.
 func TestBoot_AChatBothBuildsAddedToKeepsItsLedgerAndIsRecordedOnce(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -99,8 +89,6 @@ func TestBoot_AChatBothBuildsAddedToKeepsItsLedgerAndIsRecordedOnce(t *testing.T
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
 
-// A chat an older build deleted is gone from the legacy files only: the ledger
-// keeps it, and nothing is noted.
 func TestBoot_AChatAnOlderBuildDeletedKeepsItsLedger(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -123,9 +111,6 @@ func TestBoot_AChatAnOlderBuildDeletedKeepsItsLedger(t *testing.T) {
 	assert.Equal(t, convert(t, chatA(), nobody).Rows, held(t, h, "chat-a"))
 }
 
-// Legacy files retired after the upgrade, then written afresh by an older
-// build, hold only what it recorded since: those turns come after the chat's
-// rows, once.
 func TestBoot_TurnsInLegacyFilesWrittenAfreshAreImportedAfterTheChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())

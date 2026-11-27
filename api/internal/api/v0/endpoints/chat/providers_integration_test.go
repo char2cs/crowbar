@@ -22,11 +22,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// newProviderServer spins a gin router with the agent routes mounted over a REAL
-// agent usecase whose provider surface (ResolveProviders / ReplaceProviderPreferences)
-// is fully live: a real sqlite preference store, a temp crowbar home (so the catalog
-// is the embedded claude+codex), and a deterministic install probe. The aggregate /
-// terminal seams are nil because the provider endpoints never touch them.
 func newProviderServer(
 	t *testing.T,
 ) *gin.Engine {
@@ -89,14 +84,9 @@ func putProviders(
 	return rec
 }
 
-// TestAgentProviders_EnrichedAndPreferences is the black-box contract for the
-// provider surface: the enriched GET returns connected+enabled in priority order,
-// the global PUT rewrites the order and disabled flags and echoes the resolved
-// list, and an unknown id is a 400.
 func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	r := newProviderServer(t)
 
-	// GET returns the enriched catalog in default (id) order, all enabled.
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
@@ -112,7 +102,6 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	assert.False(t, list[0].Connected, "claude probe returns false")
 	assert.True(t, list[1].Connected, "codex probe returns true")
 
-	// PUT reorders codex-first and disables claude; the response is the resolved list.
 	rec = putProviders(t, r, map[string]any{"providers": []map[string]any{
 		{"id": "codex", "disabled": false},
 		{"id": "claude", "disabled": true},
@@ -124,7 +113,6 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	assert.True(t, resolved[0].Enabled, "codex enabled")
 	assert.False(t, resolved[1].Enabled, "claude disabled")
 
-	// The change persisted: a fresh GET reflects the new order + disabled flag.
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)
@@ -133,18 +121,12 @@ func TestAgentProviders_EnrichedAndPreferences(t *testing.T) {
 	require.Equal(t, append([]string{"codex", "claude"}, rest...), providerIDsFromDTO(afterGet))
 	assert.False(t, afterGet[1].Enabled)
 
-	// Unknown id => 400, and nothing is applied.
 	rec = putProviders(t, r, map[string]any{"providers": []map[string]any{
 		{"id": "nope", "disabled": false},
 	}})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// The MCP toggle's whole round trip, and its polarity in every direction: the DB
-// stores mcpDisabled, the PUT body takes mcpDisabled, and the wire reports
-// mcpEnabled. A single inversion anywhere in that chain reads as a working
-// feature in one direction and switches the tool surface off for everyone in the
-// other, which is exactly why the default case is asserted first.
 func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 	r := newProviderServer(t)
 
@@ -158,9 +140,6 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 		assert.True(t, p.MCPEnabled, "%s must default to having its tool surface on", p.ID)
 	}
 
-	// A body that says nothing about MCP — the shape every client sent before this
-	// existed — must leave the tool surface ON rather than writing a false that
-	// reads as off.
 	rec = putProviders(t, r, map[string]any{"providers": []map[string]any{
 		{"id": "claude", "disabled": false},
 		{"id": "codex", "disabled": false},
@@ -170,7 +149,6 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 		assert.True(t, p.MCPEnabled, "%s lost its tool surface to a body that never mentioned it", p.ID)
 	}
 
-	// Switching one off leaves the other alone, and leaves the PROVIDER enabled.
 	rec = putProviders(t, r, map[string]any{"providers": []map[string]any{
 		{"id": "claude", "disabled": false, "mcpDisabled": true},
 		{"id": "codex", "disabled": false},
@@ -182,7 +160,6 @@ func TestAgentProviders_MCPToggleRoundTrip(t *testing.T) {
 	assert.True(t, resolved[0].Enabled, "switching the tools off must not disable the provider")
 	assert.True(t, resolved[1].MCPEnabled, "codex's tool surface must be untouched")
 
-	// And it persisted, rather than only being echoed back off the request body.
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet,
 		"/v0/projects/p1/repos/r1/workspaces/ws-1/chats/providers", http.NoBody)

@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// fakeSessionStore is an in-memory store.Store[domain.TerminalSession, string].
 type fakeSessionStore struct {
 	rows    map[string]domain.TerminalSession
 	saveErr error
@@ -69,8 +68,6 @@ func (s *fakeSessionStore) FindAll(
 	return out, nil
 }
 
-// fakeWorktreeResolver is a minimal WorktreeResolver for testing: every chat id
-// resolves to the one workspace behind its worktree.
 type fakeWorktreeResolver struct {
 	ws  domain.Workspace
 	err error
@@ -83,7 +80,6 @@ func (r *fakeWorktreeResolver) Resolve(
 	return r.ws, r.err
 }
 
-// fakeWorkspaces answers Get from a fixed set of workspaces.
 type fakeWorkspaces map[string]domain.Workspace
 
 func (w fakeWorkspaces) Get(_ context.Context, id string) (domain.Workspace, error) {
@@ -114,8 +110,6 @@ func buildMetaStore(
 	)
 }
 
-// A project home's terminal is owned by the home workspace, which no chat's worktree is: its
-// session must still persist, under the home's own folder in the Crowbar home.
 func TestSessionMetaStore_HomeTerminalPersists(t *testing.T) {
 	ctx := context.Background()
 	worktrees := &fakeWorktreeResolver{err: worktree.ErrNoWorktreeInAncestry}
@@ -228,7 +222,6 @@ func TestSessionMetaStore_Delete_MissingOK(t *testing.T) {
 	store := newFakeSessionStore()
 	ms := buildMetaStore(t, worktrees, store, "/home")
 
-	// Delete of non-existent session should not error.
 	assert.NoError(t, ms.Delete(ctx, "no-such-session"))
 }
 
@@ -246,8 +239,6 @@ func TestSessionMetaStore_StorageDir_ResolvesPath(t *testing.T) {
 
 	dir, err := ms.StorageDir(ctx, "chat-1")
 	require.NoError(t, err)
-	// Expected: /home/.crowbar/projects/proj-1/repo-1/workspaces/chat-1/storages —
-	// project/repo come from the resolved workspace, the LEAF is the chat.
 	assert.Contains(t, dir, "proj-1")
 	assert.Contains(t, dir, "repo-1")
 	assert.Contains(t, dir, "chat-1")
@@ -270,7 +261,6 @@ func TestSessionMetaStore_List_ReturnsAllRows(t *testing.T) {
 	store := newFakeSessionStore()
 	ms := buildMetaStore(t, worktrees, store, "/home")
 
-	// Save two rows via the store directly so we don't need worktree resolution.
 	store.rows["sess-1"] = domain.TerminalSession{SessionID: "sess-1", ChatID: "chat-1", State: "suspended"}
 	store.rows["sess-2"] = domain.TerminalSession{SessionID: "sess-2", ChatID: "chat-1", State: "detached"}
 

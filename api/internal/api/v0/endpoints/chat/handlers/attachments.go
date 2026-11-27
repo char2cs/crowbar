@@ -16,9 +16,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// UploadAttachment handles POST .../chats/:id/attachments as multipart ("file" plus "id") or JSON
-// {"path","id"} for a desktop drop that yields a host path. The client-minted id is required, never
-// generated here, so it can double as an Excalidraw fence-tag id.
 func (h *Handlers) UploadAttachment(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -66,8 +63,6 @@ func readAttachmentFromMultipart(ctx *gin.Context) ([]byte, string, string, bool
 	return data, id, resolveOriginalName(header.Filename, data), true
 }
 
-// readAttachmentBytes enforces MaxBytes on the bytes actually read (cap+1 detects overflow without
-// unbounded buffering), so a stream larger than an earlier size check promised is still refused.
 func readAttachmentBytes(ctx *gin.Context, r io.Reader) ([]byte, bool) {
 	data, err := io.ReadAll(io.LimitReader(r, repoattachments.MaxBytes+1))
 	if err != nil {
@@ -81,8 +76,6 @@ func readAttachmentBytes(ctx *gin.Context, r io.Reader) ([]byte, bool) {
 	return data, true
 }
 
-// resolveOriginalName synthesizes a name from the sniffed content type when the client sent a blank
-// filename, which some non-browser multipart encoders do.
 func resolveOriginalName(filename string, data []byte) string {
 	if filename != "" {
 		return filename
@@ -92,8 +85,6 @@ func resolveOriginalName(filename string, data []byte) string {
 	})
 }
 
-// readAttachmentFromPath reads an absolute host path supplied as JSON. Daemon and webview share a host,
-// so the path is a user's native drop, not attacker-controlled.
 func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 	var body struct {
 		Path string `json:"path"`
@@ -129,9 +120,6 @@ func readAttachmentFromPath(ctx *gin.Context) ([]byte, string, string, bool) {
 	return data, body.ID, filepath.Base(body.Path), true
 }
 
-// Attachment serves one durable attachment's raw bytes, so a stored markdown
-// ref resolves to something fetchable; the Content-Type is sniffed because an
-// attachment is as likely an image or a PDF as text, and an HTML or SVG one must not run on open.
 func (h *Handlers) Attachment(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {

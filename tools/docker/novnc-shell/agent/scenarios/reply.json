@@ -1,0 +1,34 @@
+{
+ "description": "The default for any prompt without #<scenario>: a short reasoning block, then the prompt echoed back as markdown, then telemetry.",
+ "steps": [
+  {
+   "do": "reason",
+   "text": "The user asked for something; I will answer by echoing it back.",
+   "chunk": 16,
+   "every_ms": 30
+  },
+  {
+   "do": "echo",
+   "prefix": "You said:\n\n> ",
+   "chunk": 12,
+   "every_ms": 40
+  },
+  {
+   "do": "telemetry",
+   "context": {
+    "capacity_tokens": 200000,
+    "used_tokens": 18000,
+    "used_percent": 9
+   },
+   "input_tokens": 1200,
+   "output_tokens": 340,
+   "cost": {
+    "total_usd": 0.0123
+   },
+   "model": {
+    "id": "scripted-large",
+    "display_name": "Scripted Large"
+   }
+  }
+ ]
+}

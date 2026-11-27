@@ -19,13 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ---------------------------------------------------------------------------
-// GitHub avatar resolution: githubSlugFromURL, githubAvatarURL,
-// fetchGithubAvatarBytes. These shell out to git and gh, so the tests stub
-// both binaries on PATH.
-// ---------------------------------------------------------------------------
-
-// writeFakeExe writes an executable shell script named name into dir.
 func writeFakeExe(t *testing.T, dir, name, script string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -35,13 +28,6 @@ func writeFakeExe(t *testing.T, dir, name, script string) {
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755))
 }
 
-// withFakePath prepends dir to PATH for the duration of the test.
-//
-// The git binary is resolved once per process and cached, so the stub only
-// takes effect if the cached resolution is dropped alongside the PATH change —
-// otherwise the real git runs against a repo path that does not exist and the
-// stub is never consulted. gh needs no equivalent: binpath.Resolve is a fresh
-// lookup every call.
 func withFakePath(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -50,9 +36,6 @@ func withFakePath(t *testing.T, dir string) {
 }
 
 func TestFetchGithubAvatarBytes_NoOrigin_ReturnsNilNoError(t *testing.T) {
-	// A directory that isn't a git repo at all: githubAvatarURL's `git remote
-	// get-url origin` fails, so the whole fetch short-circuits before any
-	// network call.
 	dir := t.TempDir()
 	data, ct := callFetchGithubAvatarBytes(t, dir)
 	assert.Nil(t, data)
@@ -110,8 +93,6 @@ func TestFetchGithubAvatarBytes_OversizeBody_ReturnsNilNoError(t *testing.T) {
 }
 
 func TestFetchGithubAvatarBytes_NetworkFailure_ReturnsNilNoError(t *testing.T) {
-	// A URL nothing is listening on: http.DefaultClient.Do returns a transport
-	// error, exercising the network-failure branch.
 	bin := t.TempDir()
 	writeFakeExe(t, bin, "git", `echo "https://github.com/acme/widget.git"`)
 	writeFakeExe(t, bin, "gh", `echo "http://127.0.0.1:1/unreachable.png"`)
@@ -123,8 +104,6 @@ func TestFetchGithubAvatarBytes_NetworkFailure_ReturnsNilNoError(t *testing.T) {
 }
 
 func TestFetchGithubAvatarBytes_GhAuthFailure_ReturnsNilNoError(t *testing.T) {
-	// gh exits non-zero (e.g. not authenticated / not a GitHub remote):
-	// githubAvatarURL swallows the error and returns "".
 	bin := t.TempDir()
 	writeFakeExe(t, bin, "git", `echo "https://github.com/acme/widget.git"`)
 	writeFakeExe(t, bin, "gh", `exit 1`)
@@ -135,10 +114,6 @@ func TestFetchGithubAvatarBytes_GhAuthFailure_ReturnsNilNoError(t *testing.T) {
 	assert.Empty(t, ct)
 }
 
-// callFetchGithubAvatarBytes exercises fetchGithubAvatarBytes (and therefore
-// githubAvatarURL/githubSlugFromURL) through PutIconGithub, the only exported
-// surface that calls the package-level default via h.fetchAvatar when no
-// override is installed.
 func callFetchGithubAvatarBytes(t *testing.T, repoPath string) ([]byte, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -146,8 +121,6 @@ func callFetchGithubAvatarBytes(t *testing.T, repoPath string) ([]byte, string) 
 	var saveErr error
 	store.SaveFn = func(_ context.Context, _ domain.Repository) error { return saveErr }
 
-	// New() wires fetchAvatar to the real fetchGithubAvatarBytes; the injected
-	// home gives storeIconBytes somewhere to write on the (rare) success path.
 	h := repohandlers.New(store, func() (string, error) { return home, nil })
 	r := gin.New()
 	r.PUT("/v0/projects/:projectId/repos/:repoId/icon/github", h.PutIconGithub)
@@ -161,16 +134,9 @@ func callFetchGithubAvatarBytes(t *testing.T, repoPath string) ([]byte, string) 
 		require.NoError(t, err)
 		return data, "image/png"
 	}
-	// 422 == the fetch degraded to (nil, "", nil) or errored.
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 	return nil, ""
 }
-
-// ---------------------------------------------------------------------------
-// githubSlugFromURL branch coverage, exercised indirectly through
-// githubAvatarURL/PutIconGithub with a fake `git` reporting different remote
-// URL shapes.
-// ---------------------------------------------------------------------------
 
 func TestGithubAvatarURL_SlugParsing_ViaFakeGit(t *testing.T) {
 	tests := []struct {
@@ -187,10 +153,6 @@ func TestGithubAvatarURL_SlugParsing_ViaFakeGit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			bin := t.TempDir()
 			writeFakeExe(t, bin, "git", fmt.Sprintf(`echo %q`, tt.remoteURL))
-			// gh should never be invoked when the slug can't be parsed; when it
-			// can, answer with a benign URL so the fetch degrades cleanly either
-			// way (this test only cares about the slug-parse branch, not the
-			// download itself).
 			writeFakeExe(t, bin, "gh", `echo "http://127.0.0.1:1/unreachable.png"`)
 			withFakePath(t, bin)
 

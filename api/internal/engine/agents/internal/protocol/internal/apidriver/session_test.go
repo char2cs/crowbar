@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// A captured number reaches a later call as a JSON number when its template is exactly
-// that one placeholder; a string capture, even a numeric-looking one, stays a string.
 func TestSend_ACapturedNumberKeepsItsJSONType(t *testing.T) {
 	d, err := descriptor.ParseV0([]byte(`
 id: neutral
@@ -89,9 +87,6 @@ func TestEstablishSession_AnOptionalSendKeyIsOmittedWhileEmpty(t *testing.T) {
 	}
 }
 
-// The gateway refuses a resume whose pinned editor block changed with this code and
-// reason (live-captured): the chat's session is lost. Anything else under the code,
-// or the reason under another code, is an ordinary failure.
 func TestEstablishSession_TheShippedGatewayRefusalIsALostSession(t *testing.T) {
 	for name, tc := range map[string]struct {
 		refusal scriptedCall
@@ -106,7 +101,6 @@ func TestEstablishSession_TheShippedGatewayRefusalIsALostSession(t *testing.T) {
 			require.NoError(t, err)
 			d, err := descriptor.ParseV0(raw)
 			require.NoError(t, err)
-			// scriptedServer answers a call-then-notify handshake; the session block is under test.
 			d.Runtime.API.Handshake.Notify = "ready"
 			stdio, _ := scriptedServer(t, []scriptedCall{tc.refusal})
 			drv, err := apidriver.Start(t.Context(), d, stdio, nil)
@@ -121,8 +115,6 @@ func TestEstablishSession_TheShippedGatewayRefusalIsALostSession(t *testing.T) {
 	}
 }
 
-// A value remembered from the dropped connection's frames belongs to the session as it
-// ran there: after the resume an outbound call must not fence on it.
 func TestReconnect_ARememberedFrameValueDoesNotOutliveTheConnection(t *testing.T) {
 	first, second := newLink(), newLink()
 	d := reconnectDescriptor()

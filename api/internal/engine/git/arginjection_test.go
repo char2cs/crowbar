@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// findCall returns the first recorded git invocation whose first arg is sub.
 func findCall(
 	t *testing.T,
 	calls [][]string,
@@ -26,8 +25,6 @@ func findCall(
 	return nil
 }
 
-// assertSeparatorBeforeOperand asserts args contains a "--" token immediately
-// preceding operand (i.e. the operand can never be parsed as an option).
 func assertSeparatorBeforeOperand(
 	t *testing.T,
 	args []string,
@@ -45,8 +42,6 @@ func assertSeparatorBeforeOperand(
 	t.Fatalf("operand %q not found in %v", operand, args)
 }
 
-// TestRegression_GitArgInjection_Merge_PassesSeparator asserts the merge exec
-// receives `merge -- <branch>` so the branch can never be read as an option.
 func TestRegression_GitArgInjection_Merge_PassesSeparator(t *testing.T) {
 	e, recorded := git.NewWithRecordingExec()
 	require.NoError(t, e.Merge(context.Background(), "/repo", "feature/x"))
@@ -55,8 +50,6 @@ func TestRegression_GitArgInjection_Merge_PassesSeparator(t *testing.T) {
 	assertSeparatorBeforeOperand(t, call, "feature/x")
 }
 
-// TestRegression_GitArgInjection_Rebase_PassesSeparator asserts the rebase exec
-// receives `rebase -- <onto>` so the onto can never be read as `--exec=<cmd>`.
 func TestRegression_GitArgInjection_Rebase_PassesSeparator(t *testing.T) {
 	e, recorded := git.NewWithRecordingExec()
 	require.NoError(t, e.Rebase(context.Background(), "/repo", "main"))
@@ -65,10 +58,6 @@ func TestRegression_GitArgInjection_Rebase_PassesSeparator(t *testing.T) {
 	assertSeparatorBeforeOperand(t, call, "main")
 }
 
-// TestRegression_GitArgInjection_Reset_NoSeparatorButFlagFromMode documents that
-// reset cannot use a `--` separator before its commit (git would treat it as a
-// pathspec). The mode is turned into a `--<mode>` flag, which is why the usecase
-// boundary allowlists the mode and validates the commit for a leading dash.
 func TestRegression_GitArgInjection_Reset_NoSeparatorButFlagFromMode(t *testing.T) {
 	e, recorded := git.NewWithRecordingExec()
 	require.NoError(t, e.Reset(context.Background(), "/repo", "hard", "HEAD"))

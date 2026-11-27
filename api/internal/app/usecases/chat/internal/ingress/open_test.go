@@ -10,9 +10,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// A CLI still inside its last turn's Stop names that turn's id on the prompt
-// typed meanwhile (captured: the hook fired 30 ms after the Stop, with the old
-// prompt_id; its own Stop then carried a new one). The words are the prompt's.
 func TestRegression_OpenProviderTurn_ATypedPromptNamingTheEndedTurnOpensItsOwn(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("R1")
@@ -36,7 +33,6 @@ func TestRegression_OpenProviderTurn_ATypedPromptNamingTheEndedTurnOpensItsOwn(t
 	assert.False(t, stillRunning)
 }
 
-// The same id with no prompt waiting for those words is the CLI's retry of a start.
 func TestOpenProviderTurn_ARetryAfterTheTurnEndedOpensNothing(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("R1")
@@ -49,8 +45,6 @@ func TestOpenProviderTurn_ARetryAfterTheTurnEndedOpensNothing(t *testing.T) {
 	assert.Empty(t, rows)
 }
 
-// Two typed prompts in a row: the second's hook names the id the first's Stop
-// carried, which the first turn's end must have kept for it to be known.
 func TestRegression_OpenProviderTurn_ATypedPromptNamingAnEndedTurnsOwnEndId(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("R1")

@@ -20,8 +20,6 @@ func TestNew_ReturnsContainer(t *testing.T) {
 	assert.NotNil(t, c)
 }
 
-// A spawned CLI runs the daemon's own binary for `crowbar mcp`, not a copy kept
-// in the home.
 func TestNew_SpawnedCLIsRunTheDaemonsOwnExecutable(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -34,7 +32,6 @@ func TestNew_SpawnedCLIsRunTheDaemonsOwnExecutable(t *testing.T) {
 	assert.Equal(t, want, c.CrowbarBin)
 }
 
-// A binary deleted under a running daemon stays reachable through /proc on Linux.
 func TestLiveExecutable_FallsBackToProcWhenTheBinaryIsGone(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "crowbar")
 	got := liveExecutable(gone+" (deleted)", 4242)
@@ -45,9 +42,6 @@ func TestLiveExecutable_FallsBackToProcWhenTheBinaryIsGone(t *testing.T) {
 	assert.Equal(t, gone, got)
 }
 
-// TestContainer_Close_ShutsDownTerminalSessions proves H15: Close must tear down
-// live PTY sessions on daemon shutdown, otherwise every open terminal's shell
-// (and the dev servers it spawned) is orphaned to init.
 func TestContainer_Close_ShutsDownTerminalSessions(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -63,36 +57,22 @@ func TestContainer_Close_ShutsDownTerminalSessions(t *testing.T) {
 		"Close must terminate live PTY sessions so no shell child is orphaned on shutdown")
 }
 
-// TestNew_LSPFieldNonNil asserts that the LSP engine is wired into the
-// container so callers can reach feature methods without nil-pointer panics.
 func TestNew_LSPFieldNonNil(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir("/tmp/x"))
 	require.NoError(t, err)
 	assert.NotNil(t, c.LSP)
 }
 
-// TestContainer_Close_ShutsDownLSP proves R8: Close must tear down the LSP host
-// (closing every spawned language server) on daemon shutdown, not just the
-// terminal sessions — otherwise every gopls/tsserver/rust-analyzer survives the
-// daemon, leaking RAM, CPU, and stdio pipe FDs across restarts. With no document
-// open no server is running, so Close is a no-op here; the assertion is that it
-// runs cleanly through the LSP shutdown path without panicking. The
-// server-closing behaviour is covered by the engine-level
-// TestShutdown_ClosesEverySpawnedServer.
 func TestContainer_Close_ShutsDownLSP(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	require.NotNil(t, c.LSP)
 
-	// Must not panic and must reach the LSP shutdown path.
 	assert.NotPanics(t, c.Close)
 
-	// Close is idempotent on the LSP host as it is on the terminal engine.
 	assert.NotPanics(t, c.Close)
 }
 
-// closeSpyAgents counts Close on a real agents engine, leaving every other
-// method to it.
 type closeSpyAgents struct {
 	engineagents.Agents
 	closed int
@@ -103,11 +83,6 @@ func (s *closeSpyAgents) Close() {
 	s.Agents.Close()
 }
 
-// TestRegression_ContainerCloseJoinsTheAgentsEngine pins the wiring half of the
-// t.TempDir()-cleanup flake: modeldiscovery.Cache grew a Close that joins its
-// forked refreshes, but the join only ever runs if this Container's own Close
-// reaches it. Without this line a refresh's write still lands under a crowbar
-// home the process has already released.
 func TestRegression_ContainerCloseJoinsTheAgentsEngine(t *testing.T) {
 	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
 	require.NoError(t, err)

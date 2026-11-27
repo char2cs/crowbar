@@ -66,8 +66,6 @@ func TestOf_ACodedErrorOverABareCategorySaysOnlyItsMessage(t *testing.T) {
 	assert.Equal(t, "chat is busy", problem.Of(fmt.Errorf("send: %w", err)).Message)
 }
 
-// toolErr stands in for a subprocess failure: its text is the wrap, Detail
-// is what the tool printed.
 type toolErr struct{}
 
 func (toolErr) Error() string  { return "push: exit 128: fatal: gone" }
@@ -104,8 +102,6 @@ func TestOf_AMissingPathNamesThePath(t *testing.T) {
 	assert.Equal(t, err.Error(), got.Message)
 }
 
-// A wrap's words can carry what the failure was about; with nothing coded or
-// tool-made below it, every word of an uncoded failure is kept.
 func TestOf_AnUncodedFailureKeepsWhatItsWrapsFormatted(t *testing.T) {
 	exitErr := exec.CommandContext(t.Context(), os.Args[0], "-test.no-such-flag").Run()
 	var exit *exec.ExitError
@@ -140,8 +136,6 @@ func TestCodeOf_NilAndPlainErrorsAreInternal(t *testing.T) {
 	assert.Equal(t, problem.Internal, problem.CodeOf(errors.New("boom")))
 }
 
-// A chain holding several codes answers the one the old status union checked
-// first, whatever order the sentinels were wrapped in.
 func TestCodeOf_PriorityMatchesStatusGo(t *testing.T) {
 	cases := []struct {
 		name string
@@ -163,8 +157,6 @@ func TestCodeOf_PriorityMatchesStatusGo(t *testing.T) {
 	}
 }
 
-// A specific code wraps its category, so a caller matching the category still
-// matches, and the response carries the specific code.
 func TestCodeOf_AWrappedCategoryStillMatches(t *testing.T) {
 	busy := &problem.Error{Code: problem.ChatBusy, Message: "agent: chat is busy", Err: problem.ErrConflict}
 
@@ -173,8 +165,6 @@ func TestCodeOf_AWrappedCategoryStillMatches(t *testing.T) {
 	assert.Equal(t, "agent: chat is busy: conflict", busy.Error())
 }
 
-// A specific code says more than its category, so it wins a same-rank tie
-// wherever the category sentinel sits in the chain.
 func TestCodeOf_ASpecificCodeBeatsASameRankCategory(t *testing.T) {
 	busy := &problem.Error{Code: problem.ChatBusy, Message: "agent: chat is busy", Err: problem.ErrConflict}
 

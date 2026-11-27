@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Push POST /v0/chats/:chatId/git/push answers 202 with the operation running
-// the push; its outcome arrives on the operations stream.
 func (h *Handlers) Push(
 	ctx *gin.Context,
 ) {
@@ -24,7 +22,6 @@ func (h *Handlers) Push(
 	})
 }
 
-// Fetch POST /v0/chats/:chatId/git/fetch answers 202 with its operation.
 func (h *Handlers) Fetch(
 	ctx *gin.Context,
 ) {
@@ -34,7 +31,6 @@ func (h *Handlers) Fetch(
 	})
 }
 
-// Pull POST /v0/chats/:chatId/git/pull answers 202 with its operation.
 func (h *Handlers) Pull(
 	ctx *gin.Context,
 ) {
@@ -44,8 +40,6 @@ func (h *Handlers) Pull(
 	})
 }
 
-// startGit starts run as an operation on the request's worktree and answers
-// 202 with it, or the refusal.
 func (h *Handlers) startGit(
 	ctx *gin.Context,
 	kind domain.OperationKind,

@@ -197,17 +197,12 @@ func TestUploadAttachment_JSONPathVariantRefusesADirectory(t *testing.T) {
 	assert.Empty(t, uc.uploadAttachmentCalls)
 }
 
-// TestUploadAttachment_JSONPathVariantUnreadableFileIs400 pins the
-// os.Open failure branch: os.Stat succeeds (the file exists, so the earlier
-// size check passes) but the file itself is unreadable — the same
-// permission-based failure injection attachments_test.go's own
-// TestRead_OpenErrorReturnsNotFound uses for the repository's os.Open call.
 func TestUploadAttachment_JSONPathVariantUnreadableFileIs400(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
 	path := dir + "/forbidden.png"
 	require.NoError(t, os.WriteFile(path, []byte("data"), 0o000))
-	defer func() { _ = os.Chmod(path, 0o644) }() // restore for cleanup
+	defer func() { _ = os.Chmod(path, 0o644) }()
 
 	reqBody := []byte(`{"path":"` + path + `","id":"ab12"}`)
 	ctx, rec := newTestContext(t, http.MethodPost, "/attachments", reqBody)
@@ -301,8 +296,6 @@ func TestAttachment_RefusesAChatOutsideTheRouteScope(t *testing.T) {
 	assert.Empty(t, uc.readAttachmentCalls)
 }
 
-// An attachment opened in a tab runs on the daemon's origin, so a scriptable type must download
-// into a sandbox while a type the web renders inline keeps rendering inline.
 func TestAttachment_ServesScriptableTypesAsSandboxedDownloads(t *testing.T) {
 	cases := []struct {
 		name, contentType string

@@ -10,10 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// Design spec P6b tag 2: per-event surfaces: is a spelling check only — NO
-// CROWBAR-SIDE VETO on which events may gate off a surface, even the only
-// writer of a ledger fact (that is reported, not rejected — see
-// TestSurfaceGatedEvents_AreReportedLoudly, descriptor package).
 func TestApply_DeclaringNoPerEventSurfacesIsValid(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
 }

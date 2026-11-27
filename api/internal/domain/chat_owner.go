@@ -1,8 +1,5 @@
 package domain
 
-// ResolveOwningChat picks a workspace's owner from its candidate chat rows: the row
-// recording Chat.OwnsWorkspace, the earliest if several do, so every surface agrees.
-// No recording row means no owner; there is no heuristic fallback.
 func ResolveOwningChat(
 	rows []Chat,
 ) (Chat, bool) {

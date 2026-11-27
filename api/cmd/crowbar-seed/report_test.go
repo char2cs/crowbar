@@ -32,8 +32,6 @@ func TestReportThreadsReadsAsReusedWhenNothingWasOpened(t *testing.T) {
 	}
 }
 
-// A rerun that opens one of the two threads is exactly the case a bare count
-// would hide, so the summary has to name both halves.
 func TestReportThreadsSpellsOutThePartialCase(t *testing.T) {
 	rep := &report{}
 	rep.noteThreads(1)

@@ -1,7 +1,3 @@
-// Package httpdriver drives a provider over HTTP: named request/response calls plus one
-// Server-Sent-Events stream for its events. It is a sibling of jsonrpc, adapted to the
-// apidriver the same way: Call for steps, Frames for inbound events, Reply for a
-// provider's questions, Close to end it all.
 package httpdriver
 
 import (
@@ -20,21 +16,16 @@ const (
 	frameBuffer    = 64
 )
 
-// Frame is one stream event: Method is the SSE event name and Params its JSON data.
-// Err is set instead when the event could not be understood or the stream gave up.
 type Frame struct {
 	Method string
 	Params json.RawMessage
 	Err    error
 }
 
-// Config describes one provider. Bearer is already resolved by the caller and is
-// only ever sent as a header. Backoff defaults to 500ms per attempt; MaxReconnects
-// bounds consecutive failed reconnects (default 5).
 type Config struct {
 	BaseURL       string
 	Requests      map[string]Request
-	StreamPath    string // may hold {vars} captured by a request; opens once all are known
+	StreamPath    string
 	Bearer        string
 	Timeout       time.Duration
 	MaxReconnects int
@@ -42,12 +33,6 @@ type Config struct {
 	HTTP          *http.Client
 }
 
-// Client implements the surface the driver consumes:
-//
-//	Call(ctx, name, params) (json.RawMessage, error)
-//	Frames() <-chan Frame
-//	Reply(ctx, requestName, askID, payload) error
-//	Close() error
 type Client struct {
 	cfg    Config
 	http   *http.Client
@@ -63,8 +48,6 @@ type Client struct {
 	closed   bool
 }
 
-// New returns a Client; the stream opens after the first call that makes
-// StreamPath resolvable.
 func New(cfg Config) *Client {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
@@ -85,7 +68,6 @@ func New(cfg Config) *Client {
 	}
 }
 
-// Call runs the named request and returns its response body.
 func (c *Client) Call(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error) {
 	values, err := paramValues(params)
 	if err != nil {
@@ -94,7 +76,6 @@ func (c *Client) Call(ctx context.Context, name string, params json.RawMessage) 
 	return c.call(ctx, name, values)
 }
 
-// Reply answers a provider question: the payload's members and ask_id fill the request.
 func (c *Client) Reply(ctx context.Context, requestName, askID string, payload json.RawMessage) error {
 	values, err := paramValues(payload)
 	if err != nil {
@@ -117,10 +98,8 @@ func (c *Client) call(ctx context.Context, name string, values map[string]string
 	return out, nil
 }
 
-// Frames delivers stream events; it closes when the stream gives up or on Close.
 func (c *Client) Frames() <-chan Frame { return c.frames }
 
-// Close cancels in-flight calls and the stream, waits for them, and closes Frames.
 func (c *Client) Close() error {
 	c.mu.Lock()
 	c.closed = true
@@ -137,7 +116,6 @@ func (c *Client) isClosed() bool {
 	return c.closed
 }
 
-// snapshot layers params over captures so a call can use either.
 func (c *Client) snapshot(params map[string]string) map[string]string {
 	c.mu.Lock()
 	defer c.mu.Unlock()

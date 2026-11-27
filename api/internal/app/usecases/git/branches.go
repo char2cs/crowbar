@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// CreateBranch creates a branch and resyncs the working tree. The new name and
-// optional source are validated so neither can be read as a git option.
 func (u *gitUsecase) CreateBranch(
 	ctx context.Context,
 	wsID string,
@@ -26,8 +24,6 @@ func (u *gitUsecase) CreateBranch(
 	})
 }
 
-// RenameBranch renames a branch and resyncs the working tree. Both names are
-// validated so neither can be read as a git option.
 func (u *gitUsecase) RenameBranch(
 	ctx context.Context,
 	wsID string,
@@ -46,8 +42,6 @@ func (u *gitUsecase) RenameBranch(
 	})
 }
 
-// DeleteBranch deletes a branch and resyncs the working tree. name is validated
-// so a leading-dash value can never be read as a git option.
 func (u *gitUsecase) DeleteBranch(
 	ctx context.Context,
 	wsID string,
@@ -62,8 +56,6 @@ func (u *gitUsecase) DeleteBranch(
 	})
 }
 
-// SwitchBranch checks out a branch and resyncs the working tree. name is
-// validated so a leading-dash value can never be read as a git option.
 func (u *gitUsecase) SwitchBranch(
 	ctx context.Context,
 	wsID string,

@@ -13,18 +13,11 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// mergeBaseCall records one MergeBase invocation's two revisions, which is what
-// separates "the ref was resolved twice" from "the resolution is expensive": the
-// duplicated work under measurement is byte-identical in its arguments.
 type mergeBaseCall struct {
 	a string
 	b string
 }
 
-// scopeFixtureChild is the workspace under review. GetScope takes the resolved
-// aggregate rather than an id (it is the caller's already-folded workspace), so
-// the fixture's child is named here and handed to both the workspace mock and
-// the calls under test.
 func scopeFixtureChild() domain.Workspace {
 	return domain.Workspace{
 		ID:           "child",
@@ -36,10 +29,6 @@ func scopeFixtureChild() domain.Workspace {
 	}
 }
 
-// newScopeFixture wires a child->parent workspace pair over a MergeBase stub
-// whose answers are supplied per test, recording every call. Every subcommand
-// here is a real subprocess in production and costs about the same whatever it
-// computes, so the call log IS the cost model.
 func newScopeFixture(
 	t *testing.T,
 	mergeBase func(a, b string) (string, error),
@@ -70,9 +59,6 @@ func newScopeFixture(
 	return wsMock, gitEng, calls
 }
 
-// inSyncMergeBase is the ordinary state of a branch nobody has pushed to since
-// the last fetch: origin/develop and develop name the same commit, so both
-// probes yield the same merge base.
 func inSyncMergeBase(
 	_ string,
 	_ string,
@@ -80,13 +66,6 @@ func inSyncMergeBase(
 	return "base-sha", nil
 }
 
-// TestGetScope_ResolvesTheDiffRefOnce pins the whole point of GetScope: the ref
-// and the file list come out of ONE resolution.
-//
-// The assertion is a call count rather than a duration because the duplicate
-// resolution was nearly free in wall time — the second merge-base asks git the
-// same question the first one just did, so it hits every cache in the stack while
-// still paying a full subprocess spawn. Only the count survives a warm cache.
 func TestGetScope_ResolvesTheDiffRefOnce(
 	t *testing.T,
 ) {
@@ -111,10 +90,6 @@ func TestGetScope_ResolvesTheDiffRefOnce(
 		"a fixture where nothing reaches git would satisfy the equality above vacuously")
 }
 
-// TestGetScope_ReportsTheRefItsFilesWereDiffedFrom is the correctness half of the
-// same change: one resolution cannot disagree with itself, where two independent
-// ones can straddle a push to the base branch and report a file list against a
-// ref they were never diffed from.
 func TestGetScope_ReportsTheRefItsFilesWereDiffedFrom(
 	t *testing.T,
 ) {
@@ -138,13 +113,6 @@ func TestGetScope_ReportsTheRefItsFilesWereDiffedFrom(
 	assert.Equal(t, "a.go", scope.Files[0].Path)
 }
 
-// TestResolveDiffRef_IdenticalCandidatesSkipTheComparison pins the second
-// subprocess this change removes. With the base branch in sync with origin the
-// two probes return the SAME sha, and comparing a sha with itself can only
-// re-elect the candidate already held — merge-base(X, X) is X by definition — so
-// the comparison is a whole subprocess spent to learn nothing.
-//
-// Two calls, not three: one probe for origin/develop, one for develop.
 func TestResolveDiffRef_IdenticalCandidatesSkipTheComparison(
 	t *testing.T,
 ) {
@@ -161,11 +129,6 @@ func TestResolveDiffRef_IdenticalCandidatesSkipTheComparison(
 	}, *calls, "a candidate compared against itself must never reach git")
 }
 
-// TestResolveDiffRef_DivergentCandidatesStillCompare is the guard on the
-// short-circuit above: skipping the comparison must be conditional on the
-// candidates being equal, never unconditional. A local base branch ahead of
-// origin yields two different merge bases and the descendant one — the local
-// one, closest to HEAD — must still win, which takes the third subprocess.
 func TestResolveDiffRef_DivergentCandidatesStillCompare(
 	t *testing.T,
 ) {
@@ -176,8 +139,6 @@ func TestResolveDiffRef_DivergentCandidatesStillCompare(
 		case "develop":
 			return "local-base", nil
 		}
-		// merge-base(origin-base, local-base) == origin-base: origin's base is an
-		// ancestor of the local one, so the local one sits closer to HEAD.
 		return "origin-base", nil
 	})
 	uc := newTestUsecase(wsMock, noopThreads(), mocks.NewRepositoryStore(), gitEng)
@@ -194,12 +155,6 @@ func TestResolveDiffRef_DivergentCandidatesStillCompare(
 	}, *calls)
 }
 
-// TestGetScope_AgreesWithGetFiles is the anti-regression pin against REAL git
-// plumbing rather than a stub: GetScope is only allowed to be cheaper than the
-// reads it folded together, never to answer differently. The fixture is the
-// rebased child, where the live merge base and the recorded fork point genuinely
-// diverge, so an implementation that quietly shortcut to the frozen fork point
-// would fail here.
 func TestGetScope_AgreesWithGetFiles(
 	t *testing.T,
 ) {

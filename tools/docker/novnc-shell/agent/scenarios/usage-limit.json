@@ -1,0 +1,16 @@
+{
+  "description": "A usage-limit banner on the terminal (a terminal notice that ends the turn); no hook reports it.",
+  "steps": [
+    {
+      "do": "text",
+      "text": "Starting on that."
+    },
+    {
+      "do": "screen",
+      "text": "!! Scripted usage limit reached. Try again at 5pm."
+    },
+    {
+      "do": "hang"
+    }
+  ]
+}

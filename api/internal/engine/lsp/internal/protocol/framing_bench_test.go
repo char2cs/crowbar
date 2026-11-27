@@ -8,15 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// BenchmarkReadMessage measures the framing hot path at keystroke rate.
-// A buffer of N pre-framed messages is built once; the benchmark reads them
-// all per iteration to amortise allocation noise.
 func BenchmarkReadMessage(b *testing.B) {
 	const msgCount = 50
 
 	payload := []byte(`{"jsonrpc":"2.0","id":1,"method":"textDocument/completion","params":{"textDocument":{"uri":"file:///workspace/main.go"},"position":{"line":42,"character":10}}}`)
 
-	// Pre-build the framed buffer once.
 	var raw bytes.Buffer
 	for i := 0; i < msgCount; i++ {
 		require.NoError(b, WriteMessage(&raw, payload))

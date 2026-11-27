@@ -6,14 +6,11 @@ import (
 	"strings"
 )
 
-// Problem is a failure as the client reads it.
 type Problem struct {
 	Code    Code   `json:"code"`
 	Message string `json:"message"`
 }
 
-// Error is an error that names its code. Data rides to the client beside the
-// message; Err is what it wraps, so a coded sentinel can still match its category.
 type Error struct {
 	Code    Code
 	Message string
@@ -34,12 +31,10 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// New is a coded error with no cause: the form of a sentinel.
 func New(code Code, message string) *Error {
 	return &Error{Code: code, Message: message}
 }
 
-// The category sentinels.
 var (
 	ErrNotFound         = New(NotFound, "not found")
 	ErrLocked           = New(Locked, "workspace locked")
@@ -57,9 +52,6 @@ var sentinels = []*Error{
 	ErrUnprocessable, ErrTimeout, ErrBadGateway, ErrFailedDependency,
 }
 
-// CodeOf is the code a response for err carries. Of every code in err's tree,
-// the one whose category ranks first wins; on a tie a specific code beats a
-// category, then the outermost wins. None is Internal.
 func CodeOf(err error) Code {
 	best := Internal
 	walk(err, func(c Code) {
@@ -70,16 +62,12 @@ func CodeOf(err error) Code {
 	return best
 }
 
-// Detailer is an error that carries what the tool it ran said, such as git's
-// stderr: the part of a failure a user can act on.
 type Detailer interface {
 	Detail() string
 }
 
 const internalMessage = "internal error"
 
-// Of is err as the client reads it: its code, and a message that starts at its
-// outermost coded or tool error, never the wrap chain around it.
 func Of(err error) Problem {
 	if err == nil {
 		return Problem{Code: Internal, Message: internalMessage}
@@ -87,9 +75,6 @@ func Of(err error) Problem {
 	return Problem{Code: CodeOf(err), Message: messageOf(err)}
 }
 
-// messageOf starts at the outermost coded or tool error, dropping the wraps
-// above it unless one says more after it; a bare sentinel is told by the wrap
-// that declared it. With none of those, every word is kept: a wrap may format what it was about.
 func messageOf(err error) string {
 	var outer error
 	node := err
@@ -127,8 +112,6 @@ func messageOf(err error) string {
 	}
 }
 
-// named reports whether err's tree holds a node that names the failure itself:
-// a coded error, a tool error or a category sentinel.
 func named(err error) bool {
 	return visit(err, func(node error) bool {
 		_, coded := node.(*Error) //nolint:errorlint // one node of a tree visit walks
@@ -137,8 +120,6 @@ func named(err error) bool {
 	})
 }
 
-// joined is what each part of fmt.Errorf("%w: %w", a, b) says, when that is
-// all node says; a join with words of its own is kept whole.
 func joined(node error, parts []error) (string, bool) {
 	texts := make([]string, len(parts))
 	said := make([]string, len(parts))
@@ -151,8 +132,6 @@ func joined(node error, parts []error) (string, bool) {
 	return strings.Join(said, ": "), true
 }
 
-// isSentinel reports whether err is itself a category sentinel, Crowbar's or
-// a foreign one: a name for the failure, not a description of it.
 func isSentinel(err error) bool {
 	if e, ok := err.(*Error); ok && slices.Contains(sentinels, e) { //nolint:errorlint // the node itself, not its tree
 		return true
@@ -165,7 +144,6 @@ func isSentinel(err error) bool {
 	return false
 }
 
-// withCause is message followed by what its cause says, when that says anything.
 func withCause(message string, cause error) string {
 	if cause == nil || isSentinel(cause) {
 		return message
@@ -176,7 +154,6 @@ func withCause(message string, cause error) string {
 	return message
 }
 
-// withDetails is err's text with the first tool error in it cut to its output.
 func withDetails(err error) string {
 	text := err.Error()
 	visit(err, func(node error) bool {
@@ -200,7 +177,6 @@ func orInternal(message string) string {
 	return message
 }
 
-// DataOf is the Data of the first coded error in err's tree that has any.
 func DataOf(err error) any {
 	var data any
 	visit(err, func(node error) bool {
@@ -213,7 +189,6 @@ func DataOf(err error) any {
 	return data
 }
 
-// walk calls found with each code in err's tree, outermost first.
 func walk(err error, found func(Code)) {
 	visit(err, func(node error) bool {
 		if e, ok := node.(*Error); ok { //nolint:errorlint // one node of a tree visit walks
@@ -226,7 +201,6 @@ func walk(err error, found func(Code)) {
 	})
 }
 
-// visit walks err's tree depth first, outermost first, until stop says so.
 func visit(err error, stop func(error) bool) bool {
 	if err == nil {
 		return false
@@ -247,7 +221,6 @@ func visit(err error, stop func(error) bool) bool {
 	return false
 }
 
-// is reports whether node itself, without unwrapping, is target.
 func is(node, target error) bool {
 	if node == target { //nolint:errorlint // one node of a tree the caller walks
 		return true

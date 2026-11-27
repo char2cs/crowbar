@@ -15,28 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
-// Scale benchmarks for the branch-review hot path, backing the attribution
-// phase of docs/superpowers/specs/2026-07-27-diff-subsystem-at-scale-design.md.
-//
-// GetFiles is the single hottest endpoint in the system: an always-mounted
-// sidebar hook calls it on every git-status tick (250ms debounce, so up to
-// ~4Hz during agent activity) with the Branch Review pane CLOSED. The spec's
-// third invariant says no recurring-timer request may be O(diff size). These
-// benchmarks are how that claim is checked rather than asserted.
-//
-// The diff shape mirrors scripts/perf/gen-big-diff-fixture.sh: scattered files
-// (every Nth line changed, so hunks are many and separated by context), dense
-// whole-file rewrites, and one monster file. A uniform rewrite would collapse
-// each file to a single hunk and quietly understate hunk-shaped work.
-//
-// Run with:
-//
-//	go test -tags noEmbed -run='^$' -bench=Scale -benchtime=5x \
-//	    ./internal/app/usecases/branchreview/...
-
-// scatterEvery matches the fixture generator: 10 lines apart, chosen against
-// git's default 3 lines of context so consecutive changes stay separate hunks
-// instead of merging into one.
 const scatterEvery = 10
 
 type scaleSpec struct {
@@ -47,8 +25,6 @@ type scaleSpec struct {
 	monsterLines   int
 }
 
-// scaleLine is a pure function of (salt, index) — no randomness, so a rerun
-// produces byte-identical content and benchmark numbers stay comparable.
 func scaleLine(salt string, i int) string {
 	return fmt.Sprintf("%s line %d token %d\n", salt, i, (i*2654435761+len(salt))%1000003)
 }
@@ -87,9 +63,6 @@ func writeScaleFile(
 	require.NoError(b, os.WriteFile(full, []byte(content), 0o600))
 }
 
-// seedScaleDiff writes the base content on the base branch and the modified
-// content on the feature worktree, committing both, so the resulting
-// base..feature diff is a genuine content diff rather than an add-only one.
 func seedScaleDiff(
 	b *testing.B,
 	h *benchReviewHarness,
@@ -108,8 +81,6 @@ func seedScaleDiff(
 	benchGitRun(b, h.repoPath, "add", "-A")
 	benchGitRun(b, h.repoPath, "commit", "-m", "scale: base tree")
 
-	// The feature worktree must see the new base commits before it can modify
-	// them, so rebase it onto the updated base branch.
 	baseBranch := trimNewline(benchGitRun(b, h.repoPath, "rev-parse", "--abbrev-ref", "HEAD"))
 	benchGitRun(b, h.featurePath, "rebase", baseBranch)
 
@@ -131,9 +102,6 @@ func seedScaleDiff(
 	benchGitRun(b, h.featurePath, "commit", "-m", "scale: feature tree")
 }
 
-// reportPerfSamples aggregates the daemon timing ring by sample name and logs
-// it. This is the breakdown attribution needs: ns/op alone says the call is
-// slow, not which subprocess or lock inside it is responsible.
 func reportPerfSamples(b *testing.B) {
 	b.Helper()
 
@@ -170,12 +138,9 @@ func reportPerfSamples(b *testing.B) {
 }
 
 var scaleSpecs = []scaleSpec{
-	// Roughly the shape of a large real branch, sized so setup stays tolerable.
 	{name: "200files_100k_lines", scatteredFiles: 150, denseFiles: 50, lines: 500, monsterLines: 50_000},
 }
 
-// BenchmarkBranchReview_GetFiles_Scale measures the always-on hot path — the
-// one a git tick hits with the review pane closed.
 func BenchmarkBranchReview_GetFiles_Scale(b *testing.B) {
 	for _, spec := range scaleSpecs {
 		b.Run(spec.name, func(b *testing.B) {
@@ -183,8 +148,6 @@ func BenchmarkBranchReview_GetFiles_Scale(b *testing.B) {
 			h := newBenchReviewHarness(b)
 			seedScaleDiff(b, h, spec)
 
-			// Warm: the first call pays page-cache costs that would otherwise
-			// land entirely on the first measured iteration.
 			_, err := h.uc.GetFiles(ctx, h.wsID, "")
 			require.NoError(b, err)
 
@@ -209,35 +172,6 @@ func BenchmarkBranchReview_GetFiles_Scale(b *testing.B) {
 	}
 }
 
-// BenchmarkBranchReview_GetFiles_Contention measures lock hold and wait times
-// with concurrent readers and one engine-level writer.
-//
-// It was written to demonstrate writer starvation: lockRepoRead takes a
-// sync.RWMutex read lock, and Go's RWMutex is writer-preferring, so once a
-// Lock() is waiting, new RLock() callers block until the writer has come and
-// gone. On a repo where reads hold the lock for hundreds of milliseconds, one
-// writer should therefore delay every read queued behind it.
-//
-// It does NOT demonstrate that. As of 2026-07-27, at 200 files / 100k lines
-// with 16 concurrent readers, both lock.read.wait and lock.write.wait measure
-// 0.0ms across every run. The writer (StageFile, ~30-70ms) consistently
-// acquires and releases before the readers reach their own acquisition —
-// GetFiles resolves the diff ref first, so readers spend their first ~25ms in
-// merge-base before ever asking for the lock.
-//
-// The honest reading: writer starvation remains a documented property of
-// sync.RWMutex, not something measured here. What IS measured, and what
-// matters, is lock.read.hold — mean ~180-230ms and max ~520ms at a tenth of
-// target scale, against a 100ms budget. Long holds are the precondition for
-// starvation; this harness simply never won the race needed to observe it.
-//
-// Forcing the overlap would need either a sleep or a hook inside the lock
-// itself. The former is banned in this repo and the latter would measure the
-// instrument rather than the system, so the gap is left documented instead of
-// papered over.
-//
-// This is a measurement, not an assertion — it reports numbers and makes no
-// timing-based claim that could flake.
 func BenchmarkBranchReview_GetFiles_Contention(b *testing.B) {
 	const readers = 16
 
@@ -257,8 +191,6 @@ func BenchmarkBranchReview_GetFiles_Contention(b *testing.B) {
 			b.ResetTimer()
 			for i := range b.N {
 				var wg sync.WaitGroup
-				// Concurrent readers, exactly as the sidebar's tick storm
-				// produces them.
 				for range readers {
 					wg.Add(1)
 					go func() {
@@ -268,11 +200,6 @@ func BenchmarkBranchReview_GetFiles_Contention(b *testing.B) {
 						}
 					}()
 				}
-				// One writer per round, interleaved with the readers. It must go
-				// through the ENGINE (StageFile takes lockRepo) — shelling out
-				// to git directly would bypass the mutex entirely and measure
-				// nothing, which is exactly what an earlier version of this
-				// benchmark did.
 				wg.Add(1)
 				go func(round int) {
 					defer wg.Done()
@@ -291,10 +218,6 @@ func BenchmarkBranchReview_GetFiles_Contention(b *testing.B) {
 	}
 }
 
-// BenchmarkBranchReview_Get_Scale measures the full line-level review read
-// model at the same scale — the payload the spec replaces with a windowed
-// path. Contrast with GetFiles above: the gap between them is the cost the
-// sidebar currently avoids only because the review pane gates it.
 func BenchmarkBranchReview_Get_Scale(b *testing.B) {
 	for _, spec := range scaleSpecs {
 		b.Run(spec.name, func(b *testing.B) {

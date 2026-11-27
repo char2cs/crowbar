@@ -1,6 +1,3 @@
-// Package provider owns the global provider table — which vendor CLIs this machine
-// offers, in what order, and which may call back into Crowbar — and the MCP dispatch
-// those callbacks arrive on. It is per user/machine, never per workspace.
 package provider
 
 import (
@@ -20,15 +17,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// ErrProviderDisabled is returned when a request names a provider the user has
-// switched off. It is an invalid argument rather than a not-found: the provider
-// exists, and the user chose not to use it.
 var ErrProviderDisabled = fmt.Errorf("agent: provider disabled: %w", problem.ErrInvalidArgument)
 
 var descriptorID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
-// InstallDescriptor validates and installs a new machine-level provider.
-// Existing providers are never replaced by this upload path.
 func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptorcheck.Report, error) {
 	report := descriptorcheck.Validate(raw)
 	if !report.OK() {
@@ -78,43 +70,25 @@ func (p *Providers) InstallDescriptor(_ context.Context, raw []byte) (descriptor
 	return report, nil
 }
 
-// Providers is the provider table.
 type Providers struct {
-	agents engineagents.Agents
-	// home resolves crowbar home for the descriptor catalog. It is the app-config
-	// resolver, NOT a wsId lookup: providers are global, so provider resolution
-	// must not depend on any workspace.
-	home func() (string, error)
-	// installed is the install probe (defaults to Agent.Installed); injectable so
-	// provider-resolution tests never depend on which vendor CLIs the host has installed.
+	agents    engineagents.Agents
+	home      func() (string, error)
 	installed func(a engineagents.Agent) bool
-	// prefs is the global priority+enabled table, keyed by provider id; a provider with
-	// no row is enabled and ordered after every preferenced one, by descriptor id.
-	prefs store.Store[domain.AgentProviderPreference, string]
-	// minter issues the per-runner token an MCP call is authenticated by. It is
-	// the SAME instance the spawn path hands a runner its token from: a runner's
-	// token must be minted by the same secret DispatchMCP verifies against.
-	minter *agenttools.TokenMinter
-	// tools is the surface DispatchMCP builds a per-call ToolSet from. Without a
-	// Resolver it refuses to serve rather than advertise an empty tool list.
-	tools agenttools.Deps
-	// gate refuses a provider whose descriptor fails static validation.
-	gate *descriptorcheck.Gate
+	prefs     store.Store[domain.AgentProviderPreference, string]
+	minter    *agenttools.TokenMinter
+	tools     agenttools.Deps
+	gate      *descriptorcheck.Gate
 }
 
-// Deps is everything the provider table is built over.
 type Deps struct {
-	Agents engineagents.Agents
-	Home   func() (string, error)
-	// Installed is the install probe. Nil defaults to the real one, so only a test
-	// has to think about it.
+	Agents    engineagents.Agents
+	Home      func() (string, error)
 	Installed func(a engineagents.Agent) bool
 	Prefs     store.Store[domain.AgentProviderPreference, string]
 	Minter    *agenttools.TokenMinter
 	Tools     agenttools.Deps
 }
 
-// New builds the provider table.
 func New(d Deps) *Providers {
 	installed := d.Installed
 	if installed == nil {
@@ -185,8 +159,6 @@ func (p *Providers) ResolveProviders(
 
 	out := make([]domain.AgentProvider, 0, len(descs))
 	for _, d := range descs {
-		// A descriptor the gate refuses can start no chat, so it is not offered;
-		// DescriptorReports still lists it with the file, line and fix.
 		if p.gate.Require(home, d.ID()) != nil {
 			continue
 		}
@@ -221,7 +193,7 @@ func (p *Providers) ResolveProviders(
 		pi, oki := byID[out[i].ID]
 		pj, okj := byID[out[j].ID]
 		if oki != okj {
-			return oki // a preferenced provider sorts before an unpreferenced one
+			return oki
 		}
 		if oki && pi.Priority != pj.Priority {
 			return pi.Priority < pj.Priority
@@ -231,8 +203,6 @@ func (p *Providers) ResolveProviders(
 	return out, nil
 }
 
-// DefaultProviderID is the agent a chat nobody picked one for runs on: the first
-// enabled, installed provider in the user's order, "" when none is.
 func (p *Providers) DefaultProviderID(ctx context.Context) (string, error) {
 	providers, err := p.ResolveProviders(ctx)
 	if err != nil {
@@ -246,8 +216,6 @@ func (p *Providers) DefaultProviderID(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// DescriptorReports validates every descriptor this machine would load. A
-// report with an error is a provider the daemon refuses to enable.
 func (p *Providers) DescriptorReports(
 	_ context.Context,
 ) ([]descriptorcheck.Report, error) {
@@ -287,8 +255,6 @@ func (p *Providers) ReplaceProviderPreferences(
 		submitted[pref.ProviderID] = struct{}{}
 	}
 
-	// Delete stored rows the submission omits FIRST, so a provider dropped from the
-	// set reverts to default rather than lingering with a stale priority.
 	existing, err := p.prefs.FindAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent: replace provider preferences: list existing: %w", err)
@@ -327,7 +293,6 @@ func resolveEfforts(
 	return out
 }
 
-// resolveDefaultEfforts keys each model's stated default effort by id, nil when no model states one.
 func resolveDefaultEfforts(agent engineagents.Agent) map[string]string {
 	if !agent.Capabilities().EffortSelect {
 		return nil

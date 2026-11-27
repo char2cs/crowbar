@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// numbered is rows as an import hands them over: chat, seq and time set.
 func numbered(chatID string, start time.Time, rows ...ledger.Row) []ledger.Row {
 	for i := range rows {
 		rows[i].ChatID, rows[i].Seq, rows[i].At = chatID, int64(i+1), start.Add(time.Duration(i)*time.Second)
@@ -75,8 +74,6 @@ func TestStore_ImportRefusesRowsItCannotKeepAsGiven(t *testing.T) {
 	require.NoError(t, s.Import(ctx, "c1", nil), "nothing to import is no error")
 }
 
-// Two chats' rows replay into the session index in either order: the session
-// ends with the chat that took it last.
 func TestStore_ImportOfAMovedSessionReplaysInAnyChatOrder(t *testing.T) {
 	then := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
 	chats := map[string][]ledger.Row{
@@ -102,8 +99,6 @@ func TestStore_ImportOfAMovedSessionReplaysInAnyChatOrder(t *testing.T) {
 	}
 }
 
-// ImportAfter adds to a chat's history as Import writes one: after the head the
-// caller read, keeping seq and time, and never past a head that moved since.
 func TestStore_ImportAfterExtendsTheHeadItWasGiven(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()

@@ -29,7 +29,6 @@ func makeEngine(
 	}
 }
 
-// makeEngineWithProvider builds an engine that returns mp for any provider kind.
 func makeEngineWithProvider(
 	kind string,
 	enabled bool,
@@ -214,14 +213,12 @@ func TestPollOnView_WithProvider(t *testing.T) {
 	e := makeEngineWithProvider("github", true, mp)
 	state, err := e.PollOnView(context.Background(), "ws1", "/repo", "feature")
 	require.NoError(t, err)
-	assert.False(t, state.Protected) // "feature" not in protected list
+	assert.False(t, state.Protected)
 	require.NotNil(t, state.PR)
 	assert.Equal(t, 3, state.PR.Number)
 }
 
 func TestPollOnView_PRError(t *testing.T) {
-	// PR lookup errors degrade softly: PollOnView returns no error,
-	// state.Protected is still populated, and state.PR is nil.
 	mp := &mockProvider{
 		protectedBranches: []string{"main"},
 		prErr:             errors.New("pr lookup failed"),
@@ -229,7 +226,7 @@ func TestPollOnView_PRError(t *testing.T) {
 	e := makeEngineWithProvider("github", true, mp)
 	state, err := e.PollOnView(context.Background(), "ws1", "/repo", "feature")
 	require.NoError(t, err)
-	assert.False(t, state.Protected) // "feature" not in protected list
+	assert.False(t, state.Protected)
 	assert.Nil(t, state.PR)
 }
 
@@ -247,14 +244,12 @@ func TestStartBackgroundSweep_WithProvider_CallsCallback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Use a fast sweeper via the sweepPollFn directly to avoid 60s wait.
 	fn := e.sweepPollFn()
 	snap, err := fn(ctx, "ws99", "/repo", "feature")
 	require.NoError(t, err)
 	require.NotNil(t, snap.PR)
 	assert.Equal(t, 99, snap.PR.Number)
 
-	// Ensure StartBackgroundSweep wires without panic.
 	e.StartBackgroundSweep(
 		ctx,
 		func() []poll.SweepTarget { return nil },
@@ -275,8 +270,6 @@ func TestSweepPollFn_ReturnsState(t *testing.T) {
 }
 
 func TestSweepPollFn_WithPR(t *testing.T) {
-	// Make an engine that succeeds with a GitHub-kind but detect disabled.
-	// The pollFn should propagate the zero state.
 	e := makeEngine("github", false, nil)
 	fn := e.sweepPollFn()
 
@@ -285,11 +278,6 @@ func TestSweepPollFn_WithPR(t *testing.T) {
 	assert.False(t, snap.Protected)
 }
 
-// StartBackgroundSweep must wire the engine's pollFn and the caller's callback
-// into the 5-minute global cron. Inside a synctest bubble the production ticker
-// fires against the bubble's fake clock, so the test asserts the wiring end to
-// end — poll ran, state changed, callback delivered — instead of waiting 50ms to
-// observe that nothing had happened yet (which asserted nothing at all).
 func TestStartBackgroundSweep_Wires(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		notified := make(chan string, 1)
@@ -318,13 +306,10 @@ func TestStartBackgroundSweep_Wires(t *testing.T) {
 
 		assert.Equal(t, "ws1", <-notified)
 
-		// synctest holds the bubble open until the sweep goroutine has exited, so a
-		// leaked goroutine fails the test rather than outliving it silently.
 		cancel()
 	})
 }
 
-// mockProvider is a test double for GitProvider.
 type mockProvider struct {
 	protectedBranches []string
 	protectedErr      error
@@ -408,10 +393,6 @@ func TestOwnerAvatarURL_ProviderError_ReturnsEmpty(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// OpenPullRequests is best-effort by contract: it feeds the import dialog's
-// parent-chain hint, which must degrade to "no links" rather than fail the import
-// when the provider CLI is missing, unauthenticated, or erroring. These mirror the
-// OwnerAvatarURL cases above, one per way the chain can come up empty.
 func TestOpenPullRequests_WithProvider(t *testing.T) {
 	mp := &mockProvider{
 		prLinks: []PRLink{

@@ -13,18 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// TestRestore_ConcurrentAttach_NoOrphan verifies that N concurrent Attach calls
-// on a suspended placeholder all land on the SAME live session after restore.
-//
-// Without FIX 1 (per-session lifecycle mutex) goroutines that lose the
-// restoring.LoadOrStore race return nil immediately and re-fetch the placeholder
-// (still in the registry while goroutine-1 is mid-spawn). They successfully
-// call s.Attach() on the placeholder and are frozen there — they never receive
-// live PTY output. This was reproducible 60/60 before the fix.
-//
-// Run with: go test -race -count=10 -run TestRestore_ConcurrentAttach ./...
 func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
-	pinShell(t) // the restored shell must announce its readiness with a known prompt
+	pinShell(t)
 
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -35,7 +25,6 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	sid := "concurrent-restore-orphan"
 	scrollback := []byte("old scrollback\r\n")
 
-	// Write scrollback to disk so restore() can read it.
 	bufPath := filepath.Join(store.dir, sid+".buf")
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
 
@@ -54,8 +43,6 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 		conns[i] = newMockConn()
 	}
 
-	// Barrier ensures all goroutines start Attach simultaneously, maximising
-	// the race window while goroutine-1 is inside spawn().
 	ready := make(chan struct{})
 
 	var wg sync.WaitGroup
@@ -70,25 +57,13 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	}
 	close(ready)
 
-	// Block until the restored shell has printed its prompt. The prompt is proof the
-	// placeholder has become a live PTY with a running shell — the state polling StateOf
-	// every 10 ms was trying to detect, but observed at the source rather than inferred from
-	// a registry field. Waiting on conns[0] specifically is enough: the restore is a single
-	// shared event, and the per-conn assertion below is what proves the rest arrived.
 	waitForMsg(t, conns[0], func(d string) bool { return containsStr(d, shellPrompt) })
 	state, ok := eng.StateOf(sid)
 	require.True(t, ok)
 	require.NotEqual(t, "suspended", state, "the session must be live once its shell has prompted")
 
-	// Write the probe to the live session. Only goroutines attached to the live
-	// session will receive it — goroutines frozen on the placeholder will not.
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo "+liveProbe+"\n")))
 
-	// Block until EVERY goroutine's connection has received the live probe. Each wait ends
-	// on that conn's own fan-out signal, which is precisely the observable the test is about
-	// (a goroutine frozen on the placeholder never receives it), so a conn that never gets
-	// the probe hangs here and is reported by the -timeout backstop — the very failure the
-	// test exists to catch.
 	for _, c := range conns {
 		waitForMsg(t, c, func(d string) bool { return containsStr(d, liveProbe) })
 	}
@@ -97,7 +72,6 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Every goroutine must have received the live PTY probe.
 	for i, c := range conns {
 		found := false
 		for _, raw := range c.allReceived() {
@@ -117,14 +91,6 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// TestKill_vs_Suspend_Serialized verifies that concurrent Kill and Suspend on the
-// same idle detached session always produce a CONSISTENT end state:
-//
-//   - Either fully killed (not in registry, no .buf or meta row left), or
-//   - Cleanly suspended (placeholder present, which is then killed).
-//
-// Without FIX 1 the two ops interleave: Suspend's reg.Add(placeholder) can run
-// AFTER Kill's reg.Remove, resurrecting the session, and reapOnDone skips cleanup.
 func TestKill_vs_Suspend_Serialized(t *testing.T) {
 	pinShell(t)
 
@@ -136,11 +102,8 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 		store := newFakeMetaStore(t)
 		eng.SetMetaStore(store)
 
-		// The shell must be at its prompt (hence idle) for Suspend to be eligible — that is
-		// the precondition of the race under test, so it is established by observation.
 		sid := newReadyShell(t, eng, "chat-ks", store.dir)
 
-		// Race Kill vs Suspend on the same idle session.
 		var wg sync.WaitGroup
 		wg.Add(2)
 		ready := make(chan struct{})
@@ -159,20 +122,16 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 
 		exists := eng.SessionExists(ctx, sid)
 		if exists {
-			// Suspend won the race: must be a clean placeholder (not a live session).
 			state, ok := eng.StateOf(sid)
 			assert.True(t, ok, "round %d: session exists but StateOf returned !ok", round)
 			assert.Equal(t, "suspended", state,
 				"round %d: existing session after Kill/Suspend race must be suspended", round)
-			// Clean up the placeholder.
 			require.NoError(t, eng.Kill(ctx, sid))
 		}
 
-		// Regardless of winner, session must be gone after cleanup.
 		assert.False(t, eng.SessionExists(ctx, sid),
 			"round %d: session must not exist after final cleanup", round)
 
-		// Shutdown joins every reaper, so what is on disk afterwards is final.
 		eng.Shutdown()
 
 		assert.False(t, store.hasLiveRow(sid), "round %d: no meta row survives the kill", round)
@@ -180,11 +139,6 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 	}
 }
 
-// gatedMetaStore wraps fakeMetaStore and lets a test park the FIRST StorageDir
-// call made after arm() until release() is called. This deterministically
-// places a flush/detach persist write AFTER reapOnDone's DeleteBuf+deleteMeta,
-// which is the exact interleaving that resurrects an explicitly-closed terminal
-// on the unfixed code.
 type gatedMetaStore struct {
 	*fakeMetaStore
 	gmu     sync.Mutex
@@ -197,7 +151,6 @@ func newGatedMetaStore(t *testing.T) *gatedMetaStore {
 	return &gatedMetaStore{fakeMetaStore: newFakeMetaStore(t)}
 }
 
-// arm primes the gate so the next StorageDir call parks until release().
 func (g *gatedMetaStore) arm() {
 	g.gmu.Lock()
 	g.armed = true
@@ -225,41 +178,17 @@ func (g *gatedMetaStore) StorageDir(ctx context.Context, chatID string) (string,
 		g.armed = false
 		b, r := g.blocked, g.release
 		g.gmu.Unlock()
-		close(b) // signal: a call has parked
-		<-r      // wait for the test to release us
+		close(b)
+		<-r
 		return g.fakeMetaStore.StorageDir(ctx, chatID)
 	}
 	g.gmu.Unlock()
 	return g.fakeMetaStore.StorageDir(ctx, chatID)
 }
 
-// TestReap_NoResurrection_OnSelfExit verifies that when a shell self-exits (the
-// common `exit` path) while a client is attached, neither a concurrent
-// cadence-flush nor the detach-bookkeeping persist resurrects the just-deleted
-// .buf file or meta row.
-//
-// Root cause (unfixed code): session.shutdown() never nils ptmx, so IsLive()
-// stays true after a self-exit until reapOnDone runs reg.Remove. The cadence
-// flush and the detach-bookkeeping each do WriteBuf+saveMeta with NO
-// e.lockSession and NO liveness guard, so either can land its write AFTER
-// reapOnDone's DeleteBuf+deleteMeta — recreating the scrollback file and durable
-// row, which the next daemon start reloads as a ghost placeholder.
-//
-// This test makes the bad interleaving deterministic via gatedMetaStore: the
-// persist path is parked at StorageDir (after it has passed every liveness
-// check, holding e.lockSession under the fix) while the shell self-exits and
-// reapOnDone runs; the parked write is then released. On unfixed code reap has
-// already deleted everything, so the released write resurrects it. With the fix,
-// reapOnDone blocks on e.lockSession until the parked write finishes, then runs
-// its DeleteBuf+deleteMeta last — leaving NO trace.
-//
-// Run with: go test -race -count=10 -run TestReap_NoResurrection_OnSelfExit ./...
 func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 	cases := []struct {
 		name string
-		// park installs the late writer (flush or detach) so its StorageDir call
-		// parks on the gate; it returns a channel closed when the writer's
-		// goroutine has fully returned.
 		park func(t *testing.T, eng terminal.Engine, store *gatedMetaStore, conn *mockConn, sid string) <-chan struct{}
 	}{
 		{
@@ -279,10 +208,8 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			park: func(_ *testing.T, _ terminal.Engine, store *gatedMetaStore, conn *mockConn, _ string) <-chan struct{} {
 				done := make(chan struct{})
 				store.arm()
-				// Closing the conn unblocks readPump → Detach → the
-				// detach-bookkeeping persist parks on the gate.
 				_ = conn.Close()
-				close(done) // the Attach goroutine itself is joined separately
+				close(done)
 				return done
 			},
 		},
@@ -299,12 +226,8 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			store := newGatedMetaStore(t)
 			eng.SetMetaStore(store)
 
-			// Block until the shell is at its prompt (drawn, idle, ready for input).
 			sid := newReadyShell(t, eng, "chat-reap", store.dir)
 
-			// Attach a real client. The first frame the conn receives is Attach's snapshot
-			// keyframe, so receiving anything at all proves the client is attached and
-			// streaming — the observable that polling StateOf=="active" was approximating.
 			conn := newMockConn()
 			attachDone := make(chan struct{})
 			go func() {
@@ -316,46 +239,22 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, "active", state, "a session with a streaming client is active")
 
-			// Drive output so the model is dirty (so the cadence flush has something to
-			// persist). runShell returns only once the command's output AND the following
-			// prompt are through the pump — i.e. the model is dirty AND the shell is back at
-			// its prompt, both established by observation rather than by two separate polls.
 			runShell(t, eng, sid, "echo reap-probe-line")
 
-			// Capture the death channel BEFORE the exit: it is the session's own signal, and
-			// reapOnDone will shortly remove the session from the registry, after which it
-			// could no longer be looked up.
 			shellDead := terminal.SessionDoneForTest(eng, sid)
 			require.NotNil(t, shellDead)
 
-			// Install the late writer; it parks at StorageDir holding the
-			// per-session lock (under the fix), having passed all liveness checks.
 			writerDone := tc.park(t, eng, store, conn, sid)
 
-			// Block until the writer is actually parked on the gate. blockedCh is a real
-			// signal from the gate itself; it needed no 10-second deadline beside it.
 			<-store.blockedCh()
 
-			// Now self-exit the shell. reapOnDone fires: on unfixed code it runs
-			// to completion (DeleteBuf+deleteMeta); under the fix it blocks on
-			// e.lockSession held by the parked writer.
 			_ = eng.Write(ctx, sid, []byte("exit\n"))
 
-			// Block until the shell has actually exited. The session's done channel closes
-			// when the PTY dies — that IS the event, so we wait on it directly instead of
-			// polling IsIdle and reading its TIOCGPGRP error as a proxy for death. This is
-			// the point at which reapOnDone has unblocked from <-s.Done() and is either
-			// racing to clean up (unfixed) or blocked on the per-session lock held by the
-			// parked writer (the fix).
 			<-shellDead
 
-			// Release the parked write. On unfixed code this WriteBuf+saveMeta
-			// lands after reap already deleted everything → resurrection.
 			store.releaseGate()
 			<-writerDone
 
-			// The writer is done, so the reap's cleanup is the last thing to land; a write
-			// that resurrected the files after it keeps this from ever holding.
 			waitGone(t, eng, store.fakeMetaStore, sid)
 			<-attachDone
 			_ = conn.Close()
@@ -371,7 +270,6 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			assert.False(t, store.hasLiveRow(sid),
 				"meta row must stay deleted — a flush/detach saveMeta resurrected it")
 
-			// A fresh daemon's RestorePersistedSessions must NOT bring it back.
 			fresh := terminal.New()
 			terminal.StopMaintenanceForTest(fresh)
 			fresh.SetMetaStore(store.fakeMetaStore)
@@ -388,18 +286,6 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 	}
 }
 
-// waitUntil — a generic "poll cond every 10 ms until a timeout" helper — is deliberately
-// gone. Every one of its callers was waiting for a specific event that the engine already
-// signals: the shell reaching its prompt (waitPrompt), a client receiving a frame
-// (waitForMsg), the PTY dying (SessionDoneForTest), a session being fully reaped
-// (waitGone), a gate being reached (gatedMetaStore.blockedCh). Each now blocks on
-// that signal, so none of them can wake early on a stale read or expire under load.
-
-// TestFlush_Serialized_NewestWins verifies that two concurrent cadence-flush
-// triggers via RunMaintenanceOnceForTest do not corrupt the scrollback and that
-// the operation completes without data races (checked by -race). With FIX 2,
-// every flush site holds s.FlushMu() across Snapshot+WriteBuf so concurrent
-// callers are serialized and the newest snapshot always wins.
 func TestFlush_Serialized_NewestWins(t *testing.T) {
 	pinShell(t)
 
@@ -411,14 +297,8 @@ func TestFlush_Serialized_NewestWins(t *testing.T) {
 
 	sid := newReadyShell(t, eng, "chat-flush", store.dir)
 
-	// Drive output so the model is dirty: the next Snapshot() returns (blob, changed=true),
-	// which gates the cadence flush so it persists. runShell blocks until that output has
-	// actually been through the pump, so the racing sweeps below are guaranteed to find a
-	// dirty session — rather than merely being likely to.
 	runShell(t, eng, sid, "echo flush-test-output")
 
-	// Two concurrent maintenance sweeps race the cadence-flush path.
-	// Under -race the detector will flag any data race if flushMu is absent.
 	var wg sync.WaitGroup
 	wg.Add(2)
 	ready := make(chan struct{})
@@ -435,14 +315,12 @@ func TestFlush_Serialized_NewestWins(t *testing.T) {
 	close(ready)
 	wg.Wait()
 
-	// At least one flush must have completed: the .buf file must exist.
 	assert.True(t, bufExists(store.dir, sid),
 		".buf must exist after concurrent maintenance flushes")
 
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// readBuf returns a session's persisted scrollback, or nil when there is none.
 func readBuf(dir, sessionID string) ([]byte, error) {
 	data, err := os.ReadFile(filepath.Join(dir, sessionID+".buf"))
 	if os.IsNotExist(err) {

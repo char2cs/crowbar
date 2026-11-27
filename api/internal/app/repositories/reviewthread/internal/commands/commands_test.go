@@ -125,9 +125,6 @@ func TestReplyReviewThread_Validate_Accepts(t *testing.T) {
 	assert.NoError(t, ReplyReviewThread{ID: "t1", MessageID: "m1"}.Validate(&domain.ReviewThread{ID: "t1"}))
 }
 
-// TestOpenReviewThread_CarriesAgentAttribution asserts the opened thread's first
-// message keeps the provider and chat the write named, so the review UI can say
-// which agent left the finding and which conversation it came out of.
 func TestOpenReviewThread_CarriesAgentAttribution(t *testing.T) {
 	th := OpenReviewThread{
 		ID: "t1", WsID: "w1", MessageID: "m1", Body: "hi",
@@ -140,8 +137,6 @@ func TestOpenReviewThread_CarriesAgentAttribution(t *testing.T) {
 	assert.Equal(t, "chat-7", th.Messages[0].ChatID)
 }
 
-// A human open names neither, and must not be given a blank-but-present
-// attribution that would render as an agent with no name.
 func TestOpenReviewThread_LeavesAHumanUnattributed(t *testing.T) {
 	th := OpenReviewThread{
 		ID: "t1", WsID: "w1", MessageID: "m1", Body: "hi", Now: time.Unix(1, 0),
@@ -153,10 +148,6 @@ func TestOpenReviewThread_LeavesAHumanUnattributed(t *testing.T) {
 	assert.Empty(t, th.Messages[0].ChatID)
 }
 
-// TestReplyReviewThread_CarriesAgentAttribution asserts a reply is attributed
-// independently of the root: two agents in one thread must be distinguishable,
-// which is the whole point of carrying the ids per MESSAGE rather than per
-// thread.
 func TestReplyReviewThread_CarriesAgentAttribution(t *testing.T) {
 	cur := &domain.ReviewThread{
 		ID: "t1", Status: domain.ReviewThreadStatusOpen,
@@ -178,8 +169,6 @@ func TestReplyReviewThread_CarriesAgentAttribution(t *testing.T) {
 	assert.Equal(t, "chat-2", th.Messages[1].ChatID)
 }
 
-// A human reply on an agent-opened thread carries no attribution of its own,
-// and does not inherit the root's.
 func TestReplyReviewThread_LeavesAHumanUnattributed(t *testing.T) {
 	cur := &domain.ReviewThread{
 		ID: "t1", Status: domain.ReviewThreadStatusOpen,
@@ -207,15 +196,9 @@ func TestEditReviewMessage_RewritesBody(t *testing.T) {
 	th := EditReviewMessage{ID: "t1", MessageID: "m2", Body: "new reply"}.EmitEvent(cur)
 	require.Len(t, th.Messages, 2)
 	assert.Equal(t, "new reply", th.Messages[1].Body)
-	// Original aggregate is not mutated in place.
 	assert.Equal(t, "old reply", cur.Messages[1].Body)
 }
 
-// TestEditReviewMessage_KeepsAttribution asserts an edit rewrites the body and
-// nothing else. Editing is how a user corrects a message in place, and an edit
-// that dropped the provider or chat would silently un-attribute an agent's
-// finding — the aggregate is the only copy, so there is nothing to restore it
-// from.
 func TestEditReviewMessage_KeepsAttribution(t *testing.T) {
 	cur := threadWith(
 		domain.ReviewMessage{ID: "m1", Body: "root", IsAgent: true, ProviderID: "claude", ChatID: "chat-1"},
@@ -255,7 +238,6 @@ func TestDeleteReviewMessage_RemovesReply(t *testing.T) {
 	th := DeleteReviewMessage{ID: "t1", MessageID: "m2"}.EmitEvent(cur)
 	require.Len(t, th.Messages, 1)
 	assert.Equal(t, "m1", th.Messages[0].ID)
-	// Original aggregate is not mutated in place.
 	require.Len(t, cur.Messages, 2)
 }
 
@@ -264,7 +246,6 @@ func TestDeleteReviewMessage_Validate_RejectsRoot(t *testing.T) {
 		domain.ReviewMessage{ID: "m1", Body: "root"},
 		domain.ReviewMessage{ID: "m2", Body: "reply"},
 	)
-	// Deleting the root (Messages[0]) is rejected — use DeleteThread instead.
 	assert.True(t, errors.Is(DeleteReviewMessage{ID: "t1", MessageID: "m1"}.Validate(cur), asynxModels.ErrValidation))
 }
 

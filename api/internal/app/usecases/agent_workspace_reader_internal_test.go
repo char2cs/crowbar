@@ -41,11 +41,6 @@ func (f fakeRepoGetter) FindByKey(
 	return f.repo, nil
 }
 
-// TestAgentWorkspaceReader_WorktreeDir_Success proves WorktreeDir resolves the
-// owning project/repo from the workspace repo and returns the git worktree
-// directory stored on the workspace read model's WorktreePath, rooted at the
-// injected crowbarHome (not a home resolved here, so it never diverges from a
-// hermetic test's overridden home).
 func TestAgentWorkspaceReader_WorktreeDir_Success(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
@@ -66,8 +61,6 @@ func TestAgentWorkspaceReader_WorktreeDir_Success(t *testing.T) {
 	assert.Equal(t, "/home/crowbar/projects/p1/r1/workspaces/w1/worktree", worktree)
 }
 
-// TestAgentWorkspaceReader_WorktreeDir_CrowbarHomeError proves a crowbarHome
-// resolver failure short-circuits before the workspace is even looked up.
 func TestAgentWorkspaceReader_WorktreeDir_CrowbarHomeError(t *testing.T) {
 	wantErr := errors.New("no home")
 	r := &agentWorkspaceReader{
@@ -80,8 +73,6 @@ func TestAgentWorkspaceReader_WorktreeDir_CrowbarHomeError(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// TestAgentWorkspaceReader_WorktreeDir_WorkspaceGetError proves an unknown
-// workspace id surfaces the repo's error wrapped, not swallowed.
 func TestAgentWorkspaceReader_WorktreeDir_WorkspaceGetError(t *testing.T) {
 	wantErr := errors.New("workspace not found")
 	r := &agentWorkspaceReader{
@@ -94,9 +85,6 @@ func TestAgentWorkspaceReader_WorktreeDir_WorkspaceGetError(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_ManagedWorktree_SiblingOfWorktree pins
-// the git path (Task 7): a Crowbar-managed worktree (WorktreePath strictly under
-// home) keeps its chats beside the worktree, so a workspace-root rm reaps them.
 func TestAgentWorkspaceReader_AgentChatsDir_ManagedWorktree_SiblingOfWorktree(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
@@ -115,19 +103,13 @@ func TestAgentWorkspaceReader_AgentChatsDir_ManagedWorktree_SiblingOfWorktree(t 
 	assert.Equal(t, "/home/crowbar/projects/p1/github.com/acme/repo/feat-x/chats", dir)
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_HomeKind_RerootsUnderHome pins the
-// home-kind / adopted-checkout path (Task 7): a workspace whose WorktreePath is
-// the user's REAL dir OUTSIDE home (the repo-home adopted at repo.Path) reroots its
-// chats to <home>/projects/<proj>/<slug>/default/chats, so no plaintext ledger is
-// ever written beside the user's repository. The slug is resolved from the repo's
-// remote via worktreepath.RemoteSlug, exactly like worktree.resolveSlug.
 func TestAgentWorkspaceReader_AgentChatsDir_HomeKind_RerootsUnderHome(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
 			ID:           "wh",
 			ProjectID:    "p1",
 			RepoID:       "r1",
-			WorktreePath: "/Users/dev/my-real-repo", // repo.Path, OUTSIDE crowbar home
+			WorktreePath: "/Users/dev/my-real-repo",
 			IsDefault:    true,
 			Provisioning: domain.WorkspaceShared,
 		}},
@@ -143,20 +125,13 @@ func TestAgentWorkspaceReader_AgentChatsDir_HomeKind_RerootsUnderHome(t *testing
 	assert.Equal(t, "/home/crowbar/projects/p1/github.com/acme/repo/default/chats", dir)
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_ProjectHome_NoRepo_RerootsUnderProject
-// covers the project-level home (WorkspaceKindHome, WorktreePath = project.Path
-// outside home, NO repo id): it has no slug to resolve, so its chats still root
-// strictly under home at <home>/projects/<proj>/default/chats — never beside the
-// user's real project folder. This is exactly the case the brief's literal
-// "resolve slug via RepoID" could not serve (no repo), so keying on the under-home
-// test rather than Kind is what keeps it safe.
 func TestAgentWorkspaceReader_AgentChatsDir_ProjectHome_NoRepo_RerootsUnderProject(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
 			ID:           "wp",
 			ProjectID:    "p1",
 			Kind:         domain.WorkspaceKindHome,
-			WorktreePath: "/Users/dev/my-project", // project.Path, OUTSIDE crowbar home
+			WorktreePath: "/Users/dev/my-project",
 			Provisioning: domain.WorkspaceShared,
 		}},
 		repos:       fakeRepoGetter{err: errors.New("no repo must be looked up for a repo-less home")},
@@ -168,23 +143,17 @@ func TestAgentWorkspaceReader_AgentChatsDir_ProjectHome_NoRepo_RerootsUnderProje
 	assert.Equal(t, "/home/crowbar/projects/p1/default/chats", dir)
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_PoisonedSlug_FailsClosed proves the
-// source guard (Task 7 safety): a crafted repo remote whose RemoteSlug carries
-// "../" segments would let filepath.Join collapse the rerooted chats dir OUTSIDE
-// crowbar home (a plaintext-ledger write onto the user's real filesystem).
-// AgentChatsDir must fail CLOSED — return an error, never an escaping path.
 func TestAgentWorkspaceReader_AgentChatsDir_PoisonedSlug_FailsClosed(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces: fakeWorkspaceGetter{ws: domain.Workspace{
 			ID:           "wh",
 			ProjectID:    "p1",
 			RepoID:       "r1",
-			WorktreePath: "/Users/dev/my-real-repo", // OUTSIDE home → reroot path
+			WorktreePath: "/Users/dev/my-real-repo",
 			Provisioning: domain.WorkspaceProvisioned,
 		}},
 		repos: fakeRepoGetter{repo: &domain.Repository{
-			ID: "r1",
-			// A hostile remote whose slug is host/../../../../etc → escapes home.
+			ID:        "r1",
 			RemoteURL: "git@evil.com:../../../../../../etc/cron.d.git",
 		}},
 		crowbarHome: func() (string, error) { return "/home/crowbar", nil },
@@ -196,8 +165,6 @@ func TestAgentWorkspaceReader_AgentChatsDir_PoisonedSlug_FailsClosed(t *testing.
 	assert.Contains(t, err.Error(), "escapes crowbar home")
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_CrowbarHomeError proves a crowbarHome
-// resolver failure short-circuits before any lookup.
 func TestAgentWorkspaceReader_AgentChatsDir_CrowbarHomeError(t *testing.T) {
 	wantErr := errors.New("no home")
 	r := &agentWorkspaceReader{
@@ -210,12 +177,6 @@ func TestAgentWorkspaceReader_AgentChatsDir_CrowbarHomeError(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_EmptyWorkspaceID_Errors documents
-// exactly why chat.WorkspaceID may never drive a chat's own ledger path (spec
-// §1.5): AgentChatsDir unconditionally resolves a workspace ROW, so a chat
-// with no workspace — WorkspaceID == "" — has no row to find at all, not merely
-// a "different" one. worktreepath.LedgerChatsDir exists precisely so a
-// ledger's own path never runs through this lookup.
 func TestAgentWorkspaceReader_AgentChatsDir_EmptyWorkspaceID_Errors(t *testing.T) {
 	r := &agentWorkspaceReader{
 		workspaces:  fakeWorkspaceGetter{err: errors.New("workspace not found: \"\"")},
@@ -226,9 +187,6 @@ func TestAgentWorkspaceReader_AgentChatsDir_EmptyWorkspaceID_Errors(t *testing.T
 	require.Error(t, err, "a chat with no workspace must not silently resolve SOME chats dir")
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_WorkspaceGetError proves an unknown
-// workspace id surfaces the repo's error wrapped, mirroring
-// TestAgentWorkspaceReader_WorktreeDir_WorkspaceGetError for the sibling method.
 func TestAgentWorkspaceReader_AgentChatsDir_WorkspaceGetError(t *testing.T) {
 	wantErr := errors.New("workspace not found")
 	r := &agentWorkspaceReader{
@@ -241,9 +199,6 @@ func TestAgentWorkspaceReader_AgentChatsDir_WorkspaceGetError(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates proves that an
-// adopted-checkout workspace (outside home) whose owning repo cannot be
-// resolved aborts AgentChatsDir rather than falling through to an empty slug.
 func TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates(t *testing.T) {
 	wantErr := errors.New("read model unavailable")
 	r := &agentWorkspaceReader{
@@ -251,7 +206,7 @@ func TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates(t *testing.T
 			ID:           "wh",
 			ProjectID:    "p1",
 			RepoID:       "r1",
-			WorktreePath: "/Users/dev/my-real-repo", // outside home → must resolve a slug
+			WorktreePath: "/Users/dev/my-real-repo",
 			Provisioning: domain.WorkspaceProvisioned,
 		}},
 		repos:       fakeRepoGetter{err: wantErr},
@@ -263,8 +218,6 @@ func TestAgentWorkspaceReader_AgentChatsDir_RepoSlugErrorPropagates(t *testing.T
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// TestAgentWorkspaceReader_RepoSlug_EmptyRepoIDYieldsEmptySlug pins the
-// project-level home shortcut: no repo id means no lookup at all.
 func TestAgentWorkspaceReader_RepoSlug_EmptyRepoIDYieldsEmptySlug(t *testing.T) {
 	r := &agentWorkspaceReader{
 		repos: fakeRepoGetter{err: errors.New("must not be looked up for a blank repo id")},
@@ -275,8 +228,6 @@ func TestAgentWorkspaceReader_RepoSlug_EmptyRepoIDYieldsEmptySlug(t *testing.T) 
 	assert.Empty(t, slug)
 }
 
-// TestAgentWorkspaceReader_RepoSlug_FindByKeyErrorPropagates proves a real
-// store failure is wrapped and surfaced, not swallowed as "not found".
 func TestAgentWorkspaceReader_RepoSlug_FindByKeyErrorPropagates(t *testing.T) {
 	wantErr := errors.New("store down")
 	r := &agentWorkspaceReader{repos: fakeRepoGetter{err: wantErr}}
@@ -286,9 +237,6 @@ func TestAgentWorkspaceReader_RepoSlug_FindByKeyErrorPropagates(t *testing.T) {
 	assert.ErrorIs(t, err, wantErr)
 }
 
-// TestAgentWorkspaceReader_RepoSlug_UnknownRepoIsAnError proves a repo id that
-// resolves to no row (a dangling reference) is reported, not silently
-// collapsed to an empty slug that would misroute the chats dir.
 func TestAgentWorkspaceReader_RepoSlug_UnknownRepoIsAnError(t *testing.T) {
 	r := &agentWorkspaceReader{repos: fakeRepoGetter{repo: nil}}
 

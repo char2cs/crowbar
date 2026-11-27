@@ -19,9 +19,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// fakeTermForAttach is a minimal seam.TerminalCommander: it records every
-// CreateCommand call's argv and lets a test trigger onExit synchronously,
-// mirroring a real PTY dying on its own.
 type fakeTermForAttach struct {
 	mu         sync.Mutex
 	created    []fakeTermCall
@@ -56,9 +53,6 @@ func (f *fakeTermForAttach) CreateCommand(
 
 func (f *fakeTermForAttach) Write(context.Context, string, []byte) error { return nil }
 
-// TerminateGraceful records the termination and, as the engine does, runs the
-// exit callback of a session it created before returning; a session it never
-// created is not found.
 func (f *fakeTermForAttach) TerminateGraceful(_ context.Context, sessionID string) error {
 	f.mu.Lock()
 	f.terminated = append(f.terminated, sessionID)
@@ -86,9 +80,6 @@ func (f *fakeTermForAttach) callCount() int {
 	return len(f.created)
 }
 
-// attachTestDescriptor mirrors interruptTestDescriptor plus a declared
-// attach: and a config_injection step, so a test can confirm the attached
-// argv carries the SAME hooks wiring a normal hooks-transport spawn gets.
 const attachTestDescriptor = `
 id: attach-test
 spawn:
@@ -141,8 +132,6 @@ func attachTestAgent(t *testing.T) engineagents.Agent {
 func TestSwitchToTerminal_ReturnsErrNoNativeTerminal_WhenNoLiveAPIConn(t *testing.T) {
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live: liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 	}
@@ -150,16 +139,9 @@ func TestSwitchToTerminal_ReturnsErrNoNativeTerminal_WhenNoLiveAPIConn(t *testin
 	require.ErrorIs(t, err, ErrNoNativeTerminal)
 }
 
-// TestSwitchToTerminal_IsIdempotentOnceAlreadyAttached pins a real bug caught
-// live: a second SwitchToTerminal call on an already-attached runner has no
-// api connection left to check attach against — that must return the SAME
-// session, not ErrNoNativeTerminal, since "already switched" is success, not
-// the failure that error means everywhere else.
 func TestSwitchToTerminal_IsIdempotentOnceAlreadyAttached(t *testing.T) {
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live: liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 	}
@@ -181,8 +163,6 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live:   liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 		turns:  noopTurns{},
@@ -199,10 +179,6 @@ func TestSwitchToTerminal_ReturnsErrTurnInProgress_WhenWorking(t *testing.T) {
 	require.True(t, stillConnected, "a refused switch must not tear anything down")
 }
 
-// TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection is the
-// happy path: the api connection is torn down, the attach argv (carrying the
-// SAME config_injection hooks wiring a normal spawn gets) is forked as a real
-// terminal session, and the runner is recorded as attached.
 func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testing.T) {
 	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
@@ -215,8 +191,6 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	term := &fakeTermForAttach{}
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live:   liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
 		turns:  noopTurns{},
@@ -249,19 +223,10 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	require.True(t, ok)
 	require.Equal(t, termSessID, view.termSessID)
 
-	// TestRegression_SwitchToTerminalForksWithTheProcessEnvironment's fact, asserted
-	// on the happy path it belongs to: see that test's own comment.
 	require.Contains(t, call.env, "PATH="+os.Getenv("PATH"),
 		"the native view must inherit the daemon's environment, or its hooks cannot run")
 }
 
-// TestRegression_SwitchToTerminalForksWithTheProcessEnvironment pins a bug
-// measured live: CreateCommand takes its env VERBATIM, and this path passed
-// nil, so the native view ran with only the terminal defaults — no PATH, no
-// HOME. Every hook APIAttachArgv wires then died with exit 127 and `crowbar
-// mcp` never started, so a chat handed to its provider's own view recorded
-// nothing at all: the exact failure APIAttachArgv's doc says it exists to
-// prevent.
 func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T) {
 	stdio := fakeServe(t, nil)
 	agent := attachTestAgent(t)
@@ -274,8 +239,6 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	term := &fakeTermForAttach{}
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live:   liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
 		turns:  noopTurns{},
@@ -294,8 +257,6 @@ func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T)
 	require.Subset(t, term.lastCall().env, os.Environ())
 }
 
-// The attach decision reads the chat's bound session, under which turns are
-// recorded, not the connection's establish-time copy.
 func TestRegression_SwitchToTerminal_ChecksTheBoundSession_NotStaleAPIConnSession(t *testing.T) {
 	for name, turned := range map[string]bool{"turned": true, "never turned": false} {
 		t.Run(name, func(t *testing.T) {
@@ -321,8 +282,6 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 	term := &fakeTermForAttach{}
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live:   liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
 		turns:  noopTurns{},
@@ -331,7 +290,6 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 	}
 	rs.apiConns.set("runner-1", &apiconn{
 		driver: apiConn, ctx: ctx, agent: agent,
-		// tctx.Session deliberately differs from the bound session.
 		tctx: engineagents.TemplateCtx{Session: "stale-conn-sess", Cwd: "/work", Segid: "seg-1", CrowbarBin: "/bin/crowbar"},
 	})
 
@@ -350,35 +308,17 @@ func switchToTerminalOnTheBoundSession(t *testing.T, l *ledgerstore.Store, attac
 func TestSwitchToNative_IsANoop_WhenNothingAttached(t *testing.T) {
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live: liveWith(t, engineagents.Runner{ID: "runner-1", CurrentChatID: "chat-1"}),
 	}
 	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
 }
 
-// TestSwitchToNative_TerminatesAndReestablishes proves the reversible half:
-// SwitchToNative kills the attached PTY, clears the attached record, and
-// ATTEMPTS to re-establish the api connection via applyAPITransport — the
-// exact same call the real spawn path makes, so it forks a real subprocess
-// and cannot be driven by this file's in-process fake server (unlike a
-// hand-built *engineagents.APIConn, which the OTHER tests in this package use
-// specifically to avoid that). Its own doc comment already treats a failed
-// reconnect as "leave the chat dormant, never fail the caller" — degrading
-// exactly like a fresh spawn's applyAPITransport would — so this test asserts
-// the three things that don't require a real subprocess: the PTY is actually
-// terminated, SwitchToNative itself never errors even when the reconnect it
-// attempts cannot succeed in this environment, and the runner — which has no
-// PTY of its own and now no connection either — is reconciled as gone rather
-// than left advertising a live agent with no process behind it.
 func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 	agent := attachTestAgent(t)
 	term := &fakeTermForAttach{}
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
-		// surfaces/chats: the two switch calls now MOVE the chat's current
-		// surface (domain.Chat.Surface), in memory and durably.
 		surfaces: newSurfaceRegistry(), chats: newSpySurfaceChats(),
 		live:    liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test", CurrentChatID: "chat-1"}),
 		turns:   noopTurns{},
@@ -387,14 +327,12 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 		answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
 		ledger:  newTestLedger(t),
 	}
-	// Registered directly, as if SwitchToTerminal had already run and torn the
-	// api connection down — SwitchToNative's own job is reversing that.
 	rs.attached.set("runner-1", attachedView{
 		termSessID: "attach-term-1",
 		agent:      agent,
 		tctx:       engineagents.TemplateCtx{Session: "sess-1", Cwd: "/work"},
 	})
-	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal) // as attachNativeView leaves it
+	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal)
 
 	require.NoError(t, rs.SwitchToNative(context.Background(), "chat-1"))
 
@@ -408,7 +346,6 @@ func TestSwitchToNative_TerminatesAndReestablishes(t *testing.T) {
 	require.Equal(t, "runner-1", exit.RunnerID)
 }
 
-// phaseTouches records the chat's phase at every announcement.
 type phaseTouches struct {
 	rs   *Runners
 	seen []string
@@ -418,8 +355,6 @@ func (p *phaseTouches) Touch(_ context.Context, chatID string) {
 	p.seen = append(p.seen, p.rs.Phase(chatID))
 }
 
-// Re-establishing the connection can take as long as the CLI's handshake; the
-// chat reads as switching meanwhile, not as an idle chat that ignores the user.
 func TestRegression_SwitchToNativeReadsAsSwitchingUntilItLands(t *testing.T) {
 	rs := &Runners{
 		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), chatLock: newTestLock(), parks: newParks(),
@@ -446,9 +381,6 @@ func TestRegression_SwitchToNativeReadsAsSwitchingUntilItLands(t *testing.T) {
 	assert.Empty(t, rs.Phase("chat-1"), "the switch never ended")
 }
 
-// TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking: tearing
-// down the native view mid-turn kills the process the user is watching work,
-// so the switch is refused and the view stays exactly as it was.
 func TestRegression_SwitchToNativeRefusesWhileTheAttachedViewIsWorking(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := &Runners{

@@ -22,13 +22,10 @@ import (
 var embedded embed.FS
 
 const (
-	// The shipped descriptors are v3 (event-centric).
 	embeddedDir = "descriptors-v3"
 	overrideDir = "descriptors"
 	yamlSuffix  = ".yaml"
 
-	// modelManifestFile is the one bundled model.manifest: fallback shared by every
-	// provider; each descriptor's items_path picks its own rows out of it.
 	modelManifestFile = embeddedDir + "/model-manifest.json"
 )
 
@@ -36,16 +33,11 @@ var ErrUnknown = fmt.Errorf("agents: unknown provider")
 
 var ErrInvalid = rules.ErrInvalidDescriptor
 
-// Load parses a descriptor and validates its event table against Crowbar's canonical
-// vocabulary, which is what makes a typo a startup failure rather than a field that
-// silently maps to nothing.
 func Load(data []byte) (*spec.Descriptor, error) {
 	d, err := Parse(data)
 	if err != nil {
 		return nil, err
 	}
-	// The webview injects the icon as HTML: one that is not plain SVG is dropped,
-	// never fatal, and descriptorcheck reports it.
 	if d.Icon != "" && svgicon.Validate(d.Icon) != nil {
 		d.Icon = ""
 	}
@@ -55,9 +47,6 @@ func Load(data []byte) (*spec.Descriptor, error) {
 	return d, nil
 }
 
-// Resolve loads id's descriptor: its on-disk override when accept admits it (nil
-// admits all), else the shipped default, so a refused override never takes the
-// provider down while a default exists.
 func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bool) (*spec.Descriptor, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -78,8 +67,6 @@ func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bo
 	return Load(data)
 }
 
-// OverridePath is where Resolve looks for id's on-disk override under homeDir ("" when
-// homeDir is). Exposed so a hot-path caller can Stat it instead of re-resolving.
 func OverridePath(homeDir, id string) string {
 	if homeDir == "" {
 		return ""
@@ -114,8 +101,6 @@ func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*
 	return out, nil
 }
 
-// overrideEntries lists homeDir's override directory. One that cannot be read
-// leaves the embedded set standing, as a broken override does, and says so.
 func overrideEntries(homeDir string) []fs.DirEntry {
 	dir := filepath.Join(homeDir, overrideDir)
 	entries, err := os.ReadDir(dir)
@@ -130,8 +115,6 @@ func hasEmbedded(id string) bool {
 	return err == nil
 }
 
-// EmbeddedModelManifest is the bundled model.manifest: fallback, or nil when the
-// embed is missing, so a bad bundle degrades instead of failing boot.
 func EmbeddedModelManifest() []byte {
 	data, err := embedded.ReadFile(modelManifestFile)
 	if err != nil {

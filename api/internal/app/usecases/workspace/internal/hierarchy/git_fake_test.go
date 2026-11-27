@@ -15,15 +15,11 @@ type gitCall struct {
 
 type fakeGit struct {
 	enginegit.Engine
-	calls       []gitCall
-	addStartSha string
-	addErr      error
-	revParseSha string
-	revParseErr error
-	// revParseByRev overrides revParseSha for a specific rev argument, so a test
-	// can make RevParse("refs/heads/x") answer differently from
-	// RevParse("origin/x") in the same call — needed to give a local branch tip a
-	// genuinely different SHA from the resolved origin tip.
+	calls                  []gitCall
+	addStartSha            string
+	addErr                 error
+	revParseSha            string
+	revParseErr            error
 	revParseByRev          map[string]string
 	mergeBaseSha           string
 	mergeBaseErr           error
@@ -37,10 +33,10 @@ type fakeGit struct {
 	removeErr              error
 	deleteErr              error
 	remoteExists           bool
-	remoteExistsByBranch   map[string]bool // overrides remoteExists per branch when non-nil
+	remoteExistsByBranch   map[string]bool
 	remoteExistsErr        error
 	trackingExists         bool
-	trackingExistsByBranch map[string]bool // overrides trackingExists per branch when non-nil
+	trackingExistsByBranch map[string]bool
 	trackingExistsErr      error
 	setUpstreamErr         error
 	fetchRefErr            error
@@ -57,24 +53,14 @@ type fakeGit struct {
 	opInProgress    string
 	opInProgressErr error
 
-	worktrees       []enginegit.WorktreeEntry
-	worktreeListErr error
-	detachErr       error
-	checkoutErr     error
-	// addConflictUntilDetach, when set, makes WorktreeAdd/WorktreeAddBranch fail
-	// with this error until DetachWorktree is called — simulating git's
-	// "branch already checked out by the main worktree" conflict that a detach
-	// clears.
+	worktrees              []enginegit.WorktreeEntry
+	worktreeListErr        error
+	detachErr              error
+	checkoutErr            error
 	addConflictUntilDetach error
 	detachCalled           bool
 
-	// branchNow is the fake repo's ACTUAL branch. It advances only when a
-	// RenameBranch call SUCCEEDS, so a test can tell "git renamed it" from "git
-	// was asked to and the call died".
-	branchNow string
-	// onBranchRenamed fires once, immediately after a successful RenameBranch.
-	// It is the client-disconnect seam: the rename tests use it to cancel the
-	// request context at the exact instant `git branch -m` has landed.
+	branchNow       string
 	onBranchRenamed func()
 
 	branches    []gitdomain.Branch
@@ -99,8 +85,6 @@ func (f *fakeGit) WorktreeList(
 ) ([]enginegit.WorktreeEntry, error) {
 	f.record("WorktreeList", repoPath)
 	if f.detachCalled {
-		// After a detach the holder is freed: the branch is no longer checked out
-		// anywhere, so the next resolution classifies it Free.
 		return nil, f.worktreeListErr
 	}
 	return f.worktrees, f.worktreeListErr
@@ -236,8 +220,6 @@ func (f *fakeGit) WorktreeAddAtRef(
 	if f.worktreeAddErr != nil {
 		return "", f.worktreeAddErr
 	}
-	// The real engine resolves startRef and returns that SHA; the fake's
-	// revParseSha stands in for it so the fork-point assertions keep working.
 	return f.revParseSha, f.revParseErr
 }
 
@@ -353,14 +335,13 @@ func (f *fakeGit) WorktreeRemove(
 	worktreePath string,
 	force bool,
 ) error {
-	if err := ctx.Err(); err != nil { // as git does
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	f.record("WorktreeRemove", repoPath, worktreePath, fmt.Sprint(force))
 	return f.removeErr
 }
 
-// UncommittedFiles answers from uncommitted, keyed by worktree path.
 func (f *fakeGit) UncommittedFiles(
 	_ context.Context,
 	worktreePath string,
@@ -368,7 +349,6 @@ func (f *fakeGit) UncommittedFiles(
 	return f.uncommitted[worktreePath], f.riskErr
 }
 
-// UnmergedCommits answers from unmerged, keyed by the branch being dropped.
 func (f *fakeGit) UnmergedCommits(
 	_ context.Context,
 	_ string,

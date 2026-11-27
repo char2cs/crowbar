@@ -14,13 +14,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
-// StepChatAttachments moves each chat's attachments out of its workspace's chats
-// directory into the chat's own, so they follow the chat and go with it.
 const StepChatAttachments = 8
 
 const attachmentsDir = "attachments"
 
-// planChatAttachments counts the workspace attachment directories still to move.
 func planChatAttachments(_ context.Context, env migrate.Env) (migrate.Plan, error) {
 	found, err := workspaceAttachments(env.Home)
 	if err != nil || len(found) == 0 {
@@ -31,8 +28,6 @@ func planChatAttachments(_ context.Context, env migrate.Env) (migrate.Plan, erro
 	}}}, nil
 }
 
-// moveChatAttachments renames every file into the chat's own directory, one
-// checkpoint per source directory; a name already taken there is kept and noted.
 func moveChatAttachments(_ context.Context, env migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
 	found, err := workspaceAttachments(env.Home)
 	if err != nil {
@@ -91,7 +86,6 @@ func moveFiles(src, dst string) (int64, []string, error) {
 	return moved, kept, nil
 }
 
-// removeEmpty removes each directory in turn, stopping at the first not empty.
 func removeEmpty(dirs ...string) {
 	for _, d := range dirs {
 		if os.Remove(d) != nil {
@@ -100,8 +94,6 @@ func removeEmpty(dirs ...string) {
 	}
 }
 
-// workspaceAttachments lists every <chats>/<chat-id>/attachments directory under
-// projects/, never looking inside a user's checkout.
 func workspaceAttachments(h home.Home) ([]string, error) {
 	root := filepath.Join(h.Root(), "projects")
 	var found []string

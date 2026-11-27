@@ -9,19 +9,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// pendingDeletes is the delete usecase's list of unfinished deletes.
 type pendingDeletes interface {
 	PendingDeletes(ctx context.Context) ([]project.PendingDelete, error)
 }
 
-// bootRunner runs an operation on the caller's goroutine.
 type bootRunner interface {
 	Run(ctx context.Context, spec operation.Spec, work operation.Work) (domain.Operation, error)
 }
 
-// resumeDeletes finishes every delete a crash or a failure stopped, each as an
-// operation that has settled when this returns. A delete that fails again is
-// that operation's failure; only a failure to record one stops the boot.
 func resumeDeletes(
 	ctx context.Context,
 	deletes pendingDeletes,

@@ -12,10 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// The screens an agent's terminal paints while it blocks on a prompt only it can answer.
-
-// A claude never set up on this machine paints its onboarding before any
-// hook: both screens read as blocking, never as a healthy empty pane.
 func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
 	for _, screen := range []string{
 		"Welcome to Claude Code v2.1.281\n Let's get started.\n Choose the text style that looks best with your terminal\n ❯ 2. Dark mode ✔",
@@ -26,7 +22,6 @@ func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
 	}
 }
 
-// A command's dialog (2.1.319) blocks: by its footer, or by its tab row where a small grid cuts it.
 func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
 	for _, screen := range []string{" For more help: …\n Esc to cancel", "  Help   General   Commands   Custom commands\n"} {
 		prompt, ok := get(t, "claude").MatchTerminalPrompt(screen)
@@ -34,8 +29,6 @@ func TestMatchTerminalPrompt_ClaudeCommandDialogBlocks(t *testing.T) {
 	}
 }
 
-// The trust dialog as the real CLI paints it (2.1.319, through our emulator) preselects
-// "No, exit": accepting must move the cursor onto the trust option before confirming.
 func TestMatchTerminalPrompt_ClaudeAimsItsTrustAnswerAtTheTrustOption(t *testing.T) {
 	screen, err := os.ReadFile("testdata/claude-trust-2.1.319.screen")
 	require.NoError(t, err)

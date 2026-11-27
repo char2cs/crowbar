@@ -5,9 +5,6 @@ import (
 	"sync"
 )
 
-// backgroundWork is the supervisor's own follow-up work (a native view's
-// exit handling): tracked, so Shutdown cancels it and waits, and none outlives
-// the daemon. A nil one (a bare Runners built by a test) runs untracked.
 type backgroundWork struct {
 	mu      sync.Mutex
 	stopped bool
@@ -19,8 +16,6 @@ func newBackgroundWork() *backgroundWork {
 	return &backgroundWork{cancels: map[*context.CancelFunc]struct{}{}}
 }
 
-// run starts fn with parent's values but the supervisor's lifetime: it
-// outlives the request that asked for it and ends with Shutdown.
 func (b *backgroundWork) run(parent context.Context, fn func(context.Context)) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	if b == nil {
@@ -32,7 +27,7 @@ func (b *backgroundWork) run(parent context.Context, fn func(context.Context)) {
 	}
 	b.mu.Lock()
 	if b.stopped {
-		cancel() // after Shutdown it runs already cancelled, and is still waited for
+		cancel()
 	}
 	b.cancels[&cancel] = struct{}{}
 	b.wg.Add(1)
@@ -51,7 +46,6 @@ func (b *backgroundWork) forget(cancel *context.CancelFunc) {
 	(*cancel)()
 }
 
-// stop cancels every piece of background work and waits for it to return.
 func (b *backgroundWork) stop() {
 	if b == nil {
 		return

@@ -1,0 +1,15 @@
+{
+ "description": "Streams text and holds with the message still open until stopped.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Paragraph 1: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 1: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 1: the scripted agent keeps talking so the transcript grows while you watch. \n\nParagraph 2: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 2: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 2: the scripted agent keeps talking so the transcript grows while you watch. \n\nParagraph 3: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 3: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 3: the scripted agent keeps talking so the transcript grows while you watch. \n\nParagraph 4: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 4: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 4: the scripted agent keeps talking so the transcript grows while you watch. \n\nParagraph 5: the scripted agent keeps talking so the transcript grows while you watch. Paragraph 5: the scripted agent keeps talking so the transcri",
+   "chunk": 8,
+   "every_ms": 60,
+   "complete": false
+  },
+  {
+   "do": "hang"
+  }
+ ]
+}

@@ -12,25 +12,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The env vars a real-provider test takes a credential file from. The file is
-// copied into the isolated home, never linked, so a CLI cannot write back to it.
 const (
 	ClaudeCredentialsEnv = "CROWBAR_TEST_CLAUDE_CREDENTIALS"
 	CodexAuthEnv         = "CROWBAR_TEST_CODEX_AUTH"
 )
 
-// The env vars that name codex's and claude's own homes.
 const (
 	CodexHomeEnv  = "CODEX_HOME"
 	ClaudeHomeEnv = "CLAUDE_CONFIG_DIR"
 )
 
-// claudeSeed answers claude's first-run onboarding and trusts no place.
 const claudeSeed = `{"hasCompletedOnboarding":true,"projects":{}}`
 
-// IsolateProviderHomes points codex's and claude's own homes at throwaway
-// directories and returns their root. It reads nothing of the user's: a
-// credential is only ever the file a test env var names.
 func IsolateProviderHomes(
 	t *testing.T,
 ) string {
@@ -44,8 +37,6 @@ func IsolateProviderHomes(
 	return root
 }
 
-// PointProviderHomesAt points codex's and claude's own homes at fresh, empty
-// directories under root, a temp dir the test owns, and returns them.
 func PointProviderHomesAt(
 	t *testing.T,
 	root string,
@@ -59,8 +50,6 @@ func PointProviderHomesAt(
 	return codex, claude
 }
 
-// RequireProviderHomeIn is ProviderHomeIn for a helper holding t: it fails the
-// test rather than write or delete outside root.
 func RequireProviderHomeIn(
 	t *testing.T,
 	env string,
@@ -72,9 +61,6 @@ func RequireProviderHomeIn(
 	return dir
 }
 
-// ProviderHomeIn is the directory env names, resolved through any symlink,
-// and an error unless it lies inside root. Whatever writes or deletes under a
-// provider home asks this first, so it never reaches a real one.
 func ProviderHomeIn(
 	env string,
 	root string,
@@ -113,9 +99,6 @@ func copyCredential(
 	require.NoError(t, os.WriteFile(dst, blob, 0o600), "kit: copy the credential %s names", env) //nolint:gosec // G703: dst is the kit's own path under the test's temp home
 }
 
-// outsideProviderHomes refuses a credential kept in a provider's own home,
-// which the kit never reads. The path is checked as named, then as it resolves;
-// the homes are compared by name only, never touched.
 func outsideProviderHomes(
 	env string,
 	path string,
@@ -141,7 +124,6 @@ func outsideProviderHomes(
 	return nil
 }
 
-// inProviderHome reports whether path lies in claude's or codex's home under home.
 func inProviderHome(home, path string) bool {
 	for _, own := range []string{".claude", ".codex", ".claude.json"} {
 		if within(path, filepath.Join(home, own)) {
@@ -151,7 +133,6 @@ func inProviderHome(home, path string) bool {
 	return false
 }
 
-// within reports whether path is root or lies under it.
 func within(path, root string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) &&

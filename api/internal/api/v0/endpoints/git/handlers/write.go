@@ -10,15 +10,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// pathsBody is the request body shared by the stage/unstage/discard handlers:
-// a list of repo-relative paths, where "." means "everything".
 type pathsBody struct {
 	Paths []string `json:"paths"`
 }
 
-// bindPaths binds and validates a pathsBody, writing the 400 response itself
-// when the body is malformed or empty. The bool reports whether the paths are
-// usable.
 func bindPaths(
 	ctx *gin.Context,
 ) ([]string, bool) {
@@ -40,22 +35,16 @@ func bindPaths(
 	return body.Paths, true
 }
 
-// Stage POST /v0/chats/:chatId/git/stage
 func (h *Handlers) Stage(ctx *gin.Context) { h.eachPath(ctx, h.git.StageFile) }
 
-// StageHunk POST /v0/chats/:chatId/git/stage-hunk
 func (h *Handlers) StageHunk(ctx *gin.Context) { h.oneHunk(ctx, h.git.StageHunk) }
 
-// Unstage POST /v0/chats/:chatId/git/unstage
 func (h *Handlers) Unstage(ctx *gin.Context) { h.eachPath(ctx, h.git.UnstageFile) }
 
-// UnstageHunk POST /v0/chats/:chatId/git/unstage-hunk
 func (h *Handlers) UnstageHunk(ctx *gin.Context) { h.oneHunk(ctx, h.git.UnstageHunk) }
 
-// Discard POST /v0/chats/:chatId/git/discard
 func (h *Handlers) Discard(ctx *gin.Context) { h.eachPath(ctx, h.git.Discard) }
 
-// eachPath applies op to every path of a pathsBody, stopping at the first failure.
 func (h *Handlers) eachPath(
 	ctx *gin.Context,
 	op func(ctx context.Context, wsID, filePath string, now time.Time) error,
@@ -79,7 +68,6 @@ func (h *Handlers) eachPath(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// oneHunk applies op to the {path, hunkId} the body names.
 func (h *Handlers) oneHunk(
 	ctx *gin.Context,
 	op func(ctx context.Context, wsID, filePath, hunkID string, now time.Time) error,
@@ -112,7 +100,6 @@ func (h *Handlers) oneHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// Commit POST /v0/chats/:chatId/git/commit
 func (h *Handlers) Commit(
 	ctx *gin.Context,
 ) {
@@ -141,7 +128,6 @@ func (h *Handlers) Commit(
 	libs.WriteMutationOK(ctx, http.StatusOK, wsID)
 }
 
-// Reset POST /v0/chats/:chatId/git/reset
 func (h *Handlers) Reset(
 	ctx *gin.Context,
 ) {

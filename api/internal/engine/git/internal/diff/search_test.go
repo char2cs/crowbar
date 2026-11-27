@@ -14,18 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
-// searchFixture builds the repo every line-number assertion in this file is
-// measured against. Its shape is deliberate: alpha.txt carries two changes far
-// enough apart to produce two separate hunks, and src/beta.txt carries an
-// INSERTION before a later change, so from that point on the new-side numbers
-// no longer equal the old-side ones. A parser that reported the old number, or
-// that counted lines from the top of the file rather than from each @@ header,
-// passes on alpha.txt and fails on beta.txt.
-//
-// The resulting diff (verified against git):
-//
-//	@@ -2,7 +2,7 @@ alpha 1        @@ -8,6 +8,7 @@ beta 7
-//	@@ -22,7 +22,7 @@ alpha 21      @@ -17,7 +18,7 @@ beta 16
 func searchFixture(
 	t *testing.T,
 ) (string, string) {
@@ -44,8 +32,6 @@ func searchFixture(
 	return dir, base
 }
 
-// searchAlphaText renders 30 lines "alpha 1".."alpha 30" with lines 5 and 25
-// replaced by the given content.
 func searchAlphaText(
 	t *testing.T,
 	line5 string,
@@ -74,9 +60,6 @@ func searchAlphaLine(
 	return fmt.Sprintf("alpha %d", i)
 }
 
-// searchBetaText renders 25 lines "beta 1".."beta 25" with line 20 replaced by
-// line20, optionally inserting an extra line after line 10 — the insertion that
-// pushes every later new-side number one past its old-side number.
 func searchBetaText(
 	t *testing.T,
 	inserted bool,
@@ -104,11 +87,6 @@ func searchBetaLine(
 	return fmt.Sprintf("beta %d", i)
 }
 
-// TestSearchDiff_AttributesSidesAndLineNumbers is the core assertion of this
-// file: a removed line reports the OLD number, a context line reports the NEW
-// number, and both stay correct in a second file whose numbering has been
-// shifted by an earlier insertion. " beta 19" sits at old line 19 and new line
-// 20; reporting 19 would send the reader to the wrong line.
 func TestSearchDiff_AttributesSidesAndLineNumbers(t *testing.T) {
 	dir, base := searchFixture(t)
 
@@ -126,9 +104,6 @@ func TestSearchDiff_AttributesSidesAndLineNumbers(t *testing.T) {
 	}, hits)
 }
 
-// TestSearchDiff_OrdersAddedLinesAcrossHunksAndFiles pins the new-side counter
-// across two hunks of one file and two hunks of another. "beta 20 CHANGED" is
-// new line 21 rather than 20 because of the insertion ten lines above it.
 func TestSearchDiff_OrdersAddedLinesAcrossHunksAndFiles(t *testing.T) {
 	dir, base := searchFixture(t)
 
@@ -147,9 +122,6 @@ func TestSearchDiff_OrdersAddedLinesAcrossHunksAndFiles(t *testing.T) {
 	}, hits)
 }
 
-// TestSearchDiff_ReportsBothSidesOfAChangedLine: the removal and the
-// replacement both match "beta 20", and they are reported in stream order with
-// their own side and number.
 func TestSearchDiff_ReportsBothSidesOfAChangedLine(t *testing.T) {
 	dir, base := searchFixture(t)
 
@@ -164,10 +136,6 @@ func TestSearchDiff_ReportsBothSidesOfAChangedLine(t *testing.T) {
 	}, hits)
 }
 
-// TestSearchDiff_SkipsDiffMachineryLines: the patch's own scaffolding is not
-// content. "alpha 21" is the funcname git appends to the second hunk header
-// (`@@ -22,7 +22,7 @@ alpha 21`) and line 21 is in no hunk body, so a hit for it
-// could only have come from the header.
 func TestSearchDiff_SkipsDiffMachineryLines(t *testing.T) {
 	dir, base := searchFixture(t)
 
@@ -183,9 +151,6 @@ func TestSearchDiff_SkipsDiffMachineryLines(t *testing.T) {
 	}
 }
 
-// TestSearchDiff_LimitTruncates: the cap is what keeps the response bounded on
-// a million-line diff, so it must cut at exactly Limit and report it — and the
-// hits it keeps must be the first ones, not an arbitrary subset.
 func TestSearchDiff_LimitTruncates(t *testing.T) {
 	dir, base := searchFixture(t)
 	all, truncated, err := diff.SearchDiff(
@@ -204,9 +169,6 @@ func TestSearchDiff_LimitTruncates(t *testing.T) {
 	assert.Equal(t, all[:2], hits)
 }
 
-// TestSearchDiff_LiteralQueryIsNotAPattern: without Regex the query is matched
-// verbatim, so a user searching for "alpha [0-9]+ ADDED" finds nothing rather
-// than two lines.
 func TestSearchDiff_LiteralQueryIsNotAPattern(t *testing.T) {
 	dir, base := searchFixture(t)
 	const pattern = `alpha [0-9]+ ADDED`
@@ -242,8 +204,6 @@ func TestSearchDiff_CaseSensitivity(t *testing.T) {
 	assert.Empty(t, sensitive)
 }
 
-// TestSearchDiff_InvalidRegexIsAnError: a half-typed pattern arrives on every
-// keystroke of a find-in-diff box. It must come back as an error, never a panic.
 func TestSearchDiff_InvalidRegexIsAnError(t *testing.T) {
 	dir, base := searchFixture(t)
 
@@ -289,10 +249,6 @@ func TestSearchDiff_UnknownRefIsAnError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSearchDiff_NonexistentRepoPath_ReturnsStartError covers the branch
-// before any streaming begins: GitStream failing to even start the
-// subprocess, distinct from UnknownRefIsAnError above (a started process that
-// exits non-zero once waited on).
 func TestSearchDiff_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
 	_, _, err := diff.SearchDiff(
 		context.Background(), "/nonexistent/path/xyz123", "HEAD", "alpha", gitdomain.SearchOpts{},
@@ -301,10 +257,6 @@ func TestSearchDiff_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestSearchDiff_BlankContextLine covers a context line that is truly empty
-// (git emits no leading space for it, since there is nothing to prefix) —
-// body() must still advance both line counters from a zero-length line rather
-// than mistaking it for something else.
 func TestSearchDiff_BlankContextLine(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "f.txt", "a\nb\n\nc\nd\n")
@@ -317,16 +269,11 @@ func TestSearchDiff_BlankContextLine(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, truncated)
-	// Line 5, not 4: a miscounted blank line at 3 would shift every line
-	// number after it down by one.
 	assert.Equal(t, []gitdomain.SearchHit{
 		{Path: "f.txt", Side: "new", LineNumber: 5, Preview: "MATCHME"},
 	}, hits)
 }
 
-// TestSearchDiff_LongLineBeyondScannerLimit: bufio.Scanner's default 64 KB
-// token limit would abort the whole scan on a minified bundle, and a preview of
-// the whole line would put 70 KB into a JSON response per hit.
 func TestSearchDiff_LongLineBeyondScannerLimit(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "kept\n")
@@ -351,8 +298,6 @@ func TestSearchDiff_LongLineBeyondScannerLimit(t *testing.T) {
 	assert.Equal(t, long[:200], hits[0].Preview)
 }
 
-// TestSearchDiff_PreviewCutsOnARuneBoundary: 200 bytes lands inside a 3-byte
-// rune here, and a preview cut there is invalid UTF-8 and serialises as U+FFFD.
 func TestSearchDiff_PreviewCutsOnARuneBoundary(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "kept\n")
@@ -374,9 +319,6 @@ func TestSearchDiff_PreviewCutsOnARuneBoundary(t *testing.T) {
 	assert.Equal(t, wide[:198], hits[0].Preview)
 }
 
-// TestSearchDiff_AddedFileNumbersFromOne: an added file's hunk header is
-// `@@ -0,0 +1,N @@`, so the new-side counter must start from the header's own
-// value rather than from any file-level assumption.
 func TestSearchDiff_AddedFileNumbersFromOne(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "kept\n")
@@ -397,9 +339,6 @@ func TestSearchDiff_AddedFileNumbersFromOne(t *testing.T) {
 	}, hits)
 }
 
-// TestSearchDiff_DeletedFileKeepsItsPath: a deletion's new-side header is
-// `+++ /dev/null`, so the path has to come from the old side or every hit in a
-// deleted file is unattributable.
 func TestSearchDiff_DeletedFileKeepsItsPath(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "kept\n")
@@ -419,12 +358,6 @@ func TestSearchDiff_DeletedFileKeepsItsPath(t *testing.T) {
 	}, hits)
 }
 
-// TestSearchDiff_AwkwardPaths: a path reaches the hit exactly as it is on disk,
-// which takes undoing three separate things git does to the name in a patch
-// header. A name with a space is followed by a TAB field separator; a name with
-// a quote is C-quoted whole; and a non-ASCII name is octal-escaped unless
-// core.quotePath is turned off. Any of the three left in place yields a path
-// the client cannot open.
 func TestSearchDiff_AwkwardPaths(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "kept\n")
@@ -454,9 +387,6 @@ func TestSearchDiff_AwkwardPaths(t *testing.T) {
 	)
 }
 
-// TestSearchDiff_IncludesUncommittedEdits: the search must cover the same diff
-// the review shows — committed work since ref PLUS working-tree edits — or a
-// user searches a patch they are not looking at.
 func TestSearchDiff_IncludesUncommittedEdits(t *testing.T) {
 	dir, base := searchFixture(t)
 	writeFile(t, dir, "alpha.txt", searchAlphaText(t, "alpha 5 ADDED", "alpha 25 UNSAVED"))
@@ -469,8 +399,6 @@ func TestSearchDiff_IncludesUncommittedEdits(t *testing.T) {
 	}, hits)
 }
 
-// TestSearchDiff_BinaryFileYieldsNoContentHits: git emits "Binary files … differ"
-// in place of a hunk body, which is machinery, not content.
 func TestSearchDiff_BinaryFileYieldsNoContentHits(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "logo.bin", "\x00\x01\x02\x03")

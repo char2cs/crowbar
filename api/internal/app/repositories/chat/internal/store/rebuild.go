@@ -13,9 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// healedRows rebuilds a model with nothing to read, which also rewrites rows
-// that will not decode; a rebuild that heals nothing is not repeated until the
-// row set changes, as each one replays the whole log.
 func (s *service) healedRows(ctx context.Context) ([]domain.Chat, error) {
 	rows, undecodable, err := s.storage.FindAll(ctx)
 	if err != nil || len(rows) > 0 {
@@ -35,9 +32,6 @@ func (s *service) healedRows(ctx context.Context) ([]domain.Chat, error) {
 	return rows, err
 }
 
-// rebuild Replays every aggregate id the event log lists into the read model
-// (asynx.Replay heals one id at a time); without an AggregateLister it is a no-op.
-// An id that fails to Replay is logged and skipped so one bad entry cannot empty the model.
 func (s *service) rebuild(
 	ctx context.Context,
 ) error {
@@ -52,8 +46,6 @@ func (s *service) rebuild(
 	for _, key := range keys {
 		id, ok := strings.CutPrefix(key, eventKeyPrefix)
 		if !ok {
-			// A non-event key (e.g. a "snapshots:<id>" row for the same aggregate)
-			// — skip it; the aggregate is rebuilt from its "events:" key.
 			continue
 		}
 		replayErr, saveErr := s.replay(ctx, id)
@@ -68,9 +60,6 @@ func (s *service) rebuild(
 	return nil
 }
 
-// replay folds id's stream into the read model, returning Replay's error and the
-// first save error apart. A Forget marker deletes the row, so a tombstoned
-// stream never heals back as a ghost.
 func (s *service) replay(
 	ctx context.Context,
 	id string,

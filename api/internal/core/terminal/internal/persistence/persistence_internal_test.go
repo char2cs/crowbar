@@ -13,10 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// fakeTempFile is a tempFile whose Write/Sync/Close can be made to fail, so the
-// corresponding error branches in WriteBuf are exercised. It writes through to a
-// real backing file on disk so the test can also assert that a failed write
-// leaves no committed .buf and removes the staging file.
 type fakeTempFile struct {
 	real        *os.File
 	failWrite   bool
@@ -46,8 +42,6 @@ func (f *fakeTempFile) Sync() error {
 
 func (f *fakeTempFile) Close() error {
 	f.closeCalled = true
-	// Always release the underlying fd so the test's TempDir cleanup succeeds,
-	// but report the injected error to the caller when requested.
 	cerr := f.real.Close()
 	if f.afterClose != nil {
 		f.afterClose()
@@ -75,7 +69,6 @@ func TestWriteBuf_WriteError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write temp")
 
-	// The staging file must have been removed, and no committed .buf created.
 	_, statErr := os.Stat(staged)
 	assert.True(t, os.IsNotExist(statErr), "staging temp file should be removed")
 	_, statErr = os.Stat(filepath.Join(dir, "s.buf"))
@@ -145,8 +138,6 @@ func TestWriteBuf_ACleanupFailureIsReturnedWithTheRenameFailure(t *testing.T) {
 	t.Cleanup(func() { createTemp = orig })
 	t.Cleanup(func() { require.NoError(t, os.Chmod(dir, 0o700)) })
 
-	// The directory turns read-only once the staging file is closed, so renaming
-	// into it and removing the staging file both fail.
 	createTemp = func(d, pattern string) (tempFile, error) {
 		real, err := os.CreateTemp(d, pattern)
 		require.NoError(t, err)

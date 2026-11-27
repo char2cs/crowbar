@@ -1,0 +1,209 @@
+import type { ThemeDefinition } from '@/extensions/themes/types'
+import { currentPlatform } from '@/utils/platform'
+import {
+  DEFAULT_HEADING_FONT_FAMILY,
+  DEFAULT_MONO_FONT_FAMILY,
+  DEFAULT_UI_FONT_FAMILY,
+} from '@/features/settings/config/typography-defaults'
+import { normalizeConfiguredFontFamily } from './font-family-resolution'
+import { MARKDOWN_FONT_SIZE_DEFAULT, normalizeMarkdownFontSize } from './markdown-font-size'
+import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from './ui-font-size'
+import { readLocal, writeLocal } from '@/lib/local-storage'
+
+const APPEARANCE_BOOTSTRAP_CACHE_KEY = 'crowbar.bootstrap.appearance.v2'
+
+const DEFAULT_MONO_FALLBACK =
+  '"Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+const WINDOWS_MONO_FALLBACK =
+  '"Geist Mono Variable", Consolas, "Cascadia Mono", "Cascadia Code", "Courier New", ui-monospace, monospace'
+
+const DEFAULT_SANS_FALLBACK =
+  'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+const WINDOWS_SANS_FALLBACK =
+  '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif'
+const HEADING_FALLBACK = 'Georgia, "Times New Roman", serif'
+
+export interface AppearanceBootstrapCache {
+  version: 1
+  themeId: string
+  themeType: 'light' | 'dark'
+  editorFontFamily: string
+  uiFontFamily: string
+  uiFontSize: number
+  markdownFontSize: number
+  headingFontFamily: string
+}
+
+const DEFAULT_EDITOR_FONT = DEFAULT_MONO_FONT_FAMILY
+const DEFAULT_UI_FONT = DEFAULT_UI_FONT_FAMILY
+
+export const DEFAULT_APPEARANCE_BOOTSTRAP_CACHE: AppearanceBootstrapCache = {
+  version: 1,
+  themeId: 'crowbar',
+  themeType: 'dark',
+  editorFontFamily: DEFAULT_EDITOR_FONT,
+  uiFontFamily: DEFAULT_UI_FONT,
+  uiFontSize: UI_FONT_SIZE_DEFAULT,
+  markdownFontSize: MARKDOWN_FONT_SIZE_DEFAULT,
+  headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
+}
+
+function isWindowsPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Windows/i.test(navigator.userAgent)
+}
+
+function stripWrappingQuotes(value: string): string {
+  const trimmed = value.trim()
+  return trimmed.replace(/^['"]+|['"]+$/g, '')
+}
+
+function buildFontVariable(primary: string, fallback: string): string {
+  const normalized = stripWrappingQuotes(primary)
+  if (!normalized) return fallback
+
+  if (normalized.includes(',')) {
+    return `${normalized}, ${fallback}`
+  }
+
+  return `"${normalized}", ${fallback}`
+}
+
+function isThemeType(value: unknown): value is 'light' | 'dark' {
+  return value === 'light' || value === 'dark'
+}
+
+function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+
+  const record = raw as Record<string, unknown>
+  if (record.version !== 1) return null
+  if (typeof record.themeId !== 'string' || !isThemeType(record.themeType)) return null
+
+  const editorFontFamily =
+    typeof record.editorFontFamily === 'string'
+      ? normalizeConfiguredFontFamily(record.editorFontFamily, DEFAULT_MONO_FONT_FAMILY)
+      : DEFAULT_APPEARANCE_BOOTSTRAP_CACHE.editorFontFamily
+  const uiFontFamily =
+    typeof record.uiFontFamily === 'string'
+      ? normalizeConfiguredFontFamily(record.uiFontFamily, DEFAULT_UI_FONT_FAMILY)
+      : DEFAULT_APPEARANCE_BOOTSTRAP_CACHE.uiFontFamily
+  const uiFontSize = normalizeUiFontSize(record.uiFontSize)
+  const markdownFontSize = normalizeMarkdownFontSize(record.markdownFontSize)
+  const headingFontFamily =
+    typeof record.headingFontFamily === 'string'
+      ? normalizeConfiguredFontFamily(record.headingFontFamily, DEFAULT_HEADING_FONT_FAMILY)
+      : DEFAULT_APPEARANCE_BOOTSTRAP_CACHE.headingFontFamily
+
+  return {
+    version: 1,
+    themeId: record.themeId,
+    themeType: record.themeType,
+    editorFontFamily,
+    uiFontFamily,
+    uiFontSize,
+    markdownFontSize,
+    headingFontFamily,
+  }
+}
+
+export function readAppearanceBootstrapCache(): AppearanceBootstrapCache | null {
+  if (typeof window === 'undefined') return null
+
+  const raw = readLocal(APPEARANCE_BOOTSTRAP_CACHE_KEY)
+  if (!raw) return null
+  try {
+    return parseBootstrapCache(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+export function writeAppearanceBootstrapCache(cache: AppearanceBootstrapCache): void {
+  if (typeof window === 'undefined') return
+
+  writeLocal(APPEARANCE_BOOTSTRAP_CACHE_KEY, JSON.stringify(cache))
+}
+
+export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void {
+  if (typeof document === 'undefined') return
+
+  const root = document.documentElement
+  root.setAttribute('data-theme', cache.themeId)
+  root.setAttribute('data-theme-type', cache.themeType)
+  root.setAttribute('data-platform', currentPlatform)
+  root.classList.toggle('dark', cache.themeType === 'dark')
+
+  const monoFallback = isWindowsPlatform() ? WINDOWS_MONO_FALLBACK : DEFAULT_MONO_FALLBACK
+  const sansFallback = isWindowsPlatform() ? WINDOWS_SANS_FALLBACK : DEFAULT_SANS_FALLBACK
+
+  root.style.setProperty(
+    '--editor-font-family',
+    buildFontVariable(cache.editorFontFamily, monoFallback),
+  )
+  root.style.setProperty('--app-font-family', buildFontVariable(cache.uiFontFamily, sansFallback))
+  root.style.setProperty(
+    '--app-heading-font-family',
+    buildFontVariable(cache.headingFontFamily, HEADING_FALLBACK),
+  )
+  const normalizedUiFontSize = normalizeUiFontSize(cache.uiFontSize)
+  root.style.setProperty('--app-ui-font-size', `${normalizedUiFontSize}px`)
+  root.style.setProperty('--app-ui-scale', `${getUiFontScale(normalizedUiFontSize)}`)
+  root.style.setProperty(
+    '--md-base-font-size',
+    `${normalizeMarkdownFontSize(cache.markdownFontSize)}px`,
+  )
+}
+
+export function ensureStartupAppearanceApplied(): void {
+  const cache = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE
+  applyBootstrapAppearance(cache)
+}
+
+export function cacheThemeForBootstrap(theme: ThemeDefinition): void {
+  const existing = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE
+  const next: AppearanceBootstrapCache = {
+    ...existing,
+    version: 1,
+    themeId: theme.id,
+    themeType: theme.isDark ? 'dark' : 'light',
+  }
+  writeAppearanceBootstrapCache(next)
+}
+
+export interface BootstrapTypographyInput {
+  editorFontFamily?: string
+  uiFontFamily?: string
+  uiFontSize?: number
+  markdownFontSize?: number
+  headingFontFamily?: string
+}
+
+export function cacheFontsForBootstrap(typography: BootstrapTypographyInput): void {
+  const existing = readAppearanceBootstrapCache() || DEFAULT_APPEARANCE_BOOTSTRAP_CACHE
+  const next: AppearanceBootstrapCache = {
+    ...existing,
+    editorFontFamily: normalizeConfiguredFontFamily(
+      typography.editorFontFamily || existing.editorFontFamily,
+      DEFAULT_MONO_FONT_FAMILY,
+    ),
+    uiFontFamily: normalizeConfiguredFontFamily(
+      typography.uiFontFamily || existing.uiFontFamily,
+      DEFAULT_UI_FONT_FAMILY,
+    ),
+    headingFontFamily: normalizeConfiguredFontFamily(
+      typography.headingFontFamily || existing.headingFontFamily,
+      DEFAULT_HEADING_FONT_FAMILY,
+    ),
+    uiFontSize:
+      typography.uiFontSize === undefined
+        ? existing.uiFontSize
+        : normalizeUiFontSize(typography.uiFontSize),
+    markdownFontSize:
+      typography.markdownFontSize === undefined
+        ? existing.markdownFontSize
+        : normalizeMarkdownFontSize(typography.markdownFontSize),
+  }
+  writeAppearanceBootstrapCache(next)
+  applyBootstrapAppearance(next)
+}

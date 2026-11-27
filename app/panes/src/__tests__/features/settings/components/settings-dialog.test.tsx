@@ -1,0 +1,78 @@
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/features/agent/api/agent-providers-api', () => ({
+  updateProviderPreferences: vi.fn(),
+  listProviders: vi.fn().mockResolvedValue([]),
+  getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
+  updateDefaultPermissionLevel: vi.fn(),
+  getDescriptorReports: vi.fn().mockResolvedValue([]),
+  PERMISSION_LEVEL_OPTIONS: [
+    { value: 'guarded', label: 'Guarded' },
+    { value: 'trusted', label: 'Trusted' },
+    { value: 'full-auto', label: 'Full Auto' },
+  ],
+}))
+
+import SettingsDialog from '@/features/settings/components/settings-dialog'
+import { SETTINGS_TAB_ITEMS } from '@/features/settings/components/settings-tab-items'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { useUIState } from '@/features/window/stores/ui-state-store'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+} from '@/features/workspace/stores/workspace-store-registry'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+
+const CLAUDE: AgentProvider = {
+  id: 'claude',
+  displayName: 'Claude',
+  icon: '<svg></svg>',
+  connected: true,
+  enabled: true,
+  mcpEnabled: true,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
+}
+
+beforeEach(() => {
+  getOrCreateWorkspaceStore('w1')
+  act(() => {
+    setActiveWorkspaceId('w1')
+    useAgentProvidersStore.setState({ providers: [CLAUDE], status: 'ready' })
+    useUIState.getState().setSettingsInitialTab('providers')
+  })
+})
+
+afterEach(() => {
+  cleanup()
+  act(() => {
+    setActiveWorkspaceId(null)
+    useUIState.getState().setSettingsInitialTab('appearance')
+  })
+  useAgentProvidersStore.setState({ providers: [], status: 'idle' })
+  destroyWorkspaceStore('w1')
+})
+
+describe('Settings dialog — Agents tab registration', () => {
+  it('lists the tab under its `providers` id', () => {
+    expect(SETTINGS_TAB_ITEMS.map((t) => t.id)).toContain('providers')
+  })
+
+  it('reads "Agents" in the rail while staying keyed `providers`', () => {
+    const item = SETTINGS_TAB_ITEMS.find((t) => t.id === 'providers')
+    expect(item?.label).toBe('Agents')
+    expect(SETTINGS_TAB_ITEMS.map((t) => t.id)).not.toContain('agents')
+  })
+
+  it('renders the real ProvidersSettings when opened on the providers tab', () => {
+    render(<SettingsDialog isOpen onClose={() => {}} />)
+    expect(screen.getByTestId('provider-connected-claude')).toBeInTheDocument()
+    expect(screen.getByTestId('provider-toggle-claude')).toBeInTheDocument()
+  })
+})

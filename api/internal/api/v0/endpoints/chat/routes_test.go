@@ -26,18 +26,12 @@ func TestMain(
 	m.Run()
 }
 
-// dispatchRecord captures what the MCP route actually handed the usecase, so a
-// test can assert on the URL→handler binding rather than on a param map it set
-// itself.
 type dispatchRecord struct {
 	runnerID string
 	token    string
 	message  []byte
 }
 
-// stubChatTree answers every Chats-panel tree call with an empty result. These
-// tests are about the routing table — that a URL reaches a handler at all — so
-// the tree behind it only has to exist.
 type stubChatTree struct{}
 
 func (stubChatTree) CreateChat(
@@ -51,7 +45,6 @@ func (stubChatTree) ListInRepo(context.Context, string) ([]domain.Chat, error) {
 
 func (stubChatTree) ListInHome(context.Context, string) ([]domain.Chat, error) { return nil, nil }
 
-// FolderScope answers a folder in the repo these routes are mounted under.
 func (stubChatTree) FolderScope(_ context.Context, id string) (tree.Folder, error) {
 	return tree.Folder{ID: id, RepoID: "r1"}, nil
 }
@@ -106,8 +99,6 @@ func (stubChatTree) AttachOwningWorkspace(context.Context, string, domain.Worksp
 
 func (stubChatTree) DiscardOwningChat(context.Context, string) error { return nil }
 
-// stubUsecase is a VALUE receiver stub throughout, so recording goes through a
-// pointer field rather than through the receiver.
 type stubUsecase struct {
 	dispatch *dispatchRecord
 }
@@ -128,10 +119,6 @@ func (stubUsecase) CwdWorkspaceID(context.Context, string) (string, bool, error)
 	return "", false, nil
 }
 
-// GetChat answers a workspace-less chat: TestRegisterMountsRoutes dials the
-// repo-scoped mount with no Worktrees port wired, so requireChatInWorkspace's
-// repo-scope check has nothing to resolve a ground against and this only has
-// to satisfy the existence half.
 func (stubUsecase) GetChat(
 	_ context.Context,
 	id string,
@@ -274,9 +261,6 @@ func (stubUsecase) ModelManifestFetchEnabled(context.Context) (bool, error) { re
 
 func (stubUsecase) SetModelManifestFetchEnabled(context.Context, bool) error { return nil }
 
-// TestRegisterMountsRoutes proves Register mounts every agent route nested
-// under the repo-scoped group (Task 17: .../repos/:repoId/chats/...), including
-// the WS upgrade route delegating to the supplied handler.
 func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
@@ -332,10 +316,6 @@ func TestRegisterMountsRoutes(
 	}
 }
 
-// TestChatRoutes_OldWorkspaceScopedPathGone proves the pre-Task-17 shape is
-// genuinely gone (404, not merely undocumented): Register no longer mounts
-// anything under .../workspaces/:wsId at all, since chat.Register only ever
-// receives the repo-scoped group now (router.go).
 func TestChatRoutes_OldWorkspaceScopedPathGone(
 	t *testing.T,
 ) {
@@ -353,14 +333,6 @@ func TestChatRoutes_OldWorkspaceScopedPathGone(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegisterBindsMCPSegIDFromTheURL closes the gap every other MCP test leaves
-// open: they set gin's param map by hand, so the route's :segid and the
-// handler's ctx.Param("segid") could disagree and still pass. Only a request
-// through the REAL router proves the two names are the same name.
-//
-// The consequence of a mismatch is an empty runner id, which the token check
-// then refuses — availability, not an authorization hole — but it would take
-// down every agent's tools with nothing else catching it.
 func TestRegisterBindsMCPSegIDFromTheURL(
 	t *testing.T,
 ) {
@@ -384,7 +356,6 @@ func TestRegisterBindsMCPSegIDFromTheURL(
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(got.message))
 }
 
-// The relay route names no project, repo or workspace, and its :relay reaches the usecase.
 func TestRegisterBindsTheRelayIDFromAPlacementFreeURL(
 	t *testing.T,
 ) {
@@ -406,8 +377,6 @@ func TestRegisterBindsTheRelayIDFromAPlacementFreeURL(
 	assert.Equal(t, "TOK", got.token)
 }
 
-// TerminalWait: this stub is never blocked on anything, which is what every
-// route-mounting assertion here needs it to be.
 func (stubUsecase) TerminalWait(string) domain.AgentTerminalWait {
 	return domain.AgentTerminalWait{}
 }

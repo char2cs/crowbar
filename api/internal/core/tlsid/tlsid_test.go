@@ -42,9 +42,6 @@ func TestLoad_StableAcrossReloads(t *testing.T) {
 	}
 }
 
-// TestRegression_Load_RecoversFromAPartialIdentity proves an interrupted
-// generation (a crash or full disk between the two writes) never wedges boot:
-// with either file of the pair missing, Load regenerates a working identity.
 func TestRegression_Load_RecoversFromAPartialIdentity(t *testing.T) {
 	for _, missing := range []string{certName, keyName} {
 		t.Run("missing "+missing, func(t *testing.T) {
@@ -75,7 +72,6 @@ func TestFingerprintOf_Format(t *testing.T) {
 	if len(fp) < len("SHA256:") || fp[:7] != "SHA256:" {
 		t.Fatalf("expected fingerprint to start with SHA256:, got %q", fp)
 	}
-	// Verify the exact format: 6 groups of 4 lowercase hex chars separated by spaces.
 	parts := strings.Split(fp[7:], " ")
 	if len(parts) != 6 {
 		t.Fatalf("expected 6 groups separated by spaces, got %d: %q", len(parts), fp)
@@ -99,7 +95,6 @@ func TestLoad_FilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	// Verify directory permissions are 0o700 (owner-only access).
 	dirInfo, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("stat dir: %v", err)
@@ -107,7 +102,6 @@ func TestLoad_FilePermissions(t *testing.T) {
 	if dirPerm := dirInfo.Mode().Perm(); dirPerm != 0o700 {
 		t.Fatalf("expected dir perm 0o700, got %#o", dirPerm)
 	}
-	// Verify key.pem permissions are 0o600 (owner read-write only).
 	keyPath := filepath.Join(dir, "key.pem")
 	keyInfo, err := os.Stat(keyPath)
 	if err != nil {

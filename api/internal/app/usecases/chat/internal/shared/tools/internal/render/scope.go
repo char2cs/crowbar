@@ -8,19 +8,12 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// scopeRangesLegend says, once per reply, which side's numbering the ranges use and that an anchor may
-// not span two of them; the bare numbers are ambiguous on both points.
 const scopeRangesLegend = "Changed line ranges follow each file, indented: right is this branch, " +
 	"left the base revision, both ends inclusive. post_review_comment needs its whole anchor " +
 	"inside ONE range, on the side it names.\n"
 
-// scopeNoRangesLine marks a file no comment can anchor to (a binary, or an untracked file that is listed
-// but absent from the diff); left blank, the row would read as ranges merely not printed.
 const scopeNoRangesLine = "    (no changed lines in this diff — this file cannot carry an anchored comment)\n"
 
-// RenderScope reports the base ref, a page of changed files and their changed ranges, taken from the
-// outline Validate checks so a printed range is one post_review_comment accepts. note (pagination) is
-// written first because a model may stop reading early; first is the page's absolute offset.
 func RenderScope(
 	base string,
 	files []gitdomain.ReviewFileSummary,
@@ -28,7 +21,6 @@ func RenderScope(
 	first int,
 	note string,
 ) string {
-	// Rows are built first: the budget note they produce goes at the top.
 	geom := newScopeGeometry(outline)
 	var rows strings.Builder
 	for i, f := range files {
@@ -40,14 +32,12 @@ func RenderScope(
 	b.WriteString(note)
 	b.WriteString(geom.note(first))
 	fmt.Fprintf(&b, "This review covers everything on this branch since %s.\n", base)
-	// An empty page past the end is explained by note; only a clean branch says "No changed files.".
 	if len(files) == 0 && note == "" {
 		b.WriteString("No changed files.\n")
 	}
 	if len(files) == 0 {
 		return b.String()
 	}
-	// The legend is overhead on a page that printed no ranges.
 	if geom.shown > 0 {
 		b.WriteString(scopeRangesLegend)
 	}
@@ -56,8 +46,6 @@ func RenderScope(
 	return b.String()
 }
 
-// scopeGeometry renders one page's changed ranges against the page budget (MaxScopeRanges).
-// firstSilent is the page-relative index of the first file the budget could not afford.
 type scopeGeometry struct {
 	index       map[string]gitdomain.FileOutline
 	budget      int
@@ -76,8 +64,6 @@ func newScopeGeometry(
 	}
 }
 
-// outlineIndex keys the geometry by both of a file's names, so a rename is not rendered as a file with
-// no changed lines.
 func outlineIndex(
 	outline []gitdomain.FileOutline,
 ) map[string]gitdomain.FileOutline {
@@ -91,8 +77,6 @@ func outlineIndex(
 	return index
 }
 
-// write emits one file's range line, or nothing when the page's budget is spent. A file with no
-// geometry costs no budget, so binaries cannot crowd out files that have ranges.
 func (g *scopeGeometry) write(
 	b *strings.Builder,
 	f gitdomain.ReviewFileSummary,
@@ -119,8 +103,6 @@ func (g *scopeGeometry) write(
 	g.shown++
 }
 
-// note states what the budget could not afford and the offset that fetches it; silently missing ranges
-// would read as files with no changed lines.
 func (g *scopeGeometry) note(
 	first int,
 ) string {
@@ -141,9 +123,6 @@ func hasAnyRange(
 		len(RangesOnSide(f.Hunks, domain.ReviewSideLeft)) > 0
 }
 
-// scopeRangeLine renders one file's ranges on both sides and reports how many it spent. Left numbers are
-// printed too: right-side numbers used on the left can land in a different hunk and be wrongly accepted.
-// The right side is served first when the allowance is tight, as almost every comment is on it.
 func scopeRangeLine(
 	f gitdomain.FileOutline,
 	allowance int,
@@ -161,7 +140,6 @@ func scopeRangeLine(
 		}
 	}
 	line := "    " + strings.Join(groups, "  ")
-	// A partial outline is a lower bound: the file has hunks the daemon never collected.
 	if f.IsPartial {
 		line += "  (this file has more hunks than the review's outline collected; " +
 			"ranges past the last one are unknown)"
@@ -169,8 +147,6 @@ func scopeRangeLine(
 	return line + "\n", len(right) + len(left)
 }
 
-// cappedRanges keeps the leading ranges of one side within the file cap and the page allowance, and
-// reports how many it left out. Leading, not nearest: no anchor has been chosen yet.
 func cappedRanges(
 	hunks []gitdomain.HunkShape,
 	side domain.ReviewSide,
@@ -184,8 +160,6 @@ func cappedRanges(
 	return all[:keep], len(all) - keep
 }
 
-// sideRangeGroup renders one side's contribution; it is empty for a side the file does not touch, so a
-// bare label never reads as withheld ranges.
 func sideRangeGroup(
 	label string,
 	shown []HunkRange,

@@ -17,12 +17,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// ---------------------------------------------------------------------------
-// fanOutGit — the diff base is a function of refs, so working-tree bursts reuse it
-// ---------------------------------------------------------------------------
-
-// baseCountingGit counts how often the watcher asks git for the diff base and
-// the working-tree stat, and answers the base from a field the test can change.
 type baseCountingGit struct {
 	minimalGit
 	mu           sync.Mutex
@@ -102,12 +96,6 @@ func TestFanOutGit_RefEventReResolvesDiffBase(t *testing.T) {
 	assert.True(t, got.HasCommits)
 }
 
-// ---------------------------------------------------------------------------
-// scheduleGitRecompute — wait for the burst to end, but never past the ceiling
-// ---------------------------------------------------------------------------
-
-// delayRecordingTimer is a debounceTimer that records how long each Reset asked
-// to wait and never fires.
 type delayRecordingTimer struct {
 	delays []time.Duration
 }
@@ -161,11 +149,6 @@ func TestScheduleGitRecompute_CeilingRestartsAfterARecompute(t *testing.T) {
 	assert.Equal(t, gitRecomputeQuiet, timer.last(), "the ceiling counts from the first change after a recompute")
 }
 
-// ---------------------------------------------------------------------------
-// fanOutGit — a status git cannot read is reported, and recovery is re-broadcast
-// ---------------------------------------------------------------------------
-
-// flakyGit fails ComputeStatus while broken is set.
 type flakyGit struct {
 	minimalGit
 	broken bool
@@ -198,7 +181,6 @@ func TestFanOutGit_UnreadableStatusIsReportedAndRecoveryReBroadcast(t *testing.T
 	assert.Equal(t, 2, rd.errors(), "a failure after a recovery is news again")
 }
 
-// gitStatusOf runs a real git status, so a repo moved away fails as it does in production.
 type gitStatusOf struct{ minimalGit }
 
 func (gitStatusOf) ComputeStatus(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
@@ -208,9 +190,6 @@ func (gitStatusOf) ComputeStatus(ctx context.Context, repoPath string) (gitdomai
 	return gitdomain.GitStatus{Branch: "feature"}, nil
 }
 
-// Moving the parent repo sends nothing into a linked worktree's tree or its watched git
-// dirs (inotify follows the moved inodes), yet git can no longer read the worktree; the
-// main worktree's own watcher must also see the repo come back to re-arm its tree.
 func TestMovingTheParentRepoIsReportedAndMovingItBackRecovers(t *testing.T) {
 	for _, watched := range []string{"linked worktree", "main worktree"} {
 		t.Run(watched, func(t *testing.T) {
@@ -249,8 +228,6 @@ func TestMovingTheParentRepoIsReportedAndMovingItBackRecovers(t *testing.T) {
 	}
 }
 
-// The main worktree's parent directory is watched for that one entry; its other
-// entries are someone else's and must neither surface nor recompute.
 func TestAnchorParent_SiblingEntriesAreDropped(t *testing.T) {
 	worktree, commonDir := newLinkedWorktree(t)
 	rd := newRecordingDispatcher()

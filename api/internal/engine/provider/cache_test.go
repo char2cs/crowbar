@@ -114,8 +114,6 @@ func TestProtectedBranches_CachedPerRepoAndFailuresNotCached(t *testing.T) {
 	require.Equal(t, 2, failing.protectedCalls)
 }
 
-// execMeter fakes every provider subprocess and counts each command line, so a
-// test can assert how many execs a sequence of engine calls costs.
 type execMeter struct {
 	mu     sync.Mutex
 	remote string
@@ -158,8 +156,6 @@ func (m *execMeter) setRemote(remote string) {
 	m.remote = remote
 }
 
-// worktreePair creates a repo and one linked worktree of it, the shape of two
-// workspaces of one project.
 func worktreePair(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -186,7 +182,6 @@ func TestRegression_WorkspaceSwitchesCostNoProviderExecsWithinTTL(t *testing.T) 
 	e := newEngine(m.exec, clock.now)
 	ctx := context.Background()
 
-	// Each switch re-subscribes: both workspaces and the repo-scoped routes ask at once.
 	for range 10 {
 		var wg sync.WaitGroup
 		for _, p := range []string{home, feature, home, feature} {
@@ -216,7 +211,6 @@ func TestRegression_IdlePollsReuseOneDetectionPerRepo(t *testing.T) {
 		authed     bool
 		detections int
 	}{
-		// A remote no slug can be parsed from must not re-ask git on every poll.
 		{name: "unparseable remote", remote: "/srv/github.com/o/r.git", authed: true, detections: 1},
 		{name: "unauthenticated", remote: "https://github.com/o/r.git", authed: false, detections: 4},
 	}

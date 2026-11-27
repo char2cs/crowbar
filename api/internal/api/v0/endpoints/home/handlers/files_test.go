@@ -19,9 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ── mockFiles — a controllable Files double for exercising success/error
-// branches in the home file handlers. ─────────────────────────────────────
-
 type mockFiles struct{ mock.Mock }
 
 func (m *mockFiles) Tree(
@@ -67,8 +64,6 @@ func (m *mockFiles) Delete(
 	return args.Error(0)
 }
 
-// ── shared fixtures ───────────────────────────────────────────────────────
-
 func homeWorkspaceReader(t *testing.T, projectID, wsID string) *mockHomeReader {
 	t.Helper()
 	reader := &mockHomeReader{}
@@ -94,12 +89,6 @@ func doReq(r *gin.Engine, method, path string, body any) *httptest.ResponseRecor
 	return rec
 }
 
-// ── FileTree ────────────────────────────────────────────────────────────
-
-// TestFileTree_WorkspaceResolutionFails_NoUsecaseCall proves FileTree aborts
-// on a failed resolveHome exactly like every other home file handler: the
-// Files usecase must never be called with a workspace id that resolution
-// never actually confirmed.
 func TestFileTree_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -156,8 +145,6 @@ func TestFileTree_NilNodes_ReturnsEmptyArray(t *testing.T) {
 	require.NotNil(t, env.Data)
 	require.Empty(t, env.Data)
 }
-
-// ── CreateFile ──────────────────────────────────────────────────────────
 
 func TestCreateFile_File_Returns201(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -239,9 +226,6 @@ func TestCreateFile_MissingPath_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestCreateFile_WorkspaceResolutionFails_NoUsecaseCall proves CreateFile
-// aborts on a failed resolveHome before ever binding the body or calling
-// CreateFile/CreateDir.
 func TestCreateFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -260,10 +244,6 @@ func TestCreateFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 	files.AssertNotCalled(t, "CreateDir", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// TestCreateFile_BadJSON_Returns400 proves a malformed body 400s rather than
-// reaching the file-type switch — the resolveHome/body-binding order matters
-// here: resolveHome must have already succeeded (this project's home
-// resolves) for the binding failure to be what the test actually exercises.
 func TestCreateFile_BadJSON_Returns400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -294,8 +274,6 @@ func TestCreateFile_AlreadyExists_ReturnsConflictMapping(t *testing.T) {
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{"path": "exists.txt"})
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
-
-// ── CopyFile ────────────────────────────────────────────────────────────
 
 func TestCopyFile_Returns201(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -343,8 +321,6 @@ func TestCopyFile_BadJSON_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestCopyFile_WorkspaceResolutionFails_NoUsecaseCall proves CopyFile aborts
-// on a failed resolveHome before ever binding the body or calling Copy.
 func TestCopyFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -382,8 +358,6 @@ func TestCopyFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// ── RenameFile ──────────────────────────────────────────────────────────
-
 func TestRenameFile_Returns200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -403,11 +377,6 @@ func TestRenameFile_Returns200(t *testing.T) {
 	files.AssertExpectations(t)
 }
 
-// TestRegression_RenameFile_AcceptsPathNewPathContract pins the home rename
-// handler to the shared {path, newPath} shape the workspace handler and the FE
-// already use. It previously bound {oldPath, newPath}, so every home-project
-// explorer rename 400'd on the mismatch. Red against the old binding: {path,
-// newPath} left `path` empty → the required-fields 400.
 func TestRegression_RenameFile_AcceptsPathNewPathContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -424,19 +393,14 @@ func TestRegression_RenameFile_AcceptsPathNewPathContract(t *testing.T) {
 		"path": "a.txt", "newPath": "b.txt",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	// The rename must reach the usecase with the bound path as the old path.
 	files.AssertCalled(t, "Rename", mock.Anything, "ws-1", "a.txt", "b.txt", mock.AnythingOfType("time.Time"))
 
-	// The retired {oldPath, newPath} shape now leaves `path` unbound → 400.
 	rec2 := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
 		"oldPath": "a.txt", "newPath": "b.txt",
 	})
 	require.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
-// TestRenameFile_WorkspaceResolutionFails_NoUsecaseCall proves RenameFile
-// aborts on a failed resolveHome before ever binding the body or calling
-// Rename.
 func TestRenameFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -501,8 +465,6 @@ func TestRenameFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// ── DeleteFile ──────────────────────────────────────────────────────────
-
 func TestDeleteFile_JSONBody_Returns200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -532,16 +494,11 @@ func TestDeleteFile_QueryParamFallback_Returns200(t *testing.T) {
 	h := handlers.New(reader, files, stubWork{})
 	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
 
-	// No body at all — DELETE with an empty request falls through ShouldBindJSON's
-	// EOF error, so the handler must recover the path from the query string.
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/files?path=b.txt", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	files.AssertExpectations(t)
 }
 
-// TestDeleteFile_WorkspaceResolutionFails_NoUsecaseCall proves DeleteFile
-// aborts on a failed resolveHome before ever falling back to the query
-// param or calling Delete.
 func TestDeleteFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -8,8 +8,6 @@ import (
 	"unicode/utf8"
 )
 
-// previewed names, per kind, the body fields a closed row paints without: a
-// preview cuts them, the full row stays in the ledger.
 var previewed = map[Kind][]string{
 	KindToolCall:  {"diff", "output"},
 	KindTurnEnded: {"diff"},
@@ -17,12 +15,8 @@ var previewed = map[Kind][]string{
 	KindSubagent:  {"result"},
 }
 
-// PreviewKinds are the kinds of row Preview may cut.
 func PreviewKinds() []Kind { return slices.Sorted(maps.Keys(previewed)) }
 
-// Preview is r with each previewable body field longer than limit bytes cut to
-// at most limit, at a line when it has one, and named in Trimmed. A row with
-// nothing to cut is r itself; r's body is never modified.
 func Preview(r Row, limit int) Row {
 	fields := previewed[r.Kind]
 	if len(fields) == 0 || len(r.Body) <= limit {
@@ -56,8 +50,6 @@ func Preview(r Row, limit int) Row {
 	return r
 }
 
-// cutText is text's prefix of at most limit bytes, ending at a line when it has
-// one and never inside a rune.
 func cutText(text string, limit int) string {
 	text = text[:limit]
 	for !utf8.ValidString(text) {

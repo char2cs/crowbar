@@ -23,9 +23,9 @@ func TestRefcount_StartsOnFirstHoldAndStopsOnLast(t *testing.T) {
 
 	first.sub(t, "git:w1")
 	second.sub(t, "git:w1")
-	first.sub(t, "git:w1") // a re-sub is not a second hold
+	first.sub(t, "git:w1")
 	first.send(t, stream.OpUnsub, "git:w1")
-	first.sub(t, "git:w2") // the unsub has landed
+	first.sub(t, "git:w2")
 	starts, stops := res.counts("w1")
 	assert.Equal(t, 1, starts)
 	assert.Equal(t, 0, stops, "the second connection still holds it")
@@ -104,13 +104,12 @@ func TestRefcount_AFailedStartRefusesTheScopeWithItsProblem(t *testing.T) {
 	assert.Equal(t, problem.WatchLimit, closed.Problem.Code)
 
 	delete(res.fail, "w1")
-	conn.sub(t, "git:w1") // a later sub tries again, and the connection lived
+	conn.sub(t, "git:w1")
 	starts, stops := res.counts("w1")
 	assert.Equal(t, 2, starts)
 	assert.Equal(t, 0, stops, "what never started is never stopped")
 }
 
-// Start may arm a watch or read a workspace: other connections' frames must not wait on it.
 func TestRefcount_StartRunsOutsideTheHubLock(t *testing.T) {
 	res := newRecorder()
 	res.gated = true
@@ -129,8 +128,6 @@ func TestRefcount_StartRunsOutsideTheHubLock(t *testing.T) {
 	slow.until(t, syncedOn("git:w1"))
 }
 
-// A Start of a key never runs while that key's Stop does: repeated, so a
-// Start that did not wait would enter during one of the held Stops.
 func TestRefcount_AStartWaitsForTheStopBeforeIt(t *testing.T) {
 	res := newRecorder()
 	res.stopGate = make(chan struct{})
@@ -157,8 +154,6 @@ func TestRefcount_AStartWaitsForTheStopBeforeIt(t *testing.T) {
 	assert.Equal(t, 64, res.starts["w1"])
 }
 
-// A scope naming two resources whose second fails to start stops the first:
-// the refused scope holds nothing.
 func TestRefcount_AFailedLaterStartStopsTheEarlierOnes(t *testing.T) {
 	first, second := newRecorder(), newRecorder()
 	second.fail["w1"] = problem.New(problem.Unavailable, "no")

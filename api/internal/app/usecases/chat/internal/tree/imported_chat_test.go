@@ -20,14 +20,6 @@ func importSpec(branch string) tree.ImportSpec {
 	return tree.ImportSpec{RepoID: "repo-1", ProjectID: "prj-1", Branch: branch}
 }
 
-// THE ORDERING, for import. It is the same contract the fork path has and the
-// same one the plain thread path has: the chat exists, and is placed, BEFORE
-// the thing it owns. Import is the path that never did this — it created a
-// workspace row with no chat anywhere — which is the whole bug (spec §0).
-//
-// ParentAtStart is recorded INSIDE the spawn, so this fails if the placement
-// moves after it. The end state is identical either way, which is exactly why
-// asserting the end state would prove nothing.
 func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) {
 	chats, uc := newUsecase(t)
 	seedChat(chats, "c1", 1)
@@ -48,11 +40,6 @@ func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) 
 		"the branch the caller named must reach the attach")
 }
 
-// An import resolves WHERE it hangs from its git lineage, because that is the
-// only thing a batch importer knows: it walked a PR-base graph and came out
-// with a parent WORKSPACE, not a parent conversation. That parent's own
-// Node{Kind:workspace} row IS the placement id (2026-09-08
-// sidebar-placement-unification Task 9) — no chat to resolve through at all.
 func TestImportBranchAsChat_PlacesUnderTheChatOwningTheLineageParent(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "ws-base", Kind: dtree.KindWorkspace})
@@ -69,8 +56,6 @@ func TestImportBranchAsChat_PlacesUnderTheChatOwningTheLineageParent(t *testing.
 		"the new row hangs off its lineage parent's own Node row directly")
 }
 
-// A lineage parent nothing owns yet — and an import rooted at the repo, which
-// has none at all — lands at the panel root rather than being refused.
 func TestImportBranchAsChat_UnownedLineageParentLandsAtTheRoot(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
@@ -83,8 +68,6 @@ func TestImportBranchAsChat_UnownedLineageParentLandsAtTheRoot(t *testing.T) {
 	assert.Equal(t, "", chatRow(t, chats, chatID).ParentID)
 }
 
-// A batch import must not launch a vendor CLI per branch: these are rows, not
-// conversations anybody opened.
 func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
@@ -98,8 +81,6 @@ func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	assert.Empty(t, chats.Started, "and the plain runner path is not taken either")
 }
 
-// A batch-imported row is a chat the user will prompt without ever having picked
-// an agent, so it is born on their default one: dormant, but startable.
 func TestImportBranchAsChat_RecordsTheDefaultProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
@@ -112,8 +93,6 @@ func TestImportBranchAsChat_RecordsTheDefaultProvider(t *testing.T) {
 	assert.Empty(t, chats.SpawnedImportedWorktree[0].ProviderID, "recorded, never launched")
 }
 
-// A batch keeps a failed branch's chat, placed, for its placeholder: purging it
-// and minting again would recreate an id a redelivered Forget then deletes.
 func TestImportBranchAsChat_AFailedAttachKeepsTheChatForThePlaceholder(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.SpawnImportedWorktreeErr = errImportBoom
@@ -125,7 +104,6 @@ func TestImportBranchAsChat_AFailedAttachKeepsTheChatForThePlaceholder(t *testin
 	assert.Empty(t, chats.Purged)
 }
 
-// A single create the caller was told failed leaves no chat behind.
 func TestCreateChat_AFailedImportDiscardsTheChat(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.SpawnImportedWorktreeErr = errImportBoom
@@ -139,8 +117,6 @@ func TestCreateChat_AFailedImportDiscardsTheChat(t *testing.T) {
 	assert.Equal(t, []string{"c-client"}, chats.Purged)
 }
 
-// The three-verb primitive the paths that build their own workspace use. The
-// mint has to come FIRST and has to be PLACED, or the row exists in no level.
 func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	nodes.Rows = append(nodes.Rows, dtree.Node{ID: "ws-base", Kind: dtree.KindWorkspace})
@@ -158,8 +134,6 @@ func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T
 		"nothing is owned yet: the workspace does not exist until the caller builds it")
 }
 
-// An owning row a repo import mints runs on the user's default agent; with none
-// installed it records none, and the client asks which to start.
 func TestMintOwningChat_RecordsTheDefaultProvider(t *testing.T) {
 	chats, uc := newUsecase(t)
 	ctx := context.Background()
@@ -174,12 +148,6 @@ func TestMintOwningChat_RecordsTheDefaultProvider(t *testing.T) {
 	assert.Equal(t, []string{"claude", ""}, chats.MintedProviders)
 }
 
-// Two owning rows minted into the SAME level must not both claim slot 0.
-//
-// This is the failure the ""-scope densify produced: an owning row leaves the
-// workspace-less scope as soon as it is attached, so the second mint planning
-// against that scope could not see the first, and a repo import filed every one
-// of its rows at index 0. See placeOwningRow.
 func TestMintOwningChat_GivesEachRowItsOwnSlotInTheLevel(t *testing.T) {
 	chats, uc := newUsecase(t)
 	ctx := context.Background()
@@ -198,7 +166,6 @@ func TestMintOwningChat_GivesEachRowItsOwnSlotInTheLevel(t *testing.T) {
 		"two rows in one level must not hold the same index, or the next drop lands on top of one")
 }
 
-// AttachOwningWorkspace points the row at what the caller built, locked or not.
 func TestAttachOwningWorkspace_PointsTheRowAtIt(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
@@ -212,8 +179,6 @@ func TestAttachOwningWorkspace_PointsTheRowAtIt(t *testing.T) {
 	assert.Equal(t, "ws-1", chatRow(t, chats, chatID).WorkspaceID)
 }
 
-// A failed attach is REPORTED, never swallowed: the caller is holding a
-// workspace row nothing owns, and only an error tells it to roll that row back.
 func TestAttachOwningWorkspace_FailureIsReported(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
@@ -226,8 +191,6 @@ func TestAttachOwningWorkspace_FailureIsReported(t *testing.T) {
 	require.ErrorIs(t, err, errImportBoom)
 }
 
-// DiscardOwningChat is the compensating half the callers use when their own
-// workspace create fails after the chat was already minted.
 func TestDiscardOwningChat_TakesTheRowBackOut(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"

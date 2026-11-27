@@ -1,5 +1,3 @@
-// Package walk provides a concurrent bounded worker-pool directory walker with
-// gitignore and glob filtering support.
 package walk
 
 import (
@@ -19,17 +17,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// Ignorer decides whether an absolute path should be excluded from results.
 type Ignorer interface {
 	ShouldIgnore(absPath string) bool
 }
 
-// ErrBadGlob is an include or exclude glob that is not a valid pattern.
 var ErrBadGlob = errors.New("walk: bad glob")
 
-// Walk streams absolute file paths under repoPath that pass the ignore stack, match an
-// includeGlob (if any) and no excludeGlob, globs being doublestar against the relative
-// path. The channel closes on completion or cancel; an inaccessible repoPath errors.
 func Walk(
 	ctx context.Context,
 	repoPath string,
@@ -46,7 +39,6 @@ func Walk(
 
 	out := make(chan string, runtime.GOMAXPROCS(0)*4)
 
-	// Raw paths from filepath.WalkDir.
 	raw := make(chan string, runtime.GOMAXPROCS(0)*4)
 
 	go func() {
@@ -79,13 +71,11 @@ func Walk(
 			}
 			return nil
 		})
-		// The callback returns only nil or Skip*, so this guards a future callback error.
 		if err != nil {
 			slog.Warn("search: walk: producer stopped early", "repo", repoPath, "err", err)
 		}
 	}()
 
-	// Fan-out to a worker pool.
 	poolSize := runtime.GOMAXPROCS(0)
 	var wg sync.WaitGroup
 	wg.Add(poolSize)
@@ -116,8 +106,6 @@ func Walk(
 	return out, nil
 }
 
-// checkGlobs refuses the first glob that is not a valid pattern, so matching
-// needs no error of its own.
 func checkGlobs(
 	globs []string,
 ) error {
@@ -129,7 +117,6 @@ func checkGlobs(
 	return nil
 }
 
-// passesGlobs reports whether path satisfies the include/exclude glob filters.
 func passesGlobs(
 	repoPath string,
 	absPath string,

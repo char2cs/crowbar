@@ -13,13 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// §7-A target 2: domain.Chat.ProviderID is the ONE owner of "as whom does this
-// chat come back". The pre-audit daemon answered it from the runner history
-// first, so on upgrade every row is restated once, at boot, to the provider that
-// history names newest — after which every reader reads the field.
-
-// legacyChat is a chat row that stores stored as its provider, and records in
-// history the provider its legacy runner history names.
 func legacyChat(t *testing.T, f testFixture, history map[string]string, stored, named string) string {
 	t.Helper()
 	chatID := uuid.NewString()
@@ -65,8 +58,6 @@ func TestBackfill_AChatThatNeverRanStaysUnknown(t *testing.T) {
 	require.ErrorIs(t, err, agentusecase.ErrChatProviderUnknown)
 }
 
-// A row base wrote may store one vendor while its history — which base read
-// first — names another. The history wins, as it did before the upgrade.
 func TestBackfill_AStaleStoredProviderIsRestatedToTheHistory(t *testing.T) {
 	f := newFixture(t)
 	history := map[string]string{}
@@ -79,8 +70,6 @@ func TestBackfill_AStaleStoredProviderIsRestatedToTheHistory(t *testing.T) {
 	assert.Equal(t, "codex", f.chat(t, chatID).ProviderID)
 }
 
-// StaleProviders is the restate's postcondition: what it lists is exactly what
-// a restate still has to do.
 func TestStaleProviders_ListsWhatTheRestateLeaves(t *testing.T) {
 	f := newFixture(t)
 	history := map[string]string{}

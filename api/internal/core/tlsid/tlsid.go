@@ -1,6 +1,3 @@
-// Package tlsid owns the daemon's long-lived self-signed TLS identity. Clients pair
-// by its fingerprint, so it is created only when absent and never rotated
-// automatically.
 package tlsid
 
 import (
@@ -24,8 +21,6 @@ import (
 	"time"
 )
 
-// Identity is the daemon's TLS keypair plus the fingerprint a human confirms
-// during pairing.
 type Identity struct {
 	Certificate tls.Certificate
 	Fingerprint string
@@ -37,7 +32,6 @@ const (
 	validFor = 10 * 365 * 24 * time.Hour
 )
 
-// Load reads the identity in dir, generating it if absent.
 func Load(dir string) (*Identity, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("tlsid: create dir: %w", err)
@@ -49,8 +43,6 @@ func Load(dir string) (*Identity, error) {
 	certPath := filepath.Join(dir, certName)
 	keyPath := filepath.Join(dir, keyName)
 
-	// A pair missing either half can't be served (an interrupted generate
-	// leaves one), so regenerate rather than fail every boot.
 	if missing(certPath) || missing(keyPath) {
 		if err := generate(certPath, keyPath); err != nil {
 			return nil, err
@@ -70,14 +62,10 @@ func Load(dir string) (*Identity, error) {
 	return &Identity{Certificate: pair, Fingerprint: FingerprintOf(pair.Certificate[0])}, nil
 }
 
-// FingerprintOf renders the first 96 bits of a certificate's SHA-256 as six
-// space-separated groups of 4 lowercase hex chars. The format is a contract with the
-// Rust-side formatters and must change with them.
 func FingerprintOf(der []byte) string {
 	sum := sha256.Sum256(der)
 	full := hex.EncodeToString(sum[:])
 	groups := make([]string, 0, 6)
-	// Truncate to first 96 bits (6 groups of 4 hex chars) for short, human-readable output.
 	for i := 0; i < 6; i++ {
 		groups = append(groups, full[i*4:(i+1)*4])
 	}
@@ -117,8 +105,6 @@ func generate(certPath, keyPath string) error {
 		return fmt.Errorf("tlsid: marshal key: %w", err)
 	}
 
-	// Key first, cert last: an interrupted run then leaves no cert beside a
-	// stale key it doesn't match, only a pair Load sees as missing a half.
 	if err := writePEM(keyPath, "EC PRIVATE KEY", keyDER, 0o600); err != nil {
 		return err
 	}
@@ -130,8 +116,6 @@ func missing(path string) bool {
 	return errors.Is(err, fs.ErrNotExist)
 }
 
-// writePEM replaces path atomically (synced temp file, then rename), so a
-// crash or full disk never leaves a truncated PEM under the real name.
 func writePEM(path, blockType string, der []byte, mode os.FileMode) (err error) {
 	name := filepath.Base(path)
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+name+".tmp-*")

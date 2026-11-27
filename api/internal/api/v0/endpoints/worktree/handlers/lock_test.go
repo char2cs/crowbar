@@ -14,12 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// POST .../chats/:id/lock — the user's own lock decision.
-//
-// It answers SYNCHRONOUSLY, unlike the git-backed operations around it: one
-// aggregate write with no git in it, and every way it can be refused is
-// something the user has to see while the menu they fired it from is still up.
-// A 202 would strand those behind an operation the menu no longer shows.
 func lockRouter(
 	reader *fakeReader,
 	worktrees worktreehandlers.Worktrees,
@@ -40,7 +34,6 @@ func TestLock_LocksAWorkspace(t *testing.T) {
 }
 
 func TestLock_UnlocksAProtectedBranch(t *testing.T) {
-	// The whole point of the override: `main` used to be locked with no way out.
 	reader := &fakeReader{}
 	worktrees := &fakeWorktrees{ws: domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusLocked}}
 
@@ -52,9 +45,6 @@ func TestLock_UnlocksAProtectedBranch(t *testing.T) {
 }
 
 func TestLock_OmittedLockedHandsTheQuestionBackToTheProvider(t *testing.T) {
-	// nil is a THIRD answer, not a synonym for false: it clears the override so
-	// the branch reverts to locked iff the provider protects it. A non-pointer
-	// field would make "no opinion" indistinguishable from "unlock".
 	reader := &fakeReader{}
 
 	rec := do(lockRouter(reader, heldWorkspace()), http.MethodPost, chatBase+"/lock", `{}`)
@@ -84,9 +74,6 @@ func TestLock_404sOnAWorkspaceThatIsNotThere(t *testing.T) {
 }
 
 func TestLock_SurfacesARefusalSynchronously(t *testing.T) {
-	// The home workspace and a placeholder with no worktree are both refused by
-	// the aggregate. The user pressed a menu item; the answer belongs in the
-	// response, not on a stream.
 	reader := &fakeReader{lockErr: problem.ErrInvalidArgument}
 
 	rec := do(lockRouter(reader, heldWorkspace()), http.MethodPost, chatBase+"/lock", `{"locked":false}`)

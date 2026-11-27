@@ -1,6 +1,3 @@
-// Package browserbridge routes browser tool calls from agents to the desktop
-// app, which owns the tabs, and keeps the one authoritative answer to "which
-// chat does this tab belong to" that every call is checked against.
 package browserbridge
 
 import (
@@ -14,26 +11,19 @@ import (
 	"time"
 )
 
-// callCap bounds any single request no matter what the caller's context says.
 const callCap = 60 * time.Second
 
 var (
-	// ErrNoDesktop means no desktop app is attached to carry the call out.
 	ErrNoDesktop = errors.New(
 		"browser: the Crowbar desktop app is not connected; browser tools only work while it is running",
 	)
-	// ErrUnknownTab is returned for a tab that does not exist AND for one that
-	// belongs to another chat, so the answer reveals nothing about either.
 	ErrUnknownTab = errors.New("browser: no such tab in this chat; list the tabs with browser_tabs")
 )
 
-// Peer is one attached desktop window: the bridge only needs to hand it frames.
 type Peer interface {
 	Send(frame []byte) error
 }
 
-// Bridge is the registry of attached peers, the tabs they report, and the
-// requests still waiting for an answer.
 type Bridge struct {
 	mu      sync.Mutex
 	peers   []*Session
@@ -46,7 +36,6 @@ type pendingCall struct {
 	reply   chan reply
 }
 
-// deliver never blocks: the first answer wins and a duplicate is dropped.
 func (c pendingCall) deliver(r reply) {
 	select {
 	case c.reply <- r:
@@ -59,13 +48,10 @@ type reply struct {
 	err    error
 }
 
-// New returns an empty bridge.
 func New() *Bridge {
 	return &Bridge{pending: map[string]pendingCall{}}
 }
 
-// Attach registers a peer. The returned Session is fed the peer's frames and
-// must be closed when the peer goes away.
 func (b *Bridge) Attach(p Peer) *Session {
 	s := &Session{bridge: b, peer: p}
 	b.mu.Lock()
@@ -74,7 +60,6 @@ func (b *Bridge) Attach(p Peer) *Session {
 	return s
 }
 
-// Tabs returns, as the peer reported them, only the tabs of chat chatID.
 func (b *Bridge) Tabs(chatID string) json.RawMessage {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -93,9 +78,6 @@ func (b *Bridge) Tabs(chatID string) json.RawMessage {
 	return raw
 }
 
-// Do runs op for chat chatID on the desktop. A non-empty tabID must be a tab
-// of that same chat: the check is here, not in the peer, so no caller can
-// reach a tab outside its own scope however it phrases the id.
 func (b *Bridge) Do(
 	ctx context.Context,
 	chatID, op, tabID string,
@@ -145,7 +127,21 @@ func (b *Bridge) route(chatID, tabID string) (*Session, error) {
 	if len(b.peers) == 0 {
 		return nil, ErrNoDesktop
 	}
+	for _, s := range b.peers {
+		if s.holdsTabOf(chatID) {
+			return s, nil
+		}
+	}
 	return b.peers[len(b.peers)-1], nil
+}
+
+func (s *Session) holdsTabOf(chatID string) bool {
+	for _, t := range s.tabs {
+		if t.chatID == chatID {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bridge) forget(id string) {
@@ -168,11 +164,10 @@ type tab struct {
 	raw    json.RawMessage
 }
 
-// Session is one attached peer's side of the bridge.
 type Session struct {
 	bridge *Bridge
 	peer   Peer
-	tabs   map[string]tab // guarded by bridge.mu
+	tabs   map[string]tab
 }
 
 type frame struct {
@@ -184,9 +179,6 @@ type frame struct {
 	Tabs   []json.RawMessage `json:"tabs"`
 }
 
-// Receive handles one frame from the peer: a full tab inventory, or the answer
-// to a request. Malformed frames are dropped; the peer is not trusted to be
-// well-formed and a bad frame must not take the bridge down.
 func (s *Session) Receive(raw []byte) {
 	var f frame
 	if json.Unmarshal(raw, &f) != nil {
@@ -221,8 +213,6 @@ func (s *Session) replaceTabs(items []json.RawMessage) {
 	s.bridge.mu.Unlock()
 }
 
-// Close detaches the peer, forgets its tabs, and fails the requests it still
-// owed an answer to.
 func (s *Session) Close() {
 	b := s.bridge
 	b.mu.Lock()

@@ -71,14 +71,10 @@ func TestFindMatches_Multiple(t *testing.T) {
 }
 
 func TestFindMatches_UTF16Surrogate(t *testing.T) {
-	// "😀" is U+1F600, encodes as surrogate pair in UTF-16 (2 code units).
-	// "ab" starts at byte offset 4 (after the emoji + space).
 	re, err := match.BuildPattern("ab", true, false, false)
 	require.NoError(t, err)
-	// emoji (4 bytes) + space (1 byte) + "ab"
 	spans := match.FindMatches(re, "😀 ab")
 	require.Len(t, spans, 1)
-	// emoji = 2 UTF-16 units, space = 1, so "ab" starts at col 3
 	assert.Equal(t, 3, spans[0].Start)
 	assert.Equal(t, 5, spans[0].End)
 }

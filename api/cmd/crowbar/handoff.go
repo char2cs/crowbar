@@ -38,9 +38,6 @@ func newHandoffDumpCmd() *cobra.Command {
 	return cmd
 }
 
-// runHandoffDump fetches chatID's assembled handoff from the daemon over its IPC
-// socket and writes it to out. It is separate from the cobra RunE so tests can
-// drive it against a stub daemon.
 func runHandoffDump(chatID, project, repo, workspace, host string, out io.Writer) error {
 	client, err := ipc.NewClient(host)
 	if err != nil {

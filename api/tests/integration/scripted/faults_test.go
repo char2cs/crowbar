@@ -25,8 +25,6 @@ import (
 
 const healthy = "turn:\n  - say: continued\n"
 
-// dormantSaying waits until chatID has no runner, no open turn, and a
-// recorded reason — never a silent dormancy (S2, S3).
 func (r *rig) dormantSaying(chatID string, reasons ...string) {
 	r.t.Helper()
 	r.eventually(func() bool {
@@ -35,8 +33,6 @@ func (r *rig) dormantSaying(chatID string, reasons ...string) {
 	}, "the chat never went dormant with one of "+strings.Join(reasons, ", "))
 }
 
-// continues sends text and waits for the reply to land: the conversation
-// carried on (S5).
 func (r *rig) continues(chatID, text string) {
 	r.t.Helper()
 	r.setScript(healthy)
@@ -54,8 +50,6 @@ func (r *rig) firstTurn(chatID string) {
 	r.eventually(func() bool { return len(r.said(chatID)) == 2 && !r.working(chatID) }, "first turn")
 }
 
-// A CLI that dies mid-turn closes its turn, says why, and the next message
-// brings the conversation back.
 func TestScripted_KillMidTurn(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -75,8 +69,6 @@ func TestScripted_KillMidTurn(t *testing.T) {
 	}
 }
 
-// A CLI that stops producing mid-turn is stopped within a bound, leaves one
-// interruption, and the chat takes the next message.
 func TestScripted_HangThenStop(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -103,9 +95,6 @@ func TestScripted_HangThenStop(t *testing.T) {
 	}
 }
 
-// A slow CLI holds its turn open without losing anything: a message sent
-// meanwhile is refused as busy, not swallowed, and goes through afterwards.
-// A provider that steers takes it into the running turn instead.
 func TestScripted_SlowHook(t *testing.T) {
 	steers := map[string]bool{"claude": true}
 	for _, provider := range providers {
@@ -130,8 +119,6 @@ func TestScripted_SlowHook(t *testing.T) {
 	}
 }
 
-// A dropped api connection ends its runner with a reason; the next message
-// re-establishes the conversation.
 func TestScripted_ConnectionDrop(t *testing.T) {
 	r := newRig(t)
 	chatID := r.spawn("codex")
@@ -144,8 +131,6 @@ func TestScripted_ConnectionDrop(t *testing.T) {
 	r.continues(chatID, "reconnect")
 }
 
-// A daemon restart mid-turn closes the turn, records why, and the next
-// message continues the same conversation.
 func TestScripted_DaemonRestartMidTurn(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -165,8 +150,6 @@ func TestScripted_DaemonRestartMidTurn(t *testing.T) {
 	}
 }
 
-// An ask nobody answers is answered for them when its budget runs out, and
-// the turn goes on to close — it never holds the conversation forever.
 func TestScripted_UnansweredPermissionAsk(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -187,8 +170,6 @@ func TestScripted_UnansweredPermissionAsk(t *testing.T) {
 	}
 }
 
-// An ask over the 128 KiB a held ask may carry is refused on its api
-// connection at once: it never waits on the chat, and nothing approves it.
 func TestScripted_AnAskTooBigToHoldIsRefused(t *testing.T) {
 	r := newRig(t)
 	chatID := r.spawn("codex")
@@ -207,7 +188,6 @@ func TestScripted_AnAskTooBigToHoldIsRefused(t *testing.T) {
 	assert.Equal(t, ledger.ResolutionRefused, resolved[0].Resolution)
 }
 
-// An ask the user answers reaches the CLI as that answer.
 func TestScripted_AnsweredPermissionAsk(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -244,8 +224,6 @@ func allowOption(c domain.ActivityChoice) string {
 	return "allow"
 }
 
-// A vendor session the provider no longer has is refused by its CLI: the chat
-// loses it, and the next message starts a fresh session handed Crowbar's record.
 func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -261,8 +239,6 @@ func TestScripted_MissingSessionFileIsLost(t *testing.T) {
 	}
 }
 
-// A resume the CLI refuses although its session file exists (a changed CLI,
-// a corrupt transcript) is lost the same way.
 func TestScripted_RefusedResumeIsLost(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -278,9 +254,6 @@ func TestScripted_RefusedResumeIsLost(t *testing.T) {
 	}
 }
 
-// lostThenFresh sends text to chatID, whose session its CLI refuses: the
-// message is not taken, and the next one starts a fresh session handed Crowbar's
-// record of the conversation.
 func (r *rig) lostThenFresh(chatID, provider, text string) {
 	r.t.Helper()
 	first := r.logged("prompt")[0]["session"]
@@ -296,9 +269,6 @@ func (r *rig) lostThenFresh(chatID, provider, text string) {
 	assert.Equal(r.t, 1, r.lostSessions(chatID), "the fresh session is not lost")
 }
 
-// sendToALostSession sends text to chatID, whose session its CLI refuses: the
-// prompt is settled session_lost and the session is lost once. Codex's chat
-// runs over its api connection, which refuses before the send answers.
 func (r *rig) sendToALostSession(chatID, provider, text string) {
 	r.t.Helper()
 	requestID := uuid.NewString()
@@ -314,7 +284,6 @@ func (r *rig) sendToALostSession(chatID, provider, text string) {
 	assert.Equal(r.t, 1, r.lostSessions(chatID))
 }
 
-// settled is every reason chatID's ledger settled requestID's prompt with.
 func (r *rig) settled(chatID, requestID string) []string {
 	r.t.Helper()
 	var bodies []string
@@ -332,7 +301,6 @@ func (r *rig) settled(chatID, requestID string) []string {
 	return reasons
 }
 
-// lostSessions counts chatID's session_lost rows.
 func (r *rig) lostSessions(chatID string) int {
 	r.t.Helper()
 	var n int
@@ -342,9 +310,6 @@ func (r *rig) lostSessions(chatID string) int {
 	return n
 }
 
-// transcriptReached reports whether a CLI after the first turn was handed
-// text: in a relaunch's argv (claude's context), a codex call that sets up a
-// thread (developer instructions, injected items), or a later prompt.
 func (r *rig) transcriptReached(text string) bool {
 	starts := r.logged("start")
 	for _, e := range starts[1:] {
@@ -368,8 +333,6 @@ func (r *rig) transcriptReached(text string) bool {
 	return false
 }
 
-// removeSessionFiles deletes every transcript in the CLIs' homes, which must
-// lie inside the rig's temp dir.
 func (r *rig) removeSessionFiles() {
 	r.t.Helper()
 	for _, env := range []string{kit.ClaudeHomeEnv, kit.CodexHomeEnv} {

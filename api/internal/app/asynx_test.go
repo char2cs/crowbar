@@ -25,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// encodeJSON stands in for the API layer's encoder, which this package cannot import.
 func encodeJSON(_ domainstream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
 
 type emptySidebar struct{}
@@ -59,7 +58,6 @@ func TestNewAsynx_NilSnapshotStore_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// msgHandler sends each log message to msgs, dropping it once nobody reads.
 type msgHandler struct{ msgs chan<- string }
 
 func (h msgHandler) Enabled(context.Context, slog.Level) bool { return true }
@@ -81,7 +79,6 @@ func (createNode) ShouldSnapshot() bool           { return false }
 func (createNode) Validate(*tree.Node) error      { return nil }
 func (createNode) EmitEvent(*tree.Node) tree.Node { return tree.Node{ID: "n1"} }
 
-// The attempt that parks an aggregate says so rather than promising a retry.
 func TestNewAsynx_TheLastFailedAttemptIsLoggedAsParked(t *testing.T) {
 	msgs := make(chan string, 64)
 	prev := slog.Default()
@@ -114,7 +111,6 @@ func TestNewAsynx_TheLastFailedAttemptIsLoggedAsParked(t *testing.T) {
 	}
 }
 
-// v1Chat is the chat document as schema 1 wrote it, placement included.
 type v1Chat struct {
 	domain.Chat
 	ParentID string `json:"parentId,omitempty"`
@@ -129,8 +125,6 @@ func (w v1Write) ShouldSnapshot() bool     { return false }
 func (w v1Write) Validate(*v1Chat) error   { return nil }
 func (w v1Write) EmitEvent(*v1Chat) v1Chat { return w.doc }
 
-// A home the retired build wrote, whose chat history patches /parentId and
-// /order, still loads through the daemon's own chat store.
 func TestNewAggregates_AChatHistoryThatPatchedPlacementLoads(t *testing.T) {
 	ctx := context.Background()
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))

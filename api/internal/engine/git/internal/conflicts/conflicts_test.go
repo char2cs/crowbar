@@ -96,7 +96,6 @@ func TestConflictedFiles(
 	assert.Equal(t, "hello.txt", paths[0])
 }
 
-// TestConflictedFiles_None exercises the empty-output branch.
 func TestConflictedFiles_None(
 	t *testing.T,
 ) {
@@ -152,8 +151,6 @@ func TestParseFile(
 		"expected 'ours change' in ours or theirs, got ours=%q theirs=%q", h.Ours, h.Theirs)
 }
 
-// TestParseFile_NoMarkers exercises the branch where the file has no conflict
-// markers — ParseFile should return an empty slice without error.
 func TestParseFile_NoMarkers(
 	t *testing.T,
 ) {
@@ -165,7 +162,6 @@ func TestParseFile_NoMarkers(
 	assert.Empty(t, hunks)
 }
 
-// TestParseFile_MissingFile exercises the os.ReadFile error path in ParseFile.
 func TestParseFile_MissingFile(
 	t *testing.T,
 ) {
@@ -312,7 +308,6 @@ func TestResolveHunk_Both(
 	assert.NotContains(t, content, "<<<<<<<")
 }
 
-// TestResolveHunk_HunkNotFound exercises the findBlock nil-return error path.
 func TestResolveHunk_HunkNotFound(
 	t *testing.T,
 ) {
@@ -323,7 +318,7 @@ func TestResolveHunk_HunkNotFound(
 		ctx,
 		repoPath,
 		conflictFile,
-		"000000000000", // valid-length but non-existent hunk ID
+		"000000000000",
 		gitdomain.ConflictResolutionOurs,
 		"",
 	)
@@ -331,7 +326,6 @@ func TestResolveHunk_HunkNotFound(
 	assert.Contains(t, err.Error(), "not found")
 }
 
-// TestResolveHunk_MissingFile exercises the os.ReadFile error path in ResolveHunk.
 func TestResolveHunk_MissingFile(
 	t *testing.T,
 ) {
@@ -349,8 +343,6 @@ func TestResolveHunk_MissingFile(
 	require.Error(t, err)
 }
 
-// TestResolveHunk_WriteError exercises the os.WriteFile error path.
-// We make the file read-only so the write fails after extracting blocks.
 func TestResolveHunk_WriteError(
 	t *testing.T,
 ) {
@@ -362,7 +354,6 @@ func TestResolveHunk_WriteError(
 	require.NoError(t, err)
 	require.Len(t, hunks, 1)
 
-	// Make the directory read-only so WriteFile fails.
 	absPath := filepath.Join(repoPath, conflictFile)
 	require.NoError(t, os.Chmod(absPath, 0o444))
 	t.Cleanup(func() { _ = os.Chmod(absPath, 0o644) })
@@ -378,10 +369,6 @@ func TestResolveHunk_WriteError(
 	require.Error(t, err)
 }
 
-// TestHasMarkers_False exercises the hasMarkers false branch by calling
-// ParseFile on a file with no markers (hasMarkers returns false for normal files).
-// Covered indirectly: ResolveHunk calls hasMarkers on post-resolution content.
-// This test ensures the no-markers path is hit without going through conflict setup.
 func TestHasMarkers_FalseViaParseFile(
 	t *testing.T,
 ) {
@@ -390,12 +377,9 @@ func TestHasMarkers_FalseViaParseFile(
 	ctx := context.Background()
 	hunks, err := conflicts.ParseFile(ctx, repoPath, "clean.txt")
 	require.NoError(t, err)
-	assert.Empty(t, hunks) // no conflict markers → empty result
+	assert.Empty(t, hunks)
 }
 
-// TestResolveHunk_HasMarkersReturnsTrue exercises the hasMarkers(updated) == true
-// branch: resolve only the first hunk of a file that has multiple conflict hunks
-// so that remaining markers prevent auto-staging.
 func TestResolveHunk_HasMarkersReturnsTrue(
 	t *testing.T,
 ) {
@@ -403,7 +387,6 @@ func TestResolveHunk_HasMarkersReturnsTrue(
 
 	ctx := context.Background()
 
-	// Manually write a two-hunk conflict file to force two hunks.
 	twoHunk := "line1\n<<<<<<< HEAD\nhunk1-ours\n=======\nhunk1-theirs\n>>>>>>> b\nmiddle\n<<<<<<< HEAD\nhunk2-ours\n=======\nhunk2-theirs\n>>>>>>> b\nline_end\n"
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, conflictFile), []byte(twoHunk), 0o644))
 
@@ -411,7 +394,6 @@ func TestResolveHunk_HasMarkersReturnsTrue(
 	require.NoError(t, err)
 	require.Len(t, hunks, 2)
 
-	// Resolve only the first hunk — file still has a second conflict marker.
 	err = conflicts.ResolveHunk(
 		ctx,
 		repoPath,
@@ -422,30 +404,25 @@ func TestResolveHunk_HasMarkersReturnsTrue(
 	)
 	require.NoError(t, err)
 
-	// File should still contain the second conflict marker.
 	data, err := os.ReadFile(filepath.Join(repoPath, conflictFile))
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "<<<<<<<")
 }
 
-// TestConflictedFiles_NonGitDir exercises the RequireSuccess error path in
-// ConflictedFiles by passing a directory that is not a git repository.
 func TestConflictedFiles_NonGitDir(
 	t *testing.T,
 ) {
-	dir := t.TempDir() // plain directory, no git init
+	dir := t.TempDir()
 
 	ctx := context.Background()
 	_, err := conflicts.ConflictedFiles(ctx, dir)
 	require.Error(t, err)
 }
 
-// TestHasConflicts_NonGitDir exercises the RequireSuccess error path in
-// HasConflicts by passing a directory that is not a git repository.
 func TestHasConflicts_NonGitDir(
 	t *testing.T,
 ) {
-	dir := t.TempDir() // plain directory, no git init
+	dir := t.TempDir()
 
 	ctx := context.Background()
 	_, err := conflicts.HasConflicts(ctx, dir)

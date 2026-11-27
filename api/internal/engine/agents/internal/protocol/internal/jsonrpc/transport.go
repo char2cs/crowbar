@@ -7,15 +7,12 @@ import (
 	"time"
 )
 
-// Transport moves whole messages; framing and write deadlines are its own business.
-// Recv returns an error (io.EOF at end of stream) once nothing more will arrive.
 type Transport interface {
 	Send([]byte) error
 	Recv() ([]byte, error)
 	Close() error
 }
 
-// stdioTransport frames one message per line over a child's pipes.
 type stdioTransport struct {
 	Stdio
 	lines *bufio.Reader
@@ -31,7 +28,6 @@ func (s *stdioTransport) Send(msg []byte) error {
 	return nil
 }
 
-// Recv skips blank lines; a last line without its newline is still delivered.
 func (s *stdioTransport) Recv() ([]byte, error) {
 	for {
 		line, err := s.lines.ReadBytes('\n')

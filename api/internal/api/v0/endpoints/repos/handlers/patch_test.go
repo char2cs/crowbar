@@ -22,8 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// fakeUpdater records the UpdateRepo call and returns a canned repo/error so the
-// Patch handler's HTTP contract can be pinned without a real usecase.
 type fakeUpdater struct {
 	repo   domain.Repository
 	err    error
@@ -43,8 +41,6 @@ func (f *fakeUpdater) UpdateRepo(
 	return f.err
 }
 
-// patchRouter mounts PATCH .../repos/:repoId on a handler backed by the
-// supplied updater (nil = the bare handler with no updater wired).
 func patchRouter(
 	t *testing.T,
 	updater repohandlers.RepoUpdater,
@@ -71,8 +67,6 @@ func doPatch(
 	return rec
 }
 
-// TestPatchRepo_RenamePassesTheTrimmedName pins the happy path: a valid rename
-// passes the trimmed name + repoId to the updater and answers 204.
 func TestPatchRepo_RenamePassesTheTrimmedName(t *testing.T) {
 	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1", Name: "Renamed Repo"}}
 	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1",
@@ -85,12 +79,8 @@ func TestPatchRepo_RenamePassesTheTrimmedName(t *testing.T) {
 	assert.Equal(t, "Renamed Repo", *upd.got.Name, "the handler trims surrounding whitespace")
 }
 
-// fakeNodeReader is a fixed map of id -> tree.Node, so a test can pin the
-// Order/FolderID a RepoDTO reads off the repo's own Node row without standing
-// up the real repository.
 type fakeNodeReader map[string]tree.Node
 
-// positionReader is what a test's placements read positions from.
 type positionReader interface {
 	GetNode(ctx context.Context, id string) (tree.Node, error)
 }
@@ -107,9 +97,6 @@ func (f fakeNodeReader) GetNode(_ context.Context, id string) (tree.Node, error)
 	return n, nil
 }
 
-// TestPatchRepo_OrderOnlyNeedsNoName pins that the PATCH is genuinely partial: a
-// reorder carries no name, and the old name-is-required rule would have 400'd
-// every drag.
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}}
 	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1", map[string]any{"order": 2})
@@ -120,8 +107,6 @@ func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
 	assert.Equal(t, 2, *upd.got.Order)
 }
 
-// TestPatchRepo_EmptyName_400 pins synchronous name validation: a blank name
-// (whitespace only) is rejected 400 before the updater runs.
 func TestPatchRepo_EmptyName_400(t *testing.T) {
 	upd := &fakeUpdater{}
 	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/r1",
@@ -131,8 +116,6 @@ func TestPatchRepo_EmptyName_400(t *testing.T) {
 	assert.False(t, upd.called, "the updater must not run on an invalid name")
 }
 
-// TestPatchRepo_NotFound_404 pins that an unknown repo (updater returns
-// ErrNotFound) surfaces as a 404, not a 500.
 func TestPatchRepo_NotFound_404(t *testing.T) {
 	upd := &fakeUpdater{err: problem.ErrNotFound}
 	rec := doPatch(patchRouter(t, upd), "/v0/projects/p1/repos/missing",
@@ -141,8 +124,6 @@ func TestPatchRepo_NotFound_404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestPatchRepo_NoUpdater_500 pins the bare-handler fallback: with no updater
-// wired the endpoint answers 500 rather than panicking.
 func TestPatchRepo_NoUpdater_500(t *testing.T) {
 	rec := doPatch(patchRouter(t, nil), "/v0/projects/p1/repos/r1",
 		map[string]string{"name": "Whatever"})
@@ -150,9 +131,6 @@ func TestPatchRepo_NoUpdater_500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// The patch endpoint takes the same unsanitised name the create endpoint does,
-// and feeds it to the same slug fallback — so it needs the same guard, or a
-// rename walks an existing repo's future worktrees out of the crowbar home.
 func TestPatchRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 	for _, c := range traversalNames {
 		t.Run(c.name, func(t *testing.T) {
@@ -179,21 +157,17 @@ func TestPatchRepo_MalformedBody_400(t *testing.T) {
 	assert.False(t, upd.called)
 }
 
-// A handler built without a crowbar home would resolve one of its own later,
-// so both constructors refuse it up front.
 func TestNew_NilCrowbarHomePanics(t *testing.T) {
 	assert.Panics(t, func() { repohandlers.New(&fakeStore{}, nil) })
 	assert.Panics(t, func() { repohandlers.NewWithDeps(&fakeStore{}, nil, nil, nil, nil, nil) })
 }
 
-// brokenNodes fails every position read the way an unreadable tree does.
 type brokenNodes struct{}
 
 func (brokenNodes) GetNode(context.Context, string) (tree.Node, error) {
 	return tree.Node{}, fmt.Errorf("tree: read p1: %w", errors.New("disk gone"))
 }
 
-// brokenProject fails the position reads of p1's repo only.
 type brokenProject struct{}
 
 func (brokenProject) GetNode(_ context.Context, id string) (tree.Node, error) {
@@ -216,8 +190,6 @@ func placementRouter(t *testing.T, nodes positionReader) *gin.Engine {
 	return r
 }
 
-// A failed position read of the one repo asked for fails that read, rather
-// than answer the repo silently moved to the root.
 func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
 	r := placementRouter(t, brokenNodes{})
 
@@ -229,8 +201,6 @@ func TestDetail_AFailedPositionReadFailsTheRead(t *testing.T) {
 		rec.Body.String())
 }
 
-// One project's unreadable tree does not fail the list of every project: its
-// repos are listed at the root, the others where they are.
 func TestList_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
 	r := placementRouter(t, brokenProject{})
 

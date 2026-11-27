@@ -11,20 +11,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// What a retract did to its prompt.
 const (
-	RetractRetracted   = "retracted"   // withdrawn before the provider took it
-	RetractInterrupted = "interrupted" // its running turn was ended
+	RetractRetracted   = "retracted"
+	RetractInterrupted = "interrupted"
 )
 
-// RetractResult is a retract's outcome and the prompt's text, for the composer.
 type RetractResult struct {
 	State string
 	Text  string
 }
 
-// retraction is what a retract decided under the chat's writer: its rows, and
-// the CLI it ends (carrier) under cause, if any.
 type retraction struct {
 	result  RetractResult
 	rows    []ledger.Row
@@ -32,9 +28,6 @@ type retraction struct {
 	cause   string
 }
 
-// Retract withdraws requestID: pending and no CLI holds it yet, it settles and
-// the CLI launched to carry it is retired; delivered, its running turn ends and
-// the provider is signalled as Stop does. The row commits before any signal.
 func (rs *Runners) Retract(ctx context.Context, chatID, requestID string) (RetractResult, error) {
 	unlock, err := rs.chatLock.Lock(ctx, chatID)
 	if err != nil {
@@ -61,16 +54,12 @@ func (rs *Runners) Retract(ctx context.Context, chatID, requestID string) (Retra
 	if !retiring {
 		return r.result, nil
 	}
-	// Outside the lock, as Stop: the CLI's own hooks on the way down need it.
 	if err := rs.endMarked(ctx, v.runner); err != nil {
 		return RetractResult{}, fmt.Errorf("agent: retract: %w", err)
 	}
 	return r.result, nil
 }
 
-// signal tells carrier's provider, under the chat's lock as Stop does, so no
-// send decides against it meanwhile: an interrupted turn ends in place where
-// it can; otherwise the CLI is marked ending, and true is its caller's to end.
 func (rs *Runners) signal(ctx context.Context, carrier agents.Runner, r retraction) bool {
 	if r.result.State == RetractInterrupted && rs.interruptTurn(ctx, carrier) {
 		return false
@@ -79,9 +68,6 @@ func (rs *Runners) signal(ctx context.Context, carrier agents.Runner, r retracti
 	return retiring
 }
 
-// cliHolds reports whether runnerID, the chat's live CLI, already holds pending
-// p: pushed or launched over its connection, or typed into its composer. A
-// steered prompt waits in the ledger for its turn's end; a PTY launch, its hook.
 func (rs *Runners) cliHolds(runnerID string, p ledger.Prompt) bool {
 	if p.RunnerID != runnerID {
 		return false
@@ -95,8 +81,6 @@ func (rs *Runners) cliHolds(runnerID string, p ledger.Prompt) bool {
 	return false
 }
 
-// retract decides requestID's withdrawal from st; held says whether a pending
-// prompt is already with its provider, which nothing can take back.
 func retract(st ledger.State, requestID string, held func(ledger.Prompt) bool) (retraction, error) {
 	p, ok := st.Receipt(requestID)
 	if !ok {
@@ -122,7 +106,6 @@ func retract(st ledger.State, requestID string, held func(ledger.Prompt) bool) (
 	if err != nil {
 		return retraction{}, err
 	}
-	// Only this turn's subagents: one an earlier turn left running is not its to stop.
 	rows = slices.DeleteFunc(rows, func(row ledger.Row) bool { return row.TurnID != turn.ID })
 	ended, err := ledger.EndTurn(st, ledger.TurnStatusInterrupted, ledger.ReasonRetracted)
 	return retraction{

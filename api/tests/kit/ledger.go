@@ -8,23 +8,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// Message is one prompt or settled main-agent message a chat's rows say: Seq
-// is the row it is shown at, ID the message's own id ("" for a prompt), and
-// Provider the provider its turn ran on.
 type Message struct {
 	Seq                    int64
 	ID, TurnID, Role, Text string
 	Provider               string
 }
 
-// Said is what rows say, in client order: each prompt (a Crowbar one where its turn
-// started) and each settled main-agent message where it began. It is a reader
-// independent of the production turn fold, so tests cross-check the two.
 func Said(rows []ledger.Row) []Message {
 	var out []Message
 	var text ledger.MessageFold
-	parked := map[string]string{}  // a Crowbar prompt's text, by the turn it is for
-	providers := providersOf(rows) // by turn
+	parked := map[string]string{}
+	providers := providersOf(rows)
 	for _, r := range rows {
 		text.Apply(r)
 		if r.Scope != "" {
@@ -63,8 +57,6 @@ func Said(rows []ledger.Row) []Message {
 	return out
 }
 
-// providersOf is the provider each turn ran on: its start's, else that of the
-// runner that ended it.
 func providersOf(rows []ledger.Row) map[string]string {
 	byRunner, byTurn := map[string]string{}, map[string]string{}
 	for _, r := range rows {
@@ -85,14 +77,11 @@ func providersOf(rows []ledger.Row) map[string]string {
 			ledger.KindMarker, ledger.KindRunnerExited, ledger.KindTurnFailed, ledger.KindAssistantText,
 			ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk, ledger.KindAskResolved,
 			ledger.KindSubagent, ledger.KindPlan, ledger.KindMove, ledger.KindShell:
-			// names no provider
 		}
 	}
 	return byTurn
 }
 
-// Bodies are the bodies of rows of kind, in order; a body that does not
-// decode is left out.
 func Bodies[B any](rows []ledger.Row, kind ledger.Kind) []B {
 	var out []B
 	for _, r := range rows {

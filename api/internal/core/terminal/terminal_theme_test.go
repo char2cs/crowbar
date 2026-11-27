@@ -13,8 +13,6 @@ func rgb8(c color.Color) (r, g, b uint8, ok bool) {
 	return uint8(rr >> 8), uint8(gg >> 8), uint8(bb >> 8), true
 }
 
-// TestParseHexColor covers the wire-colour parser that turns the frontend's resolveCssVar
-// output ("#rgb" / "#rrggbb" / "#rrggbbaa") into the color.Color fed to Session.SetTheme.
 func TestParseHexColor(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -24,11 +22,11 @@ func TestParseHexColor(t *testing.T) {
 		{"#ffffff", 255, 255, 255, true},
 		{"#000000", 0, 0, 0, true},
 		{"#1e1e1e", 0x1e, 0x1e, 0x1e, true},
-		{"#FAF9F5", 0xfa, 0xf9, 0xf5, true}, // uppercase tolerated
-		{"#abc", 0xaa, 0xbb, 0xcc, true},    // #rgb shorthand expands
-		{"#ffffffaa", 255, 255, 255, true},  // alpha ignored — OSC report is RGB-only
+		{"#FAF9F5", 0xfa, 0xf9, 0xf5, true},
+		{"#abc", 0xaa, 0xbb, 0xcc, true},
+		{"#ffffffaa", 255, 255, 255, true},
 		{"", 0, 0, 0, false},
-		{"fff", 0, 0, 0, false}, // missing '#'
+		{"fff", 0, 0, 0, false},
 		{"#12345", 0, 0, 0, false},
 		{"#gggggg", 0, 0, 0, false},
 	}

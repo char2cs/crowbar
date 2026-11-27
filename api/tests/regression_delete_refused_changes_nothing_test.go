@@ -18,8 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// deleteWorld is everything a chat delete may touch, read back through the
-// public API and git: the repo's workspaces, its tree rows and the checkout.
 type deleteWorld struct {
 	Workspaces []string
 	Chats      []string
@@ -53,7 +51,6 @@ func readDeleteWorld(t *testing.T, h *harness, f importFixture) deleteWorld {
 	return w
 }
 
-// deleteChat sends DELETE for chatID and reports the status and body as-is.
 func deleteChat(t *testing.T, h *harness, base, chatID string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, h.url+base+"/chats/"+chatID, nil)
@@ -66,8 +63,6 @@ func deleteChat(t *testing.T, h *harness, base, chatID string) (int, string) {
 	return resp.StatusCode, string(raw)
 }
 
-// forkedMain is the field setup: the repo home holds a chat and a folder, and
-// the locked managed main has fork children release/1.0 (locked) and feature-a.
 type forkedMain struct {
 	importFixture
 	mainOwner   string
@@ -117,8 +112,6 @@ func newForkedMain(t *testing.T, h *harness) forkedMain {
 	return m
 }
 
-// reparentOntoRelease unlocks release/1.0 and reparents feature-a onto it.
-// The reparent moves the git parent only: feature-a's row stays under main's.
 func (m forkedMain) reparentOntoRelease(t *testing.T, h *harness) (releaseOwner string) {
 	t.Helper()
 	release := workspacesOnBranch(t, h, m.repoID, "release/1.0")[0]
@@ -143,9 +136,6 @@ func (m forkedMain) unlockMain(t *testing.T, h *harness) {
 		map[string]any{"locked": false}, http.StatusNoContent).Body.Close())
 }
 
-// Deleting main's owner answered 422 after its git cascade had already taken
-// feature-a, reminted release/1.0 under the gone main and re-attached the
-// checkout. The delete must land whole; feature-a's row is in main's subtree.
 func TestRegression_DeleteMainWithForkChildrenIsAllOrNothing(t *testing.T) {
 	h := newHarness(t)
 	m := newForkedMain(t, h)
@@ -167,8 +157,6 @@ func TestRegression_DeleteMainWithForkChildrenIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// A fork reparented onto release/1.0 keeps its row under main, outside
-// release's subtree: deleting release takes it beyond the selection, whole.
 func TestRegression_DeleteTakesAReparentedForkChildBeyondTheSelection(t *testing.T) {
 	h := newHarness(t)
 	m := newForkedMain(t, h)
@@ -189,8 +177,6 @@ func TestRegression_DeleteTakesAReparentedForkChildBeyondTheSelection(t *testing
 	}
 }
 
-// requireNoDanglingLinks fails when a workspace or a tree row names a parent
-// that no longer exists.
 func requireNoDanglingLinks(t *testing.T, w deleteWorld) {
 	t.Helper()
 	ids := map[string]bool{"": true}
@@ -207,8 +193,6 @@ func requireNoDanglingLinks(t *testing.T, w deleteWorld) {
 	}
 }
 
-// Whatever refuses a delete, it refuses before anything goes: the workspaces,
-// the tree rows, their parent links, the branches and the checkout are as they were.
 func TestRegression_ARefusedDeleteChangesNothing(t *testing.T) {
 	locked := func(_ *testing.T, _ *harness, m forkedMain) string { return m.mainOwner }
 	atRisk := func(t *testing.T, h *harness, m forkedMain) string {
@@ -223,7 +207,6 @@ func TestRegression_ARefusedDeleteChangesNothing(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(m.featurePath, "wip.txt"), []byte("wip\n"), 0o600))
 		return owner
 	}
-	// arrange returns the chat whose delete must be refused.
 	cases := map[string]func(t *testing.T, h *harness, m forkedMain) string{
 		"main is still locked":             locked,
 		"feature-a holds uncommitted work": atRisk,

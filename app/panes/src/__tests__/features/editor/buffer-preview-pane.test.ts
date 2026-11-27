@@ -1,0 +1,124 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
+import {
+  setActiveWorkspaceId,
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { workspaceRef } from '@/lib/api/documents'
+
+const createMockStorage = () => {
+  const storage = new Map<string, string>()
+
+  return {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      storage.set(key, value)
+    },
+    removeItem: (key: string) => {
+      storage.delete(key)
+    },
+    clear: () => {
+      storage.clear()
+    },
+    key: (index: number) => Array.from(storage.keys())[index] ?? null,
+    get length() {
+      return storage.size
+    },
+  }
+}
+
+describe('buffer preview pane integration', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', createMockStorage())
+    vi.stubGlobal('window', {
+      __TAURI_INTERNALS__: {
+        invoke: vi.fn().mockResolvedValue([]),
+        metadata: {
+          currentWindow: { label: 'main' },
+          currentWebview: { label: 'main' },
+        },
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })
+    resetWindowPaneStoreForTests()
+    getOrCreateWorkspaceStore('test-ws')
+    setActiveWorkspaceId('test-ws')
+  })
+
+  afterEach(() => {
+    setActiveWorkspaceId(null)
+    destroyWorkspaceStore('test-ws')
+    vi.unstubAllGlobals()
+  })
+
+  const bufferById = (id: string) => windowPaneStore.getState().buffers.find((b) => b.id === id)
+
+  it('marks each preview on the tab, one preview slot per pane', () => {
+    const { bufferActions, paneActions } = windowPaneStore.getState()
+
+    const firstPreviewId = bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef('test-ws', '/workspace/a.ts'),
+      name: 'a.ts',
+      isPreview: true,
+    })
+    const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    expect(rightPaneId).not.toBeNull()
+    if (!rightPaneId) return
+
+    const secondPreviewId = bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef('test-ws', '/workspace/b.ts'),
+      name: 'b.ts',
+      isPreview: true,
+    })
+
+    expect(windowPaneStore.getState().buffers.map((buffer) => buffer.id)).toEqual([
+      firstPreviewId,
+      secondPreviewId,
+    ])
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual([firstPreviewId])
+    expect(paneActions.getPaneById(rightPaneId)?.editorTabIds).toEqual([secondPreviewId])
+    expect(bufferById(firstPreviewId)?.isPreview).toBe(true)
+    expect(bufferById(secondPreviewId)?.isPreview).toBe(true)
+  })
+
+  it('clears the preview mark when a preview becomes definite', () => {
+    const { bufferActions } = windowPaneStore.getState()
+
+    const previewId = bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef('test-ws', '/workspace/preview.ts'),
+      name: 'preview.ts',
+      isPreview: true,
+    })
+
+    expect(bufferById(previewId)?.isPreview).toBe(true)
+
+    bufferActions.promotePreview(previewId)
+
+    expect(bufferById(previewId)?.isPreview).toBe(false)
+  })
+
+  it('pins a promoted preview', () => {
+    const { bufferActions, paneActions } = windowPaneStore.getState()
+
+    const previewId = bufferActions.openContent({
+      type: 'editor',
+      doc: workspaceRef('test-ws', '/workspace/pinned.ts'),
+      name: 'pinned.ts',
+      isPreview: true,
+    })
+
+    bufferActions.promotePreview(previewId)
+    paneActions.setEditorTabPinned(ROOT_PANE_ID, previewId, true)
+
+    expect(bufferById(previewId)?.isPreview).toBe(false)
+    expect(bufferById(previewId)?.isPinned).toBe(true)
+  })
+})

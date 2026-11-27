@@ -1,0 +1,8 @@
+[package]
+name = "c"
+
+[lints]
+workspace = true
+
+[dependencies]
+gpui = "0.2"

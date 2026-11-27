@@ -23,8 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// legacyFuncs is the work behind the legacy post-open steps an install written by the
-// pre-audit daemon needs; each step pairs its work with a check that it left nothing undone.
 type legacyFuncs struct {
 	createMissingHomes func(ctx context.Context, cp checkpoints) error
 	missingHomes       func(ctx context.Context) ([]string, error)
@@ -32,12 +30,9 @@ type legacyFuncs struct {
 	untypedChats       func(ctx context.Context) ([]string, error)
 	restateProviders   func(ctx context.Context) (skipped int, err error)
 	staleProviders     func(ctx context.Context) ([]string, error)
-	// hookJournals is what the hook-deliveries step must remove, and why each
-	// workspace it could not look in was left out.
-	hookJournals func(ctx context.Context) (journals []hookJournal, unresolved []error, err error)
+	hookJournals       func(ctx context.Context) (journals []hookJournal, unresolved []error, err error)
 }
 
-// checkpoints is the part of *migrate.Checkpoints the legacy steps use.
 type checkpoints interface {
 	Done(key string) bool
 	Mark(key string, n migrate.Counts) error
@@ -85,9 +80,6 @@ func newLegacyFuncs(
 	}
 }
 
-// Implemented reports whether this build implements migration step number, in
-// either phase: what migrate.Inspect needs to preview a boot it cannot run here.
-// It builds the impls over no stores, and runs none of them.
 func Implemented(
 	number int,
 ) bool {
@@ -95,8 +87,6 @@ func Implemented(
 		postOpenImpls(legacyFuncs{}, nil, migratetree.LegacySources{})[number].Apply != nil
 }
 
-// postOpenImpls implements every post-open step: the legacy ones over f, and
-// the placement-tree copy into ports from src.
 func postOpenImpls(
 	f legacyFuncs,
 	ports *repotree.Ports,
@@ -107,8 +97,6 @@ func postOpenImpls(
 	return impls
 }
 
-// legacyImpls implements the legacy post-open steps over f. Each adopts the
-// marker an older daemon left for it instead of running.
 func legacyImpls(
 	f legacyFuncs,
 ) migrate.Impls {
@@ -131,8 +119,6 @@ func legacyImpls(
 	}
 }
 
-// skipping is a row-by-row upgrade's Apply: the rows it could not replay are
-// counted, not fatal, as they were before the engine.
 func skipping(
 	upgrade func(ctx context.Context) (int, error),
 ) func(context.Context, migrate.Env, *migrate.Checkpoints) (migrate.Counts, error) {
@@ -151,11 +137,8 @@ func skippedRows(
 	return migrate.Counts{"skipped_rows": int64(n)}
 }
 
-// namedInHalt caps the rows a halt names: its message is kept in the ledger
-// and served to the user.
 const namedInHalt = 10
 
-// leftNothing is a Verify that fails while left lists anything.
 func leftNothing(
 	what string,
 	left func(ctx context.Context) ([]string, error),
@@ -189,14 +172,10 @@ func projectsAndWorkspaces(
 	return projects, workspaces, nil
 }
 
-// homeCreator creates a project's home workspace under its deterministic id.
 type homeCreator interface {
 	CreateHome(ctx context.Context, project domain.Project) (domain.Workspace, error)
 }
 
-// reconcileProjectHomes gives a home to every project an older daemon saved
-// without one: it minted homes lazily on the first read, and reads no longer
-// write, so such a project's /home would stay 404.
 func reconcileProjectHomes(
 	ctx context.Context,
 	projects []domain.Project,
@@ -216,9 +195,6 @@ func reconcileProjectHomes(
 	return nil
 }
 
-// homeless lists the live projects with no live home workspace, except one
-// whose home id a tombstone still holds: the home is not missing, and
-// CreateHome cannot reuse the id until the purge frees it.
 func homeless(
 	projects []domain.Project,
 	workspaces []domain.Workspace,
@@ -250,19 +226,13 @@ func projectIDs(
 	return ids
 }
 
-// hookDeliveriesDir is the retired exactly-once hook journal's directory,
-// which the pre-audit daemon kept in every workspace's chats directory.
 const hookDeliveriesDir = ".hook-deliveries"
 
-// hookJournal is one retired journal and the workspace it was found under.
 type hookJournal struct {
 	workspaceID string
 	path        string
 }
 
-// hookDeliveries deletes each retired journal journals lists. One that cannot
-// be deleted is logged, counted and kept, as is a workspace that could not be
-// looked in; the check then excuses exactly what this attempt kept.
 func hookDeliveries(
 	journals func(ctx context.Context) ([]hookJournal, []error, error),
 ) migrate.Impl {
@@ -305,8 +275,6 @@ func hookDeliveries(
 	}
 }
 
-// retiredHookJournals lists the retired journals still on disk in each
-// workspace's Crowbar-managed chats directory, never inside a live checkout.
 func retiredHookJournals(
 	ctx context.Context,
 	repos *repositories.Container,
@@ -333,7 +301,6 @@ func retiredHookJournals(
 		}
 		seen[chatsDir] = true
 		journal := filepath.Join(chatsDir, hookDeliveriesDir)
-		// A journal that cannot even be stat'ed is listed: its removal reports why.
 		if _, err := os.Lstat(journal); !errors.Is(err, fs.ErrNotExist) {
 			found = append(found, hookJournal{workspaceID: ws.ID, path: journal})
 		}

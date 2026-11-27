@@ -7,8 +7,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// hubFrames carry the recorder's frames on the hub's feed, once
-// StartTerminalWaitSweep wires it, and its feed deltas on the chat feeds.
 type hubFrames struct {
 	feed  *atomic.Pointer[ChatFeed]
 	feeds *feeds

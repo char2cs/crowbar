@@ -39,9 +39,6 @@ type replyToReviewThreadArgs struct {
 	IdempotencyKey string `json:"idempotencyKey"`
 }
 
-// replyToReviewThread checks the thread's own WsID against the caller before writing: an id alone
-// authorizes nothing. The check runs on every call, including deduplicated retries, so a cached key
-// cannot reveal a thread the caller cannot see.
 func replyToReviewThread(
 	ctx context.Context,
 	deps Deps,
@@ -73,16 +70,12 @@ func replyToReviewThread(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: reply_to_review_thread: %w", err)
 	}
-	// Only a real write is announced; a dedup hit changed nothing.
 	if out.created {
 		broadcastThreadWrite(deps, c, thread.WsID, out.fresh)
 	}
-	// Report the thread the reply landed on: a keyed retry naming another thread wrote nothing.
 	return fmt.Sprintf("Replied to review thread %s.", out.threadID), nil
 }
 
-// replyInputFor builds the reply write, attributed like openInputFor from the resolved Caller (the
-// writer, not the thread's workspace), never from the arguments.
 func replyInputFor(
 	c Caller,
 	threadID string,

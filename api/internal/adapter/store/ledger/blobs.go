@@ -11,26 +11,19 @@ import (
 	"sync"
 )
 
-// MaxPayloadBytes is the most of one payload a blob keeps.
 const MaxPayloadBytes = 8 << 20
 
 const truncationMarker = "\n\n[crowbar: payload truncated at 8 MiB]"
 
-// RefPrefix starts every blob ref: the rest is the payload's sha256.
 const RefPrefix = "sha256:"
 
-// ErrBlobNotFound is a ref no blob is stored under.
 var ErrBlobNotFound = errors.New("ledger blobs: not found")
 
-// Blobs stores tool payloads by content: a row carries only a payload's ref.
 type Blobs struct {
 	root string
-	// refs is held shared while payloads are named, from Put until the row
-	// naming them commits, and alone by a collection.
 	refs sync.RWMutex
 }
 
-// OpenBlobs is the blob store under root, created if it is missing.
 func OpenBlobs(root string) (*Blobs, error) {
 	if root == "" {
 		return nil, errors.New("ledger blobs: empty root")
@@ -41,8 +34,6 @@ func OpenBlobs(root string) (*Blobs, error) {
 	return &Blobs{root: root}, nil
 }
 
-// Put stores data and returns its ref; "" for an empty payload. The same
-// payload is stored once, and one past MaxPayloadBytes is cut and says so.
 func (s *Blobs) Put(data []byte) (string, error) {
 	if len(data) == 0 {
 		return "", nil
@@ -66,7 +57,6 @@ func (s *Blobs) Put(data []byte) (string, error) {
 	return ref, nil
 }
 
-// Get is the payload stored under ref.
 func (s *Blobs) Get(ref string) ([]byte, error) {
 	if ref == "" {
 		return nil, ErrBlobNotFound
@@ -85,16 +75,11 @@ func (s *Blobs) Get(ref string) ([]byte, error) {
 	return data, nil
 }
 
-// Naming holds collection off until release: Put the payloads and commit the
-// rows naming them before releasing.
 func (s *Blobs) Naming() (release func()) {
 	s.refs.RLock()
 	return s.refs.RUnlock
 }
 
-// Collect deletes the blob behind ref unless inUse says a row names it, with
-// no payload being named meanwhile. An empty, malformed or missing ref is a
-// no-op, so two purges racing over one shared blob both succeed.
 func (s *Blobs) Collect(ref string, inUse func(string) (bool, error)) error {
 	s.refs.Lock()
 	defer s.refs.Unlock()
@@ -117,8 +102,6 @@ func (s *Blobs) remove(ref string) error {
 	return nil
 }
 
-// pruneShard removes the blob's two shard levels once they are empty. Safe
-// under the collection lock: no Put is between its mkdir and its write.
 func (s *Blobs) pruneShard(dir string) {
 	for _, d := range []string{dir, filepath.Dir(dir)} {
 		if d == s.root || os.Remove(d) != nil {
@@ -127,8 +110,6 @@ func (s *Blobs) pruneShard(dir string) {
 	}
 }
 
-// ValidRef reports whether ref is spelled as Put spells one: RefPrefix and the
-// payload's sha256 in lower-case hex.
 func ValidRef(ref string) bool {
 	digest, ok := strings.CutPrefix(ref, RefPrefix)
 	return ok && len(digest) == sha256.Size*2 && isHex(digest)

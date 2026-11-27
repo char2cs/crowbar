@@ -28,7 +28,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: cargo
-    directory: /desktop/src-tauri
+    directory: /app/mobile/src-tauri
     schedule:
       interval: weekly
     commit-message:
@@ -40,14 +40,14 @@ updates:
         update-types: [minor, patch]
 
   # Version updates for /web run through the `bun` ecosystem, NOT `npm`.
-  # Dependabot's npm updater rewrites web/package.json and never regenerates
+  # Dependabot's npm updater rewrites app/panes/package.json and never regenerates
   # this repo's bun.lock, so every npm bump died at `bun install
   # --frozen-lockfile` ("lockfile had changes, but lockfile is frozen") in ~8s,
   # before a single test ran. The bun updater writes both files in one commit.
   # Requires the text bun.lock (bun >= 1.1.39); the legacy binary bun.lockb is
   # not supported.
   - package-ecosystem: bun
-    directory: /web
+    directory: /app/panes
     schedule:
       interval: weekly
     commit-message:
@@ -67,7 +67,7 @@ updates:
   # Caveat: an npm security PR still won't regenerate bun.lock, so it lands red
   # — run the `Refresh bun.lock` workflow on it.
   - package-ecosystem: npm
-    directory: /web
+    directory: /app/panes
     schedule:
       interval: weekly
     open-pull-requests-limit: 0

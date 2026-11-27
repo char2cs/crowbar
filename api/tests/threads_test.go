@@ -26,9 +26,6 @@ type threadDTO struct {
 	IsAgent   bool   `json:"isAgent"`
 }
 
-// TestStream_WsScopeCarriesReviewThreads: a client holding the workspace's ws:
-// scope gets its threads as the snapshot, hears a new comment as a
-// review_thread entity frame, and a deleted thread as gone.
 func TestStream_WsScopeCarriesReviewThreads(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -61,7 +58,6 @@ func TestStream_WsScopeCarriesReviewThreads(t *testing.T) {
 	assert.True(t, gone.Gone)
 }
 
-// TestThreads_RangeAnchor proves a thread can be anchored to a multi-line range.
 func TestThreads_RangeAnchor(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -82,9 +78,6 @@ func TestThreads_RangeAnchor(t *testing.T) {
 	assert.Equal(t, 44, got.Line)
 }
 
-// TestThreads_SingleLineDefaultsRange proves that omitting startLine/endLine
-// causes the aggregate to default both to line, enforcing the single-line
-// invariant for all callers (not just the HTTP handler).
 func TestThreads_SingleLineDefaultsRange(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -115,8 +108,6 @@ type threadWithReplies struct {
 	Replies []threadReplyDTO `json:"replies"`
 }
 
-// TestThreads_AuthorAndIsAgent proves human vs agent authorship round-trips on
-// open and reply.
 func TestThreads_AuthorAndIsAgent(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -140,8 +131,6 @@ func TestThreads_AuthorAndIsAgent(t *testing.T) {
 	assert.True(t, replied.Replies[0].IsAgent, "agent reply must carry isAgent")
 }
 
-// TestRegression_GeneralComment_OpensRepliesResolvesAndLists proves a thread
-// with no anchor (the Conversation tab's general comment) works end to end.
 func TestRegression_GeneralComment_OpensRepliesResolvesAndLists(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -176,8 +165,6 @@ func TestRegression_GeneralComment_OpensRepliesResolvesAndLists(t *testing.T) {
 	assert.Empty(t, listed[0].FilePath)
 }
 
-// TestRegression_HalfAnchoredThread_IsRejected proves a partial anchor is
-// refused rather than stored as a thread no diff line can show.
 func TestRegression_HalfAnchoredThread_IsRejected(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)

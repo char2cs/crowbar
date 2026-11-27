@@ -1,0 +1,106 @@
+import { APPLE_KEYBOARD, normalizeKey } from '@/utils/platform'
+
+const MODIFIER_KEYS = ['ctrl', 'cmd', 'alt', 'shift', 'meta']
+const SPECIAL_KEYS: Record<string, string> = {
+  enter: 'Enter',
+  return: 'Enter',
+  tab: 'Tab',
+  space: ' ',
+  backspace: 'Backspace',
+  delete: 'Delete',
+  escape: 'Escape',
+  esc: 'Escape',
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
+  home: 'Home',
+  end: 'End',
+  insert: 'Insert',
+}
+
+interface ParsedKey {
+  modifiers: string[]
+  key: string
+}
+
+interface ParsedKeybinding {
+  parts: ParsedKey[]
+  isChord: boolean
+}
+
+function parseKeyCombination(combo: string): ParsedKey {
+  const parts = combo
+    .toLowerCase()
+    .split('+')
+    .map((p) => p.trim())
+  const modifiers: string[] = []
+  let key = ''
+
+  for (const part of parts) {
+    if (MODIFIER_KEYS.includes(part)) {
+      // react-doctor-disable-next-line js-set-map-lookups -- both `parts` (a single key combo's segments, e.g. "ctrl+shift+k") and `modifiers` (at most MODIFIER_KEYS.length, 5) are provably tiny; a Set here would cost readability for no measurable gain.
+      if (!modifiers.includes(part)) {
+        modifiers.push(part)
+      }
+    } else {
+      key = part
+    }
+  }
+
+  if (SPECIAL_KEYS[key]) {
+    key = SPECIAL_KEYS[key]
+  }
+
+  modifiers.sort()
+
+  return { modifiers, key }
+}
+
+function parseKeybinding(binding: string): ParsedKeybinding {
+  const normalized = normalizeKey(binding)
+
+  const parts = normalized
+    .split(/\s+/)
+    .filter((p) => p.length > 0)
+    .map(parseKeyCombination)
+
+  return {
+    parts,
+    isChord: parts.length > 1,
+  }
+}
+
+function formatModifier(modifier: string) {
+  if (modifier === 'cmd' && APPLE_KEYBOARD) return '⌘'
+  if (modifier === 'cmd') return 'Ctrl'
+  if (modifier === 'ctrl') return 'Ctrl'
+  if (modifier === 'alt') return APPLE_KEYBOARD ? '⌥' : 'Alt'
+  if (modifier === 'shift') return APPLE_KEYBOARD ? '⇧' : 'Shift'
+  if (modifier === 'meta') return APPLE_KEYBOARD ? '⌘' : 'Meta'
+  return modifier
+}
+
+function formatKey(key: string) {
+  if (key === ' ') return 'Space'
+  if (key.startsWith('Arrow')) return key.replace('Arrow', '')
+  if (key.length === 1) return key.toUpperCase()
+  if (/^f\d{1,2}$/.test(key)) return key.toUpperCase()
+  return key
+}
+
+export function keybindingToDisplay(binding: string): string[] {
+  const parsed = parseKeybinding(binding.replace(/\bmod\b/gi, 'cmd'))
+  const keys: string[] = []
+
+  for (const part of parsed.parts) {
+    keys.push(...part.modifiers.map(formatModifier))
+    if (part.key) {
+      keys.push(formatKey(part.key))
+    }
+  }
+
+  return keys
+}

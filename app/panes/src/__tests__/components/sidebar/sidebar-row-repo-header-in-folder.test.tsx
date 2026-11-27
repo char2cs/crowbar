@@ -1,0 +1,58 @@
+import { describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { SidebarRow } from '@/components/sidebar/sidebar-row'
+import { inputOf, repoRows } from '@/__tests__/__fixtures__/tree-rows'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import type { Repo } from '@/core/entities/repo-types'
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
+}))
+
+function makeRepo(folderId: string): Repo {
+  return {
+    id: 'repo-alpha',
+    projectId: 'proj-1',
+    folderId,
+    name: 'repo-alpha',
+    avatarLabel: 'A',
+    avatarColor: 'bg-indigo-700',
+    defaultWorkspaceId: 'ws-home',
+    defaultBranch: 'main',
+    defaultWorkspaceStatus: 'new',
+    defaultOwningChatId: 'home-chat',
+    workspaces: [],
+    folders: [],
+    chats: [{ id: 'home-chat', repoId: 'repo-alpha', title: '', order: 0, workspaceId: 'ws-home' }],
+  }
+}
+
+function renderHeader(folderId: string) {
+  const [header] = repoRows(makeRepo(folderId))
+  render(
+    <SidebarRow row={header} depth={1} onOpen={vi.fn()} onTrash={vi.fn()} onCreate={vi.fn()} />,
+  )
+  return header
+}
+
+describe('SidebarRow: a repo header filed into a home folder', () => {
+  it('is drawn with the home folder as its parent', () => {
+    const folder = { id: 'home-folder-1', repoId: '', name: 'Filed', order: 0 }
+    const home = { workspaceId: 'home-ws', chats: [], folders: [folder] }
+    const rows = deriveRows(inputOf({ repos: [makeRepo('home-folder-1')], home }))
+    expect(rows.find((r) => r.repoIcon)?.parentId).toBe('home-folder-1')
+  })
+
+  it('keeps its overflow menu and icon picker, and never gains the Remove control', () => {
+    renderHeader('home-folder-1')
+    expect(screen.getByRole('button', { name: 'More actions for repo-alpha' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /edit repo-alpha icon/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove repo-alpha' })).not.toBeInTheDocument()
+  })
+
+  it('renders identically to the same header at the project-home root', () => {
+    renderHeader('')
+    expect(screen.getByRole('button', { name: 'More actions for repo-alpha' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove repo-alpha' })).not.toBeInTheDocument()
+  })
+})

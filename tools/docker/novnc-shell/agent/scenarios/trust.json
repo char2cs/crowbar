@@ -1,0 +1,15 @@
+{
+  "description": "A workspace-trust modal painted on the terminal before anything else; the turn goes on once it is answered (Enter).",
+  "steps": [
+    {
+      "do": "screen",
+      "wait": true,
+      "text": "\u001b[1mDo you trust the files in this folder?\u001b[0m\n\n{cwd}\n\n❯ Yes, trust this folder\n  No, exit\n\nEnter to confirm",
+      "after": "Trusted."
+    },
+    {
+      "do": "echo",
+      "prefix": "Trusted. You said: "
+    }
+  ]
+}

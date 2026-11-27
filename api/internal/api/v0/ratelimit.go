@@ -12,12 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// maxLimitedSources bounds the per-source table. Evicting past it only hands a
-// source a fresh window; the outstanding code's own failure cap still bounds a
-// brute force spread over many addresses.
 const maxLimitedSources = 4096
 
-// ipv6HostBits keys an IPv6 peer by its /64, the block a single host controls.
 const ipv6HostBits = 64
 
 type sourceWindow struct {
@@ -25,9 +21,6 @@ type sourceWindow struct {
 	ends  time.Time
 }
 
-// sourceLimiter rejects a source's requests past max within one fixed window,
-// reset (not decayed) once the window elapses. Keying per source means one
-// caller's wrong guesses never lock another caller out.
 type sourceLimiter struct {
 	max    int
 	window time.Duration
@@ -45,8 +38,6 @@ func newSourceLimiter(
 	return &sourceLimiter{max: max, window: window, now: now, sources: map[string]*sourceWindow{}}
 }
 
-// handle keys on the TCP peer alone: a forwarded-for header is the caller's to
-// set, so trusting one would let any caller pick a fresh budget per request.
 func (l *sourceLimiter) handle(
 	c *gin.Context,
 ) {

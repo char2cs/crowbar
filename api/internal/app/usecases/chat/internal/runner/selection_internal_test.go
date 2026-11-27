@@ -8,9 +8,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// fakeSelectionAgent answers only the calls resolveSelectionForSpawn makes —
-// Models/Efforts/PermissionLevels/Capabilities — via the embedded nil
-// interface's panic-on-anything-else, same pattern as stubAgentsForInterrupt.
 type fakeSelectionAgent struct {
 	engineagents.Agent
 	models     []string
@@ -44,11 +41,6 @@ func TestResolveSelectionForSpawn_ClearsAModelAStaticCatalogueDoesNotDeclare(t *
 	assert.Empty(t, got.Effort, "efforts are read against the cleared model, so they clear too")
 }
 
-// This is the required "failed/empty discovery does not reject a non-empty
-// model" property: a discover:-declared provider with nothing resolved yet
-// (models/efforts both empty) must pass the selection through UNCHANGED,
-// never clear it — clearing here is indistinguishable from silently
-// dropping the user's own choice because a probe simply hasn't run yet.
 func TestResolveSelectionForSpawn_KeepsAnUnresolvedDiscoveredModelUnchanged(t *testing.T) {
 	a := fakeSelectionAgent{discovered: true}
 

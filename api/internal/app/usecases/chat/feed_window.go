@@ -12,16 +12,11 @@ import (
 )
 
 const (
-	// previewBytes is the most of a bulky body field a replay sends of a row.
-	previewBytes = 8 << 10
-	// DefaultPageBytes is the wire size of an older page when its request names none.
+	previewBytes     = 8 << 10
 	DefaultPageBytes = 256 << 10
-	// MaxPageBytes is the most one older page may ask for.
-	MaxPageBytes = 4 << 20
+	MaxPageBytes     = 4 << 20
 )
 
-// previewCapOf is the size a window counts a previewable row at: its preview's,
-// when the window is of bytes and so sent as previews.
 func previewCapOf(windowBytes int64) int64 {
 	if windowBytes > 0 {
 		return previewBytes
@@ -29,15 +24,11 @@ func previewCapOf(windowBytes int64) int64 {
 	return 0
 }
 
-// RowsPage is a run of whole turns older than a row a client holds. From is the
-// seq its first row follows: 0 when nothing is older.
 type RowsPage struct {
 	Rows []ledger.Row `json:"rows"`
 	From int64        `json:"from"`
 }
 
-// replay visits chatID's rows after `after` up to upto, as previews when asked
-// to; it stops, with the context's error, when visit says so.
 func (u *Usecase) replay(
 	ctx context.Context, chatID string, after, upto int64, preview bool, visit func(ledger.Row) bool,
 ) error {
@@ -62,9 +53,6 @@ func (u *Usecase) replay(
 	return nil
 }
 
-// ReadRows is the whole turns right before row `before` (the From a window or
-// page gave), newest within bytes of wire size, as previews. An unknown chat is
-// problem.ErrNotFound, a before below 1 problem.ErrInvalidArgument.
 func (u *Usecase) ReadRows(ctx context.Context, chatID string, before, bytes int64) (RowsPage, error) {
 	if before < 1 {
 		return RowsPage{}, fmt.Errorf("chat rows: before %d: %w", before, problem.ErrInvalidArgument)
@@ -85,8 +73,6 @@ func (u *Usecase) ReadRows(ctx context.Context, chatID string, before, bytes int
 	return page, err
 }
 
-// ReadRow is row seq of chatID whole, as a preview of it left it out: an
-// unknown chat or a seq no row has is problem.ErrNotFound.
 func (u *Usecase) ReadRow(ctx context.Context, chatID string, seq int64) (ledger.Row, error) {
 	if err := u.knownChat(ctx, "chat row", chatID); err != nil {
 		return ledger.Row{}, err
@@ -101,7 +87,6 @@ func (u *Usecase) ReadRow(ctx context.Context, chatID string, seq int64) (ledger
 	return rows[0], nil
 }
 
-// knownChat is nil for a chat that exists, else problem.ErrNotFound; op names the caller.
 func (u *Usecase) knownChat(ctx context.Context, op, chatID string) error {
 	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {

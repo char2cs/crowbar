@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// StashPush stashes the current changes and resyncs the working tree.
 func (u *gitUsecase) StashPush(
 	ctx context.Context,
 	wsID string,
@@ -17,7 +16,6 @@ func (u *gitUsecase) StashPush(
 	})
 }
 
-// StashApply applies a stash and resyncs the working tree.
 func (u *gitUsecase) StashApply(
 	ctx context.Context,
 	wsID string,
@@ -29,7 +27,6 @@ func (u *gitUsecase) StashApply(
 	})
 }
 
-// StashPop applies and removes a stash and resyncs the working tree.
 func (u *gitUsecase) StashPop(
 	ctx context.Context,
 	wsID string,
@@ -41,7 +38,6 @@ func (u *gitUsecase) StashPop(
 	})
 }
 
-// StashDrop removes a stash and resyncs the working tree.
 func (u *gitUsecase) StashDrop(
 	ctx context.Context,
 	wsID string,

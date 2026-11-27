@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// planned is step with the plan p; its Plan ignores the context.
 func planned(
 	step Step,
 	p Plan,
@@ -110,7 +109,6 @@ func TestRun_BacksUpStateBeforeTheFirstStepWhenAPlanRewritesIt(t *testing.T) {
 	impls := Impls{
 		1: impl(func(*Checkpoints) (Counts, error) {
 			run := b.records()[0].Run
-			// The backup exists before step 1 starts, though step 2 is the one that rewrites.
 			backedUp = backedUpView(t, filepath.Join(b.home.MigrateDir(), backupsDirName, run+backupExt))
 			return nil, nil
 		}),
@@ -242,7 +240,6 @@ func TestRun_OneBackupPerMigrationAttempt(t *testing.T) {
 	require.NoError(t, third.Close())
 	assert.Len(t, ofKind(b.records(), kindBackup), 1)
 
-	// A completed run ends the attempt: the next migration backs up what it starts from.
 	later, err := NewCatalog(rewrites, planned(newStep(2, "b", PreOpen, 0, 0), Plan{RewritesState: true}))
 	require.NoError(t, err)
 	b.cat = later
@@ -282,7 +279,7 @@ func TestRun_ABackupTheLedgerCannotRecordHaltsAndIsNotInForce(t *testing.T) {
 	tick := tickingClock()
 	b.clock = func() time.Time {
 		if s != nil && s.run != nil {
-			require.NoError(t, s.led.Close()) // run.start is down; the backup record is next
+			require.NoError(t, s.led.Close())
 		}
 		return tick()
 	}
@@ -307,8 +304,6 @@ func TestRun_ABackupTheLedgerCannotRecordHaltsAndIsNotInForce(t *testing.T) {
 	assert.Equal(t, []int{1}, order)
 }
 
-// sessionless is a Halt without what only a running session knows when the
-// preview is made: the run it started and the ledger file that run created.
 func sessionless(
 	h *Halt,
 ) Halt {
@@ -317,9 +312,6 @@ func sessionless(
 	return c
 }
 
-// A preview that is green where the boot halts is worse than none: Inspect makes
-// the preflight's decisions through the code the session runs, so its Halt is the
-// boot's.
 func TestInspect_APreflightFailureIsTheHaltTheBootGives(t *testing.T) {
 	rewrites := Plan{Actions: []Action{{Kind: Convert, Subject: "state/x", Count: Unknown}}, RewritesState: true}
 	tests := []struct {

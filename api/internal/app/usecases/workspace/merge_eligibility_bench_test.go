@@ -25,7 +25,6 @@ func BenchmarkMergeEligibilitiesFor_LargeSiblingSet(b *testing.B) {
 		)
 	}
 
-	// Parent sits at the tail so the scan walks the whole slice.
 	ws := domain.Workspace{ID: "child", ParentID: "s" + strconv.Itoa(n-1)}
 
 	b.ReportAllocs()

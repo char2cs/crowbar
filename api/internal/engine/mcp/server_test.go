@@ -71,8 +71,6 @@ func TestServer_NotificationGetsNoReply(t *testing.T) {
 func TestServer_ToolsListDoesNotDeclareOutputSchema(t *testing.T) {
 	out, _ := srv(&fakeTools{}).Handle(context.Background(),
 		[]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
-	// Declaring outputSchema obliges the server to send structuredContent AND a
-	// serialized copy in content — the payload twice. Never declare it.
 	require.NotContains(t, string(out), "outputSchema")
 	require.Contains(t, string(out), "set_chat_title")
 }
@@ -101,9 +99,6 @@ func TestServer_ToolsCallReturnsTextContent(t *testing.T) {
 	require.Equal(t, "titled", resp.Result.Content[0].Text)
 }
 
-// A failing tool is a TOOL error (isError:true in a successful result), not a
-// JSON-RPC error — that is what lets the model read the failure and retry
-// instead of the client tearing the connection down.
 func TestServer_ToolFailureIsToolErrorNotRPCError(t *testing.T) {
 	out, _ := srv(&fakeTools{err: errors.New("thread not visible")}).Handle(context.Background(),
 		[]byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"set_chat_title","arguments":{}}}`))
@@ -147,8 +142,6 @@ func TestServer_PingReturnsEmptyResult(t *testing.T) {
 	require.JSONEq(t, `{"jsonrpc":"2.0","id":6,"result":{}}`, string(out))
 }
 
-// tools/list must never emit `"tools":null` — a ToolSet with no tools yet is an
-// empty array. A null there is a wire shape some clients reject outright.
 func TestServer_ToolsListEmitsAnArrayWhenThereAreNoTools(t *testing.T) {
 	out, _ := srv(&fakeTools{empty: true}).Handle(context.Background(),
 		[]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))

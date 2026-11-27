@@ -12,24 +12,13 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// sessionLaunch is how one launch continues the chat's conversation with its
-// provider: resuming the bound session, or starting one — minted here when the
-// provider takes an id at launch, announced by the CLI otherwise.
 type sessionLaunch struct {
-	resumeID string
-	// assign binds the session Crowbar minted; it is appended before the fork.
-	assign *ledger.Row
-	// afterLoss: the provider refused the chat's session, so what this launch is
-	// handed of the conversation is Crowbar's record, which the transcript says.
+	resumeID  string
+	assign    *ledger.Row
 	afterLoss bool
-	// relayID is the MCP identity a provider that pins it keeps for the session: the
-	// bound one when resuming, a new one when starting. "" for a provider that pins none.
-	relayID string
+	relayID   string
 }
 
-// launchSession is the launch decision. A bound session that turned is resumed
-// by its id, and only by its id. Any other starts anew, handed Crowbar's record:
-// one that never turned was never written by its CLI, so a new id replaces it.
 func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error) {
 	c, ok := st.Conversation(d.ID())
 	if ok && c.Resumable() {
@@ -50,7 +39,6 @@ func launchSession(st ledger.State, d engineagents.Agent) (sessionLaunch, error)
 	return launch, nil
 }
 
-// planLaunch reads chatID's ledger for launchSession.
 func (rs *Runners) planLaunch(ctx context.Context, chatID string, d engineagents.Agent) (sessionLaunch, error) {
 	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
@@ -59,9 +47,6 @@ func (rs *Runners) planLaunch(ctx context.Context, chatID string, d engineagents
 	return launchSession(st, d)
 }
 
-// steps are the argv steps that put the CLI on its session: the resume arg,
-// or the assign arg naming the minted id. A provider that takes no id launches
-// fresh and announces its own.
 func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, error) {
 	if l.resumeID != "" {
 		return resumeInjectionSteps(d, l.resumeID), nil
@@ -77,23 +62,17 @@ func (l sessionLaunch) steps(d engineagents.Agent) ([]engineagents.InjectStep, e
 	return sessionArgSteps(arg, bound.SessionID), nil
 }
 
-// promptDelivery is what SubmitPrompt needs to launch a CLI carrying a
-// message: the InjectSteps to render, and the session those steps continue.
 type promptDelivery struct {
-	provider    string                // the provider the carrier launches as
-	descriptor  engineagents.Agent    // the carrier's descriptor
-	outgoing    engineagents.Runner   // the chat's CLI the carrier replaces, zero on a dormant chat
-	selection   *domain.ChatSelection // the pick staged with the prompt, nil for none
-	promptSteps []engineagents.InjectStep
-	launch      sessionLaunch
-	// conversation and contextResuming hand the record over to a launch whose
-	// outgoing runner never turned, or that has none (resolvePromptDelivery).
+	provider        string
+	descriptor      engineagents.Agent
+	outgoing        engineagents.Runner
+	selection       *domain.ChatSelection
+	promptSteps     []engineagents.InjectStep
+	launch          sessionLaunch
 	conversation    string
 	contextResuming bool
 }
 
-// resolvePromptDelivery plans the launch of providerID's CLI carrying a
-// prompt; live is the chat's CLI it replaces, zero on a dormant chat.
 func (rs *Runners) resolvePromptDelivery(
 	ctx context.Context,
 	chatID, providerID string,
@@ -106,8 +85,6 @@ func (rs *Runners) resolvePromptDelivery(
 	}
 	resuming, nativeSessionID := launch.resumeID != "", launch.resumeID
 
-	// The connection resumes the session and carries the prompt, so there is no
-	// argv mapping or restart to judge.
 	apiOnly := descriptor.APIOnlyPrompts()
 	var promptSteps []engineagents.InjectStep
 	if !apiOnly {
@@ -125,18 +102,12 @@ func (rs *Runners) resolvePromptDelivery(
 		}
 	}
 
-	// Only a session that turned is resumed, so a resumed one has history of its
-	// own; the gap since its last turn is what it lacks. Whether THIS restart owes
-	// that handoff is turnedSinceOutgoing's question below.
 	everTurned := resuming
 	leftAt, err := rs.leftAt(ctx, chatID, providerID, nativeSessionID)
 	if err != nil {
 		return promptDelivery{}, err
 	}
 
-	// The launch owes the handoff unless providerID turned since the CLI it
-	// displaces started: that turn is on its own transcript, which its resume
-	// restores, while with no turn, or no CLI, nothing of its own is on the wire.
 	turned, err := rs.turnedSinceOutgoing(ctx, chatID, providerID, live)
 	if err != nil {
 		return promptDelivery{}, err
@@ -157,17 +128,12 @@ func (rs *Runners) resolvePromptDelivery(
 	if !resuming || apiOnly {
 		return out, nil
 	}
-	// Unsupported is judged against the FULL native mapping: only a provider with no
-	// resume arg at all cannot deliver this message.
 	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
 	return out, nil
 }
 
-// turnedSinceOutgoing reports whether providerID has turned on the chat since
-// outgoing, the CLI a delivery replaces, started; a dormant chat has none.
-// Outgoing is the one CLI live since, so only its own turns count.
 func (rs *Runners) turnedSinceOutgoing(
 	ctx context.Context, chatID, providerID string, outgoing engineagents.Runner,
 ) (bool, error) {
@@ -182,8 +148,6 @@ func (rs *Runners) turnedSinceOutgoing(
 	return turned, nil
 }
 
-// launchCarrying launches the CLI that carries requestID and the pick staged
-// with it, recorded as its carrier before anything is touched.
 func (rs *Runners) launchCarrying(
 	ctx context.Context, h *hold, chat domain.Chat, requestID, text string, delivery promptDelivery,
 ) (domain.AgentPromptSubmission, error) {
@@ -209,8 +173,6 @@ func (rs *Runners) launchCarrying(
 	return rs.commitPromptSpawn(ctx, chat.ID, requestID, runnerID)
 }
 
-// displaceForDelivery quits the CLI d replaces, if any, then plans the launch
-// again: that CLI's exit may have lost the session the plan resumed.
 func (rs *Runners) displaceForDelivery(
 	ctx context.Context, h *hold, chatID, requestID string, d promptDelivery,
 ) (promptDelivery, error) {
@@ -237,7 +199,6 @@ func (rs *Runners) promptTarget(
 	return live, descriptor, worktree, err
 }
 
-// promptAgent is providerID's descriptor and the worktree chat's CLI runs in.
 func (rs *Runners) promptAgent(
 	ctx context.Context, chat domain.Chat, providerID string,
 ) (engineagents.Agent, string, error) {
@@ -275,9 +236,6 @@ func (rs *Runners) RequirePromptRestart(
 	return ErrPromptUnsupported
 }
 
-// selectionRequiresRestart reports whether live's LAUNCHED selection differs from the
-// chat's desired one in a field the descriptor declares restart_tui for, so the api
-// fast path restarts instead of delivering to a CLI on the old model.
 func (rs *Runners) selectionRequiresRestart(
 	ctx context.Context,
 	chatID string,

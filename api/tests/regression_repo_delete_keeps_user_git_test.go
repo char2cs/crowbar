@@ -16,18 +16,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// Deleting a repo from Crowbar must never damage the user's own git repository
-// (spec §3 P0-1). The repo row used to be deleted before its cascade ran, so
-// every workspace was torn down with an EMPTY default branch: the default branch
-// was force-deleted like any feature branch, and a locked protected-branch
-// worktree was rm -rf'd with its uncommitted work.
-//
-// What Crowbar made goes: the branch it created for a workspace. What the user
-// owns stays: the default branch, and every uncommitted change in a protected
-// worktree git refuses to remove.
 func TestRegression_DeleteRepo_KeepsTheUsersBranchesAndUncommittedWork(t *testing.T) {
 	h := newHarness(t)
-	imported := importProject(t, h) // "main": the default branch, a locked managed worktree
+	imported := importProject(t, h)
 	ctx := context.Background()
 
 	mainWS, err := h.app.Repositories.Workspace.Get(ctx, imported.workspaceID)
@@ -37,7 +28,6 @@ func TestRegression_DeleteRepo_KeepsTheUsersBranchesAndUncommittedWork(t *testin
 	require.NoError(t, os.WriteFile(unsaved, []byte("uncommitted work\n"), 0o600))
 
 	createChildWorkspace(t, h, imported, "feature/crowbar-made", imported.workspaceID)
-	// A branch the user made themselves, which no workspace ever touched.
 	runGit(t, imported.repoPath, "branch", "feature/users-own")
 
 	reposWS := watchEntities(t, h, stream.KindRepo)

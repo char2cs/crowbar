@@ -18,8 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// newDocumentUsecase builds the usecase over a real daemon home, whose state
-// directory the guard compares paths against by file identity.
 func newDocumentUsecase(
 	t *testing.T,
 ) (*mocks.FsEngine, *mocks.WorkspaceSyncer, file.Usecase, string) {
@@ -31,7 +29,6 @@ func newDocumentUsecase(
 	return fs, syncer, file.New(fs, syncer, func() (string, error) { return home, nil }), home
 }
 
-// withRows makes rows the syncer's whole workspace list, each also readable by id.
 func withRows(
 	syncer *mocks.WorkspaceSyncer,
 	rows ...domain.Workspace,
@@ -47,7 +44,6 @@ func withRows(
 	}
 }
 
-// recordReads makes the fake fs answer every workspace read and remember where it read.
 func recordReads(
 	fs *mocks.FsEngine,
 ) *[2]string {
@@ -66,7 +62,6 @@ func workspaceRef(
 	return domain.DocumentRef{Authority: domain.DocumentAuthorityWorkspace, WorkspaceID: wsID, Path: path}
 }
 
-// mkdir makes the directory parts joined under base and answers its path.
 func mkdir(
 	t *testing.T,
 	base string,
@@ -108,9 +103,6 @@ func TestReadDocument_HomeWorkspaceRowMatches(t *testing.T) {
 	assert.Equal(t, workspaceRef("home", "notes.md"), doc.DocumentRef)
 }
 
-// TestReadDocument_RepoRowBeatsTheProjectHomeAtTheSamePath pins the tie: a
-// project imported in place has its home and its repo at one path, and the
-// file belongs to the repo whatever order the rows list in.
 func TestReadDocument_RepoRowBeatsTheProjectHomeAtTheSamePath(t *testing.T) {
 	fs, syncer, uc, _ := newDocumentUsecase(t)
 	p := t.TempDir()
@@ -139,9 +131,6 @@ func TestReadDocument_PlaceholderRowsClaimNothing(t *testing.T) {
 	assert.Equal(t, domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: "/elsewhere/a.md"}, doc.DocumentRef)
 }
 
-// TestDocument_MissingWorktreeStillClaimsItsPaths pins a worktree directory gone
-// from disk: identity cannot match it, so its paths are claimed by canonical
-// prefix and a write keeps the workspace's lock check instead of going to the host.
 func TestDocument_MissingWorktreeStillClaimsItsPaths(t *testing.T) {
 	fs, syncer, uc, _ := newDocumentUsecase(t)
 	p := t.TempDir()
@@ -186,9 +175,6 @@ func TestReadDocument_SymlinkIntoWorktreeIsTheWorkspaceDocument(t *testing.T) {
 	assert.Equal(t, workspaceRef("w1", "a.md"), doc.DocumentRef)
 }
 
-// TestReadDocument_SpellsThePathAsOnDisk pins one identity per file on a
-// case-insensitive volume: another casing of a worktree file is that file,
-// spelled as the tree spells it.
 func TestReadDocument_SpellsThePathAsOnDisk(t *testing.T) {
 	fs, syncer, uc, _ := newDocumentUsecase(t)
 	p := t.TempDir()
@@ -207,9 +193,6 @@ func TestReadDocument_SpellsThePathAsOnDisk(t *testing.T) {
 	assert.Equal(t, workspaceRef("w1", "a.md"), doc.DocumentRef)
 }
 
-// TestDocument_FirmlinkAliasHasTheOneIdentity pins the alias symlink resolution
-// leaves alone: on darwin /System/Volumes/Data<path> is <path> itself, so the
-// state stays refused and a worktree file keeps its lock and its resync.
 func TestDocument_FirmlinkAliasHasTheOneIdentity(t *testing.T) {
 	fs, syncer, uc, home := newDocumentUsecase(t)
 	wt := t.TempDir()
@@ -307,9 +290,6 @@ func TestDocument_DaemonStateIsRefusedEvenLocally(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrDaemonStateDocument)
 }
 
-// TestDocument_DanglingLinkInStateIsRefused pins the guard on a path no
-// symlink resolution spells canonically: a dangling link inside state, reached
-// through an alias of the home.
 func TestDocument_DanglingLinkInStateIsRefused(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
@@ -338,8 +318,6 @@ func TestHostDocument_AnswersTheCanonicalHostRefOverTheLocalTransport(t *testing
 	assert.Equal(t, domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: path}, ref)
 }
 
-// TestHostDocument_RefusesWhatItWouldNotWatch pins the watch gate: only the
-// local socket, only a host document, and only the spelling a read answers.
 func TestHostDocument_RefusesWhatItWouldNotWatch(t *testing.T) {
 	_, syncer, uc, home := newDocumentUsecase(t)
 	wt, err := filepath.EvalSymlinks(t.TempDir())

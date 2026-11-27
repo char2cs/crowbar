@@ -10,9 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The owner is the row that RECORDS ownership. A thread started inside the
-// workspace shares its WorkspaceID and is older or titled or filed under it —
-// none of that makes it the owner, and no heuristic may elect it.
 func TestResolveOwningChat(t *testing.T) {
 	t.Run("no rows resolves nothing", func(t *testing.T) {
 		_, ok := domain.ResolveOwningChat(nil)

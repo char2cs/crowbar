@@ -1,9 +1,5 @@
 package sqlite
 
-// Internal tests for primaryKeyColumn's schema-parse error branch, which is
-// unreachable from the external test package without direct access to the
-// unexported helper.
-
 import (
 	"testing"
 
@@ -11,9 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// unparseableSchema has a function-typed field, which GORM's schema parser
-// rejects with "unsupported data type", exercising primaryKeyColumn's
-// stmt.Parse error branch directly.
 type unparseableSchema struct {
 	F func()
 }

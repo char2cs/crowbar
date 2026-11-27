@@ -1,12 +1,7 @@
-// Package pathselect is the one dotted-path/"[]"-expansion walk over a decoded
-// JSON document, shared by the catalog adapters and model discovery.
 package pathselect
 
 import "strings"
 
-// Select walks path across every value in values. A segment ending in "[]"
-// expands: each matched array's elements are flattened into the next step,
-// rather than the array itself being carried forward.
 func Select(values []any, path string) []any {
 	current := values
 	for _, segment := range strings.Split(path, ".") {
@@ -46,8 +41,6 @@ func descend(value any, key string) (any, bool) {
 	return selected, present
 }
 
-// Field resolves ONE dotted path (no "[]" expansion) against a single row —
-// Select's single-value counterpart, for reading a scalar field off one item.
 func Field(row map[string]any, path string) any {
 	var current any = row
 	for _, part := range strings.Split(path, ".") {

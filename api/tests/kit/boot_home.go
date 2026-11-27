@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// BootHome does what the daemon does to dir before opening any store: takes the home
-// and runs the pre-open migrations. Pass the session to app.New and close it after the
-// stores; a halted boot returns the session with its *migrate.Halt, other failures none.
 func BootHome(
 	ctx context.Context,
 	dir string,
@@ -38,7 +35,6 @@ func BootHome(
 	return nil, errors.Join(fmt.Errorf("kit: migrate: %w", err), session.Close())
 }
 
-// releaseHome adds releasing session, when there is one, to a boot that failed with err.
 func releaseHome(
 	session *migrate.Session,
 	err error,
@@ -49,7 +45,6 @@ func releaseHome(
 	return errors.Join(err, session.Close())
 }
 
-// releaseStores closes the env's stores, then the home they were opened in.
 func (e *Env) releaseStores(
 	t *testing.T,
 	teardown string,
@@ -63,8 +58,6 @@ func (e *Env) releaseStores(
 	}
 }
 
-// closeListener closes the socket listener. The server's own shutdown has
-// normally closed it already, which is not a failure.
 func (e *Env) closeListener(
 	t *testing.T,
 	teardown string,
@@ -75,7 +68,6 @@ func (e *Env) closeListener(
 	}
 }
 
-// closeAbruptly drops the server's listener and active connections with no drain.
 func (e *Env) closeAbruptly(
 	t *testing.T,
 ) {

@@ -15,11 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Engine is the PTY-session surface the terminal usecase passes through to.
 type Engine interface {
-	// Create spawns a PTY owned by chatID in workspaceDir — the owner and the
-	// directory are two different lookups, and sibling chats share only the
-	// second.
 	Create(
 		ctx context.Context,
 		chatID string,
@@ -30,9 +26,6 @@ type Engine interface {
 		ctx context.Context,
 		sessionID string,
 	) error
-	// LoadPlaceholder registers a durable session as a PTY-less placeholder so
-	// a subsequent Attach can restore it. Idempotent: no-op if session already
-	// present. Called by RestorePersistedSessions at daemon startup.
 	LoadPlaceholder(
 		ctx context.Context,
 		m engineterminal.SessionMeta,
@@ -40,48 +33,37 @@ type Engine interface {
 	) error
 }
 
-// Usecase is the terminal session lifecycle + profile CRUD surface.
 type Usecase interface {
-	// CreateSession spawns a PTY session owned by chatID, running in the
-	// worktree that chat resolves to.
 	CreateSession(
 		ctx context.Context,
 		chatID string,
 		prof *domain.TerminalProfile,
 	) (string, error)
 
-	// KillSession terminates a PTY session.
 	KillSession(
 		ctx context.Context,
 		sessionID string,
 	) error
 
-	// ListProfiles returns every stored terminal profile.
 	ListProfiles(
 		ctx context.Context,
 	) ([]domain.TerminalProfile, error)
 
-	// CreateProfile mints an id and stores a new terminal profile.
 	CreateProfile(
 		ctx context.Context,
 		prof domain.TerminalProfile,
 	) (domain.TerminalProfile, error)
 
-	// UpdateProfile overwrites an existing terminal profile.
 	UpdateProfile(
 		ctx context.Context,
 		prof domain.TerminalProfile,
 	) (domain.TerminalProfile, error)
 
-	// DeleteProfile removes a terminal profile.
 	DeleteProfile(
 		ctx context.Context,
 		id string,
 	) error
 
-	// RestorePersistedSessions reloads durable session rows as PTY-less placeholders,
-	// deleting orphans whose chat no longer resolves to a worktree. Per-row errors are
-	// logged and skipped; only a failure to list the rows is returned.
 	RestorePersistedSessions(
 		ctx context.Context,
 	) error
@@ -94,9 +76,6 @@ type terminalUsecase struct {
 	metaStore engineterminal.SessionMetaStore
 }
 
-// New builds a Usecase from the terminal engine, the profile store, the
-// chat→worktree resolver, and the durable session metastore. metaStore may be
-// nil; in that case RestorePersistedSessions is a no-op.
 func New(
 	engine Engine,
 	profiles store.Store[domain.TerminalProfile, string],
@@ -111,8 +90,6 @@ func New(
 	}
 }
 
-// CreateSession spawns a PTY session owned by chatID, running in the worktree that
-// chat resolves to: sibling chats share the directory, never the session.
 func (u *terminalUsecase) CreateSession(
 	ctx context.Context,
 	chatID string,
@@ -129,7 +106,6 @@ func (u *terminalUsecase) CreateSession(
 	return id, nil
 }
 
-// KillSession terminates a PTY session.
 func (u *terminalUsecase) KillSession(
 	ctx context.Context,
 	sessionID string,
@@ -140,7 +116,6 @@ func (u *terminalUsecase) KillSession(
 	return nil
 }
 
-// ListProfiles returns every stored terminal profile.
 func (u *terminalUsecase) ListProfiles(
 	ctx context.Context,
 ) ([]domain.TerminalProfile, error) {
@@ -151,7 +126,6 @@ func (u *terminalUsecase) ListProfiles(
 	return list, nil
 }
 
-// CreateProfile mints an id and stores a new terminal profile.
 func (u *terminalUsecase) CreateProfile(
 	ctx context.Context,
 	prof domain.TerminalProfile,
@@ -163,7 +137,6 @@ func (u *terminalUsecase) CreateProfile(
 	return prof, nil
 }
 
-// UpdateProfile overwrites an existing terminal profile.
 func (u *terminalUsecase) UpdateProfile(
 	ctx context.Context,
 	prof domain.TerminalProfile,
@@ -177,7 +150,6 @@ func (u *terminalUsecase) UpdateProfile(
 	return prof, nil
 }
 
-// DeleteProfile removes a terminal profile.
 func (u *terminalUsecase) DeleteProfile(
 	ctx context.Context,
 	id string,
@@ -188,7 +160,6 @@ func (u *terminalUsecase) DeleteProfile(
 	return nil
 }
 
-// RestorePersistedSessions implements Usecase. A nil metastore makes it a no-op.
 func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 	if u.metaStore == nil {
 		return nil
@@ -198,8 +169,6 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 		return fmt.Errorf("terminal: restore: list: %w", err)
 	}
 
-	// Most-recent-first so the cap keeps the freshest sessions. The engine would evict
-	// the excess anyway; bounding here also deletes its .buf/row to bound disk usage.
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].LastActiveAt.After(rows[j].LastActiveAt)
 	})
@@ -209,7 +178,6 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 	for _, row := range rows {
 		dir, dirErr := u.metaStore.StorageDir(ctx, row.ChatID)
 		if dirErr != nil {
-			// Owning chat deleted or unresolvable — reconcile orphan away.
 			if delErr := u.metaStore.Delete(ctx, row.SessionID); delErr != nil {
 				slog.WarnContext(ctx, "terminal: restore: delete orphan", "component", "terminal", "session", row.SessionID, "err", delErr)
 			}
@@ -217,8 +185,6 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 			continue
 		}
 
-		// Over the cap: this is one of the stalest rows. Delete its row and .buf
-		// so the on-disk backlog cannot grow without bound across restarts.
 		if restored >= limit {
 			u.evictPersistedRow(ctx, dir, row.SessionID)
 			evicted++
@@ -248,8 +214,6 @@ func (u *terminalUsecase) RestorePersistedSessions(ctx context.Context) error {
 	return nil
 }
 
-// evictPersistedRow deletes a persisted session's meta row and its scrollback
-// .buf file when it falls beyond the restore cap, bounding on-disk growth.
 func (u *terminalUsecase) evictPersistedRow(
 	ctx context.Context,
 	dir string,
@@ -264,9 +228,6 @@ func (u *terminalUsecase) evictPersistedRow(
 	}
 }
 
-// readScrollback reads <dir>/<sessionID>.buf, returning nil when the file is
-// absent (session had no persisted scrollback). Real IO errors are silently
-// swallowed and treated as missing so a corrupt buf never blocks startup.
 func readScrollback(dir, sessionID string) []byte {
 	path := filepath.Join(dir, sessionID+".buf")
 	data, err := os.ReadFile(path) //nolint:gosec // path controlled by callers

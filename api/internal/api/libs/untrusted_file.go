@@ -8,12 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// sandboxPolicy denies a navigated-to file every capability: the daemon serves the web app on the
-// same origin, so a script it ran could call every /v0 endpoint. Inline style only keeps SVG legible.
 const sandboxPolicy = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
-// SetUntrustedFileHeaders marks a response whose bytes came from a user, an agent or a repo. Only
-// types a browser renders without running script stay inline; the rest download into a sandbox.
 func SetUntrustedFileHeaders(
 	c *gin.Context,
 	contentType string,
@@ -27,7 +23,6 @@ func SetUntrustedFileHeaders(
 	c.Header("Content-Security-Policy", sandboxPolicy)
 }
 
-// WriteUntrustedFile answers 200 with data as contentType under SetUntrustedFileHeaders.
 func WriteUntrustedFile(
 	c *gin.Context,
 	contentType string,
@@ -37,8 +32,6 @@ func WriteUntrustedFile(
 	c.Data(http.StatusOK, contentType, data)
 }
 
-// rendersInert reports the types the web shows through <img>, <audio>, <video> or the PDF viewer.
-// A PDF is kept off the sandbox because a sandboxed document cannot load the browser's viewer.
 func rendersInert(contentType string) bool {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {

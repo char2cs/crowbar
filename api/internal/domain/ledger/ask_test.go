@@ -93,8 +93,6 @@ func TestState_AsksDoNotOutliveTheirTurnOrTheirRunner(t *testing.T) {
 	}
 }
 
-// A subagent running past its turn's end keeps a held ask, the only thing that
-// can hold the CLI on it now; a subagent's ask closes with it.
 func TestState_AHeldAskOutlivesAnEndASubagentRunsPast(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"), subagent(t, "A", ledger.SubagentStart),
@@ -131,8 +129,6 @@ func TestCheck_AnAskNeedsAnIDAndAnEventAndClosesAsAKnownResolution(t *testing.T)
 	}
 }
 
-// The open asks that offer a choice are what the answer desk, the terminal-wait
-// check and an answer read: in the shape they speak, with the choice decoded.
 func TestState_OpenAsksListsAsksWithNoResolution(t *testing.T) {
 	options := []byte(`[{"id":"allow","kind":"allow_once","label":"Allow"}]`)
 	st := ledger.Fold("c1", sequenced(t,

@@ -15,18 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// TestPostReviewComment_MultiHunkAnchors is the wall anchorInAnyHunk builds,
-// tested against a diff that actually has two hunks.
-//
-// The rule is that the WHOLE range must sit inside ONE hunk. There is no union
-// across hunks anywhere in the codebase, so an anchor that covers both a changed
-// range and the unchanged code between them is refused — deliberately, because a
-// comment that floats off the diff shows the user a finding with no code beside it.
-//
-// Each rejected case asserts the message names the LINES and the FILE, so a
-// rejection cannot pass this test by being the wrong rejection: "src/auth.go is
-// not part of this review" would otherwise satisfy a bare require.Error and hide a
-// fixture whose paths never matched at all.
 func TestPostReviewComment_MultiHunkAnchors(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -56,10 +44,6 @@ func TestPostReviewComment_MultiHunkAnchors(t *testing.T) {
 			require.Contains(t, err.Error(), fmt.Sprintf("%d-%d", tc.start, tc.end),
 				"the rejection must be the ANCHOR rejection, naming the lines it refused")
 			require.Contains(t, err.Error(), "src/auth.go")
-			// The legal move, spelled out. A model cannot recover from being told
-			// only that it was wrong: get_review_scope reports a status, two counts
-			// and a path per file, so nothing on the tool surface would tell it
-			// where the changed lines are.
 			require.Contains(t, err.Error(), "12-20, 42-48",
 				"the rejection must name the ranges an anchor may legally sit in")
 			require.NotContains(t, err.Error(), "12-18, 40-45",
@@ -70,15 +54,6 @@ func TestPostReviewComment_MultiHunkAnchors(t *testing.T) {
 	}
 }
 
-// TestPostReviewComment_MultiHunkSideSelectsTheNumbering pins that side chooses
-// which pair of each hunk's four numbers is consulted, on a file where the two
-// sides genuinely disagree: hunk 1 inserts two lines, so below it the new
-// numbering runs two ahead of the old.
-//
-// Line 41 is inside the old range of hunk 2 (40..45) and in the unchanged gap on
-// the new side. Line 47 is the reverse. An implementation that read the wrong pair
-// therefore fails in BOTH directions, which is what stops this passing on a
-// swapped implementation that happened to be symmetric.
 func TestPostReviewComment_MultiHunkSideSelectsTheNumbering(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -109,18 +84,6 @@ func TestPostReviewComment_MultiHunkSideSelectsTheNumbering(t *testing.T) {
 	}
 }
 
-// TestPostReviewComment_TheRejectionsAdviceIsActuallyLegal is what makes the
-// message more than decoration: EVERY range it tells a model to re-anchor inside
-// is fed straight back to the tool, and every one has to land.
-//
-// A message naming ranges the validator would then refuse is worse than the terse
-// one it replaced — it looks actionable and costs the model a turn.
-//
-// Every offered range is retried, not just the first, and that is not
-// belt-and-braces: on this fixture the first hunk's OLD range (12-18) happens to
-// sit inside its NEW range (12-20), so a hint that read the wrong side would still
-// offer a legal first range and a test that stopped there would pass against it.
-// The second range is where the two sides diverge.
 func TestPostReviewComment_TheRejectionsAdviceIsActuallyLegal(t *testing.T) {
 	for _, side := range []string{"right", "left"} {
 		t.Run(side, func(t *testing.T) {
@@ -142,14 +105,6 @@ func TestPostReviewComment_TheRejectionsAdviceIsActuallyLegal(t *testing.T) {
 	}
 }
 
-// TestPostReviewComment_ARejectionListsTheRangesNearestTheAnchor pins WHICH ranges
-// a bounded list keeps.
-//
-// Truncating from the top of the file would be the obvious implementation and the
-// useless one: a model that anchored at line 205 would be handed the ranges at
-// line 10 and left exactly as stuck as before. The window follows the anchor
-// instead, and the count of what it left out is stated, because a model reads a
-// short list as the whole list.
 func TestPostReviewComment_ARejectionListsTheRangesNearestTheAnchor(t *testing.T) {
 	f := postOn(t, "ws-a", manyHunkFile())
 
@@ -168,10 +123,6 @@ func TestPostReviewComment_ARejectionListsTheRangesNearestTheAnchor(t *testing.T
 		"a bounded list that does not say what it left out reads as the whole list")
 }
 
-// A file whose hunks ran past the outline's own collection cap has ranges the
-// daemon never saw, so the list is a lower bound and must say so — otherwise a
-// model reads "the changed ranges are ..." as exhaustive and concludes the line it
-// wanted is not in the diff.
 func TestPostReviewComment_ARejectionAdmitsAPartialOutline(t *testing.T) {
 	partial := twoHunkFile()
 	partial[0].IsPartial = true
@@ -183,10 +134,6 @@ func TestPostReviewComment_ARejectionAdmitsAPartialOutline(t *testing.T) {
 	require.Contains(t, err.Error(), "more hunks than the review's outline collected")
 }
 
-// A deleted file's lines exist only on the left, so an anchor on the right is one
-// argument away from success — and the rejection has to say which argument. The
-// test then FOLLOWS that advice, so a message pointing at a side that would also
-// fail cannot pass.
 func TestPostReviewComment_ARejectionOnAnAbsentSidePointsAtTheOtherOne(t *testing.T) {
 	deleted := outlineWithHunk("src/gone.go", gitdomain.HunkShape{
 		OldStart: 1, OldLines: 2, NewStart: 0, NewLines: 0,
@@ -205,9 +152,6 @@ func TestPostReviewComment_ARejectionOnAnAbsentSidePointsAtTheOtherOne(t *testin
 	require.Len(t, follow.writer.opens, 1)
 }
 
-// A binary file has no lines on either side, so there is no argument that makes an
-// anchor work and the model must be told to stop rather than to try the other
-// side. Telling the two no-lines cases apart is the whole point of separating them.
 func TestPostReviewComment_ARejectionOnABinaryFileSaysNoAnchorExists(t *testing.T) {
 	f := postOn(t, "ws-a", []gitdomain.FileOutline{{Path: "assets/logo.png", IsBinary: true}})
 
@@ -232,13 +176,10 @@ func TestPostReviewComment_AnchorsAndMarksItselfAsAgent(t *testing.T) {
 
 	require.Len(t, f.writer.opens, 1)
 	got := f.writer.opens[0]
-	// The caller's OWN workspace, resolved from its runner — never an argument.
 	require.Equal(t, "ws-a", got.WsID)
 	require.Equal(t, "src/auth.go", got.FilePath)
 	require.Equal(t, 42, got.StartLine)
 	require.Equal(t, 44, got.EndLine)
-	// LineNumber is the aggregate's pre-range anchor; leaving it zero would render
-	// the comment against line 0.
 	require.Equal(t, 42, got.LineNumber)
 	require.Equal(t, domain.ReviewSideRight, got.Side)
 	require.Equal(t, "This leaks the token.", got.Body)
@@ -250,10 +191,6 @@ func TestPostReviewComment_AnchorsAndMarksItselfAsAgent(t *testing.T) {
 	require.NotEqual(t, got.ID, got.MessageID)
 }
 
-// TestPostReviewComment_ValidatesAgainstTheCallersOwnReview is the scoping property
-// for the WRITE tool: the outline an anchor is checked against must be the caller's
-// own workspace's diff. Validating against another workspace's geometry would accept
-// anchors that float on the diff the comment is actually attached to.
 func TestPostReviewComment_ValidatesAgainstTheCallersOwnReview(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
@@ -274,10 +211,6 @@ func TestPostReviewComment_ValidatesAgainstTheCallersOwnReview(t *testing.T) {
 	}
 }
 
-// TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt is the point of the whole
-// tool: the review-thread repository does not fan out, and the agent write bypasses
-// the HTTP handler that normally pushes the frame, so without an explicit broadcast a
-// posted finding is stored and INVISIBLE until the user remounts the pane.
 func TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
@@ -288,8 +221,6 @@ func TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
 	frame := f.broadcast.frames[0]
 	require.Equal(t, "thread-1", frame.thread.ID)
 	require.Equal(t, "ws-a", frame.thread.WsID)
-	// The /threads stream filters on projectId AND repoId as well as wsId, so a frame
-	// missing either is delivered to nobody.
 	require.Equal(t, "P", frame.projectID)
 	require.Equal(t, "R", frame.repoID)
 	require.NotEmpty(t, frame.thread.Messages, "the frame must carry the finding itself")
@@ -304,8 +235,6 @@ func TestPostReviewComment_ARejectedAnchorBroadcastsNothing(t *testing.T) {
 	require.Empty(t, f.broadcast.frames, "a rejected anchor must not announce a thread that does not exist")
 }
 
-// A dedup hit wrote nothing, so it must not announce anything either: a second frame
-// would make every client re-render a thread it already has.
 func TestPostReviewComment_ARetryBroadcastsOnlyOnce(t *testing.T) {
 	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`
 	first := postOn(t, "ws-a", authHunk())
@@ -319,9 +248,6 @@ func TestPostReviewComment_ARetryBroadcastsOnlyOnce(t *testing.T) {
 	require.Len(t, first.broadcast.frames, 1, "a retry that wrote nothing must not emit a frame")
 }
 
-// The whole correctness risk: an anchor outside any hunk floats off the diff, so
-// the user sees a finding with no code beside it. The assertion that matters is
-// that NOTHING was written, not that an error came back.
 func TestPostReviewComment_RejectsAnAnchorOutsideAnyHunk(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
@@ -331,9 +257,6 @@ func TestPostReviewComment_RejectsAnAnchorOutsideAnyHunk(t *testing.T) {
 	require.Empty(t, f.writer.opens, "a rejected anchor must never reach the thread store")
 }
 
-// TestPostReviewComment_AnchorEdgesAreInclusive pins the off-by-one directly. The
-// fixture hunk starts at 40 and spans 10 lines, so it covers 40..49 INCLUSIVE:
-// widening either comparison by one accepts a line that renders outside the hunk.
 func TestPostReviewComment_AnchorEdgesAreInclusive(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -363,8 +286,6 @@ func TestPostReviewComment_AnchorEdgesAreInclusive(t *testing.T) {
 	}
 }
 
-// The same two edges for a RANGE: a range may touch both ends of the hunk but not
-// cross either.
 func TestPostReviewComment_AnchorRangeEdgesAreInclusive(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -393,8 +314,6 @@ func TestPostReviewComment_AnchorRangeEdgesAreInclusive(t *testing.T) {
 	}
 }
 
-// A range that starts inside the hunk but runs past its end is still floating for
-// most of its length, so it is rejected whole rather than silently clamped.
 func TestPostReviewComment_RejectsARangeThatOverrunsTheHunk(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
@@ -416,10 +335,6 @@ func TestPostReviewComment_RejectsAnUnknownFile(t *testing.T) {
 	require.Empty(t, f.broadcast.frames)
 }
 
-// The two numberings diverge by every insertion above them. The hunk here makes
-// line 12 valid on the LEFT and invalid on the RIGHT, and line 105 the reverse, so
-// an implementation that read the wrong pair of the hunk's four numbers fails both
-// halves of this test.
 func TestPostReviewComment_LeftSideAnchorsAgainstOldLineNumbers(t *testing.T) {
 	skewed := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
 		OldStart: 10, OldLines: 5, NewStart: 100, NewLines: 20,
@@ -445,8 +360,6 @@ func TestPostReviewComment_LeftSideAnchorsAgainstOldLineNumbers(t *testing.T) {
 	require.Equal(t, domain.ReviewSideRight, f.writer.opens[1].Side)
 }
 
-// The left side's edges come off a DIFFERENT pair of numbers, so they need their own
-// boundary case: this hunk covers 10..14 on the left.
 func TestPostReviewComment_LeftSideEdgesAreInclusive(t *testing.T) {
 	skewed := outlineWithHunk("src/auth.go", gitdomain.HunkShape{
 		OldStart: 10, OldLines: 5, NewStart: 100, NewLines: 20,
@@ -466,8 +379,6 @@ func TestPostReviewComment_LeftSideEdgesAreInclusive(t *testing.T) {
 	}
 }
 
-// A rename is addressed by either of its names, so a model that read the file
-// under its old path can still anchor to it.
 func TestPostReviewComment_AcceptsARenamedFileUnderEitherPath(t *testing.T) {
 	f := postOn(t, "ws-a", []gitdomain.FileOutline{{
 		Path:    "src/new_name.go",
@@ -480,7 +391,6 @@ func TestPostReviewComment_AcceptsARenamedFileUnderEitherPath(t *testing.T) {
 	require.Len(t, f.writer.opens, 1)
 }
 
-// A binary file has no hunks at all, so there is no line for a comment to sit on.
 func TestPostReviewComment_RejectsABinaryFile(t *testing.T) {
 	f := postOn(t, "ws-a", []gitdomain.FileOutline{{Path: "assets/logo.png", IsBinary: true}})
 
@@ -489,8 +399,6 @@ func TestPostReviewComment_RejectsABinaryFile(t *testing.T) {
 	require.Empty(t, f.writer.opens)
 }
 
-// A hunk whose side is ABSENT (`@@ -1,2 +0,0 @@` gives that side start 0, span 0)
-// covers no lines, so nothing may anchor to it.
 func TestPostReviewComment_RejectsAnAnchorOnAnAbsentSide(t *testing.T) {
 	f := postOn(t, "ws-a", outlineWithHunk("src/gone.go", gitdomain.HunkShape{
 		OldStart: 1, OldLines: 2, NewStart: 0, NewLines: 0,
@@ -501,8 +409,6 @@ func TestPostReviewComment_RejectsAnAnchorOnAnAbsentSide(t *testing.T) {
 	require.Empty(t, f.writer.opens)
 }
 
-// The retry a dropped MCP response produces arrives on a NEW ToolSet, which is why
-// the dedup map is a dependency rather than ToolSet state.
 func TestPostReviewComment_IdempotencyKeyCollapsesARetry(t *testing.T) {
 	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"leak-in-auth"}`
 	first := postOn(t, "ws-a", authHunk())
@@ -517,9 +423,6 @@ func TestPostReviewComment_IdempotencyKeyCollapsesARetry(t *testing.T) {
 	require.Contains(t, out2, "thread-1", "the retry must report the thread the first call opened")
 }
 
-// A retry that reuses a key but moves the lines wrote nothing, so it must be
-// answered with the anchor that IS stored — echoing its own arguments would report a
-// comment at a location no thread is anchored to.
 func TestPostReviewComment_ARetryReportsTheStoredAnchorNotItsArguments(t *testing.T) {
 	first := postOn(t, "ws-a", authHunk())
 	_, err := first.post(
@@ -553,9 +456,6 @@ func TestPostReviewComment_DifferentKeysOpenDifferentThreads(t *testing.T) {
 	require.Len(t, f.broadcast.frames, 2)
 }
 
-// Keys are scoped by workspace: two agents reviewing two branches will invent the
-// same obvious key, and the second finding must not be swallowed as a retry of the
-// first. ws-a and ws-a1 are sibling review surfaces in the fixture tree.
 func TestPostReviewComment_SameKeyInTwoWorkspacesDoesNotCollide(t *testing.T) {
 	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"leak-in-auth"}`
 	onA := postOn(t, "ws-a", authHunk())
@@ -570,7 +470,6 @@ func TestPostReviewComment_SameKeyInTwoWorkspacesDoesNotCollide(t *testing.T) {
 	require.Equal(t, "ws-a1", onA.writer.opens[1].WsID)
 }
 
-// No key means no dedup: a model that omits it gets a thread per call.
 func TestPostReviewComment_WithoutAKeyEveryCallOpensAThread(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak"}`
@@ -584,8 +483,6 @@ func TestPostReviewComment_WithoutAKeyEveryCallOpensAThread(t *testing.T) {
 	require.Len(t, f.broadcast.frames, 2)
 }
 
-// A failed write must not be remembered as done, or the retry the key exists for
-// would return success having stored nothing.
 func TestPostReviewComment_AFailedWriteIsNotRemembered(t *testing.T) {
 	args := `{"filePath":"src/auth.go","startLine":42,"endLine":42,"side":"right","body":"leak","idempotencyKey":"k"}`
 	f := postOn(t, "ws-a", authHunk())
@@ -603,8 +500,6 @@ func TestPostReviewComment_AFailedWriteIsNotRemembered(t *testing.T) {
 	require.Len(t, f.broadcast.frames, 1)
 }
 
-// The store error must not be double-prefixed with the package name on its way to
-// the model.
 func TestPostReviewComment_ErrorNamesThePackageOnce(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 	f.writer.err = errNotFoundForTest
@@ -634,10 +529,6 @@ func TestPostReviewComment_RejectsBadArguments(t *testing.T) {
 	}
 }
 
-// post_review_comment is the first WRITE tool, so its fail-closed wiring is worth
-// asserting directly: with no outline reader it cannot validate an anchor, with no
-// dedup map a retry would duplicate a finding, and with no broadcaster the finding
-// never reaches the pane the user is watching. Any of those and it must not exist.
 func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 	full := func() tools.Deps {
 		return tools.Deps{
@@ -672,11 +563,6 @@ func TestPostReviewComment_NotAdvertisedWithoutItsDependencies(t *testing.T) {
 	}
 }
 
-// TestPostReviewComment_CarriesTheCallersProviderAndChat is the attribution
-// property for the open path: the review UI can only say WHICH agent left a
-// finding, and offer a way back to the conversation it came out of, if both ids
-// are stamped on the message at write time — nothing downstream can recover them
-// later.
 func TestPostReviewComment_CarriesTheCallersProviderAndChat(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 
@@ -703,8 +589,6 @@ func TestPostReviewComment_RefusesAnOverlongBodyAndNamesTheLimit(t *testing.T) {
 	))
 
 	require.Error(t, err)
-	// The model's only recovery is to shorten and retry, which it cannot do
-	// against an error that merely says "too long".
 	require.Contains(t, err.Error(), fmt.Sprint(over))
 	require.Contains(t, err.Error(), fmt.Sprint(tools.MaxWrittenBodyCharsForTest))
 	require.Empty(t, f.writer.opens, "a refused body must never reach the store")
@@ -723,10 +607,6 @@ func TestPostReviewComment_AcceptsABodyExactlyAtTheLimit(t *testing.T) {
 	require.Len(t, f.writer.opens, 1)
 }
 
-// RUNES, not bytes — the same rule truncateBody counts by. A body of exactly the
-// limit in multi-byte characters is three times the limit in bytes and must
-// still be accepted, or the cap silently becomes three times stricter for
-// anything that is not ASCII.
 func TestPostReviewComment_CountsTheBodyInRunesNotBytes(t *testing.T) {
 	f := postOn(t, "ws-a", authHunk())
 	body := strings.Repeat("é", tools.MaxWrittenBodyCharsForTest)

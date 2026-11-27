@@ -2,7 +2,7 @@ name: Refresh bun.lock
 
 # Manual repair for the one case the `bun` ecosystem does not cover: a
 # Dependabot SECURITY update for /web. Those still come from the npm updater,
-# which rewrites web/package.json without touching bun.lock, so CI dies at
+# which rewrites app/panes/package.json without touching bun.lock, so CI dies at
 # `bun install --frozen-lockfile`. Run this against such a PR to regenerate and
 # commit the lockfile.
 on:
@@ -48,18 +48,18 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Regenerate lockfile
-        run: cd web && bun install
+        run: cd app/panes && bun install
 
       - name: Commit and push
         run: |
           set -euo pipefail
-          if git diff --quiet -- web/bun.lock; then
+          if git diff --quiet -- app/panes/bun.lock; then
             echo "bun.lock already in sync — nothing to do" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add web/bun.lock
+          git add app/panes/bun.lock
           git commit -m "build(deps): regenerate bun.lock"
           git push origin "HEAD:${{ steps.pr.outputs.branch }}"
           {

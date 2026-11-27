@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Documents is the file usecase surface the handlers need.
 type Documents interface {
 	ReadDocument(
 		ctx context.Context,
@@ -32,8 +31,6 @@ type handlers struct {
 	docs Documents
 }
 
-// Read handles GET /v0/documents/content?workspace=<id>&path=<rel> and
-// GET /v0/documents/content?path=<abs>.
 func (h *handlers) Read(
 	ctx *gin.Context,
 ) {
@@ -50,8 +47,6 @@ func (h *handlers) Read(
 	libs.WriteQueryOK(ctx, doc)
 }
 
-// Write handles PUT /v0/documents/content and answers the ref the write
-// resolved to.
 func (h *handlers) Write(
 	ctx *gin.Context,
 ) {
@@ -78,8 +73,6 @@ func (h *handlers) Write(
 	libs.WriteQueryOK(ctx, ref)
 }
 
-// targetOf is a workspace ref when the request names a workspace, else an
-// absolute path for the usecase to resolve.
 func targetOf(
 	workspaceID string,
 	path string,

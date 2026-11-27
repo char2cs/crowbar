@@ -1,0 +1,277 @@
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { createElement } from 'react'
+import { beforeEach, vi } from 'vitest'
+import { cacheReadsSettled, emptyFeedCache } from '@/__tests__/__fixtures__/feed-cache-reads'
+import { nanoid } from 'nanoid'
+import { useStore } from 'zustand'
+import type { AgentChat } from '@/features/agent/api/agent-chat-reads'
+import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
+import { seedFeed, spokenIn } from '@/__tests__/__fixtures__/ledger-rows'
+import { platform } from '@/__tests__/__fixtures__/pane-platform'
+
+export const switchProviderFn = vi.fn()
+export const resumeChatFn = vi.fn()
+export const submitPromptFn = vi.fn()
+export const slashCatalogFn = vi.fn()
+export const toastErrorFn = vi.fn()
+export const switchToTerminalFn = vi.fn()
+export const switchToNativeFn = vi.fn()
+
+import * as useEffectiveKeymapMod from '@/features/keymaps/hooks/use-effective-keymap'
+vi.spyOn(useEffectiveKeymapMod, 'useEffectiveChordMap').mockImplementation(() => ({
+  'agent.toggleViewMode': 'mod+/',
+}))
+
+import * as readsApi from '@/features/agent/api/agent-chat-reads'
+vi.spyOn(readsApi, 'getSlashCatalog').mockImplementation(slashCatalogFn)
+import * as commandsApi from '@/features/agent/api/agent-chat-commands'
+vi.spyOn(commandsApi, 'switchProvider').mockImplementation(switchProviderFn)
+vi.spyOn(commandsApi, 'resumeChat').mockImplementation(resumeChatFn)
+vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(submitPromptFn)
+vi.spyOn(commandsApi, 'switchToTerminal').mockImplementation(switchToTerminalFn)
+vi.spyOn(commandsApi, 'switchToNative').mockImplementation(switchToNativeFn)
+
+import * as toastStoreMod from '@/features/window/stores/toast-store'
+vi.spyOn(toastStoreMod.toast, 'error').mockImplementation((...a: unknown[]) => toastErrorFn(...a))
+
+import * as lazyTerminalMod from '@/features/terminal/components/lazy-terminal'
+vi.spyOn(lazyTerminalMod, 'LazyXtermTerminal').mockImplementation(
+  ({
+    sessionId,
+    isActive,
+    isVisible,
+    attachOnly,
+    flush,
+  }: {
+    sessionId: string
+    isActive: boolean
+    isVisible?: boolean
+    attachOnly?: boolean
+    flush?: boolean
+  }) =>
+    createElement('div', {
+      'data-testid': 'xterm',
+      'data-session-id': sessionId,
+      'data-active': String(isActive),
+      'data-visible': String(isVisible),
+      'data-attach-only': String(Boolean(attachOnly)),
+      'data-flush': String(Boolean(flush)),
+    }),
+)
+
+import * as chatMarkdownEditorMod from '@/features/agent/composer/plate/chat-markdown-editor'
+import { TextareaComposerEditor } from '@/__tests__/__fixtures__/composer-editor'
+vi.spyOn(chatMarkdownEditorMod, 'ChatMarkdownEditor').mockImplementation(TextareaComposerEditor)
+
+import * as providerSwitchDropdownMod from '@/features/agent/components/provider-switch-dropdown'
+vi.spyOn(providerSwitchDropdownMod, 'ProviderSwitchDropdown').mockImplementation(
+  ({
+    providers,
+    currentProviderId,
+    onSwitch,
+    disabled,
+  }: {
+    providers: AgentProvider[]
+    currentProviderId: string
+    onSwitch: (id: string) => void
+    disabled?: boolean
+  }) =>
+    createElement(
+      'button',
+      {
+        'data-testid': 'provider-switch',
+        'data-current': currentProviderId,
+        'data-count': String(providers.length),
+        disabled,
+        onClick: () => onSwitch('provider-b'),
+      },
+      'switch',
+    ),
+)
+
+import { AgentChatPaneGate } from '@/features/agent/components/agent-chat-pane-gate'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
+import { useSettingsStore } from '@/features/settings/store'
+import {
+  nextVersion,
+  seedChats,
+  resetChatStore,
+  setProviders,
+  provider,
+} from '@/__tests__/__fixtures__/agent-chat'
+
+export function landOnTerminal() {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: false },
+  }))
+}
+
+export const providers: AgentProvider[] = [
+  provider('provider-a', 'Provider A'),
+  provider('provider-b', 'Provider B'),
+]
+
+export function liveChat(o: {
+  id: string
+  runnerId: string
+  pty: string
+  title?: string
+  provider?: string
+  surface?: 'chat' | 'terminal'
+}): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: o.runnerId,
+    terminalSessionId: o.pty,
+    surface: o.surface,
+    activeProviderId: o.provider ?? 'provider-b',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
+    createdAt: '',
+    order: 0,
+  }
+}
+
+export function dormantChat(o: { id: string; title?: string; provider?: string }): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: '',
+    terminalSessionId: '',
+    activeProviderId: o.provider ?? 'provider-b',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
+    createdAt: '',
+    order: 0,
+  }
+}
+
+export function startingChat(o: { id: string }): AgentChat {
+  return { ...dormantChat(o), phase: 'starting' }
+}
+
+export function liveChatNoTerminal(o: { id: string; runnerId: string; title?: string }): AgentChat {
+  return {
+    id: o.id,
+    workspaceId: 'w1',
+    title: o.title ?? `Chat ${o.id}`,
+    liveRunnerId: o.runnerId,
+    terminalSessionId: '',
+    activeProviderId: 'provider-b',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
+    createdAt: '',
+    order: 0,
+  }
+}
+
+const paneWorkspace = new Map<string, string>()
+
+export function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
+  const store = createWorkspaceStore(wsId)
+  setProviders(providers)
+  seedChats(chats)
+  return store
+}
+
+export function unseededWorkspace(wsId = 'w1') {
+  const store = createWorkspaceStore(wsId)
+  setProviders(providers)
+  return store
+}
+
+export type Store = ReturnType<typeof seedWorkspace>
+
+export function openChatPane(
+  _store: Store,
+  chatId: string,
+  runnerId: string,
+  _name = 'Chat',
+  wsId = 'w1',
+) {
+  const id = nanoid()
+  seedChatPaneRecord(windowPaneStore, id, chatId, runnerId || null)
+  paneWorkspace.set(id, wsId)
+  return id
+}
+
+export function PaneHost({ paneId, isVisible = true }: { paneId: string; isVisible?: boolean }) {
+  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  if (!group) return null
+  return createElement(AgentChatPaneGate, {
+    chatId: group.chatId ?? '',
+    runnerId: group.runnerId ?? '',
+    wsId: paneWorkspace.get(paneId) ?? 'w1',
+    paneId: group.id,
+    isActivePane: true,
+    isVisible,
+  })
+}
+
+export async function renderPane(store: Store, paneId: string) {
+  await act(async () => {
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(PaneHost, { paneId }),
+      ),
+    )
+  })
+  await cacheReadsSettled()
+}
+
+export function typeAndSend(text: string) {
+  const input = screen.getByRole('textbox', { name: /message the agent/i })
+  fireEvent.change(input, { target: { value: text } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+}
+
+export const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[id]
+
+function resetPaneHarness() {
+  platform.mobile = false
+  resetWindowPaneStoreForTests()
+  resetChatStore()
+  paneWorkspace.clear()
+  switchProviderFn.mockReset()
+  resumeChatFn.mockReset()
+  submitPromptFn.mockReset()
+  slashCatalogFn.mockReset()
+  toastErrorFn.mockReset()
+  switchToTerminalFn.mockReset().mockResolvedValue('')
+  switchToNativeFn.mockReset().mockResolvedValue(undefined)
+  switchProviderFn.mockResolvedValue('r-new')
+  resumeChatFn.mockResolvedValue('r-revived')
+  emptyFeedCache()
+  seedFeed('c1', spokenIn('c1'))
+  submitPromptFn.mockResolvedValue({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
+  slashCatalogFn.mockResolvedValue({
+    providerId: 'provider-b',
+    completeness: 'model_visible',
+    items: [],
+    warnings: [],
+  })
+  useTerminalStore.setState({ sessions: new Map() })
+  useZoomStore.setState({ zoom: 1, editorZoomLevel: 1, terminalZoomLevel: 1 })
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, chatIsDefaultPresentation: true },
+  }))
+  localStorage.clear()
+  setActiveWorkspaceId('w1')
+}
+
+beforeEach(resetPaneHarness)

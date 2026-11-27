@@ -33,8 +33,6 @@ func newGitUsecase(
 	return git, syncer, uc
 }
 
-// --- read surface ---
-
 func TestGitUsecase_Status_PassThrough_NoSync(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -163,8 +161,6 @@ func TestGitUsecase_ReadErrorsForward(t *testing.T) {
 	_, err = uc.ConflictHunks(ctx, "w1", "f")
 	assert.Error(t, err)
 }
-
-// --- write surface ---
 
 func TestGitUsecase_Commit_TriggersSync(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)

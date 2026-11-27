@@ -25,7 +25,6 @@ func TestRenderSpawnContext_CarriesCrowbarHome(t *testing.T) {
 	}
 }
 
-// A forked terminal view renders the level through permission_levels.<level>.apply.
 func TestRenderSpawnContext_CarriesThePermissionLevel(t *testing.T) {
 	tctx, _ := (&Runners{}).renderSpawnContext(spawnContext{
 		crowbarHome: "/tmp/h", runnerID: "run1",
@@ -37,7 +36,6 @@ func TestRenderSpawnContext_CarriesThePermissionLevel(t *testing.T) {
 	}
 }
 
-// Callbacks are handed the address the daemon bound; they never derive one.
 func TestRenderSpawnContext_CarriesTheDaemonAddress(t *testing.T) {
 	rs := &Runners{daemonHost: "tcp://127.0.0.1:3737"}
 
@@ -48,8 +46,6 @@ func TestRenderSpawnContext_CarriesTheDaemonAddress(t *testing.T) {
 	}
 }
 
-// A provider keys its folder trust on the canonical path, so a symlinked
-// worktree must reach the CLI resolved or its trust prompt parks the TUI.
 func TestRenderSpawnContext_ResolvesASymlinkedWorktree(t *testing.T) {
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "link")
@@ -66,8 +62,6 @@ func TestRenderSpawnContext_ResolvesASymlinkedWorktree(t *testing.T) {
 	}
 }
 
-// The process starts in the folder {cwd} names, and PWD says so: a moved chat's
-// CLI must agree with itself about where it is.
 func TestSpawnPaths_TheProcessFolderIsTheResolvedOneAndPWDNamesIt(t *testing.T) {
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "link")
@@ -94,8 +88,6 @@ func TestSpawnPaths_TheProcessFolderIsTheResolvedOneAndPWDNamesIt(t *testing.T) 
 	}
 }
 
-// A CLI's hooks are pointed at the hook server the daemon published under the home
-// this spawn resolved against.
 func TestRenderSpawnContext_PointsHooksAtThePublishedHookServer(t *testing.T) {
 	home := t.TempDir()
 	if err := hookserver.Publish(home, "http://127.0.0.1:4242"); err != nil {
@@ -119,7 +111,6 @@ func TestRenderSpawnContext_NoPublishedHookServerLeavesHooksUnpointed(t *testing
 	}
 }
 
-// The binary the descriptors run for the MCP bridge is the one the daemon runs.
 func TestRenderSpawnContext_RunsTheInjectedCrowbarBin(t *testing.T) {
 	got, _ := (&Runners{crowbarBin: "/opt/crowbar"}).renderSpawnContext(spawnContext{crowbarHome: "/tmp/h", runnerID: "run1"})
 
@@ -128,8 +119,6 @@ func TestRenderSpawnContext_RunsTheInjectedCrowbarBin(t *testing.T) {
 	}
 }
 
-// The preamble leads; a missing half (a blanked capabilities_instruction, a chat
-// with no conversation yet) leaves no stray blank line a model reads as a section.
 func TestComposeContext_PreambleLeadsAndAbsentHalvesLeaveNoGap(t *testing.T) {
 	cases := []struct{ name, preamble, conversation, want string }{
 		{"a fresh chat has only the preamble", "PREAMBLE", "", "PREAMBLE"},

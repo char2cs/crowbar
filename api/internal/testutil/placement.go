@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Placements is the real placement store over an in-memory Tree, for a test
-// that builds a chat repository without the app. It names no project, so every
-// row is kept in the Unplaced tree, which is read like any other.
 func Placements(tb testing.TB) *repotree.Ports {
 	tb.Helper()
 	ax, err := asynx.New[tree.Tree]().

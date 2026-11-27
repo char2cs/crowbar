@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// TestLegend_PinsTheWireContract pins the canonical legend: the web editor's
-// provider legend mirrors it index for index, so any change here must land in
-// web/src/features/editor/lsp/semantic-tokens.ts in the same commit.
 func TestLegend_PinsTheWireContract(t *testing.T) {
 	wantTypes := []string{
 		"namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
@@ -64,7 +61,6 @@ func TestFromCapabilities_AbsentOrMalformedSupportsNothing(t *testing.T) {
 	}
 }
 
-// server legend: [variable, lifetime, unknownThing], modifiers [static, constant, local]
 func rustLike(t *testing.T) Support {
 	t.Helper()
 	return FromCapabilities(caps(t, `{
@@ -76,16 +72,16 @@ func rustLike(t *testing.T) Support {
 func TestRemapTokens_RewritesOnlyTypeAndModifierSlots(t *testing.T) {
 	s := rustLike(t)
 	data := []uint32{
-		1, 2, 3, 0, 0b011, // variable, static|constant
-		0, 4, 5, 1, 0b100, // lifetime (alias), local (unknown modifier)
-		2, 0, 1, 2, 0, // unknownThing
-		0, 1, 1, 9, 0b1000, // index beyond the server legend, bit beyond its modifiers
+		1, 2, 3, 0, 0b011,
+		0, 4, 5, 1, 0b100,
+		2, 0, 1, 2, 0,
+		0, 1, 1, 9, 0b1000,
 	}
 	s.remapTokens(data)
 	unstyled := uint32(len(TokenTypes))
 	want := []uint32{
-		1, 2, 3, 8, 1<<3 | 1<<0, // variable; static, readonly
-		0, 4, 5, 6, 0, // typeParameter
+		1, 2, 3, 8, 1<<3 | 1<<0,
+		0, 4, 5, 6, 0,
 		2, 0, 1, unstyled, 0,
 		0, 1, 1, unstyled, 0,
 	}
@@ -94,9 +90,6 @@ func TestRemapTokens_RewritesOnlyTypeAndModifierSlots(t *testing.T) {
 	}
 }
 
-// Applying a remapped delta to the remapped previous result must equal
-// remapping the full new result — the invariant that makes pass-through
-// deltas correct.
 func TestRemapDelta_CommutesWithApplyingTheEdits(t *testing.T) {
 	s := rustLike(t)
 	old := []uint32{
@@ -104,8 +97,6 @@ func TestRemapDelta_CommutesWithApplyingTheEdits(t *testing.T) {
 		1, 2, 4, 1, 2,
 		1, 0, 2, 0, 0,
 	}
-	// An element-level prefix/suffix diff (rust-analyzer, clangd): replace the
-	// middle token's length+type+mods and the next token's deltaLine.
 	edits := []Edit{{Start: 7, DeleteCount: 4, Data: []uint32{9, 0, 0, 2}}}
 	newFull := apply(old, edits)
 
@@ -177,8 +168,6 @@ func TestRemap_ShapesTheWireResult(t *testing.T) {
 	}
 }
 
-// apply applies LSP semantic-token edits the way Monaco does (sorted by start,
-// addressed into the old array).
 func apply(old []uint32, edits []Edit) []uint32 {
 	sorted := append([]Edit(nil), edits...)
 	for i := 1; i < len(sorted); i++ {

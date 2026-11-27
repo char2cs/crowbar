@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// Captured verbatim off a real codex-cli 0.149.1 app-server, thread/start'ed with
-// sandbox workspace-write + approvalPolicy on-request (Crowbar's `trusted` level),
-// asked to run a command needing network access.
 const commandExecutionApproval = `{
   "threadId": "01a090df-569c-7393-a274-9d92400ce8eb",
   "turnId": "01a090df-57c4-7a73-ad72-03021a76744c",
@@ -33,9 +30,6 @@ const commandExecutionApproval = `{
   "availableDecisions": ["accept", {"acceptWithExecpolicyAmendment": {"execpolicy_amendment": ["curl"]}}, "cancel"]
 }`
 
-// Same session shape, asked instead to apply_patch a file outside the writable root.
-// codex namespaces this under its OWN method — the whole reason one canonical event
-// has to answer to more than one wire name.
 const fileChangeApproval = `{
   "threadId": "01a090e0-9b11-76c3-bdaf-452c82f7883b",
   "turnId": "01a090e0-9c3f-7db3-a72d-c593e8304716",
@@ -83,8 +77,6 @@ func TestResolve_SumTypeDisambiguatesByItemType(t *testing.T) {
 	assert.Equal(t, "user_prompt", canonical)
 }
 
-// On multi-agent v2 a spawn is no spawnAgent call: codex reports the agent it
-// started, or ran again on a follow-up, as a subAgentActivity item naming its thread.
 func TestResolve_ACodexV2SpawnIsASubagentStart(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	for _, fixture := range []string{"item_started.subAgentActivity", "item_started.subAgentActivity.interacted"} {
@@ -102,15 +94,11 @@ func TestResolve_UnknownWireMethodIsNotOK(t *testing.T) {
 }
 
 func TestResolve_OutboundEventsAreNeverCandidates(t *testing.T) {
-	// "prompt" declares out: turn/start — Resolve must never match an inbound
-	// wire method against an outbound event's Send templates.
 	d := loadCodexAPIDescriptor(t)
 	_, ok := dispatch.Resolve(d, "turn/start", map[string]any{})
 	assert.False(t, ok, "turn/start is what WE send, not something codex reports")
 }
 
-// The channel decides: a flat event declared on the hook relay is never
-// resolved from an api frame, whatever its wire name.
 func TestResolve_AFlatHooksEventIsNeverAnAPICandidate(t *testing.T) {
 	d := &spec.Descriptor{ID: "p", Runtime: spec.RuntimeSpec{Transport: "api"}, Events: spec.EventTable{
 		"subagent_pre": {Transport: "hooks", In: spec.WireRef{"SubagentStart"}},
@@ -128,18 +116,12 @@ func TestResolve_AskEventsAreCandidatesToo(t *testing.T) {
 
 func TestResolve_WhenClauseThatDoesNotMatchFallsThrough(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
-	// item/started with an item.type this descriptor's when: clauses do not
-	// list at all (neither user_prompt's userMessage nor tool_pre's set).
 	_, ok := dispatch.Resolve(d, "item/started", map[string]any{
 		"item": map[string]any{"type": "reasoning"},
 	})
 	assert.False(t, ok)
 }
 
-// turn/completed is a sum type on turn.status. Ungated, turn_stop swallowed the
-// failure case too: a failed turn was ingested as an ordinary stop whose message
-// resolved to nothing, so the chat ended on an empty assistant reply and
-// turn.error.message was discarded.
 func TestRegression_AFailedTurnRoutesToTurnFailedNotTurnStop(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	params := loadParams(t, "turn_completed.failed-schema")
@@ -152,11 +134,6 @@ func TestRegression_AFailedTurnRoutesToTurnFailedNotTurnStop(t *testing.T) {
 	assert.Equal(t, "turn_failed", canonical)
 }
 
-// TestResolve_ChannelScopedEventUsesItsOwnAPIBlock proves dispatch (which
-// only ever resolves API-transport wire frames) reads a channel-scoped
-// event's api: block — never its hooks: block, and never a legacy top-level
-// in:/when: it does not declare — for both the wire name and the sum-type
-// discriminator.
 func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 	d := &spec.Descriptor{Events: map[string]spec.EventSpec{
 		"tool_pre": {
@@ -175,24 +152,15 @@ func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 	require.True(t, ok, "the api block's own in: must resolve the wire method")
 	assert.Equal(t, "tool_pre", canonical)
 
-	// The hooks block's wire name (PreToolUse) must never be a candidate on
-	// the api transport — dispatch only ever resolves api frames.
 	_, ok = dispatch.Resolve(d, "PreToolUse", map[string]any{})
 	assert.False(t, ok, "a channel-scoped event's hooks: wire name must not resolve on the api transport")
 
-	// The api block's own when: must gate it, same as a legacy event's.
 	_, ok = dispatch.Resolve(d, "item/started", map[string]any{
 		"item": map[string]any{"type": "reasoning"},
 	})
 	assert.False(t, ok, "the api block's own when: clause must still gate the sum type")
 }
 
-// TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock is
-// TestResolve_ChannelScopedEventUsesItsOwnAPIBlock's ask-direction
-// counterpart — the direct reproduction of the P3 gap report (codex.yaml's
-// own "STILL FLAT" comment on permission, since replaced): "WireEventFor
-// always returns direction 'in' for a channel-scoped event", so an
-// ASK-direction channel block never resolved on the api transport at all.
 func TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 	d := &spec.Descriptor{Events: map[string]spec.EventSpec{
 		"permission": {
@@ -205,8 +173,6 @@ func TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
 	require.True(t, ok, "the api block's own ask: must resolve the wire method")
 	assert.Equal(t, "permission", canonical)
 
-	// The hooks block's own wire name must never be a candidate on the api
-	// transport — dispatch only ever resolves api frames.
 	_, ok = dispatch.Resolve(d, "PermissionRequest", map[string]any{})
 	assert.False(t, ok, "a channel-scoped event's hooks: wire name must not resolve on the api transport")
 }
@@ -218,12 +184,6 @@ func decodeParams(t *testing.T, raw string) map[string]any {
 	return params
 }
 
-// The descriptor named item/permissions/requestApproval, which codex 0.149.1 never
-// sends: it asks under item/commandExecution/requestApproval for a command and
-// item/fileChange/requestApproval for a patch. Resolve matches the wire method
-// exactly, so neither resolved, no permission card was ever raised, and the CLI
-// blocked on a reply that could not arrive — a turn measured sitting
-// waitingOnApproval with its tool still "running" until the approval budget expired.
 func TestRegression_BothCodexApprovalMethodsResolveToPermission(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
@@ -239,10 +199,6 @@ func TestRegression_BothCodexApprovalMethodsResolveToPermission(t *testing.T) {
 	}
 }
 
-// item/permissions/requestApproval does not fire on 0.149.1 (not even with
-// --enable exec_permission_approvals) and its response carries a
-// GrantedPermissionProfile rather than a decision, so it can never be the wire an
-// allow/deny reply is written back to.
 func TestRegression_CodexPermissionsRequestApprovalIsNotTheApprovalWire(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
@@ -251,11 +207,6 @@ func TestRegression_CodexPermissionsRequestApprovalIsNotTheApprovalWire(t *testi
 	assert.False(t, ok)
 }
 
-// `approved`/`denied` are not in codex's decision enum. Live, both came back
-// "unknown variant ... expected one of accept, acceptForSession,
-// acceptWithExecpolicyAmendment, applyNetworkPolicyAmendment, decline, cancel" and
-// codex failed the gated tool call with Rejected("approval request failed") — so an
-// APPROVE broke the turn exactly as a deny did.
 func TestRegression_ApprovalRepliesUseCodexsOwnDecisionVocabulary(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
@@ -273,9 +224,6 @@ func TestRegression_ApprovalRepliesUseCodexsOwnDecisionVocabulary(t *testing.T) 
 	}
 }
 
-// Deny must refuse THIS call and leave the agent free to carry on. codex spells that
-// `decline`; `cancel` is the other denial it offers and it interrupts the whole turn,
-// which is the Stop button's job and not a permission card's.
 func TestRegression_DenyDeclinesRatherThanCancellingTheTurn(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
@@ -286,22 +234,6 @@ func TestRegression_DenyDeclinesRatherThanCancellingTheTurn(t *testing.T) {
 	assert.NotContains(t, string(out), "cancel")
 }
 
-// A card only exists if the choice does: inbound builds one when the descriptor
-// declares any of prompt_id/tool_name/tool_input/questions/suggestions, and codex's
-// own sentence for what it wants is what the reader decides on.
-//
-// EventFieldsFor(..., ChannelAPI), not the flat EventFields: permission is
-// channel-split (docs/plans/2026-09-22-descriptor-channel-split.md P2b) and
-// this real payload is api-shaped, exactly what inbound.Parse's own channel
-// selection reads it through in production.
-//
-// tool_name deliberately is NOT asserted to resolve here: the raw payload
-// carries no tool identity at all on EITHER real capture (F1 of the design
-// spec — codex namespaces it by the WIRE METHOD, not a payload field), so
-// resolving it needs apidriver's by_wire: overlay, which only runs over the
-// live transport — see apidriver_test.go's own
-// TestStart_ByWireOverlayNamesTheToolOnThePermissionCard for the end-to-end
-// proof this file cannot give on its own.
 func TestRegression_ApprovalPayloadCarriesSomethingToShow(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	fields, declared := d.EventFieldsFor("permission", spec.ChannelAPI)
@@ -316,7 +248,6 @@ func TestRegression_ApprovalPayloadCarriesSomethingToShow(t *testing.T) {
 	assert.NotEmpty(t, fields["tool_name"], "declaresChoice needs a field, or no card is built at all")
 }
 
-// An interrupt is a stop the human asked for, not a failure.
 func TestResolve_AnInterruptedTurnIsStillAnOrdinaryStop(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
@@ -329,9 +260,6 @@ func TestResolve_AnInterruptedTurnIsStillAnOrdinaryStop(t *testing.T) {
 	assert.Equal(t, "turn_stop", canonical)
 }
 
-// Every ThreadItem variant Crowbar treats as a tool must route to tool_pre on
-// item/started. webSearch and dynamicToolCall were missing from the when: gate, so
-// a turn that searched the web showed no activity at all for that step.
 func TestRegression_EveryToolItemVariantRoutesToToolPre(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	for _, variant := range []string{
@@ -347,9 +275,6 @@ func TestRegression_EveryToolItemVariantRoutesToToolPre(t *testing.T) {
 	}
 }
 
-// tool_fail and tool_post share one wire method and are separated only by
-// item.status. dispatch.Resolve tries candidates in sorted name order, so tool_fail
-// is offered first and its narrower when: wins.
 func TestRegression_AFailedToolItemRoutesToToolFail(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	for _, status := range []string{"failed", "declined"} {
@@ -372,9 +297,6 @@ func TestResolve_ACompletedToolItemStillRoutesToToolPost(t *testing.T) {
 	assert.Equal(t, "tool_post", canonical)
 }
 
-// webSearch carries NO status field, and mapping.Match refuses to match a clause
-// whose path is missing. Had tool_post been gated on item.status the way tool_fail
-// is, every web search would have stayed open forever.
 func TestRegression_AStatuslessToolItemStillClosesViaToolPost(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 	canonical, ok := dispatch.Resolve(d, "item/completed", map[string]any{
@@ -384,8 +306,6 @@ func TestRegression_AStatuslessToolItemStillClosesViaToolPost(t *testing.T) {
 	assert.Equal(t, "tool_post", canonical)
 }
 
-// thread/status/changed maps to nothing: its idle lands just before the turn's
-// own turn/completed, and an idle ends the running turn.
 func TestResolve_NoThreadStatusIsMapped(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
 
@@ -401,8 +321,6 @@ func TestResolve_NoThreadStatusIsMapped(t *testing.T) {
 	}
 }
 
-// A frame that finishes a tool and carries its diff is one wire method for two
-// facts: the declared rider fires beside the frame's own event, never instead.
 func TestRiders_AFrameDeclaredAlsoCarriesItsDiff(t *testing.T) {
 	d, err := descriptor.ParseV0([]byte(`
 id: acme

@@ -1,0 +1,146 @@
+import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
+import type { FontInfo } from '@/features/settings/stores/types/font'
+import { createSelectors } from '@/utils/zustand-selectors'
+
+interface FontState {
+  availableFonts: FontInfo[]
+  monospaceFonts: FontInfo[]
+  actions: FontActions
+}
+
+interface FontActions {
+  loadAvailableFonts: (forceRefresh?: boolean) => Promise<void>
+  loadMonospaceFonts: (forceRefresh?: boolean) => Promise<void>
+  validateFont: (fontFamily: string) => Promise<boolean>
+}
+
+const FONT_CACHE_KEY = 'crowbar_font_cache:v1'
+const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000
+const BUNDLED_FONTS: FontInfo[] = [
+  {
+    name: 'CalSansUI',
+    family: 'CalSansUI',
+    style: 'Regular',
+    is_monospace: false,
+  },
+  {
+    name: 'Geist Variable',
+    family: 'Geist Variable',
+    style: 'Regular',
+    is_monospace: false,
+  },
+  {
+    name: 'Instrument Serif',
+    family: 'Instrument Serif',
+    style: 'Regular',
+    is_monospace: false,
+  },
+  {
+    name: 'Geist Mono Variable',
+    family: 'Geist Mono Variable',
+    style: 'Regular',
+    is_monospace: true,
+  },
+]
+
+interface FontCache {
+  availableFonts: FontInfo[]
+  monospaceFonts: FontInfo[]
+  timestamp: number
+}
+
+const loadFontsFromCache = (): FontCache | null => {
+  try {
+    const cached = localStorage.getItem(FONT_CACHE_KEY)
+    if (!cached) return null
+
+    const cache: FontCache = JSON.parse(cached)
+    const now = Date.now()
+
+    if (now - cache.timestamp > FONT_CACHE_EXPIRY) {
+      localStorage.removeItem(FONT_CACHE_KEY)
+      return null
+    }
+
+    return cache
+  } catch (error) {
+    console.error('Failed to load fonts from cache:', error)
+    localStorage.removeItem(FONT_CACHE_KEY)
+    return null
+  }
+}
+
+const saveFontsToCache = (availableFonts: FontInfo[], monospaceFonts: FontInfo[]) => {
+  try {
+    const cache: FontCache = {
+      availableFonts,
+      monospaceFonts,
+      timestamp: Date.now(),
+    }
+    localStorage.setItem(FONT_CACHE_KEY, JSON.stringify(cache))
+  } catch (error) {
+    console.error('Failed to save fonts to cache:', error)
+  }
+}
+
+export const useFontStore = createSelectors(
+  create<FontState>()(
+    immer((set, get) => {
+      const cache = loadFontsFromCache()
+      const initialValues = cache
+        ? {
+            availableFonts: cache.availableFonts,
+            monospaceFonts: cache.monospaceFonts,
+          }
+        : {
+            availableFonts: [],
+            monospaceFonts: [],
+          }
+
+      return {
+        ...initialValues,
+        actions: {
+          loadAvailableFonts: async (forceRefresh = false) => {
+            const current = get()
+
+            if (!forceRefresh && current.availableFonts.length > 1) {
+              return
+            }
+
+            const fonts: FontInfo[] = BUNDLED_FONTS
+            const monospaceFonts = fonts.filter((font) => font.is_monospace)
+
+            set((state) => {
+              state.availableFonts = fonts
+              state.monospaceFonts = monospaceFonts
+            })
+
+            saveFontsToCache(fonts, monospaceFonts)
+          },
+
+          loadMonospaceFonts: async (forceRefresh = false) => {
+            const current = get()
+
+            if (!forceRefresh && current.monospaceFonts.length > 0) {
+              return
+            }
+
+            const fonts: FontInfo[] = BUNDLED_FONTS.filter((font) => font.is_monospace)
+
+            set((state) => {
+              state.monospaceFonts = fonts
+            })
+
+            const updatedState = get()
+            if (updatedState.availableFonts.length > 0) {
+              saveFontsToCache(updatedState.availableFonts, fonts)
+            }
+          },
+
+          validateFont: async (): Promise<boolean> => true,
+        },
+      }
+    }),
+  ),
+)

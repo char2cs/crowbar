@@ -1,0 +1,44 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createEdgeScroller } from '@/components/layout/edge-scroll'
+
+describe('createEdgeScroller', () => {
+  let frames: FrameRequestCallback[] = []
+  beforeEach(() => {
+    frames = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const flush = () => frames.splice(0).forEach((cb) => cb(0))
+
+  it('scrolls a horizontal scroller from the pointer x, and reports each moving frame', () => {
+    const el = document.createElement('div')
+    const onScrolled = vi.fn()
+    const scroller = createEdgeScroller(el, { left: 100, width: 400 }, { onScrolled })
+
+    scroller.update(300)
+    expect(frames).toHaveLength(0)
+
+    scroller.update(499)
+    flush()
+    expect(el.scrollLeft).toBeGreaterThan(0)
+    expect(el.scrollTop).toBe(0)
+    expect(onScrolled).toHaveBeenCalledTimes(1)
+
+    scroller.update(101)
+    flush()
+    expect(onScrolled).toHaveBeenCalledTimes(2)
+    scroller.stop()
+  })
+
+  it('still scrolls a vertical scroller from the pointer y', () => {
+    const el = document.createElement('div')
+    const scroller = createEdgeScroller(el, { top: 0, height: 300 }, { onScrolled: vi.fn() })
+    scroller.update(299)
+    flush()
+    expect(el.scrollTop).toBeGreaterThan(0)
+    expect(el.scrollLeft).toBe(0)
+    scroller.stop()
+  })
+})

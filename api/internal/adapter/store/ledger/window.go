@@ -8,23 +8,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// rowOverhead is what a row's envelope adds to its body on the wire.
 const rowOverhead = 200
 
-// scanRows is the most rows a bytes budget looks back over.
 const scanRows = 4096
 
-// WindowSpec bounds a window of a chat's newest rows: Rows by count, Bytes by
-// wire size (each 0 for unbounded); Upto ends it at that seq (0 for the head).
-// PreviewCap, when above 0, counts a previewable row at no more than that many
-// body bytes: the rows are sent as previews.
 type WindowSpec struct{ Rows, Bytes, Upto, PreviewCap int64 }
 
-// Window is the seq a feed of chatID's newest rows within spec replays after,
-// widened so no turn is cut: a turn with any row after that point comes whole,
-// and so does every turn keep names, so no row the client folds names a turn it
-// lacks. The newest turn is always in. 0 when the window reaches back to the
-// chat's start.
 func (s *Store) Window(ctx context.Context, chatID string, spec WindowSpec, keep []string) (int64, error) {
 	upto := spec.Upto
 	if upto <= 0 {
@@ -70,8 +59,6 @@ func (s *Store) Window(ctx context.Context, chatID string, spec WindowSpec, keep
 	return max(after, 0), nil
 }
 
-// bytesCut is the seq before the oldest of the rows up to upto whose wire size,
-// with every newer one's, fits budget; upto-1 when not even the newest does.
 func (s *Store) bytesCut(ctx context.Context, chatID string, upto int64, spec WindowSpec) (int64, error) {
 	floor := max(upto-scanRows, 0)
 	previewCap, kinds := spec.PreviewCap, []string{}
@@ -97,7 +84,6 @@ func (s *Store) bytesCut(ctx context.Context, chatID string, upto int64, spec Wi
 	return *oldest - 1, nil
 }
 
-// firstOf is the seq of the first row of any of turnIDs.
 func (s *Store) firstOf(ctx context.Context, chatID string, turnIDs []string) (int64, error) {
 	var first *int64
 	if err := s.db.WithContext(ctx).Raw(
@@ -111,7 +97,6 @@ func (s *Store) firstOf(ctx context.Context, chatID string, turnIDs []string) (i
 	return *first, nil
 }
 
-// turnsAfter are the turns with a row after `after`, up to upto, that held lacks.
 func (s *Store) turnsAfter(ctx context.Context, chatID string, after, upto int64, held map[string]bool) ([]string, error) {
 	var ids []string
 	if err := s.db.WithContext(ctx).Raw(

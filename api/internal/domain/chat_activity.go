@@ -49,9 +49,8 @@ type ActivityChoice struct {
 
 	PromptID string `json:"promptId,omitempty"`
 
-	ToolID   string `json:"toolId,omitempty"`
-	ToolName string `json:"toolName,omitempty"`
-	// ToolTarget and MCPServer say what the call it asks about acts on.
+	ToolID     string `json:"toolId,omitempty"`
+	ToolName   string `json:"toolName,omitempty"`
 	ToolTarget string `json:"toolTarget,omitempty"`
 	MCPServer  string `json:"mcpServer,omitempty"`
 
@@ -82,8 +81,7 @@ type ActivityChoiceOption struct {
 	Kind        string `json:"kind"`
 	Label       string `json:"label,omitempty"`
 	Description string `json:"description,omitempty"`
-	// Reason: answering with this option sends the person's reason to the agent.
-	Reason bool `json:"reason,omitempty"`
+	Reason      bool   `json:"reason,omitempty"`
 }
 
 type ChoiceAnswer struct {

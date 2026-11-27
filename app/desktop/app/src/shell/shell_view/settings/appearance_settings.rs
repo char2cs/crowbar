@@ -1,0 +1,292 @@
+use gpui::Context;
+use settings::{Change, Follow as _, Key, Read as _, Value};
+use ui::{Theme, ThemeId, ThemeMode};
+
+use super::readout::BUILD_READOUT;
+use crate::panes::content::single_precision::single_precision;
+use crate::shell::inbox::logged;
+use crate::shell::inbox::shell_request::ShellRequest;
+use crate::shell::shell_view::ShellView;
+use crate::shell::shell_view::assembly::tab_strip::TAB_LIST_SCOPE;
+use crate::shell::shell_view::settings::editor_preferences::{self, editor_settings};
+use crate::shell::shell_view::settings::family_names::FamilyNames;
+use crate::shell::shell_view::settings::terminal_preferences::{KEYS, terminal_settings};
+use crate::shell::shell_view::sidebar::sidebar_position::SIDEBAR_POSITION;
+
+const THEME: &str = "theme";
+const MODE: &str = "themeMode";
+const SIZE: &str = "uiFontSize";
+const UI_FAMILY: &str = "uiFontFamily";
+const HEADING_FAMILY: &str = "headingFontFamily";
+const MONO_FAMILY: &str = "fontFamily";
+
+fn is_appearance(key: &Key) -> bool {
+    [
+        THEME,
+        MODE,
+        SIZE,
+        UI_FAMILY,
+        HEADING_FAMILY,
+        MONO_FAMILY,
+        SIDEBAR_POSITION,
+        TAB_LIST_SCOPE,
+        BUILD_READOUT,
+    ]
+    .contains(&key.as_str())
+        || KEYS.contains(&key.as_str())
+        || editor_preferences::KEYS.contains(&key.as_str())
+}
+
+fn notify_when_appearance_moves(
+    requests: &async_channel::Sender<ShellRequest>,
+    change: &Change,
+) {
+    let moved = matches!(change, Change::Setting(key, _) if is_appearance(key));
+    if moved && requests.try_send(ShellRequest::AppearanceChanged).is_err() {
+        logged::emit(&super::change_unseen_event::ChangeUnseenEvent::Appearance);
+    }
+}
+
+fn id_of(stored: Option<&Value>) -> ThemeId {
+    match stored.and_then(Value::as_text) {
+        Some("frosted") => ThemeId::Frosted,
+        _ => ThemeId::Crowbar,
+    }
+}
+
+fn mode_of(stored: Option<&Value>) -> ThemeMode {
+    match stored.and_then(Value::as_text) {
+        Some("light") => ThemeMode::Light,
+        Some("dark") => ThemeMode::Dark,
+        _ => ThemeMode::System,
+    }
+}
+
+type Stored<'a> = (
+    (Option<&'a Value>, Option<&'a Value>, Option<&'a Value>),
+    (Option<&'a Value>, Option<&'a Value>, Option<&'a Value>),
+);
+
+fn family_of(
+    names: &mut FamilyNames,
+    stored: Option<&Value>,
+) -> Option<&'static str> {
+    stored
+        .and_then(Value::as_text)
+        .and_then(|name| names.intern(ui::font::registered_family(name)))
+}
+
+pub(crate) fn themed(
+    base: Theme,
+    (stored, names): (Stored<'_>, &mut FamilyNames),
+) -> Theme {
+    let ((theme, mode, size), (ui, heading, mono)) = stored;
+    let themed = base.with_id(id_of(theme)).with_mode(mode_of(mode));
+    let sized = size.and_then(Value::as_number).map_or(themed, |points| {
+        themed.with_ui_font_size(single_precision(points))
+    });
+    let faced = family_of(names, ui).map_or(sized, |family| sized.with_ui_family(family));
+    let headed =
+        family_of(names, heading).map_or(faced, |family| faced.with_heading_family(family));
+    family_of(names, mono).map_or(headed, |family| headed.with_mono_family(family))
+}
+
+impl ShellView {
+    pub(crate) fn follow_system_appearance(
+        &mut self,
+        appearance: gpui::WindowAppearance,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let system = ui::Appearance::from(appearance);
+        Theme::of(cx).with_system(system).install(cx);
+        self.apply_appearance(cx);
+    }
+
+    pub(crate) fn watch_appearance(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(backend) = self.settings_backend() else {
+            return;
+        };
+        let requests = self.requests.clone();
+        self.watches.appearance =
+            Some(backend.subscribe(std::rc::Rc::new(move |change: &Change| {
+                notify_when_appearance_moves(&requests, change);
+            })));
+        self.apply_appearance(cx);
+    }
+
+    pub(crate) fn apply_appearance(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(backend) = self.settings_backend() else {
+            return;
+        };
+        let stored = (
+            (
+                backend.get(&Key::new(THEME)),
+                backend.get(&Key::new(MODE)),
+                backend.get(&Key::new(SIZE)),
+            ),
+            (
+                backend.get(&Key::new(UI_FAMILY)),
+                backend.get(&Key::new(HEADING_FAMILY)),
+                backend.get(&Key::new(MONO_FAMILY)),
+            ),
+        );
+        let ((theme, mode, size), (ui, heading, mono)) = stored;
+        let stored = (
+            (theme.as_ref(), mode.as_ref(), size.as_ref()),
+            (ui.as_ref(), heading.as_ref(), mono.as_ref()),
+        );
+        let theme = themed(*Theme::of(cx), (stored, &mut self.family_names));
+        theme.install(cx);
+        let terminal = terminal_settings(|key| backend.get(&Key::new(key)));
+        self.source.native().apply_terminal_settings(terminal, cx);
+        editor_settings(|key| backend.get(&Key::new(key))).install(cx);
+        self.apply_sidebar_position(cx);
+        self.apply_readout(cx);
+        self.refresh(cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_values_pick_the_theme_mode_and_scale_and_unset_ones_keep_the_defaults() {
+        let base = Theme::default();
+        let frosted = Value::Text("frosted".into());
+        let dark = Value::Text("dark".into());
+        let size = Value::Number(30.0);
+        let ui = Value::Text("Inter".into());
+        let heading = Value::Text("Lora".into());
+        let mono = Value::Text("Fira Code".into());
+        let mut names = FamilyNames::default();
+        let stored = (
+            (Some(&frosted), Some(&dark), Some(&size)),
+            (Some(&ui), Some(&heading), Some(&mono)),
+        );
+        let set = themed(base, (stored, &mut names));
+        assert_eq!(
+            (set.ui_family(), set.heading_family(), set.mono_family()),
+            ("Inter", "Lora", "Fira Code")
+        );
+        assert_eq!((set.id(), set.mode()), (ThemeId::Frosted, ThemeMode::Dark));
+        assert!(set.ui_scale() > base.ui_scale());
+        let unset = themed(base, (((None, None, None), (None, None, None)), &mut names));
+        assert_eq!(
+            (unset.ui_family(), unset.heading_family()),
+            (base.ui_family(), base.heading_family())
+        );
+        assert_eq!(
+            (unset.id(), unset.mode()),
+            (ThemeId::Crowbar, ThemeMode::System)
+        );
+    }
+
+    #[test]
+    fn a_stored_web_family_name_draws_with_the_bundled_face() {
+        let ui = Value::Text("CalSansUI".into());
+        let mono = Value::Text("Geist Mono Variable".into());
+        let stored = ((None, None, None), (Some(&ui), None, Some(&mono)));
+        let set = themed(Theme::default(), (stored, &mut FamilyNames::default()));
+        assert_eq!(
+            (set.ui_family(), set.mono_family()),
+            (ui::font::UI_FAMILY, ui::font::MONO_FAMILY)
+        );
+    }
+
+    fn shown_after(
+        opened: &mut crate::shell::shell_view::tests::Opened,
+        reported: gpui::WindowAppearance,
+    ) -> ui::Appearance {
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.follow_system_appearance(reported, cx);
+            Theme::of(cx).appearance()
+        })
+    }
+
+    #[gpui::test]
+    fn system_mode_follows_the_colour_scheme_the_window_reports(cx: &mut gpui::TestAppContext) {
+        let mut opened = crate::shell::shell_view::tests::open_shell(cx);
+        let schemes = [
+            (gpui::WindowAppearance::Dark, ui::Appearance::Dark),
+            (gpui::WindowAppearance::Light, ui::Appearance::Light),
+        ];
+        for (reported, shown) in schemes {
+            assert_eq!(shown_after(&mut opened, reported), shown, "{reported:?}");
+        }
+    }
+
+    fn placed(cx: &mut gpui::TestAppContext) -> crate::shell::shell_view::tests::Opened {
+        let mut opened = crate::shell::shell_view::tests::open_shell(cx);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            shell.pane_area.placement = Some((
+                webview::ParentWindow::X11(9),
+                crate::shell::shell_view::tests::PLACED,
+            ));
+            shell.sync(cx);
+        });
+        opened
+    }
+
+    fn last_widget_scheme(
+        opened: &crate::shell::shell_view::tests::Opened
+    ) -> Option<webview::ColorScheme> {
+        opened
+            .mock
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                webview::Call::DrawWidgetsIn { scheme } => Some(scheme),
+                _ => None,
+            })
+            .next_back()
+    }
+
+    #[gpui::test]
+    fn the_desktop_s_widgets_draw_in_the_shown_scheme_once_the_window_is_placed(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let mut opened = placed(cx);
+        let shown = opened
+            .shell
+            .update(&mut opened.window, |_, cx| *Theme::of(cx));
+        assert_eq!(
+            last_widget_scheme(&opened),
+            Some(crate::panes::content::pane_theme::color_scheme(shown))
+        );
+    }
+
+    #[gpui::test]
+    fn the_desktop_s_widgets_follow_a_desktop_colour_scheme_change_in_system_mode(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let mut opened = placed(cx);
+        let schemes = [
+            (gpui::WindowAppearance::Light, webview::ColorScheme::Light),
+            (gpui::WindowAppearance::Dark, webview::ColorScheme::Dark),
+        ];
+        for (reported, drawn) in schemes {
+            shown_after(&mut opened, reported);
+            assert_eq!(last_widget_scheme(&opened), Some(drawn), "{reported:?}");
+        }
+    }
+
+    #[gpui::test]
+    fn the_desktop_s_widgets_follow_the_theme_mode_the_user_picks(cx: &mut gpui::TestAppContext) {
+        let mut opened = placed(cx);
+        opened.shell.update(&mut opened.window, |shell, cx| {
+            Theme::of(cx).with_mode(ThemeMode::Light).install(cx);
+            shell.refresh(cx);
+        });
+        assert_eq!(
+            last_widget_scheme(&opened),
+            Some(webview::ColorScheme::Light)
+        );
+    }
+}

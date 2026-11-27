@@ -14,8 +14,6 @@ func TestLockRepoRead_RecordsWaitAndHold(t *testing.T) {
 	perf.SetEnabled(true)
 	t.Cleanup(func() { perf.SetEnabled(false); perf.Reset() })
 
-	// New() — NOT &engine{}. repoMutex resolves the git common dir through
-	// e.exec (engine.go:56), so an engine with a nil exec func panics here.
 	e := New().(*engine)
 	unlock := e.lockRepoRead(context.Background(), t.TempDir())
 	unlock()

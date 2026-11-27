@@ -18,14 +18,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// Local reaches a daemon handler over a unix socket, the one transport a host
-// document is served on; a harness serving over TCP uses it for those routes.
 type Local struct {
 	client *http.Client
 	dialer *websocket.Dialer
 }
 
-// ServeLocal serves handler on a fresh unix socket until the test ends.
 func ServeLocal(
 	t *testing.T,
 	handler http.Handler,
@@ -53,8 +50,6 @@ func ServeLocal(
 	}
 }
 
-// ReadDocument reads the document at path and answers the path the daemon
-// spelled it with, and its text.
 func (l *Local) ReadDocument(
 	t *testing.T,
 	path string,
@@ -76,8 +71,6 @@ func (l *Local) ReadDocument(
 	return env.Data.Path, env.Data.Content
 }
 
-// HoldDocument holds the host document at its canonical path on the stream.
-// It returns at the scope's synced, by which the daemon has armed its watch.
 func (l *Local) HoldDocument(
 	t *testing.T,
 	path string,

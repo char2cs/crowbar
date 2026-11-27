@@ -17,15 +17,11 @@ import (
 
 var ctx = context.Background()
 
-// placementRow is one workspace's fake sidebar placement.
 type placementRow struct {
 	folderID string
 	order    int
 }
 
-// fakePlacement fakes dto.WorkspacePlacementReader, keyed by workspace id. A
-// workspace never Set here answers "" / 0, the same degrade a nil reader
-// gives.
 type fakePlacement map[string]placementRow
 
 func (f fakePlacement) Placement(_ context.Context, workspaceID string) (string, int) {
@@ -45,9 +41,6 @@ func noOwningChatID(
 	return ""
 }
 
-// TestWorkspaceDTOFrom_EffectiveStatus covers the read-time status overlay:
-// a predicted conflict folds into pr-conflicts, but a terminal/locked base
-// status takes precedence and a non-conflicting read keeps the base status.
 func TestWorkspaceDTOFrom_EffectiveStatus(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -113,8 +106,6 @@ func TestWorkspaceDTOFrom(
 	assert.Equal(t, "main", got.PRTargetBranch)
 	assert.True(t, got.Working)
 	assert.Equal(t, "/wt", got.LocalPath)
-	// Eligibility is supplied by the caller; an empty overlay maps to zero
-	// values.
 	assert.False(t, got.CanMergeLocally)
 	assert.Empty(t, got.ParentBranch)
 	assert.Equal(t, "chat-1", got.OwningChatID)
@@ -122,8 +113,6 @@ func TestWorkspaceDTOFrom(
 	assert.Equal(t, 4, got.Order)
 }
 
-// TestWorkspaceDTOFrom_MapsEligibility pins that the resolved merge-eligibility
-// overlay the caller computes is mapped onto the wire DTO (spec §10).
 func TestWorkspaceDTOFrom_MapsEligibility(
 	t *testing.T,
 ) {
@@ -135,10 +124,6 @@ func TestWorkspaceDTOFrom_MapsEligibility(
 	assert.Equal(t, "main", got.ParentBranch)
 }
 
-// TestWorkspaceDTO_WireFields pins the final wire contract: the field set and
-// json tags. The overlay fields (working, canMergeLocally,
-// parentBranch) are present; the retired fields (locked, hasConflicts,
-// agentRunning, pendingMerge, worktreePath, lastError) are absent.
 func TestWorkspaceDTO_WireFields(
 	t *testing.T,
 ) {
@@ -172,17 +157,13 @@ func TestWorkspaceDTO_WireFields(
 		"pendingMerge",
 		"worktreePath",
 		"lastError",
-		"parentBranch", // omitempty: absent when empty
+		"parentBranch",
 	} {
 		_, present := decoded[key]
 		assert.Falsef(t, present, "expected wire key %q to be absent", key)
 	}
 }
 
-// TestWorkspaceDTO_OwningChatIDNeverOmitted pins that owningChatId, unlike
-// parentBranch, stays on the wire even when it is the empty string: a client
-// must be able to tell "this workspace genuinely has no owning chat yet" (a
-// bug post-Task-3) apart from "the field was never sent".
 func TestWorkspaceDTO_OwningChatIDNeverOmitted(t *testing.T) {
 	raw, err := json.Marshal(dto.WorkspaceDTOFrom(ctx, domain.Workspace{ID: "w1"}, workspace.MergeEligibility{}, "", nil))
 	require.NoError(t, err)
@@ -194,11 +175,6 @@ func TestWorkspaceDTO_OwningChatIDNeverOmitted(t *testing.T) {
 	assert.Empty(t, value)
 }
 
-// TestWorkspaceDTO_FolderIDAndOrderNeverOmitted mirrors
-// TestWorkspaceDTO_OwningChatIDNeverOmitted for the two newer placement
-// fields: a client must be able to tell "this row sits at the repo root,
-// first slot" (the real zero value) apart from "the field was never sent"
-// (an old daemon), so neither carries omitempty.
 func TestWorkspaceDTO_FolderIDAndOrderNeverOmitted(t *testing.T) {
 	raw, err := json.Marshal(dto.WorkspaceDTOFrom(ctx, domain.Workspace{ID: "w1"}, workspace.MergeEligibility{}, "", nil))
 	require.NoError(t, err)
@@ -213,10 +189,6 @@ func TestWorkspaceDTO_FolderIDAndOrderNeverOmitted(t *testing.T) {
 	assert.Equal(t, float64(0), order)
 }
 
-// TestWorkspaceDTOFrom_ResolvesPlacementFromTheReader pins that FolderID/Order
-// come from the placement reader, over the workspace's own id — not from any
-// field on domain.Workspace itself, which carries no sidebar position at all
-// (see ParentID's own doc: fork lineage only).
 func TestWorkspaceDTOFrom_ResolvesPlacementFromTheReader(t *testing.T) {
 	reader := fakePlacement{"w1": {folderID: "docs", order: 3}}
 
@@ -226,10 +198,6 @@ func TestWorkspaceDTOFrom_ResolvesPlacementFromTheReader(t *testing.T) {
 	assert.Equal(t, 3, got.Order)
 }
 
-// A workspace the reader has never seen (no Node row yet — see
-// dto.WorkspacePlacementReader's own doc) degrades to "" / 0, exactly like a
-// nil reader — never an error, and never confused with "" / 0 the reader
-// found FOR REAL, which a client cannot and need not tell apart from this.
 func TestWorkspaceDTOFrom_UnknownToTheReaderDegradesToZeroValue(t *testing.T) {
 	reader := fakePlacement{"w2": {folderID: "docs", order: 3}}
 
@@ -239,8 +207,6 @@ func TestWorkspaceDTOFrom_UnknownToTheReaderDegradesToZeroValue(t *testing.T) {
 	assert.Equal(t, 0, got.Order)
 }
 
-// TestWorkspaceDTO_ParentBranchOmitEmpty pins that parentBranch is emitted when
-// non-empty and omitted when empty.
 func TestWorkspaceDTO_ParentBranchOmitEmpty(
 	t *testing.T,
 ) {
@@ -277,11 +243,6 @@ func TestWorkspaceDTOList(
 	assert.Equal(t, "w2", got[1].ID)
 }
 
-// The list is ordered by the converter itself, which is what makes the REST list
-// and the WS snapshot — the two callers — incapable of disagreeing about
-// ordering. Placement no longer lives on this resource at all (it is the row's
-// own chat row in the unified sidebar tree), so creation time is the whole
-// ordering the list has left to offer on its own.
 func TestWorkspaceDTOList_OrdersByCreatedAt(
 	t *testing.T,
 ) {
@@ -294,12 +255,6 @@ func TestWorkspaceDTOList_OrdersByCreatedAt(
 	assert.Equal(t, []string{"c", "a", "b"}, []string{got[0].ID, got[1].ID, got[2].ID})
 }
 
-// TestWorkspaceDTOFrom_NeverLeaksAFolderIntoTheForkLineage pins that ParentID
-// stays the fork lineage alone — three git paths resolve it back to a
-// workspace — even now that FolderID/Order are back on this resource
-// (2026-09-09 sidebar-placement-unification, workspace-placement fix): a
-// SEPARATE field, resolved from the placement reader, never conflated with
-// domain.Workspace.ParentID.
 func TestWorkspaceDTOFrom_NeverLeaksAFolderIntoTheForkLineage(
 	t *testing.T,
 ) {
@@ -311,8 +266,6 @@ func TestWorkspaceDTOFrom_NeverLeaksAFolderIntoTheForkLineage(
 	assert.Equal(t, "docs", got.FolderID, "the placement reader's folder answers FolderID, never ParentID")
 }
 
-// TestWorkspaceDTOList_AppliesEligFn pins that the per-row eligibility resolver
-// is invoked and its result mapped onto each DTO (spec §10).
 func TestWorkspaceDTOList_AppliesEligFn(
 	t *testing.T,
 ) {
@@ -333,9 +286,6 @@ func TestWorkspaceDTOList_AppliesEligFn(
 	assert.Empty(t, got[1].ParentBranch)
 }
 
-// TestWorkspaceDTOList_AppliesOwningChatIDFn pins that the per-row
-// owning-chat-id resolver is invoked and its result mapped onto each DTO,
-// mirroring TestWorkspaceDTOList_AppliesEligFn's shape for the new field.
 func TestWorkspaceDTOList_AppliesOwningChatIDFn(
 	t *testing.T,
 ) {
@@ -354,9 +304,6 @@ func TestWorkspaceDTOList_AppliesOwningChatIDFn(
 	assert.Empty(t, got[1].OwningChatID)
 }
 
-// TestWorkspaceDTOList_AppliesPlacementReader mirrors
-// TestWorkspaceDTOList_AppliesEligFn's shape for the placement reader: each
-// row's own FolderID/Order is resolved from it, over that row's own id.
 func TestWorkspaceDTOList_AppliesPlacementReader(
 	t *testing.T,
 ) {
@@ -388,9 +335,6 @@ func TestWorkspaceDTOFrom_MapsIsDefault(t *testing.T) {
 	assert.False(t, got2.IsDefault)
 }
 
-// TestWorkspaceDTOFrom_MapsHeldByPath proves the placeholder holder path
-// (domain.Workspace.HeldByPath) is carried onto the wire DTO so the FE can
-// reconstruct the placeholder reason from it (spec §4/B3).
 func TestWorkspaceDTOFrom_MapsHeldByPath(t *testing.T) {
 	got := dto.WorkspaceDTOFrom(
 		ctx,

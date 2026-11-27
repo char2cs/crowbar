@@ -26,7 +26,6 @@ func (configurableListGetUsecase) Retract(context.Context, string, string) (agen
 	return agentusecase.RetractResult{}, errors.New("configurableListGetUsecase: Retract is not under test")
 }
 
-// retractingUsecase answers Retract with result or err, recording each call.
 type retractingUsecase struct {
 	*fakeAgentUsecase
 	result agentusecase.RetractResult

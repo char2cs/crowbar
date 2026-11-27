@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Tree handles GET /v0/chats/:chatId/files/tree
 func (h *Handlers) Tree(
 	ctx *gin.Context,
 ) {
@@ -32,7 +31,6 @@ func (h *Handlers) Tree(
 	libs.WriteQueryOK(ctx, nodes)
 }
 
-// Create handles POST /v0/chats/:chatId/files
 func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
@@ -72,9 +70,6 @@ func (h *Handlers) Create(
 	libs.WriteMutationOK(ctx, http.StatusCreated, body.Path)
 }
 
-// Copy handles POST /v0/chats/:chatId/files/copy, duplicating sourcePath to
-// destPath server-side so binary files never round-trip through a text write.
-// Directories copy recursively; an existing destination is a 409.
 func (h *Handlers) Copy(
 	ctx *gin.Context,
 ) {
@@ -104,7 +99,6 @@ func (h *Handlers) Copy(
 	libs.WriteMutationOK(ctx, http.StatusCreated, body.DestPath)
 }
 
-// Rename handles PATCH /v0/chats/:chatId/files
 func (h *Handlers) Rename(
 	ctx *gin.Context,
 ) {
@@ -134,7 +128,6 @@ func (h *Handlers) Rename(
 	libs.WriteMutationOK(ctx, http.StatusOK, body.NewPath)
 }
 
-// Delete handles DELETE /v0/chats/:chatId/files
 func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {

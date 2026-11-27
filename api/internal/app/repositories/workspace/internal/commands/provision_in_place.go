@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ProvisionInPlace turns a placeholder into a managed worktree without a new
-// aggregate: it records the worktree path and fork point and clears HeldByPath,
-// leaving Status locked and every other field untouched.
 type ProvisionInPlace struct {
 	ID           string
 	WorktreePath string

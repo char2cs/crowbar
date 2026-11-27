@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// retiredResolver matches the identifiers the old resolvers were reached by,
-// plus the near-variants a sixth one would likely reuse.
 var retiredResolver = regexp.MustCompile(
 	`^(HomeEnvVar|Default(Crowbar)?Home(Path)?|Get(Home|StateDir|Events|Store|Config)Path(At)?)$`,
 )
@@ -151,8 +149,6 @@ func resolverUses(file *ast.File) []string {
 	return reasons
 }
 
-// readsEnvVar names the os function when call reads the home env var through
-// it, as os.Getenv(home.EnvVar) does; only core/home may.
 func readsEnvVar(call *ast.CallExpr) string {
 	fn, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || len(call.Args) == 0 {

@@ -21,11 +21,8 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// composerPrefix is the shipped claude descriptor's composer row prefix: the
-// glyph and a NO-BREAK space.
 const composerPrefix = "❯ "
 
-// typedChat is a claude-fake chat whose CLI is a composer the daemon can type into.
 type typedChat struct {
 	h        *harness
 	imported importedRepo
@@ -59,8 +56,6 @@ func (c typedChat) hook(t *testing.T, event string, payload map[string]any) {
 	postSessionHook(t, c.launch, c.h.url+repoBase(c.imported), "claude", event, payload)
 }
 
-// awaitCursor blocks until the daemon's own emulator has the composer painted,
-// bracketed paste on and the cursor at col: what the gate reads.
 func (c typedChat) awaitCursor(t *testing.T, col int) {
 	t.Helper()
 	sessionID := getAgentChat(t, c.h, repoBase(c.imported), c.chatID).TerminalSessionID
@@ -86,8 +81,6 @@ func (c typedChat) pending(t *testing.T) []ledger.Prompt {
 	return chatState(t, c.h, c.chatID).PendingPrompts()
 }
 
-// An idle prompt is typed into the running CLI, never relaunched with it, and
-// the CLI's own prompt hook is its receipt.
 func TestRegression_AnIdlePromptIsTypedIntoTheRunningCLI(t *testing.T) {
 	c := newTypedChat(t, kit.Composer{})
 	requestID := uuid.NewString()
@@ -111,8 +104,6 @@ func TestRegression_AnIdlePromptIsTypedIntoTheRunningCLI(t *testing.T) {
 	assert.Equal(t, requestID, turn.RequestID, "the typed prompt opened its own turn")
 }
 
-// A turn its CLI opens on other words (a keystroke from the pane, a draft the
-// paste joined) took something else: the typed prompt settles, sends go on.
 func TestRegression_ATypedPromptAnotherPromptOvertookSettles(t *testing.T) {
 	c := newTypedChat(t, kit.Composer{})
 	requestID := uuid.NewString()
@@ -136,7 +127,6 @@ func TestRegression_ATypedPromptAnotherPromptOvertookSettles(t *testing.T) {
 	assert.Equal(t, []string{"rename the helper", "next"}, c.launch.AwaitSubmitted(t, 2), "the chat takes the next send")
 }
 
-// A faint suggestion after the cursor is no draft: the prompt is typed over it.
 func TestRegression_AFaintSuggestionIsTypedOver(t *testing.T) {
 	c := newTypedChat(t, kit.Composer{Ghost: "run the tests"})
 
@@ -146,8 +136,6 @@ func TestRegression_AFaintSuggestionIsTypedOver(t *testing.T) {
 	assert.Len(t, c.fake.LaunchedRunners(t), 1, "the CLI is not relaunched")
 }
 
-// A leading attachment is typed escaped and materialised, and its echo is
-// still recognised as the prompt that was sent.
 func TestRegression_ATypedAttachmentIsReceivedAsThePromptSent(t *testing.T) {
 	c := newTypedChat(t, kit.Composer{})
 	dir := worktreepath.AttachmentsDir(c.h.home, c.chatID)
@@ -166,15 +154,12 @@ func TestRegression_ATypedAttachmentIsReceivedAsThePromptSent(t *testing.T) {
 	assert.Equal(t, requestID, turn.RequestID)
 }
 
-// A box that holds a draft, or a command, is never typed over: the CLI is
-// relaunched with the prompt as before.
 func TestRegression_AnUntypeablePromptStillRestartsTheCLI(t *testing.T) {
 	for name, tc := range map[string]struct {
 		composer kit.Composer
 		text     string
 	}{
-		"a draft in the box": {composer: kit.Composer{Draft: "half"}, text: "hello"},
-		// Home on a draft puts the cursor where an empty box has it; the draft is not faint.
+		"a draft in the box":        {composer: kit.Composer{Draft: "half"}, text: "hello"},
 		"a draft behind the cursor": {composer: kit.Composer{Draft: "half", CaretHome: true}, text: "hello"},
 		"a slash command":           {text: "/compact"},
 	} {
@@ -199,7 +184,6 @@ func TestRegression_AResentTypedPromptIsTypedOnce(t *testing.T) {
 	c.hook(t, "user_prompt", map[string]any{"prompt": "once only"})
 	c.hook(t, "turn_stop", map[string]any{"last_assistant_message": "done"})
 
-	// The next prompt is typed behind whatever the resend wrote, so it bounds it.
 	c.send(t, "next", uuid.NewString())
 
 	assert.Equal(t, []string{"once only", "next"}, c.launch.AwaitSubmitted(t, 2))

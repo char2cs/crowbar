@@ -130,8 +130,6 @@ func TestRepository_ATreeSurvivesARestart(t *testing.T) {
 	assert.Equal(t, pinTree(), got)
 }
 
-// Reads racing writes: once a write returns, every read holds what it wrote,
-// and a read's tree is the caller's own to change.
 func TestRepository_EveryReadAfterAWriteHoldsIt(t *testing.T) {
 	ctx, repo := context.Background(), newRepo(t)
 	const writes = 100

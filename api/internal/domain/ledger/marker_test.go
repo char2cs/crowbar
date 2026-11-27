@@ -20,9 +20,7 @@ import (
 
 var updateKindsFixture = flag.Bool("update-kinds-fixture", false, "write the row and marker kinds the web tests check")
 
-// kindsFixture is what the web's ledger types are checked against: written
-// only from here, so it never drifts from what Check accepts.
-const kindsFixture = "../../../../web/src/__tests__/__fixtures__/ledger-kinds.json"
+const kindsFixture = "../../../../app/panes/src/__tests__/__fixtures__/ledger-kinds.json"
 
 func TestCheck_TheKindsTheWebChecksAreTheOnesItAccepts(t *testing.T) {
 	got, err := json.MarshalIndent(map[string]any{"rowKinds": ledger.RowKinds(), "markerKinds": ledger.MarkerKinds()}, "", "  ")
@@ -38,8 +36,6 @@ func TestCheck_TheKindsTheWebChecksAreTheOnesItAccepts(t *testing.T) {
 	assert.Equal(t, string(want), string(got), "the kinds drifted: rerun with -args -update-kinds-fixture")
 }
 
-// Every Marker* constant is a kind Check accepts: a new one missing from the
-// accepted list fails here, not on the first row a CLI sends of it.
 func TestCheck_EveryMarkerConstantIsAKindItAccepts(t *testing.T) {
 	file, err := parser.ParseFile(token.NewFileSet(), "marker.go", nil, 0)
 	require.NoError(t, err)

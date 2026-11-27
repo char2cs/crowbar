@@ -18,24 +18,22 @@ import (
 )
 
 const (
-	pasteStart = "\x1b[200~"
-	pasteEnd   = "\x1b[201~"
-	// composerRow is the screen row the input box lives on.
+	pasteStart    = "\x1b[200~"
+	pasteEnd      = "\x1b[201~"
 	composerRow   = 3
 	defaultPrefix = "> "
 )
 
-// composer is a TUI input box: bracketed paste on, a prefixed row, a draft, and a submit key.
 type composer struct {
 	out         io.Writer
-	submitted   string // file one JSON string per submitted message is appended to
+	submitted   string
 	prefix      string
 	ghost       string
 	busy        bool
 	caretHome   bool
 	draft       string
 	inPaste     bool
-	unprocessed string // input held back because it may be the start of a paste marker
+	unprocessed string
 }
 
 func composerFromEnv(out io.Writer, dir, seg string) *composer {
@@ -54,9 +52,7 @@ func composerFromEnv(out io.Writer, dir, seg string) *composer {
 	}
 }
 
-// composeUntilStopped runs the composer on stdin and returns the exit code like echoUntilStopped.
 func composeUntilStopped(stop <-chan os.Signal, c *composer) int {
-	// A PTY in cooked mode would hold input until a newline and echo it; a TUI reads raw.
 	raw := exec.CommandContext(context.Background(), "stty", "raw", "-echo")
 	raw.Stdin = os.Stdin
 	if err := raw.Run(); err != nil {
@@ -95,8 +91,6 @@ func (c *composer) start() error {
 	return c.paint()
 }
 
-// paint redraws the composer row with the cursor right after the draft. A ghost suggestion is
-// painted after the cursor and the cursor is moved back before it.
 func (c *composer) paint() error {
 	if c.busy {
 		return nil
@@ -114,8 +108,6 @@ func (c *composer) paint() error {
 	return err
 }
 
-// feed consumes input as a byte stream: a paste is taken verbatim, a carriage return outside
-// one submits, anything else is typed. Chunk boundaries are invisible.
 func (c *composer) feed(chunk []byte) error {
 	c.unprocessed += string(chunk)
 	for c.unprocessed != "" {
@@ -195,7 +187,6 @@ func (c *composer) submit() error {
 	return c.paint()
 }
 
-// partialSuffix is the length of the longest proper suffix of s that begins marker.
 func partialSuffix(s, marker string) int {
 	for n := min(len(marker)-1, len(s)); n > 0; n-- {
 		if strings.HasSuffix(s, marker[:n]) {

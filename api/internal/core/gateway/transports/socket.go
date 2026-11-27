@@ -10,17 +10,10 @@ import (
 	"syscall"
 )
 
-// chmod is indirected so tests can simulate a chmod failure.
 var chmod = os.Chmod
 
-// ErrDaemonRunning is returned when a crowbar daemon is already listening on
-// the socket path — the stale-socket check dialed it and got a live answer, so
-// binding would steal the address from a healthy daemon.
 var ErrDaemonRunning = errors.New("gateway: socket: daemon already running")
 
-// NewSocket binds the daemon's Unix socket for host ("unix://[path]"; empty path is
-// the home's SocketPath), creating its directory. A stale socket is removed, a live
-// one yields ErrDaemonRunning, and Close removes the socket file.
 func NewSocket(
 	host string,
 ) (net.Listener, error) {
@@ -54,9 +47,6 @@ func NewSocket(
 	return &socketListener{Listener: ln, path: path}, nil
 }
 
-// privateDir refuses a socket directory another user owns, or others may write
-// to without the sticky bit, such as one made ahead of the daemon: they could
-// put their own socket in it, and every client would dial that.
 func privateDir(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -71,8 +61,6 @@ func privateDir(dir string) error {
 	return nil
 }
 
-// handleStale clears a socket file left over from a crashed daemon, but refuses
-// to remove one that still has a live daemon behind it (dialing succeeds).
 func handleStale(
 	path string,
 ) error {

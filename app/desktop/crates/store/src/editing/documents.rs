@@ -1,0 +1,209 @@
+mod decode;
+
+const CONTENT: &str = "/v0/documents/content";
+
+use std::sync::Arc;
+
+use protocol::DocumentPath;
+use serde_json::{Value, json};
+use tokio::runtime::Handle;
+
+use crate::Store;
+use crate::error::Error;
+use crate::live::DocumentBody;
+use crate::live::Hub;
+use crate::live::State;
+use crate::sidebar_commands::{FileDone, FileError};
+
+#[derive(Clone)]
+pub struct Documents {
+    hub: Arc<Hub>,
+    handle: Handle,
+}
+
+impl std::fmt::Debug for Documents {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter.debug_struct("Documents").finish_non_exhaustive()
+    }
+}
+
+impl Documents {
+    pub fn read(
+        &self,
+        chat: &str,
+        file: &DocumentPath,
+        done: FileDone<String>,
+    ) -> Result<(), Error> {
+        let (client, route) = self
+            .hub
+            .read(|state| owner_of(state, chat, file))
+            .ok_or_else(|| Error::Stream(format!("chat {chat} is not loaded")))?;
+        self.handle.spawn(async move {
+            let body: Result<DocumentBody, FileError> = client
+                .read(route)
+                .await
+                .map_err(|error| FileError::Daemon(error.into()));
+            done(body.map(|body| decode::text(&body)));
+        });
+        Ok(())
+    }
+}
+
+impl Documents {
+    pub fn write(
+        &self,
+        (chat, file): (&str, &DocumentPath),
+        text: &str,
+        done: FileDone<()>,
+    ) -> Result<(), Error> {
+        let (client, body) = self
+            .hub
+            .read(|state| writer_of(state, (chat, file), text))
+            .ok_or_else(|| Error::Stream(format!("chat {chat} is not loaded")))?;
+        self.handle.spawn(async move {
+            let written = client.send(daemonapi::Call::put(CONTENT).json(body)).await;
+            done(
+                written
+                    .map(drop)
+                    .map_err(|error| FileError::Daemon(error.into())),
+            );
+        });
+        Ok(())
+    }
+}
+
+impl Store {
+    pub fn documents(&self) -> Documents {
+        Documents {
+            hub: Arc::clone(&self.hub),
+            handle: self.commands.handle.clone(),
+        }
+    }
+}
+
+fn owner_of(
+    state: &State,
+    chat: &str,
+    file: &DocumentPath,
+) -> Option<(daemonapi::Client, daemonapi::Route)> {
+    if file.is_host() {
+        let client = state.client_of_chat(chat).and(state.local_client())?;
+        return Some((
+            client,
+            daemonapi::Route::host_document_content(file.as_str()),
+        ));
+    }
+    let (client, workspace) = workspace_of(state, chat)?;
+    let route = daemonapi::Route::document_content(&workspace, file.as_str());
+    Some((client, route))
+}
+
+fn writer_of(
+    state: &State,
+    (chat, file): (&str, &DocumentPath),
+    content: &str,
+) -> Option<(daemonapi::Client, Value)> {
+    let path = file.as_str();
+    if file.is_host() {
+        let client = state.client_of_chat(chat).and(state.local_client())?;
+        return Some((client, json!({ "path": path, "content": content })));
+    }
+    let (client, workspace) = workspace_of(state, chat)?;
+    let body = json!({ "workspaceId": workspace, "path": path, "content": content });
+    Some((client, body))
+}
+
+fn workspace_of(
+    state: &State,
+    chat: &str,
+) -> Option<(daemonapi::Client, String)> {
+    let workspace = state
+        .hosts
+        .iter()
+        .find_map(|slot| slot.store.chats.get(chat))
+        .map(|record| record.workspace_id.clone())?;
+    Some((state.client_of_chat(chat)?, workspace))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::*;
+    use crate::test_support::{FakeDaemon, state};
+
+    fn documents() -> (Documents, Arc<FakeDaemon>) {
+        let (state, daemon) = state();
+        let hub = Hub::new(state, Arc::new(|| {}));
+        let runtime = Handle::current();
+        (
+            Documents {
+                hub,
+                handle: runtime,
+            },
+            daemon,
+        )
+    }
+
+    fn read(
+        documents: &Documents,
+        (chat, path): (&str, &str),
+    ) -> Result<Result<String, String>, Error> {
+        let (sender, receiver) = mpsc::channel();
+        let done: FileDone<String> = Box::new(move |result| {
+            sender
+                .send(result.map_err(|error| error.to_string()))
+                .unwrap();
+        });
+        documents.read(chat, &DocumentPath::new(path).unwrap(), done)?;
+        Ok(receiver.recv().unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_workspace_file_is_read_from_the_chats_daemon() {
+        let (documents, daemon) = documents();
+        daemon.ok(
+            "GET",
+            "/v0/documents/content?workspace=hw&path=src/a.ts",
+            r#"{"content":"let a = 1"}"#,
+        );
+        let text = tokio::task::spawn_blocking(move || read(&documents, ("hc", "src/a.ts")));
+        assert_eq!(text.await.unwrap().unwrap(), Ok("let a = 1".to_owned()));
+    }
+
+    fn write(
+        documents: &Documents,
+        chat: &str,
+    ) -> Result<bool, Error> {
+        let (sender, receiver) = mpsc::channel();
+        let done: FileDone<()> = Box::new(move |result| sender.send(result.is_ok()).unwrap());
+        let file = DocumentPath::new("src/a.ts").unwrap();
+        documents.write((chat, &file), "b", done)?;
+        Ok(receiver.recv().unwrap())
+    }
+
+    fn refused_then_written(documents: &Documents) -> (bool, bool) {
+        let refused =
+            write(documents, "nobody").is_err() && read(documents, ("nobody", "a.ts")).is_err();
+        (refused, write(documents, "hc").unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_save_puts_the_whole_text_and_a_chat_not_loaded_is_refused_first() {
+        let (documents, daemon) = documents();
+        daemon.ok("PUT", "/v0/documents/content", r#"{"path":"src/a.ts"}"#);
+        let written = tokio::task::spawn_blocking(move || refused_then_written(&documents));
+        assert_eq!(
+            written.await.unwrap(),
+            (true, true),
+            "refused, then written"
+        );
+        let seen = daemon.seen();
+        let put = seen.iter().find(|call| call.method == "PUT").unwrap();
+        let body = serde_json::json!({"workspaceId": "hw", "path": "src/a.ts", "content": "b"});
+        assert_eq!(put.body, Some(body));
+    }
+}

@@ -7,9 +7,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// spawnRows are what a phase of a tool call of kind subagent says of the
-// subagent it spawns: its start under the call, its bind to the scope the
-// call's end names, or its failure before it ever ran.
 func spawnRows(st ledger.State, call ledger.ToolCall, turnID string) ([]ledger.Row, error) {
 	if call.Kind != ledger.ToolKindSubagent {
 		return nil, nil
@@ -35,10 +32,6 @@ func spawnRows(st ledger.State, call ledger.ToolCall, turnID string) ([]ledger.R
 	return nil, nil
 }
 
-// mapSubagent records a subagent's own start or stop, once. A start no call
-// is known to have spawned runs at once, and one of a subagent that ended is a
-// follow-up resuming it; a stop of one never started is the CLI's own
-// housekeeping agent unless it names a type, acknowledged with no row.
 func mapSubagent(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	if ev.Subagent == nil || ev.Subagent.ID == "" {
 		return nil, nil
@@ -80,7 +73,6 @@ func startOrResume(
 	}
 	var rows []ledger.Row
 	if known.Result != "" {
-		// The resume clears its result: what its last run said stays as text of its scope.
 		said, err := ledger.NewRow(ledger.KindAssistantText, known.TurnID, known.Scope, ledger.AssistantText{
 			MessageID: fmt.Sprintf("%s-%d", ledger.ReplyID(known.Scope), known.EndSeq),
 			Index:     ledger.IndexComplete, Text: known.Result,
@@ -109,9 +101,6 @@ func ended(phase string, sub *engineagents.SubagentEvent) ledger.SubagentBody {
 	return body
 }
 
-// mapHandBack is a subagent handing its result back: the result, then the
-// provider's turn that answers it, opened as a prompt's would be but with no
-// one's words.
 func mapHandBack(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	rows, err := resultRows(st, ev.Subagent, src)
 	if err != nil {
@@ -122,8 +111,6 @@ func mapHandBack(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([
 	return append(rows, opened...), err
 }
 
-// resultRows record sub's handed-back result once; one never started is
-// started first, so nothing it said is lost.
 func resultRows(st ledger.State, sub *engineagents.SubagentEvent, src Source) ([]ledger.Row, error) {
 	if sub == nil || sub.ID == "" {
 		return nil, nil
@@ -146,7 +133,6 @@ func resultRows(st ledger.State, sub *engineagents.SubagentEvent, src Source) ([
 	return append(rows, row), err
 }
 
-// mapPlanStep records one step of a plan changed alone, in its scope.
 func mapPlanStep(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
 	step := ev.Step
 	if step == nil || step.StepID == "" {
@@ -159,8 +145,6 @@ func mapPlanStep(st ledger.State, ev engineagents.CanonicalEvent, src Source, sc
 	return []ledger.Row{row}, err
 }
 
-// scopeOf is the scope of the call a tool event reports: what it spawns or
-// addresses is recorded on its row, by its kind.
 func scopeOf(call *ledger.ToolCall, tool *engineagents.ToolEvent) {
 	if tool.Kind == ledger.ToolKindSubagent {
 		call.SpawnsScope = tool.SpawnsScope
@@ -169,7 +153,6 @@ func scopeOf(call *ledger.ToolCall, tool *engineagents.ToolEvent) {
 	call.AddressesScope = tool.AddressesScope
 }
 
-// boundScope is the scope rows bind a subagent to, if any.
 func boundScope(rows []ledger.Row) string {
 	for _, r := range rows {
 		if r.Kind != ledger.KindSubagent || r.Scope == "" {

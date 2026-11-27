@@ -1,0 +1,155 @@
+import { useState } from 'react'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
+import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+
+recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
+
+function mockImageFetch() {
+  const blob = new Blob(['x'], { type: 'image/png' })
+  return vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) })
+}
+
+describe('chat image attachment resolution', () => {
+  it('resolves ![alt](ref) to real fetched bytes in the static transcript render', async () => {
+    const fetchMock = mockImageFetch()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'![a diagram](chats/c1/attachments/shot.png)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    const img = await screen.findByRole('img', { name: 'a diagram' })
+    await waitFor(() => expect(img.getAttribute('src')).toMatch(/^data:image\/png;base64,/))
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/chats/c1/attachments/shot.png'),
+      expect.anything(),
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('resolves the same reference in the interactive editor', async () => {
+    vi.stubGlobal('fetch', mockImageFetch())
+
+    render(
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'![a diagram](chats/c1/attachments/shot.png)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndScope>,
+    )
+
+    const img = await screen.findByRole('img', { name: 'a diagram' })
+    await waitFor(() => expect(img.getAttribute('src')).toMatch(/^data:image\/png;base64,/))
+    vi.unstubAllGlobals()
+  })
+
+  it('leaves the raw src alone with no MarkdownAssetContext (pre-existing behaviour, unchanged)', () => {
+    render(
+      <MarkdownMessageStatic>
+        {'![a diagram](chats/c1/attachments/shot.png)'}
+      </MarkdownMessageStatic>,
+    )
+    expect(screen.getByRole('img', { name: 'a diagram' }).getAttribute('src')).toBe(
+      'chats/c1/attachments/shot.png',
+    )
+  })
+})
+
+const TWO_ATTACHMENTS = [
+  {
+    type: 'p',
+    children: [{ type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] }],
+  },
+  {
+    type: 'img',
+    url: 'chats/c1/attachments/b.png',
+    caption: [{ text: 'b.png' }],
+    children: [{ text: '' }],
+  },
+]
+
+describe('REGRESSION investigation: React error #185 with a plain (non-Excalidraw) attachment', () => {
+  function ComposerLike({ n }: { n: number }) {
+    const editor = usePlateEditor({
+      plugins: chatComposerPlugins,
+      value: [...TWO_ATTACHMENTS, { type: 'p', children: [{ text: `draft ${n}` }] }],
+    })
+    return (
+      <Plate editor={editor}>
+        <PlateContent />
+      </Plate>
+    )
+  }
+
+  it('survives 60 unrelated re-renders of a file-card + image attachment pair with no runaway update-depth error', () => {
+    vi.stubGlobal('fetch', mockImageFetch())
+
+    function Harness() {
+      const [n, setN] = useState(0)
+      return (
+        <DndScope>
+          <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+            <ComposerLike n={n} />
+          </ChatMarkdownAssetProvider>
+          <button onClick={() => setN((v) => v + 1)}>rerender</button>
+        </DndScope>
+      )
+    }
+
+    const { getByText } = render(<Harness />)
+    for (let i = 0; i < 60; i++) {
+      act(() => {
+        getByText('rerender').click()
+      })
+    }
+    expect(screen.getByRole('link', { name: /a\.pdf/ })).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+
+  it('survives the composer unmounting its attachments as the transcript mounts the same ones, in one commit', () => {
+    vi.stubGlobal('fetch', mockImageFetch())
+
+    function Harness() {
+      const [sent, setSent] = useState(false)
+      const [seed, setSeed] = useState(0)
+      return (
+        <DndScope>
+          <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+            {sent && (
+              <MarkdownMessage>
+                {'[a.pdf](chats/c1/attachments/a.pdf)\n\n![b.png](chats/c1/attachments/b.png)'}
+              </MarkdownMessage>
+            )}
+            {!sent && <ComposerLike key={seed} n={seed} />}
+          </ChatMarkdownAssetProvider>
+          <button
+            onClick={() => {
+              setSent(true)
+              setSeed((s) => s + 1)
+            }}
+          >
+            submit
+          </button>
+        </DndScope>
+      )
+    }
+
+    const { getByText } = render(<Harness />)
+    act(() => {
+      getByText('submit').click()
+    })
+    expect(screen.getByRole('link', { name: /a\.pdf/ })).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+})

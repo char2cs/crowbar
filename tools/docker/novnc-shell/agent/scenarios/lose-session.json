@@ -1,0 +1,12 @@
+{
+ "description": "Ends normally but marks the session lost: the next prompt's resume is refused (session_lost).",
+ "steps": [
+  {
+   "do": "lose-session"
+  },
+  {
+   "do": "text",
+   "text": "This session will be gone next time."
+  }
+ ]
+}

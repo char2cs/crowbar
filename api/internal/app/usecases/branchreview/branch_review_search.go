@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// SearchDiff finds query in the content of the branch diff (or one commit's, when commit
-// is set) and reports whether opts.Limit cut the hits short. It runs server-side because
-// the client holds only a window of the patch; the scan stops once the limit fills.
 func (u *branchReviewUsecase) SearchDiff(
 	ctx context.Context,
 	wsID string,
@@ -37,9 +34,6 @@ func (u *branchReviewUsecase) SearchDiff(
 	return hits, truncated, nil
 }
 
-// validateSearchPattern rejects a broken regex before any git work: find-as-you-type
-// submits half-finished patterns, which are invalid arguments, not daemon failures.
-// Literal mode quotes the query, so only regex mode can fail.
 func validateSearchPattern(
 	query string,
 	opts gitdomain.SearchOpts,

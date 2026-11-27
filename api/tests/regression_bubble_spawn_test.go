@@ -15,22 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// cwdStubProviderDescriptorYAML spawns a shell that prints its OWN real OS
-// working directory, prefixed by a marker, and then execs into `cat` so the
-// PTY (and the runner) stays alive exactly like livestub's — see
-// writeLiveStubProviderDescriptor's own doc. The printed line is read back
-// off the runner's real terminal WS by readSpawnCwd: ground truth no
-// Crowbar-reported field can fake, since it is text the spawned OS process
-// itself produced.
-//
-// It also declares presentation.prompt_submit (restart_tui, {message} passed
-// positionally to sh — a harmless extra $0 the script never reads) so
-// SubmitPrompt's replacement spawn is reachable: that path resolves its own
-// cwd through promptTarget, a SEPARATE call site from the create path's
-// spawnPaths, and is exactly what TestRegression_BubbleChatReceivesAPrompt
-// exercises. session.resume is declared only because prompt_submit's own
-// validation requires it present; this test never resumes, so it is never
-// actually applied to an argv.
 const cwdStubProviderDescriptorYAML = `id: cwdstub
 spawn:
   cmd: "sh"
@@ -69,10 +53,6 @@ func writeCwdStubProviderDescriptor(t *testing.T, h *harness) {
 	writeProviderDescriptor(t, h, "cwdstub", cwdStubProviderDescriptorYAML)
 }
 
-// createChatWithProvider creates a chat with an explicit provider, optional
-// workspaceID and parentID, and quiesces past the async runner placement
-// (see createAgentChat's own doc for why QuiesceReactors, not Quiesce, is the
-// correct barrier here).
 func createChatWithProvider(
 	t *testing.T,
 	h *harness,
@@ -93,27 +73,6 @@ func createChatWithProvider(
 	return created.ID
 }
 
-// readSpawnCwd dials chatID's runner PTY and reads back the real OS working
-// directory the cwdstub shell reported at spawn.
-//
-// It reads off the TERMINAL WS (readTerminalUntil's own primitive, see
-// terminal_test.go), not any Crowbar-side field, because there is no such
-// field on the wire, and because the process's own stdout is the one signal
-// nothing internal to Crowbar can fake. A newly attaching client always
-// receives the terminal's current screen redraw before any live output
-// (session.Session.Attach's serialize-on-attach contract), so the marker is
-// found whether the echo happened before or after this dial.
-//
-// The terminal WS route is chat-scoped (/v0/chats/:chatId/terminals/
-// :sessionId/ws), but WS itself only checks the session id exists — it never
-// checks the session's OWN registered owner against :chatId (see
-// terminal/handlers/ws.go) — so :chatId names any chat the route's middleware
-// can resolve to a worktree. imported.chatID — the worktree-owning chat itself
-// — is one such chat for both the ancestor's session and the bubble's alike,
-// exactly as imported.workspaceID was for both back when the route was
-// workspace-scoped: the bubble carries no worktree of its own, and its only
-// ancestor here is a FOLDER, which worktree.Resolve's chat-ancestry walk does
-// not cross.
 func readSpawnCwd(
 	t *testing.T,
 	h *harness,
@@ -129,14 +88,6 @@ func readSpawnCwd(
 	return readMarkedValue(t, conn, "CROWBAR_CWD:")
 }
 
-// readMarkedValue blocks reading PTY frames, accumulating their data, until
-// marker appears followed by a run of non-control bytes terminated by a
-// control byte (a redraw's cursor move, or a raw \r/\n) — the value the
-// process printed right after the marker, trimmed of any row padding a full
-// grid redraw adds.
-//
-// Bounded like readTerminalUntil: a value that never arrives fails this test
-// instead of hanging the package.
 func readMarkedValue(
 	t *testing.T,
 	conn *websocket.Conn,
@@ -162,10 +113,6 @@ func readMarkedValue(
 	}
 }
 
-// valueAfterMarker extracts the run of bytes following marker in text, up to
-// (not including) the first control byte, and reports false when text ends
-// before any control byte closes that run — meaning the value may still be
-// arriving in a later frame.
 func valueAfterMarker(
 	text string,
 	marker string,
@@ -183,19 +130,6 @@ func valueAfterMarker(
 	return "", false
 }
 
-// TestRegression_BubbleChatSpawnsInAncestorWorktree proves the fix wiring
-// tree.CwdWorkspaceID's ancestor walk into the spawn path (Task 22): a bubble
-// (Chat.WorkspaceID == "") nested under a worktree-owning chat's own folder
-// subtree — the construction regression_sidebar_forest_test.go's own
-// disclosed departure #1 settled for, since a chat parent enforces
-// ErrCrossWorkspace unless the immediate parent is a folder — spawns
-// successfully and its CLI's REAL OS-level working directory is the
-// ancestor's worktree, not empty or a 500.
-//
-// Before this fix this reproduced the exact 500
-// ("spawn runner: worktree dir: ... aggregate not found") Task 21's own
-// investigation found live: StartRunner resolved the runner's cwd from
-// chat.WorkspaceID verbatim, with no fallback to the ancestor walk.
 func TestRegression_BubbleChatSpawnsInAncestorWorktree(t *testing.T) {
 	h := newHarness(t)
 	writeCwdStubProviderDescriptor(t, h)
@@ -211,7 +145,6 @@ func TestRegression_BubbleChatSpawnsInAncestorWorktree(t *testing.T) {
 
 	bubbleID := createChatWithProvider(t, h, base, "cwdstub", "", folder.ID)
 	require.Empty(t, getAgentChat(t, h, base, bubbleID).WorkspaceID, "the new chat must actually be a bubble")
-	// A bubble nested under a worktree-owning chat's folder must start a live runner, not 500.
 	startChat(t, h, base, bubbleID)
 
 	bubbleCwd := readSpawnCwd(t, h, imported, bubbleID)
@@ -219,23 +152,6 @@ func TestRegression_BubbleChatSpawnsInAncestorWorktree(t *testing.T) {
 		"the bubble's CLI must run in its ancestor's worktree, via tree.CwdWorkspaceID's walk")
 }
 
-// TestRegression_BubbleChatReceivesAPrompt proves the SAME ancestor-cwd
-// fallback also covers a bubble's very first follow-up message, not merely
-// its create.
-//
-// This is a genuinely SEPARATE call site from the one
-// TestRegression_BubbleChatSpawnsInAncestorWorktree exercises:
-// SubmitPrompt's own preflight (promptTarget, prompts.go) used to resolve
-// WorktreeDir from chat.WorkspaceID directly, so a bubble could be CREATED
-// successfully and still 500/404 on its very next message. Compact and
-// SlashCatalog resolve cwd through the identical helper
-// (cwdWorkspaceID) and are covered at the usecase level instead — see
-// TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble and
-// TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble in
-// internal/app/usecases/chat, both reached over the real HTTP surface would
-// need a genuine terminal-attached provider to answer either capability
-// check meaningfully, which adds nothing this end-to-end test and those two
-// unit tests don't already prove together.
 func TestRegression_BubbleChatReceivesAPrompt(t *testing.T) {
 	h := newHarness(t)
 	writeCwdStubProviderDescriptor(t, h)

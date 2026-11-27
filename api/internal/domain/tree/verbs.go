@@ -7,10 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Every verb validates against the whole tree first, then returns a new tree
-// with each level it touched renumbered 0..n-1; the receiver is never changed.
-
-// Insert places a new node n under parentID at index.
 func (t Tree) Insert(n Node, parentID string, index int, f Facts) (Tree, error) {
 	if n.ID == "" {
 		return Tree{}, fmt.Errorf("tree: insert: missing id: %w", problem.ErrInvalidArgument)
@@ -40,7 +36,6 @@ func (t Tree) Insert(n Node, parentID string, index int, f Facts) (Tree, error) 
 	return out, nil
 }
 
-// Move re-places id, with everything below it, under parentID at index.
 func (t Tree) Move(id, parentID string, index int, f Facts) (Tree, error) {
 	n, ok := t.Nodes[id]
 	if !ok {
@@ -75,7 +70,6 @@ func (t Tree) Move(id, parentID string, index int, f Facts) (Tree, error) {
 	return out, nil
 }
 
-// Rename names folder id.
 func (t Tree) Rename(id, name string) (Tree, error) {
 	n, ok := t.Nodes[id]
 	if !ok {
@@ -93,8 +87,6 @@ func (t Tree) Rename(id, name string) (Tree, error) {
 	return out, nil
 }
 
-// Remove takes id out. With promote its children take its place, in their
-// order; without, its whole subtree goes. It returns the ids removed.
 func (t Tree) Remove(id string, promote bool) (Tree, []string, error) {
 	n, ok := t.Nodes[id]
 	if !ok {
@@ -127,8 +119,6 @@ func (t Tree) Remove(id string, promote bool) (Tree, []string, error) {
 	return out, []string{id}, nil
 }
 
-// Promote turns chat node chatID into workspace node workspaceID at the same
-// place; the chat's children hang under the workspace node.
 func (t Tree) Promote(chatID, workspaceID string) (Tree, error) {
 	n, ok := t.Nodes[chatID]
 	if !ok {
@@ -162,8 +152,6 @@ func (t Tree) knownParent(id, parentID string) error {
 	return nil
 }
 
-// place puts id at index among parentID's other children (clamped) and
-// renumbers that level. t must be a tree this verb owns.
 func (t Tree) place(id, parentID string, index int) {
 	var level []string
 	for _, s := range t.Children(parentID) {

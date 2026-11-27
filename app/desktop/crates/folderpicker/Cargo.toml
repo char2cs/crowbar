@@ -1,0 +1,20 @@
+[package]
+name = "folderpicker"
+description = "The remote folder picker of the Crowbar shell: a tree of a paired host's own folders, one of which is chosen."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+store.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

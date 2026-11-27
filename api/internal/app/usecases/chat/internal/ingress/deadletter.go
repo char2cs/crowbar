@@ -12,7 +12,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Why a hook was dead-lettered.
 const (
 	reasonUnknownRunner = "unknown_runner"
 	reasonUnknownChat   = "unknown_chat"
@@ -24,13 +23,10 @@ const (
 	reasonSenderGone    = "sender_gone"
 )
 
-// refusals are the reasons a hook was refused to its sender; a hook kept for any
-// other was acknowledged, as its channel expects, or its sender hung up first.
 var refusals = []string{
 	reasonUnknownRunner, reasonUnknownChat, reasonUnmappable, reasonNoDescriptor, reasonWriteFailed,
 }
 
-// Refusals is how many hooks were refused to their senders and kept.
 func (i *Ingress) Refusals(ctx context.Context) (int, error) {
 	n, err := i.ledger.DeadLetterCount(ctx, refusals...)
 	if err != nil {
@@ -39,15 +35,11 @@ func (i *Ingress) Refusals(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// hook is one delivery as its sender made it.
 type hook struct {
 	runnerID, provider, event string
 	raw                       []byte
 }
 
-// deadLetter keeps h, which the ingress could not place on chatID. The write
-// outlives the request. A hook acknowledged without rows is answered with its
-// error, so a 2xx always leaves rows or a dead letter behind.
 func (i *Ingress) deadLetter(ctx context.Context, h hook, chatID, reason string) error {
 	err := i.ledger.DeadLetter(context.WithoutCancel(ctx), ledgerstore.DeadLetter{
 		ChatID: chatID, RunnerID: h.runnerID, Provider: h.provider, Event: h.event,
@@ -59,11 +51,9 @@ func (i *Ingress) deadLetter(ctx context.Context, h hook, chatID, reason string)
 	return nil
 }
 
-// refuse dead-letters h and answers its sender with refused. A dead letter that
-// fails is only logged: the sender is refused either way.
 func (i *Ingress) refuse(ctx context.Context, h hook, chatID, reason string, refused error) error {
 	if ctx.Err() != nil {
-		reason = reasonSenderGone // its hanging up is why whatever failed after failed
+		reason = reasonSenderGone
 	}
 	if err := i.deadLetter(ctx, h, chatID, reason); err != nil {
 		slog.ErrorContext(ctx, "ingress: refuse a hook", "runner_id", h.runnerID, "event", h.event, "err", err)
@@ -71,8 +61,6 @@ func (i *Ingress) refuse(ctx context.Context, h hook, chatID, reason string, ref
 	return refused
 }
 
-// unmappable marks the transcript of runner's chat where h was lost and
-// refuses h. A chat gone meanwhile is marked nowhere.
 func (i *Ingress) unmappable(ctx context.Context, h hook, runner engineagents.Runner, cause error) error {
 	chatID := runner.CurrentChatID
 	refused := fmt.Errorf("%w: %s: %w", ErrUnmappable, h.event, cause)

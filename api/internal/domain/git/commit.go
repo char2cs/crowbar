@@ -2,7 +2,6 @@ package git
 
 import "time"
 
-// Commit is a single entry in the git log.
 type Commit struct {
 	Hash        string    `json:"hash"`
 	ShortHash   string    `json:"shortHash"`

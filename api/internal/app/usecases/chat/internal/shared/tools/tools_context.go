@@ -11,16 +11,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ChatLogReader is get_chat_log's read port: one chat's conversation as turns, consulted only after the
-// tool's scope checks. Turns, not rendered text, because bodies contain blank lines and the cap must
-// count real turns.
 type ChatLogReader interface {
 	ReadChatLog(ctx context.Context, chatID string) ([]ChatTurn, error)
 }
 
-// ChatLineageReader resolves a chat's chat ancestors, nearest first, folders filtered out. get_chat_log
-// asks it about the target, one upward walk, to tell a descendant from a sibling, which workspace scope
-// cannot.
 type ChatLineageReader interface {
 	Ancestors(
 		ctx context.Context,
@@ -28,13 +22,8 @@ type ChatLineageReader interface {
 	) ([]string, error)
 }
 
-// NoChatTurnsText is what get_chat_log renders for a chat that has not spoken yet: a normal state, so
-// neither an error nor empty text a model would retry.
 const NoChatTurnsText = "This chat has no turns yet."
 
-// contextTools registers the workspace and sibling-chat tools, each fail-closed on its own ports.
-// get_chat_log needs ChatReads, ChatLogs and Lineage: without Lineage it could not refuse a parent
-// reading its own threads, and an authority port that cannot answer takes its tool with it.
 func contextTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.ChatReads != nil {
@@ -65,9 +54,6 @@ func listWorkspacesTool(deps Deps) toolDef {
 	}
 }
 
-// listWorkspaces folds each visible workspace's chats in rather than giving chats their own tool, to
-// stay under the tool ceiling. It takes no argument a model could widen c.Visible with; chats arrive in
-// one read, bucketed in Go.
 func listWorkspaces(
 	ctx context.Context,
 	deps Deps,
@@ -84,8 +70,6 @@ func listWorkspaces(
 	return render.RenderWorkspaces(c.Workspace, visible, chatsByWorkspace(all, visible)), nil
 }
 
-// chatsByWorkspace buckets a whole-table chat read by workspace, keeping only visible ones: the filter
-// is an authority boundary. Every visible workspace gets an entry, so one with no chats still renders.
 func chatsByWorkspace(
 	all []domain.Chat,
 	visible []domain.Workspace,
@@ -130,9 +114,6 @@ type getChatLogArgs struct {
 	Limit  int    `json:"limit"`
 }
 
-// getChatLog reads another chat only after two checks, both before ChatLogs touches disk: the chat's
-// workspace must pass CanSee (deliberately wide: siblings are the point), then it must not be the
-// caller's own descendant. offset and limit page the rendering only, never the scope.
 func getChatLog(
 	ctx context.Context,
 	deps Deps,
@@ -157,7 +138,6 @@ func getChatLog(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: get_chat_log: %w", err)
 	}
-	// The empty case is worded here only, whatever the ChatLogReader.
 	if len(turns) == 0 {
 		return NoChatTurnsText, nil
 	}
@@ -169,8 +149,6 @@ func getChatLog(
 	return note + render.RenderChatLog(turns[w.start:w.end]), nil
 }
 
-// refuseOwnThread rejects a chat below the caller's own, however many folders deep, by finding the
-// caller in the target's lineage. An unreadable lineage refuses, as CanSee does: unreadable is not empty.
 func refuseOwnThread(
 	ctx context.Context,
 	deps Deps,

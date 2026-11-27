@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// BenchmarkWouldMergeConflicts is the shape a chat list asks: many branches
-// each dry-run against one parent, repeatedly, while no branch moves and the
-// refs are no longer fresh.
 func BenchmarkWouldMergeConflicts(b *testing.B) {
 	ctx := context.Background()
 	dir := initRepo(b)

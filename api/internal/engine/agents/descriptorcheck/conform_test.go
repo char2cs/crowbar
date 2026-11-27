@@ -25,8 +25,6 @@ type run struct {
 	edit       func(string) string
 }
 
-// conform runs a fake-CLI descriptor through the live harness, the fake
-// following the named transcript.
 func conform(t *testing.T, r run) descriptorcheck.LiveReport {
 	t.Helper()
 	bin, err := os.Executable()
@@ -39,7 +37,6 @@ func conform(t *testing.T, r run) descriptorcheck.LiveReport {
 	}
 	script, err := filepath.Abs(filepath.Join("testdata", "fakecli", "transcripts", r.transcript+".yaml"))
 	require.NoError(t, err)
-	// The daemon and its CLIs share one environment; so do the harness and the fake.
 	t.Setenv("FAKECLI_HOME", t.TempDir())
 	env := append(os.Environ(), "FAKECLI_SCRIPT="+script)
 	return descriptorcheck.Conform(context.Background(), []byte(doc), descriptorcheck.LiveOptions{
@@ -95,8 +92,6 @@ func TestConform_ACLIThatDiesAtBootFails(t *testing.T) {
 	assert.False(t, rep.OK())
 }
 
-// A prompt only a person answers parks the run; the harness never answers it
-// (the default choice may be "exit").
 func TestConform_ATrustPromptParksTheRunWithoutAnsweringIt(t *testing.T) {
 	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "trust_prompt", turn: true})
 
@@ -109,8 +104,6 @@ func TestConform_ATrustPromptParksTheRunWithoutAnsweringIt(t *testing.T) {
 	assert.True(t, rep.OK(), "a parked prompt is reported, not failed")
 }
 
-// A CLI that stays up on an unknown session would pass a lost session off as
-// live.
 func TestConform_AResumeOfAnUnknownSessionMustEnd(t *testing.T) {
 	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "resume_hangs"})
 
@@ -135,8 +128,6 @@ func TestConform_ARefusalTheDescriptorDoesNotRecogniseFails(t *testing.T) {
 	assert.Contains(t, resume.Detail, "does not recognise")
 }
 
-// Without --turn, a provider that reports hooks only once a turn starts
-// (codex) is skipped, not failed; an undocumented flag only warns.
 func TestConform_WithoutATurnAQuietBootIsSkippedNotFailed(t *testing.T) {
 	rep := conform(t, run{descriptor: "descriptor.yaml", transcript: "quiet_boot"})
 

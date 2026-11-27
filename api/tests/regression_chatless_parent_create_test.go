@@ -16,11 +16,6 @@ import (
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 )
 
-// chatlessLockedBranch cuts a LOCKED branch under imported's main worktree
-// with NO owning chat — the exact row PR #181 restored GET .../workspaces for
-// (a repo's default checkout, an untouched locked branch): every workspace a
-// pre-chat-first build imported looks like this, and Task 9 deleted the boot
-// backfill that used to mint a chat for it.
 func chatlessLockedBranch(
 	t *testing.T,
 	h *harness,
@@ -69,8 +64,6 @@ func workspaceRow(
 	return workspaceDTO{}
 }
 
-// postChat sends the create body exactly as the frontend does and reports the
-// status plus the envelope, asserting nothing — the status IS the finding.
 func postChat(
 	t *testing.T,
 	h *harness,
@@ -101,18 +94,6 @@ func postChat(
 	return resp.StatusCode, env.Data.ID, env.Error
 }
 
-// TestRegression_ForkFromChatlessLockedBranchForks is K2 for a locked branch
-// that owns no chat. The frontend's fork gesture (space-content-actions.ts
-// handleCreate 'workspace') resolves placementParentId to the row's
-// owningChatId and, when that is empty, to the workspace's OWN id — so the
-// request the daemon receives is POST .../chats {ownWorktree, parentId:
-// <workspaceId>, branch}. checkNewChatParent accepts that parent (the
-// workspace's Node{Kind:workspace} row, workspaceAnchorView), the chat is
-// minted and placed under it, and then SpawnChatWithOwnWorktree's
-// ResolveForkParent walks a forest built from Chat rows + folders only
-// (walk.go freshForest): the workspace id is neither a chat nor a tree node,
-// CwdWorkspaceID breaks, ErrNoForkParent — the create is discarded and the
-// pending row lands on "failed".
 func TestRegression_ForkFromChatlessLockedBranchForks(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -120,9 +101,6 @@ func TestRegression_ForkFromChatlessLockedBranchForks(t *testing.T) {
 	base := repoBase(imported)
 
 	lockedID := chatlessLockedBranch(t, h, imported, "release/chatless")
-	// Chatless as the sidebar would have addressed it BEFORE any read minted
-	// it an owner (TestRegression_ChatlessWorkspaceIsServedWithAnOwner): the
-	// parent the client names is the workspace's own id either way.
 	chatRows, err := h.app.Usecases.AgentChat.ListChatsByWorkspace(context.Background(), lockedID)
 	require.NoError(t, err)
 	require.Empty(t, chatRows, "the row under test must be a chatless workspace")
@@ -143,9 +121,6 @@ func TestRegression_ForkFromChatlessLockedBranchForks(t *testing.T) {
 	assert.Equal(t, "test/test", fork.Branch)
 }
 
-// TestRegression_ThreadUnderChatlessLockedBranch is K1 for the same row: the
-// thread gesture posts {workspaceId: <ws>, parentId: <ws>} (the branch row's
-// rendered id IS the workspace id when it owns no chat).
 func TestRegression_ThreadUnderChatlessLockedBranch(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -166,9 +141,6 @@ func TestRegression_ThreadUnderChatlessLockedBranch(t *testing.T) {
 	startChat(t, h, base, chatID)
 }
 
-// TestRegression_CreateUnderLegacyWorkspaceWithoutNodeRow is the pre-Task-7
-// shape: a workspace minted by a build that never wrote Node{Kind:workspace}
-// rows (no backfill exists). Both create gestures name it as parentId.
 func TestRegression_CreateUnderLegacyWorkspaceWithoutNodeRow(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

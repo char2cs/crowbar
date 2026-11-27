@@ -1,0 +1,57 @@
+{
+ "description": "A multi-select question.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "AskUserQuestion",
+   "kind": "ask",
+   "input": {
+    "questions": [
+     {
+      "header": "Checks",
+      "question": "Which checks should I run?",
+      "multiSelect": true,
+      "options": [
+       {
+        "label": "unit"
+       },
+       {
+        "label": "lint"
+       },
+       {
+        "label": "e2e",
+        "description": "slow"
+       }
+      ]
+     }
+    ]
+   },
+   "ask": {
+    "message": "AskUserQuestion",
+    "questions": [
+     {
+      "header": "Checks",
+      "question": "Which checks should I run?",
+      "multiSelect": true,
+      "options": [
+       {
+        "label": "unit"
+       },
+       {
+        "label": "lint"
+       },
+       {
+        "label": "e2e",
+        "description": "slow"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "do": "text",
+   "text": "Thanks."
+  }
+ ]
+}

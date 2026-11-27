@@ -1,0 +1,23 @@
+[package]
+name = "sidebarview"
+description = "Native sidebar of the Crowbar shell: frame, header, space switcher, mode bar, chats tree, files and changes panels."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+sidebar.workspace = true
+tracing.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+ui = { workspace = true, features = ["test-support"] }
+sidebar = { workspace = true, features = ["fixtures"] }
+gpui = { workspace = true, features = ["bench-support", "test-support"] }
+
+[lints]
+workspace = true

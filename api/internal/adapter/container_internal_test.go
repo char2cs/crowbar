@@ -15,19 +15,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// This file white-box tests openContainer's error/cleanup paths and the small
-// close* helpers directly; the black-box container_test.go only exercises the
-// happy paths reachable through the exported New/Close surface.
-
-// blockPath plants a directory at path so a later sqlite Open (which needs to
-// create/open a regular file there) fails.
 func blockPath(t *testing.T, path string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(path, 0o750))
 }
 
-// homeWithDirs is a temp home whose state, events and store directories exist,
-// as adapter.New leaves them for openContainer.
 func homeWithDirs(t *testing.T) home.Home {
 	t.Helper()
 	h, err := home.At(t.TempDir())
@@ -39,8 +31,6 @@ func homeWithDirs(t *testing.T) home.Home {
 
 func TestOpenContainer_ReviewThreadEventStoreOpenError(t *testing.T) {
 	h := homeWithDirs(t)
-	// The reviewthread event log lives at state/events/review_thread.db;
-	// plant a directory there so its sqlite open fails.
 	blockPath(t, filepath.Join(h.Events(), reviewThreadDBName))
 
 	c, err := openContainer(h)
@@ -73,13 +63,9 @@ func TestOpenContainer_Success(t *testing.T) {
 	assert.NotNil(t, c.workspaceSnapshotStore)
 	assert.NotNil(t, c.agentChatSnapshotStore)
 	assert.NotNil(t, c.globalView)
-	// reviewThreadES + reviewThreadSS are the two globalClosers (the other three
-	// snapshot stores close via their dedicated fields in Close, like their
-	// event stores).
 	assert.Len(t, c.globalClosers, 2)
 }
 
-// fakeCloser records whether Close was called and what it returned.
 type fakeCloser struct {
 	called bool
 	err    error
@@ -90,9 +76,6 @@ func (f *fakeCloser) Close() error {
 	return f.err
 }
 
-// fakeStoreCloser satisfies asynxModels.Store (via the embedded nil interface,
-// never invoked in these tests) and io.Closer, exercising closeEventStore's
-// type-asserts-to-Closer branch.
 type fakeStoreCloser struct {
 	asynxModels.Store
 	closer *fakeCloser
@@ -100,7 +83,6 @@ type fakeStoreCloser struct {
 
 func (f fakeStoreCloser) Close() error { return f.closer.Close() }
 
-// notACloserStore satisfies asynxModels.Store but not io.Closer.
 type notACloserStore struct {
 	asynxModels.Store
 }
@@ -122,9 +104,6 @@ func TestCloseEventStore_NoopWhenNotACloser(t *testing.T) {
 }
 
 func TestCloseViewDB_ErrorOnInvalidConnPool(t *testing.T) {
-	// A *gorm.DB with a non-nil Config but no ConnPool set makes DB() return
-	// gorm.ErrInvalidDB (see gorm.io/gorm.(*DB).DB); the embedded *Config must be
-	// non-nil or the promoted ConnPool field access itself panics.
 	err := closeViewDB(&gormdb.DB{Config: &gormdb.Config{}})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "db handle")
@@ -134,8 +113,6 @@ func TestClose_PropagatesGlobalViewCloseError(t *testing.T) {
 	c, err := New(WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 
-	// Swap in a globalView whose DB() fails, forcing Close's closeViewDB branch
-	// to error rather than silently succeeding.
 	c.globalView = &gormdb.DB{Config: &gormdb.Config{}}
 
 	closeErr := c.Close()

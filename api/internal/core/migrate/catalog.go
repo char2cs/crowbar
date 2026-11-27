@@ -9,17 +9,11 @@ import (
 
 var stepName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-// Catalog is a set of steps whose numbering, phases and layout chain have been
-// checked. It cannot be built any other way, so every later reader can rely on
-// the chain being contiguous from layout 0.
 type Catalog struct {
 	steps []Step
 	known int
 }
 
-// NewCatalog sorts steps by number and refuses a set that is not coherent: bump
-// steps must form one chain from layout 0, in-layout steps must precede the bump
-// out of their layout, and post-open steps must sit at the final layout.
 func NewCatalog(
 	steps ...Step,
 ) (*Catalog, error) {
@@ -40,13 +34,10 @@ func NewCatalog(
 	return &Catalog{steps: sorted, known: known}, nil
 }
 
-// Known is the layout version this catalog migrates to: the end of the bump
-// chain, or 0 when no step bumps the layout.
 func (c *Catalog) Known() int {
 	return c.known
 }
 
-// has reports whether the catalog holds a step with this number.
 func (c *Catalog) has(
 	number int,
 ) bool {
@@ -54,7 +45,6 @@ func (c *Catalog) has(
 	return ok
 }
 
-// step is the catalog's step with this number.
 func (c *Catalog) step(
 	number int,
 ) (Step, bool) {
@@ -65,9 +55,6 @@ func (c *Catalog) step(
 	return c.steps[i], true
 }
 
-// order lists the steps still to run from a home at layout; applied reports
-// whether an in-layout or post-open step already completed (bump steps ignore
-// it). Requires 0 <= layout <= Known().
 func (c *Catalog) order(
 	layout int,
 	applied func(Step) bool,
@@ -146,8 +133,6 @@ func stepFault(
 	}
 }
 
-// bumpChain returns the layout the bump steps reach. The From values must be
-// exactly 0..n-1, each once, so n is the known layout.
 func bumpChain(
 	sorted []Step,
 ) (int, error) {

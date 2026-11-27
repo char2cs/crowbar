@@ -20,8 +20,6 @@ import (
 
 const httpProvider = "httpprov"
 
-// httpDescriptor is a serve-less provider reached over http: named requests for
-// what Crowbar says, one event stream for what the provider does.
 const httpDescriptor = `schema_version: 0
 id: httpprov
 display_name: Http Provider
@@ -88,9 +86,6 @@ events:
     send: { id: "{session_id}" }
 `
 
-// An http descriptor with no serve connects, runs a turn through its requests and
-// stream, answers an approval through its reply request, and cancels through its
-// interrupt request; a dropped stream resumes from the last event it delivered.
 func TestRegression_HTTPDeliveryRunsAChatTurn(t *testing.T) {
 	srv := kit.NewFakeHTTP(t)
 	srv.Route("POST", "/runs", 200, `{"id":"run-1"}`)

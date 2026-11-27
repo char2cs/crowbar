@@ -138,8 +138,6 @@ func TestRemoveStaleLock_MissingFile(t *testing.T) {
 	assert.False(t, exec.RemoveStaleLock(filepath.Join(t.TempDir(), "nope.lock")))
 }
 
-// TestGit_StaleIndexLockRecovered drives the full path against real git: a
-// stale index.lock (old mtime) must be cleared and the mutation succeed.
 func TestGit_StaleIndexLockRecovered(t *testing.T) {
 	muteSleep(t)
 	dir := initRepo(t)
@@ -156,9 +154,6 @@ func TestGit_StaleIndexLockRecovered(t *testing.T) {
 	assert.NoFileExists(t, lock)
 }
 
-// TestGit_StatusDoesNotWriteIndex pins GIT_OPTIONAL_LOCKS=0: status with stale
-// stat info must not rewrite the index (i.e. must not take index.lock), so
-// watcher status reads can never collide with a user mutation.
 func TestGit_StatusDoesNotWriteIndex(t *testing.T) {
 	dir := initRepo(t)
 	ctx := context.Background()

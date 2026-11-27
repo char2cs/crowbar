@@ -1,4 +1,3 @@
-// Package gitlab implements the GitProvider interface via the glab CLI.
 package gitlab
 
 import (
@@ -13,22 +12,18 @@ import (
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
-// ExecFn matches exec.CommandContext so callers can inject a test stub.
 type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
 type glabProvider struct {
 	execFn ExecFn
 }
 
-// New returns a glabProvider that runs every subprocess through execFn.
 func New(
 	execFn ExecFn,
 ) *glabProvider {
 	return &glabProvider{execFn: execFn}
 }
 
-// ProtectedBranches returns the list of protected branch names for the repo.
-// It calls the GitLab API via glab and parses the JSON output.
 func (g *glabProvider) ProtectedBranches(
 	ctx context.Context,
 	repoPath string,
@@ -46,7 +41,6 @@ func (g *glabProvider) ProtectedBranches(
 	return parseLines(out), nil
 }
 
-// mrJSON is the structure returned by glab mr list --output json.
 type mrJSON struct {
 	IID          int    `json:"iid"`
 	State        string `json:"state"`
@@ -57,8 +51,6 @@ type mrJSON struct {
 	SHA          string `json:"sha"`
 }
 
-// PullRequestForBranch returns the most relevant MR for branch, or nil. It does not check
-// the remote branch first: the source ref is often deleted on merge, which would hide it.
 func (g *glabProvider) PullRequestForBranch(
 	ctx context.Context,
 	repoPath string,
@@ -98,8 +90,6 @@ func (g *glabProvider) PullRequestForBranch(
 	}, nil
 }
 
-// OpenPullRequests lists every open MR as a source→target link in one glab
-// call. Open MRs own their source ref by name, so no ownership check is needed.
 func (g *glabProvider) OpenPullRequests(
 	ctx context.Context,
 	repoPath string,
@@ -133,9 +123,6 @@ func (g *glabProvider) OpenPullRequests(
 	return links, nil
 }
 
-// ownsMR reports whether mr is really this branch's MR. glab matches by source name alone
-// and a merged MR outlives its ref, so a reused name would match a stale, terminal MR. An
-// open MR is authoritative; a merged/closed one counts only if branch contains its commit.
 func (g *glabProvider) ownsMR(
 	ctx context.Context,
 	repoPath string,
@@ -151,9 +138,6 @@ func (g *glabProvider) ownsMR(
 	return g.branchContains(ctx, repoPath, branch, mr.SHA)
 }
 
-// branchContains reports whether sha is an ancestor of (or equal to) branch; a non-zero
-// exit or unknown object is false. A false negative only leaves the status stale, while a
-// false positive would brand the workspace with a foreign MR and retire it.
 func (g *glabProvider) branchContains(
 	ctx context.Context,
 	repoPath string,
@@ -165,7 +149,6 @@ func (g *glabProvider) branchContains(
 	return cmd.Run() == nil
 }
 
-// parseMRList parses the JSON array returned by glab mr list.
 func parseMRList(
 	data []byte,
 ) ([]mrJSON, error) {
@@ -176,8 +159,6 @@ func parseMRList(
 	return mrs, nil
 }
 
-// selectBestMR picks the most relevant MR from the list.
-// Open MRs take priority; within the same state, higher IID wins.
 func selectBestMR(
 	mrs []mrJSON,
 ) *mrJSON {
@@ -197,7 +178,6 @@ func selectBestMR(
 	return best
 }
 
-// betterMR returns the more relevant of two MRs.
 func betterMR(
 	a *mrJSON,
 	b *mrJSON,
@@ -217,7 +197,6 @@ func betterMR(
 	return a
 }
 
-// mapState maps glab CLI state strings to canonical status values.
 func mapState(
 	state string,
 ) string {
@@ -231,14 +210,11 @@ func mapState(
 	}
 }
 
-// runGlab executes a glab command in repoPath and returns stdout.
 func (g *glabProvider) runGlab(
 	ctx context.Context,
 	repoPath string,
 	args ...string,
 ) (string, error) {
-	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
-	// PATH, which misses Homebrew's /opt/homebrew/bin where glab usually lives.
 	cmd := g.execFn(ctx, binpath.Resolve("glab"), args...)
 	cmd.Dir = repoPath
 
@@ -252,8 +228,6 @@ func (g *glabProvider) runGlab(
 	return out.String(), nil
 }
 
-// OwnerAvatarURL returns the GitLab namespace avatar URL for the repo.
-// Returns ("", nil) on any soft failure so callers can fall back gracefully.
 func (g *glabProvider) OwnerAvatarURL(
 	ctx context.Context,
 	repoPath string,
@@ -265,7 +239,6 @@ func (g *glabProvider) OwnerAvatarURL(
 	return strings.TrimSpace(out), nil
 }
 
-// parseLines splits newline-delimited output into non-empty strings.
 func parseLines(
 	s string,
 ) []string {

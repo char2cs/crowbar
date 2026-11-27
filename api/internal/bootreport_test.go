@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// Until Begin hands over the session (here, a home it refuses), the gate says
-// Crowbar is starting: health has no detail, and the API refuses in the same words.
 func TestReport_IsStartingUntilTheSessionIsPublished(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
@@ -41,7 +39,6 @@ func TestReport_IsStartingUntilTheSessionIsPublished(t *testing.T) {
 	assert.Equal(t, "Crowbar is starting", refusal.Error)
 }
 
-// progress is the health detail of a daemon still migrating.
 type progress struct {
 	Phase string     `json:"phase"`
 	Step  migrate.ID `json:"step"`
@@ -49,8 +46,6 @@ type progress struct {
 	Total int        `json:"total"`
 }
 
-// While a step runs, health names it, from the first pre-open step on, and
-// every other request is refused with the same words.
 func TestReport_NamesTheStepThatIsRunning(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	sock := testutil.ShortSocket(t)
@@ -85,8 +80,6 @@ func TestReport_NamesTheStepThatIsRunning(t *testing.T) {
 	assert.Equal(t, "Crowbar is upgrading its data (step 12 of 12: placement-tree)", refusals[11].Error)
 }
 
-// The gate spells its refusal codes itself, to stay free of dependencies; they
-// must still be problem codes, which the client treats as daemon states.
 func TestBootReport_RefusalCodesAreProblemCodes(t *testing.T) {
 	assert.Equal(t, "daemon_"+string(bootgate.StateMigrating), string(problem.DaemonMigrating))
 	assert.Equal(t, "daemon_"+string(bootgate.StateHalted), string(problem.DaemonHalted))

@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A plaintext (local socket / loopback) request still gets pprof, so the
-// desktop watchdog can capture a goroutine dump from a wedged daemon.
 func TestMountDebug_ServesGoroutineDump(
 	t *testing.T,
 ) {
@@ -28,9 +26,6 @@ func TestMountDebug_ServesGoroutineDump(
 	assert.Contains(t, w.Body.String(), "goroutine profile:")
 }
 
-// TestRegression_MountDebug_RefusesTLS proves pprof is local-only: a request
-// that arrived over the network (TLS) is refused before any profile runs,
-// whatever its method or credentials.
 func TestRegression_MountDebug_RefusesTLS(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()

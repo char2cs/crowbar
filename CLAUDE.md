@@ -4,14 +4,15 @@
 - A fix starts with a failing test that reproduces it.
 - Never fix a symptom with a timer, poll, retry, extra flag, or resync effect.
   Find the owner of the state. If the fix needs a second copy of some state,
-  stop and write a plan in docs/plans/ instead.
+  stop and agree the change with the owner first.
 - A known bug is an issue, not a `t.Skip`.
 
 ## Hygiene
 - Delete code you make unused in the same change. No exports kept "for API
   completeness"; deadcode/knip must stay clean.
 - No stubs that ship: a UI must not be wired to a method that returns [] or false.
-- Comments explain *why* in ≤3 lines — no incident narratives or PR history.
+- Comments only where the logic is genuinely complicated, in ≤3 lines; about 1% of lines at most.
+- No spec, plan or design markdown in the repository.
 - Don't commit plans-as-scratch, QA logs, spikes, test output, placeholders.
 - No second library for a job already covered (icons: phosphor; DnD: dnd-kit;
   headless UI: base-ui; highlighting: shiki).
@@ -27,8 +28,8 @@
 - Every nolint / eslint-disable / react-doctor-disable / ts-expect-error names
   the rule and gives a reason on the same line. Never loosen a lint config,
   coverage floor, or budget to get green.
-- Baselines (`api/deadcode-baseline.txt`, `web/knip.json` ignoreIssues, the
-  `*_BASELINE` lists in `web/eslint.config.js`, golangci-lint's `new-from-rev`)
+- Baselines (`api/deadcode-baseline.txt`, `app/panes/knip.json` ignoreIssues, the
+  `*_BASELINE` lists in `app/panes/eslint.config.js`, golangci-lint's `new-from-rev`)
   only shrink: fix an entry, delete it; never add one.
 
 ## Go (`api/`)
@@ -40,7 +41,7 @@
 - A test that needs file permissions enforced calls
   `testutil.RequirePermissionEnforcement(t)` (skips as root and on Windows).
 
-# Web (`web/`)
+# Web (`app/panes/`)
 
 Checks CI runs: `bunx eslint . --max-warnings 0`, `bun run knip` (dead code),
 `bunx tsc --noEmit`, `bunx prettier --check .`, `bun run test:coverage`,
@@ -48,9 +49,9 @@ Checks CI runs: `bunx eslint . --max-warnings 0`, `bun run knip` (dead code),
 
 ## Test file location
 
-All test files live in `web/src/__tests__/` mirroring the `web/src/` structure.
+All test files live in `app/panes/src/__tests__/` mirroring the `app/panes/src/` structure.
 
-**Rule:** A test for `web/src/features/X/lib/foo.ts` goes in `web/src/__tests__/features/X/lib/foo.test.ts`.
+**Rule:** A test for `app/panes/src/features/X/lib/foo.ts` goes in `app/panes/src/__tests__/features/X/lib/foo.test.ts`.
 
 Do **not** create `features/X/tests/` directories — the co-located pattern was retired in favour of the mirror structure.
 
@@ -80,7 +81,7 @@ export function MyComponent() { ... }
 
 ## Go daemon (`api/`)
 
-Layout and flow are described in `api/ARCHITECTURE.md`. Enforced by `api/.golangci.yml` (funlen 100 lines/50 statements, gocyclo 15, nestif 2, revive early-return, gofumpt) and `make pr-checks`:
+Enforced by `api/.golangci.yml` (funlen 100 lines/50 statements, gocyclo 15, nestif 2, revive early-return, gofumpt) and `make pr-checks`:
 
 - Implementation details live in `internal/` sub-packages; one domain concept per file; source files under 500 lines.
 - One test file per source file (`foo.go` → `foo_test.go`), struct-only files excepted.

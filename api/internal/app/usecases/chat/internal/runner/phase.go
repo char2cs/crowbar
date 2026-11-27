@@ -7,15 +7,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 )
 
-// Snapshotter is where a lifecycle change no aggregate event carries is
-// announced: the chat's phase, and its runner starting, reporting or exiting.
 type Snapshotter interface {
 	Touch(ctx context.Context, chatID string)
 }
 
-// phases is the lifecycle operation each chat is in the middle of, set by the
-// user-initiated operation holding the chat. Absent means none: the chat's phase
-// is then derived from placement (live or dormant) by the snapshot owner.
 type phases struct {
 	mu     sync.Mutex
 	byChat map[string]string
@@ -23,7 +18,6 @@ type phases struct {
 
 func newPhases() *phases { return &phases{byChat: map[string]string{}} }
 
-// Phase implements snapshot.Runtime.
 func (rs *Runners) Phase(chatID string) string {
 	if rs.phases == nil {
 		return ""
@@ -33,9 +27,6 @@ func (rs *Runners) Phase(chatID string) string {
 	return rs.phases.byChat[chatID]
 }
 
-// enterPhase marks chatID as being in phase for the duration of an operation
-// holding the chat, announces it, and returns the func that ends it (and
-// announces that).
 func (rs *Runners) enterPhase(ctx context.Context, chatID, phase string) func() {
 	if rs.phases == nil {
 		return func() {}
@@ -52,8 +43,6 @@ func (rs *Runners) enterPhase(ctx context.Context, chatID, phase string) func() 
 	}
 }
 
-// replacementPhase is what replacing chatID's CLI looks like from outside:
-// switching while one is live, starting while the chat is dormant.
 func (rs *Runners) replacementPhase(chatID string) string {
 	if _, live := rs.live.byChat(chatID); !live {
 		return snapshot.PhaseStarting

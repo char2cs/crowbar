@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// pushFixture is an imported branch with a commit to push whose origin is gone.
 type pushFixture struct {
 	chatID string
 	wsID   string
@@ -45,8 +44,6 @@ func failingPush(
 	return pushFixture{chatID: owningChatID(t, h, wsID), wsID: wsID, origin: f.origin}
 }
 
-// TestRegression_GitPushFailureIsVisible: a push that fails in the background reaches the
-// client with its reason instead of only the daemon log.
 func TestRegression_GitPushFailureIsVisible(t *testing.T) {
 	h := newHarness(t)
 	push := failingPush(t, h)

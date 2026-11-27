@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// A descriptor that maps no turn close leaves every chat spinning forever.
 func TestValidate_AMissingLifecycleEventIsAnError(t *testing.T) {
 	raw := strings.Replace(string(complete("")),
 		"  turn_stop: { required: [session_id], in: Stop, map: { session_id: session_id, message: last_assistant_message } }\n", "", 1)
@@ -18,8 +17,6 @@ func TestValidate_AMissingLifecycleEventIsAnError(t *testing.T) {
 	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 }
 
-// A split event only arrives on the channels it has blocks for, so a surface
-// whose channel it lacks never sees its turns close.
 func TestValidate_ASurfaceThatCannotReceiveALifecycleEventIsAnError(t *testing.T) {
 	raw := strings.Replace(string(complete("surfaces:\n  terminal: { channel: hooks, start_here: true }\n")),
 		"  turn_stop: { required: [session_id], in: Stop, map: { session_id: session_id, message: last_assistant_message } }\n",

@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// DialTerminalPTY watches the raw PTY stream, a direct engine pipe rather than a broadcaster
-// topic, so there is no WaitNRegistered gate.
 func (e *Env) DialTerminalPTY(
 	t *testing.T,
 	chatID string,
@@ -23,25 +21,18 @@ func (e *Env) DialTerminalPTY(
 	return Dial(t, e.dialer, wsURL(e.URL, e.chatScope(chatID)+"/terminals/"+sessionID+"/ws"))
 }
 
-// chatScope builds the FLAT chat path prefix shared by all chat-scoped routes.
-// Chat ids are globally unique, so nothing below it re-nests under a
-// project/repo pair.
 func (e *Env) chatScope(
 	chatID string,
 ) string {
 	return "/v0/chats/" + chatID
 }
 
-// OwningChatID returns the chat that owns the workspace. It reads in-process, as
-// workspaces are not addressable over HTTP, using the wire resolver's own calls.
 func (e *Env) OwningChatID(
 	t *testing.T,
 	wsID string,
 ) string {
 	t.Helper()
 	ctx := context.Background()
-	// The chat-first mint is an asynx write; drain the projections so the read
-	// below sees the row rather than racing it (no polling, no sleep).
 	e.Quiesce()
 
 	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
@@ -56,8 +47,6 @@ func (e *Env) OwningChatID(
 	return owner.ID
 }
 
-// ListChats reads a repo's chat rows over REST: each worktree-owning row carries its git
-// state inline.
 func (e *Env) ListChats(
 	t *testing.T,
 	projectID string,
@@ -71,9 +60,6 @@ func (e *Env) ListChats(
 	return chats
 }
 
-// WorktreeChats returns the repo's chat rows that OWN a worktree, projected to
-// the flat workspace shape (WorktreeFrame's REST twin), keyed by workspace id.
-// It is the read-model replacement for the deleted workspace list.
 func (e *Env) WorktreeChats(
 	t *testing.T,
 	projectID string,

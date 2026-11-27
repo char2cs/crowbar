@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Why a turn ended.
 const (
 	ReasonStopped      = "stopped"
 	ReasonProviderIdle = "provider_idle"
@@ -15,14 +14,11 @@ const (
 	ReasonTurnFailed   = "turn_failed"
 )
 
-// When a provider's CLI has written a session it can resume: once a turn
-// starts on it, or only once a turn on it completes.
 const (
 	PersistsTurnStart = "turn_start"
 	PersistsTurnEnd   = "turn_end"
 )
 
-// TurnStatus is where a turn is in its life.
 type TurnStatus string
 
 const (
@@ -38,8 +34,6 @@ var turnEdges = map[TurnStatus][]TurnStatus{
 	TurnStatusRunning: {TurnStatusDone, TurnStatusFailed, TurnStatusInterrupted},
 }
 
-// Next reports the status a transition lands in and whether the turn diagram
-// allows it: pending→running, running→done|failed|interrupted; nothing else.
 func (s TurnStatus) Next(to TurnStatus) (TurnStatus, bool) {
 	if slices.Contains(turnEdges[s], to) {
 		return to, true
@@ -47,51 +41,37 @@ func (s TurnStatus) Next(to TurnStatus) (TurnStatus, bool) {
 	return s, false
 }
 
-// TurnEnded is the body of a turn_ended row: the turn is over, done or
-// interrupted, and Reason says what closed it when the provider did not.
 type TurnEnded struct {
-	Status   string `json:"status"` // "done" | "interrupted"
-	Reason   string `json:"reason,omitempty"`
-	RunnerID string `json:"runnerId,omitempty"` // whose end it is
-	Effort   string `json:"effort,omitempty"`
-	// Diff is the provider's last whole diff of the turn's changes.
-	Diff string `json:"diff,omitempty"`
-	// ProviderTurnID is the id the end named; a prompt typed meanwhile names it too.
+	Status         string `json:"status"`
+	Reason         string `json:"reason,omitempty"`
+	RunnerID       string `json:"runnerId,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	Diff           string `json:"diff,omitempty"`
 	ProviderTurnID string `json:"providerTurnId,omitempty"`
 }
 
-// TurnFailed is the body of a turn_failed row: the provider could not finish
-// the turn.
 type TurnFailed struct {
 	Reason string `json:"reason"`
 	Detail string `json:"detail,omitempty"`
-	// Kind is the trouble in Crowbar's words (auth, limit, overloaded), as the
-	// provider's descriptor classified it; empty when it named none.
-	Kind string `json:"kind,omitempty"`
+	Kind   string `json:"kind,omitempty"`
 }
 
-// Turn is the chat's newest main-scope turn as the ledger has folded it.
 type Turn struct {
 	ID, ProviderTurnID, RunnerID, RequestID string
 	Status                                  TurnStatus
 	StartedAt                               time.Time
 }
 
-// Names reports whether an event naming providerTurnID is about t: only two
-// ids that are both known and differ say it is about another turn.
 func (t Turn) Names(providerTurnID string) bool {
 	return providerTurnID == "" || t.ProviderTurnID == "" || providerTurnID == t.ProviderTurnID
 }
 
-// turnState is the newest turn plus what its end still decides, and the seqs
-// of the rows that started and closed it.
 type turnState struct {
 	Turn
 	provider, sessionID, persists string
 	startSeq, closeSeq            int64
 }
 
-// RunningTurn is the chat's main-scope turn while it runs.
 func (s State) RunningTurn() (Turn, bool) {
 	if s.hasTurn && s.turn.Status == TurnStatusRunning {
 		return s.turn.Turn, true
@@ -99,30 +79,21 @@ func (s State) RunningTurn() (Turn, bool) {
 	return Turn{}, false
 }
 
-// LastTurn is the chat's newest main-scope turn, in any status.
 func (s State) LastTurn() (Turn, bool) {
 	return s.turn.Turn, s.hasTurn
 }
 
-// ReportedEffort is the effort the newest main turn to report one ran at: what
-// a chat that never picked an effort runs as. "" when no turn reported one.
 func (s State) ReportedEffort() string { return s.effort }
 
-// Busy reports whether the chat is working: a main-scope turn runs, or a
-// subagent is starting or running, whatever turn spawned it.
 func (s State) Busy() bool {
 	_, ok := s.RunningTurn()
 	return ok || len(s.Subagents()) > 0
 }
 
-// startsTurn reports whether a turn_started may open its turn: never over a
-// running turn, and never reopening a closed one.
 func (s State) startsTurn(r Row) bool {
 	return r.Scope != "" || !s.hasTurn || (s.turn.Status != TurnStatusRunning && s.turn.ID != r.TurnID)
 }
 
-// MovedTurn reports whether r started or closed the chat's newest turn; a
-// late row moved nothing.
 func (s State) MovedTurn(r Row) bool {
 	return s.hasTurn && r.Scope == "" && r.TurnID == s.turn.ID &&
 		(r.Seq == s.turn.startSeq || r.Seq == s.turn.closeSeq)
@@ -148,7 +119,6 @@ func (s *State) applyTurnStarted(r Row, body TurnStarted) {
 	}
 }
 
-// applyTurnEnded closes the running turn it names; any other close is late.
 func (s *State) applyTurnEnded(r Row) {
 	body, err := DecodeBody[TurnEnded](r)
 	if err != nil || r.Scope != "" {
@@ -176,7 +146,6 @@ func (s *State) applyTurnEnded(r Row) {
 	}
 }
 
-// applyTurnFailed fails the running turn it names.
 func (s *State) applyTurnFailed(r Row) {
 	if _, err := DecodeBody[TurnFailed](r); err != nil || r.Scope != "" || !s.hasTurn || s.turn.ID != r.TurnID {
 		return
@@ -187,7 +156,6 @@ func (s *State) applyTurnFailed(r Row) {
 	}
 }
 
-// EndTurn is the turn_ended row for the running turn; none when no turn runs.
 func EndTurn(st State, status TurnStatus, reason string) ([]Row, error) {
 	t, ok := st.RunningTurn()
 	if !ok {
@@ -197,9 +165,6 @@ func EndTurn(st State, status TurnStatus, reason string) ([]Row, error) {
 	return []Row{r}, err
 }
 
-// EndTurnOf is runnerID's report that the turn providerTurnID names ended: the
-// turn, its rows, whether it closes it. A turn closes once: a report of a closed
-// one has no row; of one the ledger never ran, a row under a fresh id.
 func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (string, []Row, bool, error) {
 	turnID, running, closed := st.turnOf(runnerID, providerTurnID)
 	if closed {
@@ -210,18 +175,12 @@ func EndTurnOf(st State, runnerID, providerTurnID string, end TurnEnded) (string
 	return turnID, []Row{r}, running, err
 }
 
-// FailTurnOf is runnerID's report that the turn providerTurnID names failed. A
-// late failure is still written: it is a notice of its own. fresh says the
-// ledger holds no such turn: it failed before the chat saw it start.
 func FailTurnOf(st State, runnerID, providerTurnID string, fail TurnFailed) (r Row, running, fresh bool, err error) {
 	turnID, running, closed := st.turnOf(runnerID, providerTurnID)
 	r, err = NewRow(KindTurnFailed, turnID, "", fail)
 	return r, running, !running && !closed, err
 }
 
-// turnOf is the turn a report by runnerID naming providerTurnID is about, and
-// whether it runs or already closed. A late report is about the kept turn it
-// names, else its runner's newest; a fresh id when the ledger holds no such turn.
 func (s State) turnOf(runnerID, providerTurnID string) (id string, running, closed bool) {
 	if s.hasTurn && s.turn.RunnerID == runnerID && s.turn.Names(providerTurnID) {
 		running = s.turn.Status == TurnStatusRunning
@@ -237,9 +196,6 @@ func (s State) turnOf(runnerID, providerTurnID string) (id string, running, clos
 	return uuid.NewString(), false, false
 }
 
-// Stop is a user's Stop as rows: the running turn interrupted with the diff it
-// streamed (its own end comes later and closes nothing), every live subagent
-// interrupted, and every pending prompt settled unconsumed.
 func Stop(st State, diff string) ([]Row, error) {
 	rows, err := Stopping(st)
 	if err != nil {
@@ -258,9 +214,6 @@ func Stop(st State, diff string) ([]Row, error) {
 	return append(rows, settled...), err
 }
 
-// Leave is what runnerID leaves open when its CLI moves the chat onto another
-// session: the turn it was running, interrupted, and the prompts it carried,
-// untaken (SettleUntaken). Nothing on this chat will close or acknowledge either.
 func Leave(st State, runnerID string, command func(text string) bool) ([]Row, error) {
 	var rows []Row
 	if t, ok := st.RunningTurn(); ok && t.RunnerID == runnerID {

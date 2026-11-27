@@ -24,8 +24,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// writeLegacy writes chats into h as the old daemon kept them: WAL-mode
-// databases, checkpointed on close, and one journal file per prompt.
 func writeLegacy(t *testing.T, h home.Home, chats ...LegacyChat) {
 	t.Helper()
 	runner := writable(t, filepath.Join(storeDir(t, h), RunnerDB), ConversationsDDL, RunnersDDL)
@@ -122,7 +120,6 @@ func insert(t *testing.T, db *sql.DB, table string, cols map[string]any) {
 	require.NoError(t, err)
 }
 
-// files is every file under dir with its size and modification time.
 func files(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -166,8 +163,6 @@ func TestReadLegacy_AHomeWithoutLegacyRecordsIsEmpty(t *testing.T) {
 	assert.NoDirExists(t, h.Store(), "reading created nothing")
 }
 
-// A journal file the reader cannot decode is named, not fatal: it is one
-// record of one chat, and a chat with nothing else is not converted.
 func TestReadLegacy_AnUnreadablePromptIsNamedNotFatal(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "chats/chat-z/"+PromptsDir+"/bad.json", "{not json")
@@ -186,8 +181,6 @@ func TestReadLegacy_AnUnreadablePromptIsNamedNotFatal(t *testing.T) {
 	assert.Contains(t, err.Error(), got[0].Unreadable[0])
 }
 
-// spoil overwrites column of chatID's first row in table with value, as a
-// disk or an older build might have left it.
 func spoil(t *testing.T, h home.Home, db, table, column, chatID string, value any) {
 	t.Helper()
 	conn := writable(t, filepath.Join(h.Store(), db))
@@ -197,8 +190,6 @@ func spoil(t *testing.T, h home.Home, db, table, column, chatID string, value an
 	require.NoError(t, conn.Close())
 }
 
-// A row whose column does not hold its type breaks only its own chat: the
-// read goes on, and the chat names the row and the column.
 func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -219,9 +210,6 @@ func TestReadLegacy_ARowItCannotReadIsNamedOnItsChatOnly(t *testing.T) {
 	assert.Contains(t, got[1].Unreadable[1], "agent_interruptions i-b1: seq")
 }
 
-// A conversation naming no provider or no session is a binding the chat
-// cannot resume: its history converts without it, the loss is counted in the
-// chat's marker, and the next prompt starts a session of its own.
 func TestReadLegacy_AConversationWithNoSessionLosesOnlyItsBinding(t *testing.T) {
 	for _, column := range []string{"session_id", "provider_id"} {
 		t.Run(column, func(t *testing.T) {
@@ -250,9 +238,6 @@ func TestReadLegacy_AConversationWithNoSessionLosesOnlyItsBinding(t *testing.T) 
 	}
 }
 
-// A conversation whose times cannot be read still names its session: the
-// chat keeps that binding, bound when its first turn on it began, and the
-// unreadable cell is counted in the chat's marker.
 func TestReadLegacy_AConversationWithAnUnreadableTimeKeepsItsBinding(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -272,8 +257,6 @@ func TestReadLegacy_AConversationWithAnUnreadableTimeKeepsItsBinding(t *testing.
 	assert.Len(t, res.Rows, len(convert(t, chatB(), nobody).Rows)+1, "the history and a marker")
 }
 
-// A conversation with no time, in a chat with no other record, is bound when
-// the legacy files were last written: never at the year 1.
 func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), LegacyChat{ChatID: "chat-c", Conversations: []LegacyConversation{{ChatID: "chat-c", ProviderID: "codex", SessionID: "S-c"}}})
@@ -293,9 +276,6 @@ func TestReadLegacy_AConversationWithNoTimeIsDatedByTheLegacyFiles(t *testing.T)
 	}
 }
 
-// readByVersion pins what the reader makes of the fixture chats with damaged
-// cells, as convertedByVersion pins the conversion: when this test fails the
-// reader changed, so raise converterVersion and add its line; never edit one.
 var readByVersion = map[int]string{
 	4: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
 	5: "bfe3e5f348900ac762e74d895ca8d0e551938fe33832fa802370be44e07b20a0",
@@ -320,9 +300,6 @@ func TestReadLegacy_AChangedReaderRaisesTheConverterVersion(t *testing.T) {
 	assert.Equal(t, readByVersion[converterVersion], hex.EncodeToString(sum[:]))
 }
 
-// Any one cell of any legacy table, overwritten with any value a damaged disk
-// or an older build could leave, never panics the read or the conversion,
-// never changes another chat's rows, and never skips its own.
 func TestReadLegacy_NoSingleDamagedCellPanicsOrReachesAnotherChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -393,8 +370,6 @@ func columnsOf(t *testing.T, path, table string) []string {
 	return out
 }
 
-// damage sets column of chat-a's first row in table to the SQL value v, or
-// for "dup" to chat-a's last row's; false when the schema refuses it.
 func damage(t *testing.T, path, table, column, v string) bool {
 	t.Helper()
 	if v == "dup" {
@@ -402,7 +377,6 @@ func damage(t *testing.T, path, table, column, v string) bool {
 	}
 	conn := writable(t, path)
 	defer func() { require.NoError(t, conn.Close()) }()
-	// A thousand cases: an fsync each would take minutes.
 	_, err := conn.ExecContext(t.Context(), "PRAGMA synchronous=OFF")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), "UPDATE "+table+" SET "+column+" = "+v+
@@ -420,8 +394,6 @@ func convertNoPanic(t *testing.T, chat LegacyChat, damaged string) (Result, erro
 	return ConvertChat(chat, nobody)
 }
 
-// The conversion reads one chat at a time, oldest first: a chat's read holds
-// its own records and nothing of another chat's.
 func TestSource_ReadsOneChatAtATimeOldestFirst(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -443,8 +415,6 @@ func TestSource_ReadsOneChatAtATimeOldestFirst(t *testing.T) {
 	}
 }
 
-// A row whose key does not start with its chat id, as no build wrote but a
-// hand-edited file might hold, is still read with its chat.
 func TestSource_ARowKeyedOtherwiseIsStillReadWithItsChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -462,8 +432,6 @@ func TestSource_ARowKeyedOtherwiseIsStillReadWithItsChat(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-// readLegacy reads every chat's records as the step reads them one at a time,
-// chats by id.
 func readLegacy(ctx context.Context, h home.Home) (out []LegacyChat, err error) {
 	src, err := openSource(ctx, h)
 	if err != nil {

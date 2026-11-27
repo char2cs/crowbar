@@ -1,5 +1,3 @@
-// Package worktree resolves a chat to the workspace whose worktree it reads and writes
-// through: the single seam every chat-scoped route uses in place of a public workspace id.
 package worktree
 
 import (
@@ -11,12 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ErrNoWorktreeInAncestry is returned when neither chatID nor any chat in its ancestry
-// owns a worktree.
 var ErrNoWorktreeInAncestry = errors.New("worktree: no chat in ancestry owns a worktree")
 
-// Resolve finds the workspace behind chatID's worktree: its own, else the nearest
-// ancestor's. No worktree in the ancestry returns ErrNoWorktreeInAncestry, never a zero value.
 func Resolve(
 	ctx context.Context,
 	chatID string,
@@ -40,9 +34,6 @@ func Resolve(
 	return domain.Workspace{}, ErrNoWorktreeInAncestry
 }
 
-// ChatsForWorkspace is Resolve's inverse: the sorted chat ids (never folders) resolving to
-// workspaceID, the census a cascading delete checks first. An unreferenced or empty id
-// yields an empty slice; nil folders/nodes degrade to a chat-only walk.
 func ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,

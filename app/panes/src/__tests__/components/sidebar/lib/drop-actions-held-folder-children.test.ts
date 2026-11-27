@@ -1,0 +1,80 @@
+import { describe, expect, it, beforeEach } from 'vitest'
+
+import { visibleRepos } from '@/components/sidebar/lib/rendered-rows'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-ui-store'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { readSelect, selectRepos } from '@/core/entities/select'
+
+const repo: Repo = {
+  id: 'r1',
+  projectId: 'p1',
+  name: 'repo-alpha',
+  avatarLabel: 'R',
+  avatarColor: 'c',
+  defaultWorkspaceId: 'ws-main',
+  defaultBranch: 'main',
+  workspaces: [
+    { id: 'ws-inside', branch: 'feat/a', age: '', order: 0, status: 'new', folderId: 'folder-1' },
+  ],
+  folders: [
+    { id: 'folder-1', repoId: 'r1', name: 'repofolder-RN', order: 0 },
+    { id: 'folder-child', repoId: 'r1', name: 'nested', order: 0, parentId: 'folder-1' },
+  ],
+}
+
+const heldFolder: RemovalDraft = {
+  kind: 'folder',
+  id: 'folder-1',
+  label: 'repofolder-RN',
+  projectId: 'p1',
+  repoId: 'r1',
+  wsId: '',
+  providerIcon: '',
+  hiddenIds: ['folder-1'],
+  extra: 0,
+  fallbackWsId: null,
+}
+
+beforeEach(() => {
+  seedRepos([repo])
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+})
+
+describe('the drop planner while a folder is held for removal', () => {
+  it('keeps the held folder and leaves its children under it', () => {
+    treeUiStore.getState().hold([heldFolder])
+    const [visible] = visibleRepos()
+    expect(visible.folders?.map((f) => f.id)).toEqual(['folder-1', 'folder-child'])
+    expect(visible.folders?.find((f) => f.id === 'folder-child')?.parentId).toBe('folder-1')
+    expect(visible.workspaces.find((w) => w.id === 'ws-inside')?.folderId).toBe('folder-1')
+  })
+
+  it('still hides a held row’s cascade descendants', () => {
+    seedRepos([
+      {
+        ...repo,
+        chats: [
+          { id: 'chat-1', title: 'parent', repoId: 'r1', order: 0 },
+          { id: 'chat-2', title: 'thread', repoId: 'r1', order: 1, parentId: 'chat-1' },
+        ],
+      },
+    ])
+    treeUiStore.getState().hold([
+      {
+        ...heldFolder,
+        kind: 'chat',
+        id: 'chat-1',
+        label: 'parent',
+        hiddenIds: ['chat-1', 'chat-2'],
+        extra: 1,
+      },
+    ])
+    const [visible] = visibleRepos()
+    expect(visible.chats?.map((c) => c.id)).toEqual(['chat-1'])
+  })
+
+  it('hands back the untouched repos when nothing is held', () => {
+    expect(visibleRepos()[0]).toBe(readSelect(selectRepos)[0])
+  })
+})

@@ -25,8 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// A session another chat holds stays that chat's: announcing it here records a
-// conflict and leaves this chat's binding as it was.
 func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	l := turnedTestLedger(t, "claude", "S1")
 	other, err := ledger.Assign(ledger.State{}, "claude", "S2")
@@ -48,8 +46,6 @@ func TestAnnounceSession_ASessionAnotherChatHoldsIsAConflict(t *testing.T) {
 	assert.Equal(t, ledger.Marker{Kind: ledger.MarkerSessionConflict, Detail: "S2", Owner: "chat-2"}, last)
 }
 
-// The row that binds a session carries the relay id its provider pinned, so every later
-// runner on the binding can be launched with it.
 func TestAnnounceSession_TheBindingRecordsTheRelayIDItWasCreatedWith(t *testing.T) {
 	l := newTestLedger(t)
 	rs := &Runners{ledger: l}
@@ -63,8 +59,6 @@ func TestAnnounceSession_TheBindingRecordsTheRelayIDItWasCreatedWith(t *testing.
 	assert.Equal(t, "R1", c.RelayID)
 }
 
-// A session handed to another chat takes the relay id its holder bound it with: the
-// provider's pinned block is the session's, not the chat's.
 func TestAnnounceSession_AMovedSessionKeepsTheRelayIDItsHolderBoundIt(t *testing.T) {
 	l := newTestLedger(t)
 	rs := &Runners{ledger: l, live: newLiveTable()}
@@ -90,7 +84,6 @@ func TestAnnounceSession_AMovedSessionKeepsTheRelayIDItsHolderBoundIt(t *testing
 	assert.Equal(t, ledger.ConversationLost, given.State)
 }
 
-// A session the person's clear started is a change the conversation starts over at.
 func TestAnnounceSession_AClearedSessionStartsTheConversationOver(t *testing.T) {
 	l := turnedTestLedger(t, "claude", "S1")
 	rs := &Runners{ledger: l}
@@ -104,8 +97,6 @@ func TestAnnounceSession_AClearedSessionStartsTheConversationOver(t *testing.T) 
 	assert.Equal(t, c.BoundAt, st.ClearedAt())
 }
 
-// Only the exit the descriptor recognises as the CLI's refusal loses the
-// session; it settles what the runner carried and names resume_failed.
 func TestLoseRefusedSession_OnlyTheCLIsRefusalLosesTheSession(t *testing.T) {
 	refusal := "No conversation found with session ID: S1"
 	for name, tc := range map[string]struct {
@@ -141,7 +132,6 @@ func TestLoseRefusedSession_OnlyTheCLIsRefusalLosesTheSession(t *testing.T) {
 	}
 }
 
-// A launch that resumed nothing has nothing to lose, whatever it exits with.
 func TestLoseRefusedSession_AFreshLaunchLosesNothing(t *testing.T) {
 	rs := &Runners{ledger: boundTestLedger(t, "claude", "S1")}
 	cause := rs.loseRefusedSession(t.Context(), "runner-1",
@@ -189,9 +179,6 @@ var refusedResume = map[string]map[string]any{
 	"thread/resume": {"error": map[string]any{"code": -32600, "message": "no rollout found for thread id S1"}},
 }
 
-// apiLoseConn places on runner-1 a connection whose server answers each call
-// from replies, and returns it with every method the server is asked; that
-// channel closes once the connection is dropped.
 func apiLoseConn(t *testing.T, rs *Runners, replies map[string]map[string]any) (*apiconn, <-chan string) {
 	t.Helper()
 	home := t.TempDir()
@@ -231,15 +218,11 @@ func apiLoseConn(t *testing.T, rs *Runners, replies map[string]map[string]any) (
 	return conn, asked
 }
 
-// apiLoseLive holds runner-1 on chat-1 with no PTY: its connection is its
-// only channel.
 func apiLoseLive(t *testing.T) *liveTable {
 	t.Helper()
 	return liveWith(t, engineagents.Runner{ID: "runner-1", ProviderID: apiLoseProvider, CurrentChatID: "chat-1"})
 }
 
-// assertSessionLost: the chat's session is lost, the prompt runner-1 carried is
-// settled as lost, runner-1 ends resume_failed, and no new thread was opened.
 func assertSessionLost(t *testing.T, rs *Runners, asked <-chan string) {
 	t.Helper()
 	c, _ := chatState(t, rs.ledger).Conversation(apiLoseProvider)
@@ -307,8 +290,6 @@ func TestSubmitPromptOverAPI_ARefusedSessionIsLost(t *testing.T) {
 	assertSessionLost(t, rs, asked)
 }
 
-// helperServeDescriptor is a provider whose `serve` is this test binary
-// running TestHelperServe.
 const helperServeDescriptor = `
 id: carrier-test
 spawn:
@@ -345,10 +326,6 @@ runtime:
     handshake: { call: initialize, notify: initialized }
 `
 
-// TestHelperServe is not a test: it is the `serve` a helperServeDescriptor spawn
-// forks, and returns at once anywhere else. Mode "refuse" refuses every resume;
-// "drop-after <method>" hangs up once it has answered that call, and lives on;
-// "exit" ends unanswered; any other mode answers every call until stdin closes.
 func TestHelperServe(t *testing.T) {
 	mode := os.Getenv(helperServeMode)
 	if mode == "" || flag.NArg() != 1 {
@@ -368,8 +345,6 @@ func TestHelperServe(t *testing.T) {
 				Text string `json:"text"`
 			} `json:"params"`
 		}
-		// Exits rather than returns: the test binary's own verdict would land
-		// on stdout, which is the connection.
 		if serve.ReadJSON(&req) != nil {
 			os.Exit(0)
 		}
@@ -390,8 +365,6 @@ func TestHelperServe(t *testing.T) {
 	}
 }
 
-// helperServeAsked names a file the helper serve appends each call it is asked,
-// with the text it carries, before it answers: what reached the provider.
 const helperServeAsked = "CROWBAR_TEST_SERVE_ASKED"
 
 func logAsked(t *testing.T, call string) {
@@ -406,7 +379,6 @@ func logAsked(t *testing.T, call string) {
 	require.NoError(t, errors.Join(err, f.Close()))
 }
 
-// askedCalls reads the calls the helper serve logged to path.
 func askedCalls(t *testing.T, path string) []string {
 	t.Helper()
 	calls, err := os.ReadFile(path)
@@ -416,8 +388,6 @@ func askedCalls(t *testing.T, path string) []string {
 
 const helperServeMode = "CROWBAR_TEST_SERVE"
 
-// helperServeSpawn readies h to spawn a runner on a turned carrier-test chat
-// whose serve runs as mode; attach makes the provider hotswap, so a PTY forks.
 func helperServeSpawn(t *testing.T, mode string, attach bool) *spawnHarness {
 	t.Helper()
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
@@ -434,7 +404,6 @@ func helperServeSpawn(t *testing.T, mode string, attach bool) *spawnHarness {
 	return h
 }
 
-// endedAs is how chat-1's one recorded runner exit names its end.
 func endedAs(t *testing.T, h *spawnHarness) string {
 	t.Helper()
 	rows, err := h.rs.ledger.Read(t.Context(), h.chatID, 0, 0)
@@ -444,8 +413,6 @@ func endedAs(t *testing.T, h *spawnHarness) string {
 	return exit.Reason
 }
 
-// A resume whose session the connection refuses fails as a conflict, carrying no
-// prompt or not: its plan resumes the lost session, so nothing forks.
 func TestResumeChat_ASessionTheConnectionRefusesFailsTheResume(t *testing.T) {
 	h := helperServeSpawn(t, "refuse", false)
 	asked := filepath.Join(t.TempDir(), "asked")
@@ -471,8 +438,6 @@ func TestResumeChat_ASessionTheConnectionRefusesFailsTheResume(t *testing.T) {
 	assert.False(t, live, "no runner is left on the chat")
 }
 
-// A resumed CLI that refuses its session before its launch answers fails the
-// resume as the lost session, its exit recorded once.
 func TestResumeChat_ACLIRefusingItsSessionInStartupIsSessionLost(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	h.rs.term = &refusingTerm{early: true}
@@ -491,16 +456,12 @@ func TestResumeChat_ACLIRefusingItsSessionInStartupIsSessionLost(t *testing.T) {
 	assert.False(t, live, "no runner is left on the chat")
 }
 
-// touches counts the snapshot republishes a chat is given.
 type touches struct {
 	n map[string]int
 }
 
 func (s touches) Touch(_ context.Context, chatID string) { s.n[chatID]++ }
 
-// What a CLI reports it resolved to is kept beside what Crowbar launched it
-// with, half by half: an unreported half keeps its value, and a report of
-// nothing changes nothing.
 func TestHandleSessionStart_KeepsWhatTheCLIReportsItLaunchedAs(t *testing.T) {
 	snaps := touches{n: map[string]int{}}
 	rs := &Runners{

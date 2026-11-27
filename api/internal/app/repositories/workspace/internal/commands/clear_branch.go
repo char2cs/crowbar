@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ClearBranch blanks an aggregate's Branch and touches nothing else. The consented
-// detach of a repo home uses it so the home keeps its chats and threads rather
-// than being deleted and recreated.
 type ClearBranch struct {
 	ID string
 }

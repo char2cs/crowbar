@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 )
 
-// Server dispatches a single JSON-RPC message against a ToolSet. It holds no
-// per-connection state: every message is self-contained, which is what lets the
-// transport be one HTTP POST per message (see cmd/crowbar's mcp relay).
 type Server struct {
 	name    string
 	version string
@@ -18,8 +15,6 @@ func NewServer(name, version string, tools ToolSet) *Server {
 	return &Server{name: name, version: version, tools: tools}
 }
 
-// Handle processes one inbound message; the bool reports whether to reply. A JSON-RPC
-// notification gets silence, never an error.
 func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 	var req Request
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -33,10 +28,8 @@ func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 	case "initialize":
 		return marshal(s.result(req.ID, initializeResult{
 			ProtocolVersion: ProtocolVersion,
-			// An empty object, not nil: the tools capability must be PRESENT for a
-			// client to call tools/list, and `"tools":null` does not count.
-			Capabilities: map[string]any{"tools": map[string]any{}},
-			ServerInfo:   serverInfo{Name: s.name, Version: s.version},
+			Capabilities:    map[string]any{"tools": map[string]any{}},
+			ServerInfo:      serverInfo{Name: s.name, Version: s.version},
 		})), true
 
 	case "ping":
@@ -44,8 +37,6 @@ func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 
 	case "tools/list":
 		tools := s.tools.Tools()
-		// Normalize nil to an empty array: a ToolSet returning nil still emits
-		// "tools":[] not "tools":null. Clients may reject the latter outright.
 		if tools == nil {
 			tools = []Tool{}
 		}
@@ -58,9 +49,6 @@ func (s *Server) Handle(ctx context.Context, raw []byte) ([]byte, bool) {
 		}
 		text, images, err := s.call(ctx, p)
 		if err != nil {
-			// A tool failure is data the model should read and act on, so it rides
-			// back as a successful result carrying isError — not as a JSON-RPC
-			// error, which clients treat as a transport fault.
 			return marshal(s.result(req.ID, callToolResult{
 				Content: []any{textContent{Type: "text", Text: err.Error()}},
 				IsError: true,
@@ -96,8 +84,6 @@ func (s *Server) result(id json.RawMessage, v any) Response {
 func marshal(resp Response) []byte {
 	b, err := json.Marshal(resp)
 	if err != nil {
-		// The only way this fails is a non-marshalable result, which result()
-		// already converted to an error response — this is belt and braces.
 		return []byte(`{"jsonrpc":"2.0","error":{"code":-32603,"message":"encode response"}}`)
 	}
 	return b

@@ -11,10 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// TestAgentDelete_HardDeletesAndPublishesGone proves the hard-delete route
-// end-to-end: the chat is genuinely gone (not merely tombstoned) from both List
-// and a direct GET-by-id, and the projects scope carries its gone row — the
-// live signal every client relies on to drop the chat without a refetch.
 func TestAgentDelete_HardDeletesAndPublishesGone(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)

@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// pathsReport is read by the desktop shell so it never computes the home, the
-// socket or the daemon's log itself.
 type pathsReport struct {
 	Home   string `json:"home"`
 	Socket string `json:"socket"`

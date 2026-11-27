@@ -1,7 +1,3 @@
-/* Poster tokens. Three fixed surfaces from the handbook's Color board —
-   Paper, Charcoal, Moss — cut hard against each other, chapter by chapter.
-   A poster has no dark mode: each chapter's surface is pinned, so there is
-   deliberately no prefers-color-scheme block here. */
 :root {
 	--paper: #fcfcfa;
 	--ink: #1b1b19;
@@ -20,9 +16,6 @@
 	--moss-line: rgba(242, 240, 234, 0.22);
 
 	--gutter: clamp(24px, 4.5vw, 64px);
-	/* Vertical rhythm is keyed to the viewport HEIGHT as well as the width:
-	   a chapter is one screen, so its type and its one visual must shrink on
-	   a short laptop screen the same way they shrink on a narrow one. */
 	--chapter-pad: clamp(40px, 7vh, 96px);
 }
 
@@ -55,7 +48,6 @@ a {
 	text-decoration: none;
 }
 
-/* ---------- type ---------- */
 
 .serif {
 	font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
@@ -95,7 +87,6 @@ a {
 	text-wrap: pretty;
 }
 
-/* ---------- surfaces ---------- */
 
 .paper {
 	--s-bg: var(--paper);
@@ -125,8 +116,6 @@ a {
 	--s-shadow: 27, 27, 25;
 }
 
-/* Dark theme keeps the hard cuts: Paper chapters become Charcoal, Charcoal
-   chapters drop to near-black, Moss stays Moss. */
 [data-theme="dark"] {
 	color-scheme: dark;
 }
@@ -188,9 +177,6 @@ a {
 	min-width: 0;
 	align-self: center;
 }
-/* A `wide` chapter gives its visual the full width below the text, so the
-   text row goes side-by-side (headline | lede) to leave the visual room on
-   one screen. */
 .chapter.wide {
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: auto auto 1fr;
@@ -207,7 +193,6 @@ a {
 	align-self: center;
 }
 
-/* ---------- pills ---------- */
 
 .pill {
 	height: 46px;
@@ -246,14 +231,8 @@ a {
 	flex-wrap: wrap;
 }
 
-/* ---------- hero ---------- */
 
-/* ---------- sticky header ---------- */
 
-/* Fixed, over every chapter: the mark alone, centred, on the app's own
-   progressive blur (composer.css `.dissolve`) mirrored to be most blurred at
-   the top edge. Pure distortion, no tint — so it reads as glass on Paper,
-   Charcoal and Moss alike. */
 .site-header {
 	--header-h: clamp(88px, 11vh, 120px);
 	position: fixed;
@@ -278,9 +257,6 @@ a {
 	position: absolute;
 	inset: 0;
 }
-/* Same seven blur radii and band stops as the composer's dissolve, read from
-   the header's bottom edge upwards (`to top`), so the sharpest band sits
-   where the page comes out from under it. */
 .header-blur > span:nth-child(1) {
 	backdrop-filter: blur(1px);
 	-webkit-backdrop-filter: blur(1px);
@@ -335,14 +311,10 @@ a {
 	height: clamp(34px, 4.4vh, 44px);
 	width: auto;
 }
-/* The mark is a filled pill with its letters cut out — on Charcoal it must
-   flip to a light pill or it vanishes into the surface. */
 .site-header[data-surface="dark"] .header-mark {
 	color: var(--cream);
 }
 
-/* System → light → dark. One icon shows at a time, keyed off the saved
-   preference, not the resolved theme, so "system" stays visible as a choice. */
 .theme-toggle {
 	position: absolute;
 	top: clamp(18px, 2.6vh, 28px);
@@ -387,10 +359,7 @@ a {
 	display: block;
 }
 
-/* ---------- hero ---------- */
 
-/* ~90% of the viewport, fixed height, starting under the fixed header. The
-   headline scales with the viewport height so everything fits. */
 .hero {
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: 1fr auto;
@@ -404,7 +373,6 @@ a {
 .hero .text {
 	position: relative;
 	z-index: 2;
-	/* Leaves the right ~42% of the hero to the object at every width. */
 	max-width: min(760px, 56%);
 	align-self: center;
 	gap: clamp(18px, 3vh, 32px);
@@ -413,10 +381,6 @@ a {
 	font-size: clamp(52px, min(8.4vw, 12.5vh), 144px);
 	line-height: 0.92;
 }
-/* The crowbar is a placed object, not a background: natural aspect ratio
-   (1066×1442), height taken from the hero's own content box (90svh minus the
-   header and bottom padding, minus breathing room) so it can never leave the
-   hero, and capped against the width so it never reaches the headline. */
 .hero .art {
 	position: absolute;
 	z-index: 1;
@@ -455,7 +419,6 @@ a {
 	align-self: end;
 }
 
-/* ---------- the app (screenshots) ---------- */
 
 .showcase {
 	grid-template-columns: minmax(0, 1fr);
@@ -475,7 +438,6 @@ a {
 	font-size: clamp(40px, min(5.4vw, 7.5vh), 88px);
 }
 .shots {
-	/* Big, but headline + screenshot fit one screen. */
 	width: min(100%, 1320px, calc(58vh * 1.52));
 }
 .shot {
@@ -495,7 +457,6 @@ a {
 	display: block;
 }
 
-/* ---------- 01 spec sheet ---------- */
 
 .spec {
 	margin: 0;
@@ -538,7 +499,6 @@ a {
 	grid-template-columns: none;
 }
 
-/* ---------- 02 swap ---------- */
 
 .swap {
 	display: grid;
@@ -574,11 +534,7 @@ a {
 	line-height: 1.6;
 }
 
-/* ---------- 03 tree ---------- */
 
-/* The tree has the whole chapter, but a chapter is one screen: the SVG is
-   sized from the remaining viewport height and lets `meet` letterbox the
-   width, instead of growing to 100% width (≈1240px tall on a wide screen). */
 .tree {
 	width: 100%;
 	height: clamp(260px, 48vh, 600px);
@@ -637,10 +593,7 @@ a {
 	font-size: 11px;
 }
 
-/* ---------- 04 review ---------- */
 
-/* A diff hunk typeset like the spec sheet: flat rows, hairlines, no card.
-   Added/removed lines get a flat tint band, never a rounded chip. */
 .diff {
 	--add: #98a86a;
 	--del: #c57a63;
@@ -738,7 +691,6 @@ a {
 	font-size: 0.9em;
 }
 
-/* ---------- 05 sketch ---------- */
 
 .sketchwrap {
 	display: grid;
@@ -792,7 +744,6 @@ a {
 	color: var(--s-fg);
 }
 
-/* ---------- 05 numerals ---------- */
 
 .local {
 	grid-template-columns: minmax(0, 1fr);
@@ -818,7 +769,6 @@ a {
 	position: relative;
 	z-index: 1;
 }
-/* after `.local > *` on purpose: the texture must stay out of the grid flow */
 .local > .ascii {
 	position: absolute;
 	z-index: 0;
@@ -862,7 +812,6 @@ a {
 	line-height: 1.5;
 }
 
-/* ---------- 06 horizon ---------- */
 
 .horizon .visual {
 	display: flex;
@@ -917,7 +866,6 @@ a {
 	text-underline-offset: 3px;
 }
 
-/* ---------- closing ---------- */
 
 .closing {
 	grid-template-columns: minmax(0, 1fr);
@@ -937,7 +885,6 @@ a {
 	text-underline-offset: 3px;
 }
 
-/* ---------- footer ---------- */
 
 .site-footer {
 	background: var(--s-bg);
@@ -989,8 +936,6 @@ a {
 .foot-cols .eyebrow {
 	margin-bottom: 8px;
 }
-/* 5px + 5px of padding around a ~21px line: a 32px+ hit area that still
-   reads as a tight list. */
 .foot-cols a {
 	font-size: 14px;
 	line-height: 1.5;
@@ -1015,13 +960,8 @@ a {
 	color: var(--s-fg-3);
 }
 
-/* ---------- responsive ---------- */
 
-/* Laptop widths (980–1200): the 5/7 split leaves the text column too narrow
-   for a display headline — go even, and pull the type down a notch. */
 @media (max-width: 1200px) and (min-width: 981px) {
-	/* Only the two-column chapters: this rule sits later in the cascade than
-	   the single-column variants' own rules, so it must not match them. */
 	.chapter:not(.hero):not(.wide):not(.local):not(.closing):not(.showcase) {
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 	}
@@ -1071,8 +1011,6 @@ a {
 	.display {
 		font-size: clamp(44px, 12vw, 88px);
 	}
-	/* Phone: the object goes above the headline in flow (no absolute
-	   positioning to overflow), and the hero grows to fit rather than clip. */
 	.hero {
 		height: auto;
 		min-height: 90svh;
@@ -1165,8 +1103,6 @@ a {
 	.numerals .n {
 		font-size: clamp(96px, 32vw, 160px);
 	}
-	/* On a phone the texture has to share the column with the captions —
-	   quieter, so it stays texture and never competes with the text. */
 	.ascii {
 		right: -40px;
 		font-size: 9px;

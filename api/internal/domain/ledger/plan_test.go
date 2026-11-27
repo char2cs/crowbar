@@ -27,7 +27,6 @@ func TestFold_PlanUpsertAndReplace(t *testing.T) {
 	assert.Equal(t, []ledger.PlanItem{{Text: "all new"}}, items, "a replace is the whole plan")
 }
 
-// The state keeps the main agent's plan, steps folded in, across its turns.
 func TestState_KeepsTheMainAgentsPlan(t *testing.T) {
 	step := func(turnID, id, status string) ledger.Row {
 		return row(t, ledger.KindPlan, turnID, ledger.Plan{Op: ledger.PlanUpsert, Items: []ledger.PlanItem{{ID: id, Text: id, Status: status}}})

@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/pathselect"
 )
 
-// selectPath/lookupField delegate to pathselect, which model discovery reads
-// the identical grammar through — kept as thin same-signature wrappers so
-// this file's own tests (and every existing call site) are untouched.
 func selectPath(values []any, path string) []any { return pathselect.Select(values, path) }
 
 func lookupField(row map[string]any, path string) any { return pathselect.Field(row, path) }

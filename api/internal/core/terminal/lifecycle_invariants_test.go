@@ -1,13 +1,5 @@
 package terminal_test
 
-// Lifecycle invariants (stabilization spec §7-B, B1–B3).
-//
-// These are the rules the session state machine guarantees, stated as tests over the
-// public Engine surface and driven by sequences of operations rather than one hand-picked
-// interleaving each. They exist because the engine's history is a list of fixes for
-// interleavings nobody wrote down (resurrection after self-exit, a double reap, an evict
-// that left its files behind); a randomized sequence finds the next one before a user does.
-
 import (
 	"context"
 	"fmt"
@@ -22,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// exitLedger counts onExit deliveries per session, keyed by the slot the
-// session was created in: a session can exit before CreateCommand returns its id.
 type exitLedger struct {
 	mu    sync.Mutex
 	exits map[int]int
@@ -45,7 +35,6 @@ func (l *exitLedger) exitsOf(slot int) int {
 	return l.exits[slot]
 }
 
-// waitGone blocks until sid has left the registry and its .buf and meta row are deleted.
 func waitGone(t *testing.T, eng terminal.Engine, store *fakeMetaStore, sid string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -53,9 +42,6 @@ func waitGone(t *testing.T, eng terminal.Engine, store *fakeMetaStore, sid strin
 	}, 10*time.Second, 5*time.Millisecond, "session %s never ended", sid)
 }
 
-// closingConn is a WSConn whose client "leaves" the moment it sees its first frame (the
-// attach snapshot) — the shortest possible attach, which is exactly the one that races
-// every other lifecycle operation.
 type closingConn struct {
 	once   sync.Once
 	closed chan struct{}
@@ -80,10 +66,6 @@ func (c *closingConn) Close() error {
 
 func (c *closingConn) SetWriteDeadline(time.Time) error { return nil }
 
-// TestInvariant_B2_NoResurrectionAfterSelfExit pins P0-5: an Attach that lands between a
-// shell's exit and its reap must never spawn a replacement under the same id. Before the
-// explicit state machine, a dead-but-still-registered session read as "a placeholder" and
-// was "restored" — a fresh shell under the old id.
 func TestInvariant_B2_NoResurrectionAfterSelfExit(t *testing.T) {
 	pinShell(t)
 	for round := 0; round < 15; round++ {
@@ -127,9 +109,6 @@ func TestInvariant_B2_NoResurrectionAfterSelfExit(t *testing.T) {
 	}
 }
 
-// TestInvariant_B1_ExactlyOnceUnderInterleaving pins B1: every command session reaching done
-// yields exactly one onExit and leaves the registry, whatever mix of Kill,
-// TerminateGraceful, self-exit, Attach and Shutdown gets there first.
 func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	seed := rng.Int63()
@@ -169,12 +148,11 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 					_ = eng.Attach(context.Background(), id, newClosingConn())
 				}
 			case 3:
-				// self-exit only
 			}
 		}(id, op, delay)
 	}
 	wg.Wait()
-	eng.Shutdown() // joins every reaper: every owed callback has RUN when this returns
+	eng.Shutdown()
 
 	for i, id := range ids {
 		require.Equal(t, 1, ledger.exitsOf(i), "session %s: exactly one onExit", id)
@@ -182,12 +160,6 @@ func TestInvariant_B1_ExactlyOnceUnderInterleaving(t *testing.T) {
 	}
 }
 
-// TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps pins B3: after every engine operation
-// the registry, the .buf file and the meta row tell the same story about each session.
-//
-//   - suspended  → a .buf and a "suspended" meta row exist (that is what restore reads);
-//   - live       → any meta row says it is live (never "suspended");
-//   - gone       → neither a .buf nor a meta row survives.
 func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 	pinShell(t)
 	seed := time.Now().UnixNano()
@@ -248,20 +220,20 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 		op := rng.Intn(7)
 		name := "noop"
 		switch op {
-		case 0: // create
+		case 0:
 			if len(known)-len(gone) >= 4 {
 				continue
 			}
 			name = "create"
 			known = append(known, newReadyShell(t, eng, "chat-b3", store.dir))
-		case 1: // suspend (idle-gated; a fresh prompt is idle)
+		case 1:
 			id, ok := pickLive()
 			if !ok {
 				continue
 			}
 			name = "suspend"
 			require.NoError(t, eng.Suspend(ctx, id))
-		case 2: // short attach (restores a suspended session, then detaches)
+		case 2:
 			id, ok := pickLive()
 			if !ok {
 				continue
@@ -271,7 +243,7 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 			if eng.SessionLive(ctx, id) {
 				terminal.WaitPromptForTest(t, eng, id)
 			}
-		case 3: // kill
+		case 3:
 			id, ok := pickLive()
 			if !ok {
 				continue
@@ -279,7 +251,7 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 			name = "kill"
 			require.NoError(t, eng.Kill(ctx, id))
 			gone[id] = true
-		case 4: // self-exit (only a live shell can exit)
+		case 4:
 			id, ok := pickLive()
 			if !ok || !eng.SessionLive(ctx, id) {
 				continue
@@ -288,17 +260,17 @@ func TestInvariant_B3_RegistryAndDiskAgreeUnderRandomOps(t *testing.T) {
 			require.NoError(t, eng.Write(ctx, id, []byte("exit\n")))
 			waitGone(t, eng, store, id)
 			gone[id] = true
-		case 5: // maintenance flush
+		case 5:
 			name = "flush"
 			terminal.RunMaintenanceOnceForTest(eng, ctx)
-		case 6: // over-ceiling sweep: suspends idle shells, then evicts suspended ones
+		case 6:
 			name = "evict"
 			restoreCeil := terminal.SetMaxTotalSessionsForTest(eng, 1)
 			terminal.RunMaintenanceOnceForTest(eng, ctx)
 			restoreCeil()
 			for _, id := range known {
 				if _, ok := eng.StateOf(id); !ok && !gone[id] {
-					gone[id] = true // evicted: its .buf and meta row must be gone (checked below)
+					gone[id] = true
 				}
 			}
 		}

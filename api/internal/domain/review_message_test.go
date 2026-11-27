@@ -11,11 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// legacyMessageJSON is a ReviewMessage exactly as it was persisted before agent
-// attribution existed. Every review message written until now looks like this,
-// and always will: a ReviewThread is event-sourced but each event embeds the
-// whole aggregate as an opaque JSON blob, so there is no migration and no
-// backfill hook — the fields are simply absent forever on historical rows.
 const legacyMessageJSON = `{
 	"id":"m1",
 	"author":"alice",
@@ -24,12 +19,6 @@ const legacyMessageJSON = `{
 	"createdAt":"2026-06-19T10:00:00Z"
 }`
 
-// TestReviewMessage_PreAttributionBlobRoundTrips is the degradation guard for
-// every message written before ProviderID and ChatID existed: a legacy blob must
-// still decode, must decode with the attribution EMPTY rather than failing, and
-// must re-encode without growing the two keys — a stored row that gains
-// "providerId":"" on the next save would be attribution that says an agent with
-// a blank identity wrote it.
 func TestReviewMessage_PreAttributionBlobRoundTrips(t *testing.T) {
 	var msg domain.ReviewMessage
 	require.NoError(t, json.Unmarshal([]byte(legacyMessageJSON), &msg))
@@ -47,8 +36,6 @@ func TestReviewMessage_PreAttributionBlobRoundTrips(t *testing.T) {
 	assert.NotContains(t, string(out), "chatId")
 }
 
-// TestReviewMessage_AttributionSerialisesWhenPresent is the other half: an
-// agent-written message carries both ids on the wire and folds back unchanged.
 func TestReviewMessage_AttributionSerialisesWhenPresent(t *testing.T) {
 	msg := domain.ReviewMessage{
 		ID:         "m2",

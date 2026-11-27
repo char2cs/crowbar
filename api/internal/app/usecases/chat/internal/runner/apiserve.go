@@ -1,5 +1,3 @@
-// Package runner (file apiserve.go) starts the provider's control-plane process: the
-// `serve` fork whose stdio carries its api connection. Pure process; no events.
 package runner
 
 import (
@@ -15,9 +13,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// forkServeProcess starts argv as a long-lived BACKGROUND process — not a PTY,
-// which is reserved for `attach`, if the descriptor declares one. Its stdin
-// and stdout are the api connection's stdio; its stderr is a log nothing reads.
 func forkServeProcess(argv []string) (*serveProcess, engineagents.APIStdio, error) {
 	if len(argv) == 0 {
 		return nil, engineagents.APIStdio{}, fmt.Errorf("agent: api transport: empty serve argv")
@@ -31,12 +26,8 @@ func forkServeProcess(argv []string) (*serveProcess, engineagents.APIStdio, erro
 	return reapServe(cmd), stdio, nil
 }
 
-// serveExitBound is how long a teardown waits for a killed `serve` to be gone.
 const serveExitBound = 5 * time.Second
 
-// serveProcess is a started `serve` and the one goroutine that reaps it:
-// exited closes when it is gone, which is what a teardown and the runner's
-// exit watch both wait on.
 type serveProcess struct {
 	cmd    *exec.Cmd
 	exited chan struct{}
@@ -45,7 +36,6 @@ type serveProcess struct {
 func reapServe(cmd *exec.Cmd) *serveProcess {
 	s := &serveProcess{cmd: cmd, exited: make(chan struct{})}
 	go func() {
-		// A serve ends by being killed, so its exit status says nothing new.
 		if err := cmd.Wait(); err != nil {
 			slog.Debug("agent: api transport: serve exited", "err", err)
 		}
@@ -54,22 +44,16 @@ func reapServe(cmd *exec.Cmd) *serveProcess {
 	return s
 }
 
-// kill ends the process tree and waits, bounded, until it is gone: a provider can hold
-// its session's writer lock while serve lives, refusing a replacement resuming it.
 func (s *serveProcess) kill() {
 	if s == nil || s.cmd.Process == nil {
 		return
 	}
-	// Asked first: a provider may release its session's lease only on a
-	// graceful exit, so after a SIGKILL the next serve is refused the session.
 	if signalGroup(s.cmd.Process, syscall.SIGTERM) == nil {
 		select {
 		case <-s.exited:
 		case <-time.After(serveExitBound):
 		}
 	}
-	// Whatever is still in the group — the leader past its bound, or a child
-	// it left behind — is not allowed to outlive the runner.
 	err := signalGroup(s.cmd.Process, syscall.SIGKILL)
 	if err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
 		slog.Warn("agent: api transport: kill serve", "pid", s.cmd.Process.Pid, "err", err)

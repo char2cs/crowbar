@@ -13,19 +13,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// TestContainer_AgentToolDepsWireEveryToolGroup is the wiring guard.
-//
-// agenttools registers no tool whose port is nil, so a group the container forgets
-// to hand a dependency to simply does not exist — and the only symptom in a running
-// daemon is an agent with fewer tools than it should have, which nothing logs and no
-// unit test in agenttools can see (its own fixtures supply their own deps). This
-// asserts the PRODUCTION Deps, built by the real newAgentToolDeps over the real
-// repositories, advertises the complete surface by name.
-//
-// Chats, ChatLogs and Lineage are filled in the way production fills them:
-// agentusecase.New binds the usecase to itself for all three (see its doc
-// comment), so c.AgentChat is the exact value the running daemon's Deps carries
-// for each port.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
@@ -57,7 +44,6 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	}, names, "the production agent tool surface is incomplete — a port is unwired in newAgentToolDeps")
 }
 
-// A missing port is a failed start, not a silently narrowed tool list.
 func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	repos, _, _ := newContainerDeps(t)
 	minter, err := agentusecase.NewTokenMinter()
@@ -80,12 +66,6 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	_, err = usecases.NewAgentToolDepsForTest(minter, bare, review, noopThreadBroadcast, stubBranchRenamer{})
 	require.Error(t, err, "no repository stores")
 
-	// A container with SOME stores wired still refuses a genuinely partial
-	// surface: bare's AgentChat==nil check alone can never exercise the
-	// Workspace/ReviewThread branches behind it in the same guard. Every store
-	// ahead of the one under test is therefore wired for real, and the message is
-	// asserted rather than just "an error" — a case that merely trips an earlier
-	// guard would pass while proving nothing about the branch it names.
 	chatOnly := &repositories.Container{AgentChat: repos.AgentChat}
 	_, err = usecases.NewAgentToolDepsForTest(minter, chatOnly, review, noopThreadBroadcast, stubBranchRenamer{})
 	require.ErrorContains(t, err, "no workspace store")
@@ -98,9 +78,6 @@ func TestContainer_AgentToolDeps_RefusesAPartialSurface(t *testing.T) {
 	require.ErrorContains(t, err, "no review thread store")
 }
 
-// stubBranchRenamer stands in for the workspace usecase in the refusal test,
-// where every other port is deliberately nil in turn and this one only has to
-// be non-nil so the case under test is the one that fires.
 type stubBranchRenamer struct{}
 
 func (stubBranchRenamer) RenameBranch(

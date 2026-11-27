@@ -2,41 +2,23 @@ export PATH := $(HOME)/.bun/bin:$(HOME)/.cargo/bin:$(HOME)/.rustup/toolchains/st
 export RUSTUP_HOME := $(HOME)/.rustup
 export CARGO_HOME := $(HOME)/.cargo
 
-.PHONY: e2e e2e-browser meter dev dev-api dev-web dev-desktop dev-bundle seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
+.PHONY: e2e meter dev dev-api dev-web dev-desktop seed seed-chat web-install build test test-coverage lint pr-checks ci docker-up docker-down ios-device ios-sim ios-doctor
 
 # Dev isolation: every dev target roots Crowbar state (projects, store, socket,
 # logs) at <this workspace>/.crowbar instead of ~/.crowbar, so a dev instance
 # never collides with the production app. Scoped to dev targets only — tests
 # pin the ~/.crowbar default and must run without the override.
-dev dev-api dev-web dev-desktop dev-bundle seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
+dev dev-api dev-web dev-desktop seed seed-chat: export CROWBAR_HOME ?= $(CURDIR)/.crowbar
 
-# Which worktree launched this dev instance. Debug builds put it in the window
-# title (see apply_window_title in desktop/src-tauri/src/dev_identity.rs) so that the
-# several dev apps running on one machine — one per worktree, all of them a
-# `target/debug/crowbar-desktop` window called "Crowbar" — can be told apart.
-#
-# Asked of THIS Makefile's directory, not the caller's: git answers a question
-# about a directory outside a worktree with whichever repository ENCLOSES it, so
-# a `make -f .../Makefile` run from elsewhere would confidently label the window
-# with a stranger's branch. Empty output (no git, not a repo) is fine — the
-# window keeps its plain "Crowbar" title rather than a half-filled one.
+# Which ORIGIN `make dev-web` serves this worktree from. CROWBAR_HOME above
+# isolates the daemon; this isolates the browser storage (IndexedDB,
+# localStorage, service workers), which is keyed by origin. Hashed from this
+# Makefile's directory, so it is stable across restarts; override to pin one.
 crowbar_root := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-dev dev-api dev-web dev-desktop dev-bundle: export CROWBAR_DEV_LABEL ?= $(shell git -C $(crowbar_root) rev-parse --abbrev-ref HEAD 2>/dev/null)
+dev-web: export CROWBAR_DEV_PORT ?= $(shell printf '%s' '$(crowbar_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
 
-# Which ORIGIN this worktree's dev app is served from. CROWBAR_HOME above
-# isolates the daemon; this isolates the webview, whose IndexedDB, localStorage
-# and service workers are keyed by origin and were shared by every worktree back
-# when the dev URL was a hardcoded localhost:5173. See desktop/Makefile for the
-# full rationale and the corruption it caused. Derived from the same worktree
-# root as desktop/Makefile so both entry points agree; override to pin one.
-dev dev-web dev-desktop: export CROWBAR_DEV_PORT ?= $(shell printf '%s' '$(crowbar_root)' | cksum | awk '{print 5300 + ($$1 % 600)}')
-
-# Parallel dev. dev-web is deliberately NOT started here: dev-desktop's
-# beforeDevCommand already runs Vite on CROWBAR_DEV_PORT, and a second one on
-# the same port now fails outright under --strictPort. It used to "work" only
-# because the old beforeDevCommand opened with `pkill -f vite`, silently killing
-# the dev-web this target had just launched (and every other worktree's too).
-# `make dev-web` remains available on its own for a browser-only session.
+# Parallel dev: the daemon and the shell. `make dev-web` runs the panes in a
+# browser on their own.
 dev:
 	@$(MAKE) dev-api & $(MAKE) dev-desktop & wait
 
@@ -44,13 +26,12 @@ dev-api:
 	$(MAKE) -C api dev
 
 dev-web:
-	$(MAKE) -C web dev
+	$(MAKE) -C app/panes dev
 
-# Preinstall web deps before launching the desktop app: Tauri's beforeDevCommand
-# runs the Vite dev server (cd ../web && npm run dev), which needs web/node_modules
-# to already exist. Kept as a prerequisite so a fresh checkout just works.
+# The GPUI shell (crowbar). Its panes are the web bundle, so the web deps are
+# installed first; it talks to the daemon `make dev-api` runs.
 dev-desktop: web-install
-	$(MAKE) -C desktop dev
+	cd app && cargo run -p crowbar
 
 # Fills the RUNNING dev daemon with a throwaway repo, project, repo, feature
 # workspace with a real diff, and review threads — so a new workspace does not
@@ -70,58 +51,48 @@ seed-chat:
 	@cd api && go run -tags noEmbed ./cmd/crowbar-seed-chat --workspace-id $(WORKSPACE_ID) --turns $(TURNS) --tool-calls $(TOOL_CALLS)
 
 # End-to-end suite against a real dev instance of this checkout, in an isolated
-# CROWBAR_HOME and webview origin (scripts/e2e/README.md). `e2e` drives the
-# Tauri desktop app; `e2e-browser` drives the same bundle in a headless Chrome.
+# CROWBAR_HOME and webview origin (tools/scripts/e2e/README.md), driving the web bundle
+# in a headless Chrome. The Tauri desktop target is gone: Tauri is mobile-only.
 # ARGS passes flags through, e.g. make e2e ARGS=--only=console,recents
 ARGS ?=
 e2e:
-	@bun scripts/e2e/run.mjs --target=tauri $(ARGS)
-
-e2e-browser:
-	@bun scripts/e2e/run.mjs --target=browser $(ARGS)
+	@bun tools/scripts/e2e/run.mjs --target=browser $(ARGS)
 
 # Endpoint-security meter: execs, file opens, held fds and file changes caused
-# by the desktop app and its daemon, per scenario (scripts/meter/README.md).
+# by the desktop app and its daemon, per scenario (tools/scripts/meter/README.md).
 # make meter ARGS='--only=burst --idle=60 --shims'
 meter:
-	@bun scripts/meter/run.mjs $(ARGS)
+	@bun tools/scripts/meter/run.mjs $(ARGS)
 
 # Release iOS app (no dev server). Free Apple ID: see docs/ios-device.md.
 ios-device ios-sim ios-doctor: ios-%:
-	@bash desktop/scripts/ios-install.sh $* $(if $(DRY_RUN),--dry-run)
+	@bash app/mobile/scripts/ios-install.sh $* $(if $(DRY_RUN),--dry-run)
 
 web-install:
-	$(MAKE) -C web install
-
-# Debug bundle with macOS 26 Tahoe adaptive icon — no hot reload.
-dev-bundle:
-	@echo "Building web..."
-	@$(MAKE) -C web build
-	@echo "Building debug bundle..."
-	@$(MAKE) -C desktop dev-bundle
+	$(MAKE) -C app/panes install
 
 build:
 	@echo "Building web..."
-	@$(MAKE) -C web build
+	@$(MAKE) -C app/panes build
 	@echo "Building Go daemon..."
 	@$(MAKE) -C api build
-	@echo "Building Tauri app..."
-	@$(MAKE) -C desktop build
+	@echo "Building the desktop shell..."
+	cd app && cargo build --release -p crowbar
 
 test:
 	@$(MAKE) -C api test
-	@$(MAKE) -C web test
-	@$(MAKE) -C desktop test
+	@$(MAKE) -C app/panes test
+	@$(MAKE) -C app/mobile test
 
 lint:
 	@$(MAKE) -C api lint
-	@$(MAKE) -C web lint
-	@$(MAKE) -C desktop lint
+	@$(MAKE) -C app/panes lint
+	@$(MAKE) -C app/mobile lint
 
 test-coverage:
 	@$(MAKE) -C api test-coverage
-	@$(MAKE) -C web test-coverage
-	@$(MAKE) -C desktop test-coverage
+	@$(MAKE) -C app/panes test-coverage
+	@$(MAKE) -C app/mobile test-coverage
 
 pr-checks: lint test-coverage build
 	@echo "All PR checks passed! ✓"
@@ -129,9 +100,9 @@ pr-checks: lint test-coverage build
 ci: lint test build
 
 docker-up:
-	@$(MAKE) -C web build
-	docker compose -f docker/docker-compose.yml up --build -d
-	@echo "Crowbar running at https://localhost:$${CROWBAR_PORT:-3737} (self-signed TLS; pair with: docker compose -f docker/docker-compose.yml exec crowbar crowbar pair)"
+	@$(MAKE) -C app/panes build
+	docker compose -f tools/docker/docker-compose.yml up --build -d
+	@echo "Crowbar running at https://localhost:$${CROWBAR_PORT:-3737} (self-signed TLS; pair with: docker compose -f tools/docker/docker-compose.yml exec crowbar crowbar pair)"
 
 docker-down:
-	docker compose -f docker/docker-compose.yml down
+	docker compose -f tools/docker/docker-compose.yml down

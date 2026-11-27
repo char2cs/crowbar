@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ProviderSyncWorkspaceRepo is a fake of the workspace.Workspace surface used
-// by ProviderSyncUsecase.
 type ProviderSyncWorkspaceRepo struct {
 	GetFn             func(ctx context.Context, id string) (domain.Workspace, error)
 	SyncProviderFn    func(ctx context.Context, in workspace.ProviderInput, now time.Time) (domain.Workspace, error)
@@ -17,7 +15,6 @@ type ProviderSyncWorkspaceRepo struct {
 	SetParentFromPRFn func(ctx context.Context, id, parentID string) (domain.Workspace, error)
 }
 
-// NewProviderSyncWorkspaceRepo returns an empty ProviderSyncWorkspaceRepo.
 func NewProviderSyncWorkspaceRepo() *ProviderSyncWorkspaceRepo {
 	return &ProviderSyncWorkspaceRepo{}
 }

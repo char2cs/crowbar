@@ -14,13 +14,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// errNotTypeable is the ledger refusing a typed prompt in the commit that would
-// record it: the ordinary path delivers it instead.
 var errNotTypeable = errors.New("agent: type: the chat is not idle for typing")
 
-// submitPromptTyped types text into live's own composer when the descriptor
-// declares typing and the CLI is idle at an empty box, keeping its background work.
-// handled=false leaves the ordinary path to decide; a Stop cancels park, ending the typing.
 func (rs *Runners) submitPromptTyped(
 	ctx, park context.Context,
 	chat domain.Chat,
@@ -45,13 +40,11 @@ func (rs *Runners) submitPromptTyped(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-	// Judged on the dispatch: the sigil guard is what lets a leading attachment be typed.
 	if !descriptor.CanType(dispatch) {
 		return domain.AgentPromptSubmission{}, false, nil
 	}
 	in := typedPrompt{requestID: clientRequestID, text: text, dispatch: dispatch, live: live, descriptor: descriptor}
 	var handled bool
-	// In turn order from the gate to the typing: no turn opens on the CLI meanwhile.
 	rs.live.inTurnOrder(chat.ID, func() {
 		handled, err = rs.typeLocked(ctx, park, chat.ID, screens, in)
 	})
@@ -62,8 +55,6 @@ func (rs *Runners) submitPromptTyped(
 	return submission, true, err
 }
 
-// typeableRunner is the screen reader for live's PTY when live is a CLI text
-// may be typed into: a PTY of its own, no api connection, no attached view.
 func (rs *Runners) typeableRunner(
 	live engineagents.Runner, descriptor engineagents.Agent,
 ) (engineterminal.ScreenStateReader, bool) {
@@ -73,7 +64,6 @@ func (rs *Runners) typeableRunner(
 	if _, viaAPI := rs.apiConns.get(live.ID); viaAPI {
 		return nil, false
 	}
-	// An attached view is an attach client of the api session, not live's own CLI.
 	if _, attached := rs.attached.get(live.ID); attached {
 		return nil, false
 	}
@@ -81,15 +71,12 @@ func (rs *Runners) typeableRunner(
 	return screens, ok
 }
 
-// typedPrompt is one prompt the gate is deciding to type.
 type typedPrompt struct {
 	requestID, text, dispatch string
 	live                      engineagents.Runner
 	descriptor                engineagents.Agent
 }
 
-// typeLocked is the gate's turn-ordered half, then the record and the typing:
-// handled=false records nothing.
 func (rs *Runners) typeLocked(
 	ctx, park context.Context, chatID string, screens engineterminal.ScreenStateReader, in typedPrompt,
 ) (bool, error) {
@@ -121,8 +108,6 @@ func (rs *Runners) typeLocked(
 	return true, nil
 }
 
-// typeWrites sends writes in order, the descriptor's interval apart: a CLI reads a
-// burst as a paste and rewrites it, so the words must arrive as keystrokes.
 func (rs *Runners) typeWrites(park context.Context, in typedPrompt, writes [][]byte) error {
 	typing, _ := in.descriptor.PromptType()
 	for i, w := range writes {
@@ -149,8 +134,6 @@ func pauseFor(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// composerReady reports whether sessionID's screen takes text into an empty
-// composer; a screen it cannot read does not.
 func composerReady(screens engineterminal.ScreenStateReader, sessionID string, descriptor engineagents.Agent) bool {
 	state, err := screens.ScreenState(sessionID)
 	return err == nil && state.BracketedPaste &&
@@ -159,8 +142,6 @@ func composerReady(screens engineterminal.ScreenStateReader, sessionID string, d
 		})
 }
 
-// requireTypeable admits a typed prompt only while no main-scope turn runs, no
-// prompt or move is pending: a subagent or shell outliving its turn does not block it.
 func requireTypeable(st ledger.State, typeable bool) error {
 	_, running := st.RunningTurn()
 	_, moving := st.PendingMove()
@@ -170,9 +151,6 @@ func requireTypeable(st ledger.State, typeable bool) error {
 	return nil
 }
 
-// typeFailure is what a failed typing tells the client: a PTY that is gone took
-// nothing; a write that failed part way may have left text in the box. A Stop
-// that cut the typing short is the stop's: the CLI ends with it.
 func typeFailure(ctx, park context.Context, err error) error {
 	if stopped := parkErr(park, err); errors.Is(stopped, ErrStopped) {
 		return stopped

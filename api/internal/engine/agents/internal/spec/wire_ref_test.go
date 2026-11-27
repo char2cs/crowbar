@@ -35,8 +35,6 @@ func TestWireRef_MultipleNamesAnswersToEveryOne(t *testing.T) {
 	assert.False(t, ref.Has("item/permissions/requestApproval"))
 }
 
-// Name is what an outbound call and a display label take. Handing either the whole
-// list would put every alternative on the wire as one method name.
 func TestWireRef_NameIsTheFirstAlternativeNotTheWholeList(t *testing.T) {
 	ref := spec.WireRef{"first/call", "second/call"}
 
@@ -51,8 +49,6 @@ func TestWireRef_EmptyDeclaresNothing(t *testing.T) {
 	assert.Empty(t, spec.WireRef(nil).Name())
 	assert.False(t, spec.WireRef(nil).Has(""))
 }
-
-// --- YAML decoding -----------------------------------------------------------
 
 func TestWireRef_DecodesAPlainScalar(t *testing.T) {
 	var ref spec.WireRef
@@ -78,8 +74,6 @@ func TestWireRef_RejectsAnEmptyList(t *testing.T) {
 	assert.Error(t, yaml.Unmarshal([]byte(`[]`), &ref))
 }
 
-// 5.0: `||` is a hard parse error, not a silent pass-through into a literal
-// wire name that will never match anything real.
 func TestWireRef_RejectsAScalarContainingTheGlyph(t *testing.T) {
 	var ref spec.WireRef
 	err := yaml.Unmarshal(

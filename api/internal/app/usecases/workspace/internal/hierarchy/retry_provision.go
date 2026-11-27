@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RetryProvision re-provisions a placeholder workspace in place.
 func (u *hierarchyUsecase) RetryProvision(
 	ctx context.Context,
 	wsID string,
@@ -34,8 +33,6 @@ func (u *hierarchyUsecase) RetryProvision(
 	if outcome.Kind == holder.HeldByHome || outcome.Kind == holder.HeldByExternal {
 		return domain.Workspace{}, fmt.Errorf("%w (%s at %s)", ErrBranchStillHeld, ws.Branch, outcome.HeldByPath)
 	}
-	// git will not check a branch out twice, so a managed holder makes provisioning impossible: refuse with
-	// the reason rather than fail deep in materialize.
 	if outcome.Kind == holder.HeldByManaged {
 		return domain.Workspace{}, fmt.Errorf(
 			"%w (%s at %s)", ErrBranchHeldByManagedWorkspace, ws.Branch, outcome.HeldByPath,
@@ -45,16 +42,12 @@ func (u *hierarchyUsecase) RetryProvision(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	// A branch on origin is checked out AT origin's ref, as an import does; a local-only one uses the
-	// local ref rather than strand the placeholder.
 	startSha, err := provision.ExistingBranch(ctx, u.git, repoPath, ws.Branch, path)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("retry provision: %w", err)
 	}
 	provisioned, err := u.workspaces.ProvisionInPlace(ctx, ws.ID, path, startSha)
 	if err != nil {
-		// The worktree is on disk but the row never landed — clean it up so a
-		// later retry isn't blocked by the orphaned worktree.
 		if rmErr := u.git.WorktreeRemove(ctx, repoPath, path, true); rmErr != nil {
 			slog.WarnContext(ctx, "retry provision: cleanup worktree after failed provision",
 				"worktree", path, "err", rmErr)
@@ -64,8 +57,6 @@ func (u *hierarchyUsecase) RetryProvision(
 	return provisioned, nil
 }
 
-// DetachHolder frees a live holder off a placeholder's branch with consent, then re-provisions in place.
-// A detach failure returns before any ClearBranch or Retry, so there is never partial state.
 func (u *hierarchyUsecase) DetachHolder(
 	ctx context.Context,
 	wsID string,

@@ -9,13 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWorkspaces_ListAndDetail proves the workspace REST surface over a real
-// imported repo: the adopted workspace appears in the repo-scoped list and
-// resolves by id with its on-disk worktree path.
-//
-// The dedicated GET .../workspaces/:wsId detail route is gone (spec §8 step
-// 6); worktreeOf reads the same answer off the chat list, which is where a
-// worktree-owning chat's git state lives now.
 func TestWorkspaces_ListAndDetail(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)

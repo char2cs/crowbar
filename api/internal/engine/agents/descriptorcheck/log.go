@@ -5,9 +5,6 @@ import (
 	"log/slog"
 )
 
-// LogAll validates every descriptor under homeDir and logs each finding, so a
-// descriptor the daemon refuses to enable says why at boot instead of simply
-// missing from the provider list.
 func LogAll(ctx context.Context, homeDir string) {
 	reports, err := ValidateAll(homeDir)
 	if err != nil {

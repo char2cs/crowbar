@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// BenchmarkDiffEcho: single-keystroke delta (the interactive hot path).
 func BenchmarkDiffEcho(b *testing.B) {
 	m, _ := New(170, 50, 1000)
 	defer m.Close()
@@ -18,7 +17,6 @@ func BenchmarkDiffEcho(b *testing.B) {
 	}
 }
 
-// BenchmarkDiffFullRepaint: a TUI rewriting the whole screen per frame.
 func BenchmarkDiffFullRepaint(b *testing.B) {
 	m, _ := New(170, 50, 1000)
 	defer m.Close()
@@ -37,7 +35,6 @@ func BenchmarkDiffFullRepaint(b *testing.B) {
 	}
 }
 
-// BenchmarkDiffScrollBurst: cat-style append of 100 lines per emit tick.
 func BenchmarkDiffScrollBurst(b *testing.B) {
 	m, _ := New(170, 50, 10000)
 	defer m.Close()

@@ -18,10 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// The same lifecycle, against the REAL claude and codex under their shipped
-// descriptors, a local stand-in model answering their turns. Opt-in
-// (SCRIPTED_LIVE=1): it needs both CLIs installed, and nothing else.
-
 func newLiveRig(t *testing.T) (*rig, *modelServer) {
 	t.Helper()
 	if os.Getenv("SCRIPTED_LIVE") == "" {
@@ -59,8 +55,6 @@ func newLiveRig(t *testing.T) (*rig, *modelServer) {
 
 const liveAPIKey = "sk-ant-api03-livelivelivelivelivelivelive"
 
-// trustForClaude records what a person set up once: onboarding done, the API
-// key approved, the worktree trusted.
 func trustForClaude(t *testing.T, r *rig) {
 	t.Helper()
 	path := filepath.Join(kit.RequireProviderHomeIn(t, kit.ClaudeHomeEnv, r.providers), ".claude.json")
@@ -102,8 +96,6 @@ func (r *rig) sessions(chatID string) []string {
 	return out
 }
 
-// A real turn lands; the next message continues the same vendor session;
-// a stopped chat resumes it.
 func TestLive_TurnsContinueAndResumeTheSameSession(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -126,8 +118,6 @@ func TestLive_TurnsContinueAndResumeTheSameSession(t *testing.T) {
 	}
 }
 
-// A daemon restart while the real CLI waits on its model closes the turn,
-// says why, and the next message resumes the same vendor session.
 func TestLive_DaemonRestartMidTurn(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -150,8 +140,6 @@ func TestLive_DaemonRestartMidTurn(t *testing.T) {
 	}
 }
 
-// The real codex opens its TUI before any turn wrote a rollout, takes a turn
-// there, and the chat surface resumes the session the TUI started.
 func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
 	r, _ := newLiveRig(t)
 	ctx := context.Background()
@@ -170,8 +158,6 @@ func TestLive_CodexTerminalBeforeAnyTurnAndBack(t *testing.T) {
 	assert.Equal(t, before, r.sessions(chatID), "the chat surface resumed the TUI's session, starting none")
 }
 
-// A real codex chat born in its TUI moves to Crowbar's chat on the same
-// session, and claude's one process moves between surfaces in place.
 func TestLive_TerminalChatsMoveToTheChat(t *testing.T) {
 	r, _ := newLiveRig(t)
 	ctx := context.Background()
@@ -199,8 +185,6 @@ func TestLive_TerminalChatsMoveToTheChat(t *testing.T) {
 	assert.Len(t, r.sessions(claudeChat), 1)
 }
 
-// A real claude chat switched to codex opens codex's TUI and answers there;
-// switching back resumes claude's own session.
 func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
 	r, _ := newLiveRig(t)
 	ctx := context.Background()
@@ -226,8 +210,6 @@ func TestLive_SwitchToCodexThenItsTerminal(t *testing.T) {
 	assert.Equal(t, before.SessionID, after.SessionID, "claude resumed its own session")
 }
 
-// A vendor session the CLI no longer has is lost — the real CLIs exit on an
-// unknown session — and the next message starts a fresh one.
 func TestLive_LostSessionStartsFresh(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {

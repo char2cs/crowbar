@@ -14,14 +14,6 @@ import (
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
-// TestCreateFromImport_ResolvedPRBaseCreatesMissingAncestor proves a resolved
-// open-PR edge drives an extra ancestor's creation and the requested branch's
-// parenting under it — distinct from a provider FAILURE, covered elsewhere,
-// this is the graph applied to an otherwise-successful response. The malformed
-// links are here to prove they are inert; the per-edge FILTER itself is not
-// observable through this door (an empty base reads the same as an absent one
-// at every site that consults the map), so it is pinned directly on
-// prBaseGraph in the internal import_test.go instead.
 func TestCreateFromImport_ResolvedPRBaseCreatesMissingAncestor(t *testing.T) {
 	var created []workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -32,9 +24,9 @@ func TestCreateFromImport_ResolvedPRBaseCreatesMissingAncestor(t *testing.T) {
 	}
 	g := &fakeGit{addStartSha: "sha"}
 	provider := &fakeProvider{prLinks: []engineprovider.PRLink{
-		{Head: "feature/x", Base: "develop"}, // the one valid edge
-		{Head: "", Base: "y"},                // no head: must be ignored
-		{Head: "z", Base: ""},                // no base: must be ignored
+		{Head: "feature/x", Base: "develop"},
+		{Head: "", Base: "y"},
+		{Head: "z", Base: ""},
 	}}
 	uc := hierarchy.New(ws, g, provider, &fakeRepoStore{}, newNow(), fakeHome())
 	withOwningChats(uc)

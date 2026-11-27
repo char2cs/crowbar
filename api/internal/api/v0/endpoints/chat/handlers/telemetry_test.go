@@ -108,8 +108,6 @@ func TestTelemetry_CarriesCostWhenTheProviderReportsIt(t *testing.T) {
 	assert.Equal(t, engineagents.TelemetrySourceProbe, body.Data.Source)
 }
 
-// A chat on a surface whose channel carries no usage report keeps no gauge:
-// the store is durable, so the last number earned elsewhere would never move.
 func TestRegression_TelemetryIsAbsentOnASurfaceThatCarriesNone(t *testing.T) {
 	capacity, used := 200000, 37117
 	pct := 19.0

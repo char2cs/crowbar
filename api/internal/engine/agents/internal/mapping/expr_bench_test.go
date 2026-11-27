@@ -6,7 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 )
 
-// A pattern read runs for every tool event, so it must not compile its regexp each time.
 func BenchmarkString_PatternBranch(b *testing.B) {
 	branch, err := mapping.Pattern("tool_name", mcpName)
 	if err != nil {

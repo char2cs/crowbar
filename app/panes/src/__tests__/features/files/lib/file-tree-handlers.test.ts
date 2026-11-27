@@ -1,0 +1,208 @@
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
+import {
+  createFileTreeHandlers,
+  refreshDirectory,
+  revealInFolder,
+} from '@/features/files/lib/file-tree-handlers'
+import * as fileTreeApi from '@/features/files/lib/file-tree-api'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { toastManager } from '@/lib/toast-manager'
+import {
+  expectMigratingShown,
+  migratingRefusal,
+  watchToasts,
+} from '@/__tests__/__fixtures__/reports'
+import { ApiError } from '@/lib/errors/api-error'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import { proxyMarkerError } from '@/lib/api/errors'
+import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
+import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
+
+const UNEXPLAINED = 'Something went wrong — details are in the log'
+
+const { copyFileNode, revealItemInFinder, workspaceRootPath } = vi.hoisted(() => ({
+  copyFileNode: vi.fn(),
+  revealItemInFinder: vi.fn().mockResolvedValue(undefined),
+  workspaceRootPath: vi.fn((): string | undefined => '/disk/worktree'),
+}))
+
+vi.mock('@/features/files/lib/file-tree-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/files/lib/file-tree-api')>()
+  return { ...actual, copyFileNode }
+})
+vi.mock('@/lib/crowbar-bridge', () => ({ revealItemInFinder }))
+vi.mock('@/lib/workspace/resolve-root-path', () => ({ workspaceRootPath }))
+
+const toastAdd = vi.spyOn(toastManager, 'add')
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  copyFileNode.mockResolvedValue(undefined)
+})
+
+afterEach(() => {
+  destroyHostRuntime('h1')
+  resetHostWorld()
+})
+
+const hostFailure = () => (
+  pairRemoteHost('h1', 'Studio Mac'),
+  proxyMarkerError('host-unreachable', 'h1')
+)
+
+describe('revealInFolder', () => {
+  it('reveals absolute paths as-is and relative ones under the worktree root', () => {
+    revealInFolder('ws-a', '/abs/path/file.ts')
+    expect(revealItemInFinder).toHaveBeenCalledWith('/abs/path/file.ts')
+
+    revealInFolder('ws-a', 'api/main.go')
+    expect(revealItemInFinder).toHaveBeenCalledWith('/disk/worktree/api/main.go')
+    expect(workspaceRootPath).toHaveBeenCalledExactlyOnceWith('ws-a')
+  })
+
+  it('does not reveal a virtual buffer or an unresolvable root', () => {
+    revealInFolder('ws-a', 'remote://x/y.ts')
+    workspaceRootPath.mockReturnValueOnce(undefined)
+    revealInFolder('ws-a', 'api/main.go')
+    expect(revealItemInFinder).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a failure as an error toast', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    revealItemInFinder.mockRejectedValueOnce(new Error('finder exploded'))
+    revealInFolder('ws-a', '/abs/file.ts')
+    await vi.waitFor(() =>
+      expect(toastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Reveal in Finder failed',
+          description: UNEXPLAINED,
+        }),
+      ),
+    )
+  })
+})
+
+describe('createFileTreeHandlers', () => {
+  it('duplicates into the next free "<name> copy" using this workspace’s tree', async () => {
+    const store = createWorkspaceStore('ws-test')
+    store.getState().fileTreeActions.setFiles([
+      { name: 'img.png', path: 'img.png', isDir: false },
+      { name: 'img copy.png', path: 'img copy.png', isDir: false },
+    ])
+
+    await createFileTreeHandlers('ws-test', store).handleDuplicatePath('img.png')
+
+    expect(copyFileNode).toHaveBeenCalledWith('ws-test', 'img.png', 'img copy 2.png')
+  })
+
+  it.each([
+    ['in its own words', () => new ApiError('workspace locked', 500), 'workspace locked'],
+    ['naming the remote host that failed it', hostFailure, 'Couldn’t reach Studio Mac'],
+  ])('surfaces a duplicate failure %s', async (_, failure, description) => {
+    copyFileNode.mockRejectedValueOnce(failure())
+    await createFileTreeHandlers('ws-test', createWorkspaceStore('ws-test')).handleDuplicatePath(
+      'a.txt',
+    )
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Duplicate failed', description }),
+    )
+  })
+
+  it('a duplicate refused while the daemon migrates shows the migrating state, not a toast', async () => {
+    const toasts = watchToasts()
+    copyFileNode.mockRejectedValueOnce(migratingRefusal())
+    await createFileTreeHandlers('ws-test', createWorkspaceStore('ws-test')).handleDuplicatePath(
+      'a.txt',
+    )
+    expectMigratingShown(toasts)
+  })
+
+  it('starts an inline rename by marking the node editable, idempotently', async () => {
+    const store = createWorkspaceStore('ws-test')
+    store.getState().fileTreeActions.setFiles([{ name: 'a.ts', path: 'a.ts', isDir: false }])
+    const { handleRenamePath } = createFileTreeHandlers('ws-test', store)
+
+    await handleRenamePath('a.ts')
+    await handleRenamePath('a.ts')
+
+    expect(store.getState().files[0]).toMatchObject({ isRenaming: true, isEditing: true })
+  })
+})
+
+describe('refreshDirectory', () => {
+  it('a failed re-list reports why and keeps the tree', async () => {
+    const list = vi
+      .spyOn(fileTreeApi, 'fetchFileTree')
+      .mockRejectedValueOnce(new ApiError('daemon unreachable', 500))
+    onTestFinished(() => list.mockRestore())
+    const store = createWorkspaceStore('ws-refresh')
+    const files = [{ name: 'a.ts', path: 'a.ts', isDir: false }]
+    store.getState().fileTreeActions.setFiles(files)
+
+    await refreshDirectory('ws-refresh', store)
+
+    expect(toastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Refresh the file tree',
+        description: 'daemon unreachable',
+      }),
+    )
+    expect(store.getState().files).toEqual(files)
+  })
+
+  it('does not re-list a folder the tree never opened', async () => {
+    const list = vi.spyOn(fileTreeApi, 'fetchFileTree')
+    onTestFinished(() => list.mockRestore())
+    const store = createWorkspaceStore('ws-unopened')
+    store.getState().fileTreeActions.setFiles([{ name: '.git', path: '.git', isDir: true }])
+
+    await refreshDirectory('ws-unopened', store, '.git/refs/heads/feat')
+
+    expect(list).not.toHaveBeenCalled()
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+
+  it('an open folder deleted on disk leaves the expansion without a toast', async () => {
+    const list = vi
+      .spyOn(fileTreeApi, 'fetchFileTree')
+      .mockRejectedValueOnce(new ApiError('no such directory', 404))
+    onTestFinished(() => list.mockRestore())
+    const store = createWorkspaceStore('ws-gone')
+    store
+      .getState()
+      .fileTreeActions.setFiles([{ name: 'feat', path: 'feat', isDir: true, children: [] }])
+    useFileTreeStore.getState().setExpandedPaths('ws-gone', new Set(['feat']))
+
+    await refreshDirectory('ws-gone', store, 'feat')
+
+    expect(useFileTreeStore.getState().isExpanded('ws-gone', 'feat')).toBe(false)
+    expect(toastAdd).not.toHaveBeenCalled()
+  })
+})
+
+describe('handleDuplicatePath destination naming', () => {
+  const file = (path: string) => ({ path, name: path.split('/').pop() ?? path, isDir: false })
+
+  async function duplicate(path: string, existing: string[] = []) {
+    const store = createWorkspaceStore('ws-test')
+    store.getState().fileTreeActions.setFiles([path, ...existing].map(file))
+    await createFileTreeHandlers('ws-test', store).handleDuplicatePath(path)
+    return copyFileNode.mock.calls[0][2]
+  }
+
+  it('inserts " copy" before the extension', async () => {
+    expect(await duplicate('api/main.go')).toBe('api/main copy.go')
+  })
+
+  it('appends " copy" to an extension-less name', async () => {
+    expect(await duplicate('src/utils')).toBe('src/utils copy')
+  })
+
+  it('treats a leading dot as part of the stem, not an extension', async () => {
+    expect(await duplicate('.env')).toBe('.env copy')
+  })
+
+  it('keeps bumping past existing copies', async () => {
+    expect(await duplicate('main.go', ['main copy.go', 'main copy 2.go'])).toBe('main copy 3.go')
+  })
+})

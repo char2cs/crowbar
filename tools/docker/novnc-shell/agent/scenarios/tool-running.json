@@ -1,0 +1,16 @@
+{
+ "description": "A tool call left running (and an ask-free hold) until stopped.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run watch",
+   "output_stream": "watching for changes…\n",
+   "status": "open"
+  },
+  {
+   "do": "hang"
+  }
+ ]
+}

@@ -16,8 +16,6 @@ import (
 	"unicode/utf8"
 )
 
-// dated gives each conversation with no time the chat's oldest record's, or
-// when the chat has none, when the legacy files were last written.
 func dated(chat LegacyChat, written time.Time) LegacyChat {
 	at := cmp.Or(oldest(chat), written)
 	for i, c := range chat.Conversations {
@@ -28,7 +26,6 @@ func dated(chat LegacyChat, written time.Time) LegacyChat {
 	return chat
 }
 
-// modTime is when path was last written; zero when it does not exist.
 func modTime(path string) (time.Time, error) {
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -40,8 +37,6 @@ func modTime(path string) (time.Time, error) {
 	return info.ModTime().UTC(), nil
 }
 
-// legacyTable is one legacy table the reader reads, column for column as its
-// scan expects, a chat's rows in order.
 type legacyTable struct {
 	db, name string
 	cols     []legacyCol
@@ -49,15 +44,11 @@ type legacyTable struct {
 	scan     func(*reader, *sql.Rows) error
 }
 
-// legacyCol is one column a scan reads and what it reads as when NULL (a bare
-// one, as it is). A later one was added after its table: a table an older build
-// created without it reads it as NULL too.
 type legacyCol struct {
 	name, or string
 	later    bool
 }
 
-// selectList is t's columns as the table at hand holds them.
 func (t legacyTable) selectList(has map[string]bool) string {
 	exprs := make([]string, len(t.cols))
 	for i, c := range t.cols {
@@ -73,12 +64,10 @@ func (t legacyTable) selectList(has map[string]bool) string {
 	return strings.Join(exprs, ", ")
 }
 
-// text, number and bare are a column read as ”, as 0, and as it is.
 func text(name string) legacyCol   { return legacyCol{name: name, or: "''"} }
 func number(name string) legacyCol { return legacyCol{name: name, or: "0"} }
 func bare(name string) legacyCol   { return legacyCol{name: name} }
 
-// added is c added to its table after the table was first created.
 func added(c legacyCol) legacyCol { c.later = true; return c }
 
 var legacyTables = []legacyTable{
@@ -111,7 +100,6 @@ var legacyTables = []legacyTable{
 	}, "seq, id", (*reader).choice},
 }
 
-// reader gathers legacy records into the chats they name.
 type reader struct{ chats map[string]*LegacyChat }
 
 func (r *reader) chat(id string) *LegacyChat {
@@ -132,8 +120,6 @@ func (r *reader) conversation(rows *sql.Rows) error {
 	v.FirstSeenAt, v.LastActiveAt = c.time("first_seen_at"), c.time("last_active_at")
 	chat := r.chat(v.ChatID)
 	chat.Conversations = append(chat.Conversations, v)
-	// Its times only place the binding, which its turns place as well: an
-	// unreadable one is named, and the session kept.
 	if c.err != nil {
 		chat.Partial = append(chat.Partial, clip(fmt.Sprintf("agent_chat_conversations %s: %v", v.SessionID, c.err), reasonBytes))
 	}
@@ -213,8 +199,6 @@ func (r *reader) choice(rows *sql.Rows) error {
 	return nil
 }
 
-// add files a read row under its chat, or names it in the chat's Unreadable
-// when one of its values could not be read.
 func (r *reader) add(chatID, row string, err error, keep func(*LegacyChat)) {
 	chat := r.chat(chatID)
 	if err != nil {
@@ -224,8 +208,6 @@ func (r *reader) add(chatID, row string, err error, keep func(*LegacyChat)) {
 	keep(chat)
 }
 
-// journal reads <chats>/<chat id>/prompt-requests/*.json. A record that does
-// not decode is named in its chat's Unreadable, not fatal.
 func (r *reader) journal(chatsDir, chatID string) error {
 	journal := filepath.Join(chatsDir, chatID, PromptsDir)
 	files, err := readDir(journal)
@@ -261,7 +243,6 @@ func (r *reader) prompt(chatID, path string) {
 	})
 }
 
-// readDir lists dir; a missing one is empty.
 func readDir(dir string) ([]os.DirEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -273,14 +254,11 @@ func readDir(dir string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
-// How much of a legacy value, and of a reason naming one, the step repeats:
-// a damaged cell can be any size, and its reason goes to the log and ledger.
 const (
 	valueBytes  = 80
 	reasonBytes = 320
 )
 
-// clip is s cut to at most n bytes, on a rune boundary, saying how long it was.
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -292,8 +270,6 @@ func clip(s string, n int) string {
 	return fmt.Sprintf("%s…(%d bytes)", s[:cut], len(s))
 }
 
-// cells is one legacy row read as text, then parsed column by column in
-// order: a value of the wrong type fails its own row, not the whole read.
 type cells struct {
 	vals []sql.NullString
 	next int
@@ -320,8 +296,6 @@ func (c *cells) take() sql.NullString {
 
 func (c *cells) str() string { return c.take().String }
 
-// fail names the column, its value's first bytes and what it should have been;
-// the parser's own error repeats the whole value, so it is left out.
 func (c *cells) fail(column, value, want string) {
 	if c.err == nil {
 		c.err = fmt.Errorf("%s %q: not %s", column, clip(value, valueBytes), want)
@@ -360,7 +334,6 @@ func (c *cells) optTime(column string) *time.Time {
 	return &t
 }
 
-// time is a timestamp; NULL is the zero time.
 func (c *cells) time(column string) time.Time {
 	if t := c.optTime(column); t != nil {
 		return *t

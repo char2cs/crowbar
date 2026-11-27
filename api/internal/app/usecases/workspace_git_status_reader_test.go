@@ -16,7 +16,6 @@ import (
 
 var errGone = errors.New("workspace gone")
 
-// workspaceTable answers the three reads the reader makes from a fixed set of rows.
 type workspaceTable struct {
 	workspace.Usecase
 	rows []domain.Workspace
@@ -186,12 +185,12 @@ func TestWorkspaceGitStatusReader_AForkParentThatDrawsNoRowReducesToNone(t *test
 	r, ctx := statusReader(), context.Background()
 
 	for id, want := range map[string]string{
-		"fork":     "feat",  // a visible branch parent
-		"orphan":   "",      // its parent is the default checkout
-		"main":     "",      // its parent is a project home
-		"feat":     "other", // an ordinary workspace parent draws its own row
-		"dangling": "",      // its parent no longer resolves
-		"home":     "",      // no parent at all
+		"fork":     "feat",
+		"orphan":   "",
+		"main":     "",
+		"feat":     "other",
+		"dangling": "",
+		"home":     "",
 	} {
 		got, err := r.VisibleForkParent(ctx, id)
 		require.NoError(t, err)

@@ -18,15 +18,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
-// foundLookPath is a WithLookPath stub that reports every command as installed,
-// so tests exercise the spawn path without depending on real binaries on PATH.
 func foundLookPath() Option {
 	return WithLookPath(func(command string) (string, error) {
 		return "/usr/bin/" + command, nil
 	})
 }
 
-// fakeServer is a minimal server.Server stub that tracks calls for assertions.
 type fakeServer struct {
 	mu      sync.Mutex
 	closedN int
@@ -73,8 +70,6 @@ func (f *fakeServer) OnExit(
 	f.exitFn = fn
 }
 
-// fireExit invokes the OnExit callback the manager wired, simulating the
-// transport reaper detecting a natural process exit.
 func (f *fakeServer) fireExit() {
 	f.mu.Lock()
 	fn := f.exitFn
@@ -124,9 +119,6 @@ func (f *fakeServer) closeCount() int {
 	return f.closedN
 }
 
-// buildManager constructs a Manager with a fake spawn function that counts
-// spawns and produces fakeServers. It uses a real registry with defaults so
-// .go maps to the "go" languageID.
 func buildManager(
 	t *testing.T,
 	spawnCount *atomic.Int32,
@@ -160,10 +152,6 @@ func buildManager(
 	return m, getLastFake
 }
 
-// --- Tests ---
-
-// TestServerForFile_SpawnOnce verifies that two calls for the same
-// (wsID, extension) produce exactly one spawn.
 func TestServerForFile_SpawnOnce(
 	t *testing.T,
 ) {
@@ -181,8 +169,6 @@ func TestServerForFile_SpawnOnce(
 	assert.Same(t, srv1, srv2, "expected the same server instance")
 }
 
-// TestServerForFile_TwoLanguages verifies that two languages in one workspace
-// each spawn their own server.
 func TestServerForFile_TwoLanguages(
 	t *testing.T,
 ) {
@@ -200,8 +186,6 @@ func TestServerForFile_TwoLanguages(
 	assert.NotSame(t, srvGo, srvTS, "expected distinct server instances")
 }
 
-// TestServerForFile_TwoWorkspaces verifies that the same language in two
-// different workspaces each spawn their own server.
 func TestServerForFile_TwoWorkspaces(
 	t *testing.T,
 ) {
@@ -219,8 +203,6 @@ func TestServerForFile_TwoWorkspaces(
 	assert.NotSame(t, srv1, srv2, "expected distinct server instances")
 }
 
-// TestRefcount_ServerClosedOnLastRelease verifies that Release decrements the
-// refcount and calls Close exactly once when it reaches zero.
 func TestRefcount_ServerClosedOnLastRelease(
 	t *testing.T,
 ) {
@@ -234,7 +216,6 @@ func TestRefcount_ServerClosedOnLastRelease(
 	m.Acquire("ws1", "go")
 	m.Acquire("ws1", "go")
 
-	// refs are now 3 (1 from ServerForFile + 2 from Acquire)
 	m.Release(ctx, "ws1", "go")
 	m.Release(ctx, "ws1", "go")
 
@@ -246,9 +227,6 @@ func TestRefcount_ServerClosedOnLastRelease(
 	assert.Equal(t, 1, fake.closeCount(), "server must be closed on last release")
 }
 
-// TestRunningServerForFile_ReturnsWithoutTouchingRefcount verifies the
-// non-incrementing lookup: it returns the live server without spawning, and
-// does not change the refcount (a single Release after it still tears down).
 func TestRunningServerForFile_ReturnsWithoutTouchingRefcount(
 	t *testing.T,
 ) {
@@ -270,9 +248,6 @@ func TestRunningServerForFile_ReturnsWithoutTouchingRefcount(
 	assert.Equal(t, 1, fake.closeCount(), "lookup did not add a ref, so one Release tears down")
 }
 
-// TestRunningServerForFile_NoSpecOrServerErrNoServer verifies the lookup
-// returns ErrNoServer both for an unknown extension and for a known language
-// with no running server.
 func TestRunningServerForFile_NoSpecOrServerErrNoServer(
 	t *testing.T,
 ) {
@@ -287,8 +262,6 @@ func TestRunningServerForFile_NoSpecOrServerErrNoServer(
 	assert.Equal(t, int32(0), count.Load(), "lookup must never spawn")
 }
 
-// TestNoRegistrySpec_ReturnsErrNoServer verifies that an unknown extension
-// returns ErrNoServer and does not spawn.
 func TestNoRegistrySpec_ReturnsErrNoServer(
 	t *testing.T,
 ) {
@@ -301,9 +274,6 @@ func TestNoRegistrySpec_ReturnsErrNoServer(
 	assert.Equal(t, int32(0), count.Load(), "must not spawn for unknown extension")
 }
 
-// TestServerForFile_BinaryNotInstalled verifies that a registered language
-// whose server binary is absent from PATH yields ErrNoServer (graceful
-// absence) and never spawns.
 func TestServerForFile_BinaryNotInstalled(
 	t *testing.T,
 ) {
@@ -327,8 +297,6 @@ func TestServerForFile_BinaryNotInstalled(
 	assert.Equal(t, int32(0), count.Load(), "must not spawn when binary is absent")
 }
 
-// TestSpawnExecNotFound_MapsToErrNoServer verifies that a spawn returning
-// exec.ErrNotFound (e.g. a half-checked binary) is mapped to ErrNoServer.
 func TestSpawnExecNotFound_MapsToErrNoServer(
 	t *testing.T,
 ) {
@@ -347,9 +315,6 @@ func TestSpawnExecNotFound_MapsToErrNoServer(
 	assert.ErrorIs(t, err, ErrNoServer)
 }
 
-// TestOnReleaseEmpty_FiresOnLastServerForWorkspace verifies the callback fires
-// exactly when a workspace's last server is released, and not while another
-// language server for the same workspace is still alive.
 func TestOnReleaseEmpty_FiresOnLastServerForWorkspace(
 	t *testing.T,
 ) {
@@ -381,7 +346,6 @@ func TestOnReleaseEmpty_FiresOnLastServerForWorkspace(
 	mu.Unlock()
 }
 
-// TestShutdown_ClosesAllServers verifies that Shutdown closes every live server.
 func TestShutdown_ClosesAllServers(
 	t *testing.T,
 ) {
@@ -424,8 +388,6 @@ func TestShutdown_ClosesAllServers(
 	}
 }
 
-// TestOnDiagnostics_FanIn verifies that diagnostics from any spawned server
-// are forwarded to the manager-level callback.
 func TestOnDiagnostics_FanIn(
 	t *testing.T,
 ) {
@@ -493,9 +455,6 @@ func TestOnDiagnostics_FanIn(
 	assert.Len(t, received, 2, "both events must reach the manager-level callback")
 }
 
-// TestOnDiagnostics_StampsWsID verifies that an event emitted by a server with
-// an empty WsID is stamped with the wsID the server was spawned under before it
-// reaches the manager-level callback.
 func TestOnDiagnostics_StampsWsID(
 	t *testing.T,
 ) {
@@ -549,7 +508,6 @@ func TestOnDiagnostics_StampsWsID(
 	localFakes[1].mu.Unlock()
 	require.NotNil(t, fn1)
 
-	// Servers emit events with an empty WsID; the manager must stamp them.
 	fn0(domlsp.DiagnosticsEvent{Diagnostics: []domlsp.Diagnostic{{Message: "go"}}})
 	fn1(domlsp.DiagnosticsEvent{Diagnostics: []domlsp.Diagnostic{{Message: "ts"}}})
 
@@ -565,8 +523,6 @@ func TestOnDiagnostics_StampsWsID(
 	assert.Equal(t, "ts", byWs["ws-ts"])
 }
 
-// TestRace_ConcurrentAcquireRelease stress-tests the map + refcount under the
-// race detector.
 func TestRace_ConcurrentAcquireRelease(
 	t *testing.T,
 ) {
@@ -590,8 +546,6 @@ func TestRace_ConcurrentAcquireRelease(
 	wg.Wait()
 }
 
-// TestRelease_NilEntryIsNoOp verifies that Release for an unknown entry is
-// a no-op and does not panic.
 func TestRelease_NilEntryIsNoOp(
 	t *testing.T,
 ) {
@@ -603,8 +557,6 @@ func TestRelease_NilEntryIsNoOp(
 	assert.Equal(t, int32(0), count.Load())
 }
 
-// TestAcquire_ExistingEntry verifies that Acquire on a live entry increments
-// the refcount so a subsequent Release does not close the server prematurely.
 func TestAcquire_ExistingEntry(
 	t *testing.T,
 ) {
@@ -615,21 +567,17 @@ func TestAcquire_ExistingEntry(
 	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
 	require.NoError(t, err)
 
-	// Acquire bumps refs to 2.
 	m.Acquire("ws1", "go")
 
-	// First release: server must still be alive.
 	m.Release(ctx, "ws1", "go")
 	fake := getLastFake()
 	require.NotNil(t, fake)
 	assert.Equal(t, 0, fake.closeCount(), "server must survive first release")
 
-	// Second release: server must be closed.
 	m.Release(ctx, "ws1", "go")
 	assert.Equal(t, 1, fake.closeCount(), "server must close on last release")
 }
 
-// TestSpawnError verifies that a spawn failure is propagated as an error.
 func TestSpawnError(
 	t *testing.T,
 ) {
@@ -650,9 +598,6 @@ func TestSpawnError(
 	assert.ErrorIs(t, err, spawnErr)
 }
 
-// TestOnDiagnostics_WiredBeforeSpawn verifies that setting the manager-level
-// diagnostics callback before any spawns wires it into subsequently spawned
-// servers.
 func TestOnDiagnostics_WiredBeforeSpawn(
 	t *testing.T,
 ) {
@@ -708,18 +653,12 @@ func TestOnDiagnostics_WiredBeforeSpawn(
 	assert.Len(t, received, 1)
 }
 
-// TestGetOrSpawn_RaceGap exercises the path where two goroutines race to
-// spawn the same (wsID, languageID) simultaneously; exactly one server must
-// be kept alive.
 func TestGetOrSpawn_RaceGap(
 	t *testing.T,
 ) {
 	var count atomic.Int32
 	var closedN atomic.Int32
 
-	// Use a gate channel so both goroutines are past the first lock check
-	// before either proceeds to spawn — this maximises the chance of hitting
-	// the double-spawn race-gap path.
 	gate := make(chan struct{})
 
 	spawn := func(
@@ -748,7 +687,6 @@ func TestGetOrSpawn_RaceGap(
 		}(i)
 	}
 
-	// Release both goroutines simultaneously.
 	close(gate)
 	wg.Wait()
 
@@ -757,7 +695,6 @@ func TestGetOrSpawn_RaceGap(
 	require.NotNil(t, srvs[0])
 	require.NotNil(t, srvs[1])
 
-	// One of the two spawned servers was discarded (closed immediately).
 	spawnedCount := count.Load()
 	if spawnedCount == 2 {
 		assert.Equal(t, int32(1), closedN.Load(), "loser server must be closed on race-gap")
@@ -766,8 +703,6 @@ func TestGetOrSpawn_RaceGap(
 	}
 }
 
-// TestGetOrSpawn_RaceGapForced uses the internal manager directly to force the
-// race-gap re-check branch: insert an entry while spawn is in flight.
 func TestGetOrSpawn_RaceGapForced(
 	t *testing.T,
 ) {
@@ -775,8 +710,6 @@ func TestGetOrSpawn_RaceGapForced(
 	winner := &countingServer{fakeServer: &fakeServer{}, closedN: &closedN}
 	loser := &countingServer{fakeServer: &fakeServer{}, closedN: &closedN}
 
-	// spawnCalled synchronises the test: first call blocks, test inserts the
-	// winning entry, then unblocks the loser.
 	spawnCalled := make(chan struct{}, 1)
 	unblock := make(chan struct{})
 	spawnCount := 0
@@ -796,8 +729,6 @@ func TestGetOrSpawn_RaceGapForced(
 		return winner, nil
 	}, foundLookPath())
 
-	// Pre-seed: cause the first ServerForFile to block inside spawn while we
-	// manually insert the winning entry to force the re-check path.
 	ctx := context.Background()
 	done := make(chan error, 1)
 	go func() {
@@ -805,21 +736,13 @@ func TestGetOrSpawn_RaceGapForced(
 		done <- err
 	}()
 
-	// Wait until spawn is called, then directly insert the winner via a
-	// second ServerForFile on a fresh goroutine that completes before the
-	// loser unblocks.
 	<-spawnCalled
 
-	// Spawn the winner synchronously via a second call — this one must not
-	// block because we use a separate spawn counter path.
-	// We reach into the impl via a cast to inject directly.
 	impl := m.(*manager)
 	impl.mu.Lock()
 	impl.pool["wsR|go"] = &entry{srv: winner, refs: 1}
 	impl.mu.Unlock()
 
-	// Unblock the loser's spawn — it will find the winner in the map and
-	// close itself.
 	close(unblock)
 
 	err := <-done
@@ -827,23 +750,16 @@ func TestGetOrSpawn_RaceGapForced(
 	assert.Equal(t, int32(1), closedN.Load(), "loser must be closed when winner already in map")
 }
 
-// TestAcquire_MissingEntry verifies that Acquire on an unknown (wsID,
-// languageID) pair is a no-op and does not panic.
 func TestAcquire_MissingEntry(
 	t *testing.T,
 ) {
 	var count atomic.Int32
 	m, _ := buildManager(t, &count)
 
-	// Calling Acquire for a key that was never spawned must not panic.
 	m.Acquire("no-such-ws", "go")
 	assert.Equal(t, int32(0), count.Load())
 }
 
-// TestOnServerExit_EvictsDeadEntryAndRespawns proves R10: when a server's
-// process exits on its own, the wired OnExit callback evicts the dead pool
-// entry so the next ServerForFile spawns a FRESH server instead of handing back
-// the corpse (which would block requests to the 10s timeout).
 func TestOnServerExit_EvictsDeadEntryAndRespawns(
 	t *testing.T,
 ) {
@@ -858,21 +774,15 @@ func TestOnServerExit_EvictsDeadEntryAndRespawns(
 	dead := getLastFake()
 	require.NotNil(t, dead)
 
-	// The process exits on its own: the transport reaper fires the OnExit
-	// callback the manager wired into the server during spawn.
 	dead.fireExit()
 	assert.Equal(t, 1, dead.closeCount(), "exit must close the dead server (failing in-flight waiters)")
 
-	// The dead entry must be gone: the next request spawns a fresh, live server.
 	srv2, err := m.ServerForFile(ctx, "ws1", "/repo", "util.go")
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), count.Load(), "a fresh server must be spawned after eviction")
 	assert.NotSame(t, srv1, srv2, "the corpse must not be handed back")
 }
 
-// TestOnServerExit_FiresEmptyCallbackOnLastServer verifies that evicting a
-// crashed server fires OnReleaseEmpty when it was the workspace's last server,
-// so per-workspace state (the diagnostics snapshot) is dropped.
 func TestOnServerExit_FiresEmptyCallbackOnLastServer(
 	t *testing.T,
 ) {
@@ -897,8 +807,6 @@ func TestOnServerExit_FiresEmptyCallbackOnLastServer(
 	assert.Equal(t, []string{"ws1"}, released, "evicting the last server fires the empty callback")
 }
 
-// TestOnServerExit_UnknownEntryIsNoOp verifies a late/duplicate exit for an
-// already-evicted entry does not panic and closes nothing.
 func TestOnServerExit_UnknownEntryIsNoOp(
 	t *testing.T,
 ) {
@@ -911,13 +819,10 @@ func TestOnServerExit_UnknownEntryIsNoOp(
 	fake := getLastFake()
 
 	fake.fireExit()
-	fake.fireExit() // duplicate: entry already gone
+	fake.fireExit()
 	assert.Equal(t, 1, fake.closeCount(), "second exit is a no-op")
 }
 
-// TestReleaseWorkspace_ClosesAllServersForWorkspace proves R11's manager side:
-// every server for the workspace is torn down regardless of refcount, other
-// workspaces are untouched, and the empty callback fires once.
 func TestReleaseWorkspace_ClosesAllServersForWorkspace(
 	t *testing.T,
 ) {
@@ -950,7 +855,6 @@ func TestReleaseWorkspace_ClosesAllServersForWorkspace(
 		relMu.Unlock()
 	})
 
-	// Two languages in ws1 (both held with extra Acquire refs), one in ws2.
 	_, err := m.ServerForFile(ctx, "ws1", "/repo", "main.go")
 	require.NoError(t, err)
 	m.Acquire("ws1", "go")
@@ -974,14 +878,11 @@ func TestReleaseWorkspace_ClosesAllServersForWorkspace(
 	assert.Equal(t, []string{"ws1"}, released, "empty callback fires once for the released workspace")
 	relMu.Unlock()
 
-	// ws1 is gone: a fresh request spawns anew; ws2 is still served from the pool.
 	_, err = m.ServerForFile(ctx, "ws1", "/repo", "main.go")
 	require.NoError(t, err)
 	assert.Equal(t, int32(4), count.Load(), "released ws1 respawns; ws2 is unchanged")
 }
 
-// TestReleaseWorkspace_UnknownWorkspaceIsNoOp verifies releasing a workspace
-// with no servers does not panic and does not fire the empty callback.
 func TestReleaseWorkspace_UnknownWorkspaceIsNoOp(
 	t *testing.T,
 ) {
@@ -995,7 +896,6 @@ func TestReleaseWorkspace_UnknownWorkspaceIsNoOp(
 	assert.False(t, fired, "no servers means no empty callback")
 }
 
-// countingServer wraps fakeServer and counts Close calls via an atomic.
 type countingServer struct {
 	*fakeServer
 	closedN *atomic.Int32
@@ -1006,9 +906,6 @@ func (c *countingServer) Close() error {
 	return c.fakeServer.Close()
 }
 
-// TestStatus_ReflectsRegistryInstallAndPool pins the lifecycle states the
-// editor's language-server status UI shows: unsupported → notInstalled →
-// stopped → running → stopped again after the last release.
 func TestStatus_ReflectsRegistryInstallAndPool(
 	t *testing.T,
 ) {

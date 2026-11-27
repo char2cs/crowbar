@@ -53,8 +53,6 @@ func TestRun_CancelledContext_Returns(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A vendor CLI's HTTP hook reaches the real router over loopback TCP, and nothing
-// else of the API is served on that port.
 func TestRun_ServesOnlyTheRunnerHookRouteOnALoopbackPort(t *testing.T) {
 	home := t.TempDir()
 	c, err := internal.New(context.Background(), "tcp://127.0.0.1:0", nil, internal.WithHomeDir(home))
@@ -88,11 +86,6 @@ func TestRun_ServesOnlyTheRunnerHookRouteOnALoopbackPort(t *testing.T) {
 		"the gate refuses the rest of the API")
 }
 
-// TestRegression_DeviceAccess_OpenPairRevokeCloseReopen is the whole life of a
-// device connection on one running daemon: nothing listens until the owner turns
-// it on, a device pairs over TLS with a code and lists and revokes devices,
-// turning it off closes the port yet keeps paired devices paired, and turning it
-// on again lets the same device in.
 func TestRegression_DeviceAccess_OpenPairRevokeCloseReopen(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	sock := testutil.ShortSocket(t)
@@ -156,8 +149,6 @@ func TestRegression_DeviceAccess_OpenPairRevokeCloseReopen(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, status, "revoking a device ends its access")
 }
 
-// The owner's choice is the daemon's, not the window's: a restarted daemon listens
-// again by itself.
 func TestRegression_DeviceAccess_SurvivesARestart(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	port := freePort(t)

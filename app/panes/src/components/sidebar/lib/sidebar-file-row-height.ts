@@ -1,0 +1,1 @@
+export const SIDEBAR_FILE_ROW_HEIGHT = 26

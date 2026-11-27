@@ -8,15 +8,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// worktreeChildCreator adapts the hierarchy usecase to chat.WorktreeCreator: promotion names only
-// the fork parent and leaves the rest to CreateChild's inherited defaults. OwnWorktree is forced
-// true, since promotion exists to give the chat its own worktree even under a workspace-less parent.
 type worktreeChildCreator struct {
 	worktree worktreeCascade
 }
 
-// worktreeCascade is the slice of the workspace usecase the promotion and the
-// chat delete reach through worktreeChildCreator.
 type worktreeCascade interface {
 	CreateChild(ctx context.Context, in workspace.CreateChildInput) (domain.Workspace, error)
 	CheckNewBranch(ctx context.Context, parentID, branch string) error
@@ -25,7 +20,6 @@ type worktreeCascade interface {
 	WorkAtRisk(ctx context.Context, rootIDs []string) ([]domain.WorkAtRisk, error)
 }
 
-// CreateChildWorkspace implements agentusecase.WorktreeCreator.
 func (w worktreeChildCreator) CreateChildWorkspace(
 	ctx context.Context,
 	forkParentID string,
@@ -39,8 +33,6 @@ func (w worktreeChildCreator) CreateChildWorkspace(
 	})
 }
 
-// CreateBranchOutWorkspace implements agentusecase.WorktreeCreator: a child cut at
-// the commit its parent's checkout holds.
 func (w worktreeChildCreator) CreateBranchOutWorkspace(
 	ctx context.Context,
 	forkParentID string,
@@ -55,14 +47,10 @@ func (w worktreeChildCreator) CreateBranchOutWorkspace(
 	})
 }
 
-// CheckBranchOutName implements agentusecase.WorktreeCreator.
 func (w worktreeChildCreator) CheckBranchOutName(ctx context.Context, forkParentID, branch string) error {
 	return w.worktree.CheckNewBranch(ctx, forkParentID, branch)
 }
 
-// CreateImportedWorkspace implements agentusecase.WorktreeCreator and fills in nothing: an import
-// already knows repo, branch and lineage parent, which inherited defaults would get wrong.
-// OwnWorktree is forced true for the same reason as above.
 func (w worktreeChildCreator) CreateImportedWorkspace(
 	ctx context.Context,
 	spec agentusecase.ImportSpec,
@@ -81,8 +69,6 @@ func (w worktreeChildCreator) CreateImportedWorkspace(
 	})
 }
 
-// DiscardChildWorkspace implements agentusecase.WorktreeCreator, removing a workspace a promotion
-// could not finish through the same cascade a user removal takes, so worktree and branch go together.
 func (w worktreeChildCreator) DiscardChildWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -90,8 +76,6 @@ func (w worktreeChildCreator) DiscardChildWorkspace(
 	return w.worktree.DeleteCascade(ctx, workspaceID, domain.KeepWorkAtRisk)
 }
 
-// DeleteWorkspace implements agentusecase.TreeWorkspaceReaper: a chat delete's
-// teardown of a worktree it owned, with the consent the user gave that delete.
 func (w worktreeChildCreator) DeleteWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -100,12 +84,10 @@ func (w worktreeChildCreator) DeleteWorkspace(
 	return w.worktree.DeleteCascade(ctx, workspaceID, consent)
 }
 
-// DeletionPlan implements agentusecase.TreeWorkspaceReaper.
 func (w worktreeChildCreator) DeletionPlan(ctx context.Context, workspaceID string) ([]string, error) {
 	return w.worktree.DeletionPlan(ctx, workspaceID)
 }
 
-// WorkAtRisk implements agentusecase.TreeWorkspaceReaper.
 func (w worktreeChildCreator) WorkAtRisk(ctx context.Context, workspaceIDs []string) ([]domain.WorkAtRisk, error) {
 	return w.worktree.WorkAtRisk(ctx, workspaceIDs)
 }

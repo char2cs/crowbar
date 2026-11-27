@@ -19,8 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// homeWorkspaceDTO mirrors the WorkspaceDTO wire fields this suite asserts on
-// (the shared fixtures workspaceDTO omits isDefault/localPath).
 type homeWorkspaceDTO struct {
 	ID         string `json:"id"`
 	RepoID     string `json:"repoId"`
@@ -31,9 +29,6 @@ type homeWorkspaceDTO struct {
 	HeldByPath string `json:"heldByPath"`
 }
 
-// gitRepoWithBranches builds a real git repo with one commit, creates each of
-// extraBranches off it, then checks out `checkout`. No remote is configured, so
-// the provider falls back to its default protected set (main/develop/master).
 func gitRepoWithBranches(
 	t *testing.T,
 	dir string,
@@ -64,28 +59,14 @@ func gitCurrentBranch(t *testing.T, dir string) string {
 	return strings.TrimSpace(runGitOut(t, dir, "branch", "--show-current"))
 }
 
-// TestRepoImport_ProtectedBranchesGetManagedWorktrees is the end-to-end contract
-// for the Crowbar workspace model with REAL git:
-//   - the repo home (the imported folder) is the special default workspace and
-//     STAYS on its branch (develop) — it is no longer force-detached (spec §3.4);
-//   - the protected branch the home holds (develop) cannot get its own worktree,
-//     so it lands as a PLACEHOLDER row: locked, no worktree on disk, HeldByPath ==
-//     the repo folder (spec §3.2);
-//   - a protected branch that is free (master) gets its OWN Crowbar-managed
-//     worktree under the crowbar home, locked, NOT the repo folder;
-//   - a protected branch that does not exist (main, from the fallback set) is
-//     skipped, not stubbed.
 func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	h := newHarness(t)
 
 	parent := t.TempDir()
 	repoDir := filepath.Join(parent, "myrepo")
-	// Default branch develop is protected (fallback set); the home stays on it and
-	// the branch is surfaced as a placeholder held by the repo folder (spec §3.4).
 	gitRepoWithBranches(t, repoDir, "develop", "develop")
 	require.Equal(t, "develop", gitCurrentBranch(t, repoDir), "repo starts checked out on develop")
 
-	// 1. Create the project (lightweight Create — no repo discovery).
 	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
 		map[string]string{"name": "P", "path": parent}, http.StatusAccepted)
@@ -94,18 +75,12 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	// 2. Add the repo → ImportRepo runs the new adoption.
 	reposWS := watchEntities(t, h, stream.KindRepo)
 	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "myrepo", "path": repoDir})
 	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID)
 
-	// 3. Read the repo's workspaces back off the chat list once both protected
-	//    branches have materialised.
-	//
-	//    Join the import's post-commit reactors first, then read the settled
-	//    projection back over REST.
 	h.QuiesceReactors()
 	byBranch := collectWorkspacesFromChats(t, h, projectID, repoID)
 	_, sawDev := byBranch["develop"]
@@ -113,7 +88,6 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	require.True(t, sawDev, "the held protected branch must have materialised once reactors are drained")
 	require.True(t, sawMas, "the free protected branch must have materialised once reactors are drained")
 
-	// The repo home: default, STAYS on its branch (develop), rooted at the repo folder.
 	var home homeWorkspaceDTO
 	for _, w := range byBranch {
 		if w.IsDefault {
@@ -127,8 +101,6 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	assert.Equal(t, repoDir, home.LocalPath, "the repo home stays the imported repo folder")
 	assert.Empty(t, home.HeldByPath, "the repo home is never a placeholder")
 
-	// develop is held by the repo home, so it cannot get its own worktree — it lands
-	// as a placeholder: locked, no worktree on disk, HeldByPath == the repo folder.
 	dev := byBranch["develop"]
 	require.NotEmpty(t, dev.ID, "the held protected branch must still appear as a placeholder row")
 	assert.Equal(t, "locked", dev.Status, "the develop placeholder is locked")
@@ -137,7 +109,6 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	assert.True(t, samePathResolved(t, repoDir, dev.HeldByPath),
 		"the develop placeholder records the repo folder as the branch holder, got %s", dev.HeldByPath)
 
-	// master is free, so it gets its OWN managed locked worktree, NOT the repo folder.
 	mas := byBranch["master"]
 	require.NotEmpty(t, mas.ID, "the free protected branch must have a managed workspace")
 	assert.Equal(t, "locked", mas.Status, "master is a locked workspace")
@@ -146,34 +117,17 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	assert.NotEqual(t, repoDir, mas.LocalPath, "master gets a managed worktree, not the repo folder")
 	assert.True(t, strings.HasPrefix(mas.LocalPath, h.home),
 		"master managed worktree lives under the crowbar home (%s), got %s", h.home, mas.LocalPath)
-	// On disk: the managed worktree is a real checkout on master.
 	assert.DirExists(t, mas.LocalPath, "master managed worktree dir exists")
 	assert.Equal(t, "master", gitCurrentBranch(t, mas.LocalPath),
 		"master managed worktree is checked out on master")
 
-	// "main" is in the fallback protected set but does not exist → skipped, not stubbed.
 	_, hasMain := byBranch["main"]
 	assert.False(t, hasMain, "a non-existent fallback-protected branch is not imported")
 
-	// The repo folder itself STAYS on develop — Crowbar no longer detaches the
-	// user's checkout without consent; develop is surfaced as a placeholder instead.
 	assert.Equal(t, "develop", gitCurrentBranch(t, repoDir),
 		"the repo home folder stays on develop — no silent force-detach (spec §3.4)")
 }
 
-// TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject pins the
-// one-folder-one-project rule.
-//
-// Nothing stopped a folder already imported under one project from being added
-// to another: the dedup was scoped to the target project, so a second Repository
-// row appeared over the same .git. The two can never both work — git checks a
-// branch out in one worktree at a time, so the second import claims none of the
-// protected branches its sibling already holds and lands a placeholder for each
-// one. The user gets a repository that looks imported and can manage nothing.
-//
-// The add is now refused up front, synchronously (the endpoint is 202-async, so
-// a refusal raised during the import would reach the client as a timeout), with
-// the owning project named, and no row is created.
 func TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject(t *testing.T) {
 	h := newHarness(t)
 
@@ -185,7 +139,6 @@ func TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject(t *testin
 	projectA := createProject(t, h, projectsWS, parentA, "Alpha")
 	addRepo(t, h, watchEntities(t, h, stream.KindRepo), projectA, repoDir)
 
-	// A second project tries to adopt the same folder.
 	projectB := createProject(t, h, projectsWS, t.TempDir(), "Beta")
 	resp := h.raw(http.MethodPost, "/v0/projects/"+projectB+"/repos",
 		map[string]string{"name": "shared", "path": repoDir}, http.StatusConflict)
@@ -195,10 +148,6 @@ func TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject(t *testin
 	assert.Contains(t, string(body), "Alpha",
 		"the refusal must name the project that already has the folder, got %s", body)
 
-	// Nothing was created under project B. The refusal is SYNCHRONOUS — it returns
-	// before any background work is scheduled — so this read needs no barrier: had
-	// the add been accepted, the row would already exist by the time the response
-	// came back.
 	var reposB []struct {
 		Path      string `json:"path"`
 		ProjectID string `json:"projectId"`
@@ -210,30 +159,11 @@ func TestRegression_RepoImport_SameFolderCannotBeAddedToASecondProject(t *testin
 	}
 }
 
-// TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsARow
-// pins the fix for an import that produced NO locked workspace and said nothing.
-//
-// Removing a repository deletes its row but leaves its LOCKED managed worktrees
-// on disk, so re-adding the folder meets its own protected branch still checked
-// out under the crowbar home. holder.Resolve classifies any holder there as
-// HeldByManaged, and the import read that as "already represented by a managed
-// workspace — never double-provision" and returned nil. But that judgement was
-// made from the FILESYSTEM, not from this repo's rows: the worktree belongs to a
-// repo aggregate that no longer exists, so the branch produced no row for the new
-// repo and — the skip being the one silent path in provisioning — no warning
-// either. The repo imported with nothing but its home: no locked root, and
-// nothing to explain why.
-//
-// Every protected branch must yield a row. A managed holder this repo does not
-// own is a live holder like any other, so it lands as a PLACEHOLDER (spec §3.3).
 func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsARow(t *testing.T) {
 	h := newHarness(t)
 
 	parent := t.TempDir()
 	repoDir := filepath.Join(parent, "shared")
-	// master is HEAD (so it is the home's branch); main is free for the first
-	// import to claim. Both are in the fallback protected set, which is resolved in
-	// the fixed order main → develop → master.
 	gitRepoWithBranches(t, repoDir, "master", "main")
 
 	projectsWS := watchEntities(t, h, stream.KindProject)
@@ -248,54 +178,20 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	require.Equal(t, "locked", orphan.Status, "the first import claims main as a locked workspace")
 	require.NotEmpty(t, orphan.LocalPath, "the first import gets a real managed worktree for main")
 
-	// Remove the repository, then put a holder for the branch back.
-	//
-	// This used to rely on the delete LEAVING one: the removal guard never
-	// touched a locked row, so a repo's locked worktrees outlived its record.
-	// That is the leak repo-delete now closes — it cascades through the
-	// workspaces, so no worktree and no registration in the user's own
-	// repository survives the repo that owned them.
-	//
-	// The condition under test is still perfectly real, it just is not reached
-	// that way any more: a worktree can hold a protected branch because a crash
-	// orphaned it, or because the user made one by hand. So the test makes one.
-	//
-	// It goes at a path NOTHING derives — under crowbar home, so holder.Resolve
-	// still classifies it as managed, but not the <slug>/<branch> path the
-	// import would compute. Recreating it at the derived path raced the delete's
-	// own async teardown: a lagging step removed the new worktree too, main went
-	// free, and the import adopted it as the repo HOME, which is filed under
-	// "(default)" — so the wait for a "main" row never returned.
 	resp := h.raw(http.MethodDelete,
 		"/v0/projects/"+projectID+"/repos/"+firstRepoID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	reposWS.read(t, func(m map[string]any) bool {
 		return m["id"] == firstRepoID && m["gone"] == true
 	})
-	// The tombstone above fires once every workspace of the repo has been
-	// tombstoned; waitWorkspaceGone joins the delete reactor that purges them.
 	waitWorkspaceGone(t, h, orphan.ID)
-	// --force because the cascade above only guarantees the ROW (and the git
-	// teardown that precedes it) is gone, not that a later step (e.g. a
-	// best-effort branch delete) left "main" in any particular state; --force
-	// lets a second worktree claim it regardless.
 	holderPath := filepath.Join(h.home, "projects", projectID, "orphan-holder")
 	runGit(t, repoDir, "worktree", "add", "--force", holderPath, "main")
 	require.DirExists(t, holderPath,
 		"a worktree holding the protected branch is what makes this reachable")
 
-	// Re-add the folder. Allowed: the row that owned it is gone.
 	secondRepoID := addRepo(t, h, reposWS, projectID, repoDir, firstRepoID)
 
-	// Join the import's post-commit reactors, then read a settled snapshot.
-	//
-	// This used to wait for "master" to arrive as its own row, on the reasoning
-	// that master is resolved after main and so proves main's decision landed.
-	// That signal is UNREACHABLE: this fixture checks out master, so master is
-	// the repo HOME, and branchKey files every default row under "(default)".
-	// seen["master"] was only ever set when a frame raced in before isDefault
-	// had become true — the test passed only by catching a transient wrong
-	// state, and hung forever when it did not. On Linux it never did: 0/5.
 	h.QuiesceReactors()
 
 	second := collectWorkspacesFromChats(t, h, projectID, secondRepoID)
@@ -313,9 +209,6 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	assert.NotEqual(t, orphan.ID, mainRow.ID, "each repo aggregate owns its own row")
 }
 
-// createProject creates a project rooted at path and returns its id once the
-// broadcast lands. projectsWS must be an already-dialled /v0/projects stream so
-// no frame is missed.
 func createProject(
 	t *testing.T,
 	h *harness,
@@ -333,10 +226,6 @@ func createProject(
 	return projectID
 }
 
-// addRepo adds repoPath to projectID and returns the new repo's id once its DTO
-// lands on the already-dialled reposWS. skip lists repo ids to ignore: a re-add
-// of a folder that was imported before sees the old row replayed in the
-// snapshot-on-subscribe burst, and matching on path alone would answer with it.
 func addRepo(
 	t *testing.T,
 	h *harness,
@@ -360,25 +249,6 @@ func addRepo(
 	return repoID
 }
 
-// waitWorkspaceGone blocks until wsID's aggregate is gone, using QuiesceReactors
-// as the real signal — never a sleep.
-//
-// A repo DELETE's tombstone frame (the signal callers like the caller above
-// synchronize on) is broadcast BEFORE the workspace cascade that removes wsID
-// even runs: DeleteRepo's handler fires it first so a loaded machine still
-// admits the delete promptly, then tears worktrees down off the request path
-// (its own doc comment). That cascade is a plain detached goroutine, invisible
-// to asynx's dispatch tracking until its OWN final step — dropping wsID's row —
-// is dispatched. A single QuiesceReactors call made right after the tombstone
-// can therefore observe nothing in flight yet and return having drained none of
-// it (confirmed by instrumenting the handler with an artificial delay: the
-// cascade kept running, and logging, long after QuiesceReactors returned and
-// the whole test had already exited).
-//
-// Each retry here is a real, unbounded wait on asynx's own dispatch drain, not
-// a timed guess: once the cascade's row-drop is actually in flight,
-// QuiesceReactors blocks on it like any other reactor. The deadline is a
-// FAILURE BOUND for the cascade never running at all, mirroring readUntil's own.
 func waitWorkspaceGone(
 	t *testing.T,
 	h *harness,
@@ -396,18 +266,13 @@ func waitWorkspaceGone(
 	}
 }
 
-// TestRepoImport_UnbornBranchRepo_DegradesGracefully proves the git-safety
-// degrade: a freshly-initialized repo (no commits, unborn default branch) cannot
-// be detached — real `git switch --detach` fails with "branch yet to be born".
-// Import must NOT fail; it degrades to importing the repo with its home on the
-// unborn branch.
 func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 	h := newHarness(t)
 
 	parent := t.TempDir()
 	repoDir := filepath.Join(parent, "empty")
 	require.NoError(t, os.MkdirAll(repoDir, 0o755))
-	runGit(t, repoDir, "init", "-b", "main") // unborn main, zero commits
+	runGit(t, repoDir, "init", "-b", "main")
 
 	projectsWS := watchEntities(t, h, stream.KindProject)
 	resp := h.raw(http.MethodPost, "/v0/projects",
@@ -423,7 +288,6 @@ func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID, "the repo is still imported despite the unborn branch (degrade, not fail)")
 
-	// The repo has a home (default) workspace and was not rolled back.
 	h.QuiesceReactors()
 	seen := collectWorkspacesFromChats(t, h, projectID, repoID)
 	home, ok := seen["(default)"]
@@ -432,17 +296,11 @@ func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 	assert.Equal(t, repoDir, home.LocalPath)
 }
 
-// TestRegression_RepoImport_HonorsSuppliedName pins the fix for the add-repo bug
-// where the user-entered repository name was silently dropped: persistRepo called
-// the importer without the POST body's Name, and the importer hard-derived the
-// name from filepath.Base(path). Import a repo whose folder base ("widget")
-// differs from the supplied name and prove the broadcast RepoDTO carries the
-// SUPPLIED name and a matching generated avatar — not the folder base.
 func TestRegression_RepoImport_HonorsSuppliedName(t *testing.T) {
 	h := newHarness(t)
 
 	parent := t.TempDir()
-	repoDir := filepath.Join(parent, "widget") // folder base is "widget"
+	repoDir := filepath.Join(parent, "widget")
 	gitRepoWithBranches(t, repoDir, "master")
 
 	projectsWS := watchEntities(t, h, stream.KindProject)
@@ -463,10 +321,6 @@ func TestRegression_RepoImport_HonorsSuppliedName(t *testing.T) {
 		"the generated avatar label is derived from the supplied name")
 }
 
-// TestRegression_RepoRename_UpdatesNameAndBroadcasts pins the new rename endpoint:
-// PATCH /v0/projects/:projectId/repos/:repoId renames an already-imported repo,
-// updating the name and its generated avatar, and broadcasts the updated RepoDTO
-// on the repos WS stream so every client's sidebar refreshes.
 func TestRegression_RepoRename_UpdatesNameAndBroadcasts(t *testing.T) {
 	h := newHarness(t)
 
@@ -497,9 +351,6 @@ func TestRegression_RepoRename_UpdatesNameAndBroadcasts(t *testing.T) {
 	assert.Equal(t, "R", renamed["avatarLabel"], "the generated avatar tracks the new name")
 }
 
-// collectWorkspacesFromChats reads the repo's worktree-owning chats back over
-// REST, keyed by branch. Callers join the async provisioning with Quiesce/QuiesceReactors FIRST — the
-// deterministic barrier — then read the settled projection here.
 func collectWorkspacesFromChats(
 	t *testing.T,
 	h *harness,
@@ -534,9 +385,6 @@ func collectWorkspacesFromChats(
 	return seen
 }
 
-// branchKey keys a workspace by branch, falling back to the default marker for the
-// repo home so it does not collide with the same-branch placeholder row (the home
-// now stays on its protected branch instead of detaching, spec §3.4).
 func branchKey(w *worktreeWire) string {
 	if w.IsDefault {
 		return "(default)"
@@ -544,10 +392,6 @@ func branchKey(w *worktreeWire) string {
 	return w.Branch
 }
 
-// samePathResolved reports whether two filesystem paths point at the same
-// location, resolving symlinks first: git worktree list (and thus a placeholder's
-// HeldByPath) emits fully-resolved paths (macOS /var -> /private/var) while the
-// imported repo path is not resolved, so a naive string compare would miss.
 func samePathResolved(t *testing.T, a, b string) bool {
 	t.Helper()
 	ra, err := filepath.EvalSymlinks(a)
@@ -557,15 +401,6 @@ func samePathResolved(t *testing.T, a, b string) bool {
 	return ra == rb
 }
 
-// TestRegression_RepoNameCannotEscapeTheCrowbarHome pins a traversal the repo
-// rename endpoint newly opened up. The create endpoint validated only that the
-// name was non-empty; a repository with no parseable git remote falls back to
-// that name for its on-disk worktree slug, and filepath.Join CLEANS the result —
-// so a name of "../../../../tmp/pwned" derived workspace directories OUTSIDE the
-// crowbar home, where they can never be reclaimed (every removal guard refuses
-// to touch anything that is not strictly under home). The rename endpoint takes
-// the same unsanitised name and feeds it to the same fallback, so both are
-// guarded.
 func TestRegression_RepoNameCannotEscapeTheCrowbarHome(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -582,8 +417,6 @@ func TestRegression_RepoNameCannotEscapeTheCrowbarHome(t *testing.T) {
 		map[string]string{"name": escape}, http.StatusBadRequest)
 	_ = resp.Body.Close()
 
-	// The repo kept the name it was imported with: a refused rename changes
-	// nothing, so nothing downstream ever derives a path from the escape.
 	var repo struct {
 		Name string `json:"name"`
 	}
@@ -591,23 +424,11 @@ func TestRegression_RepoNameCannotEscapeTheCrowbarHome(t *testing.T) {
 	assert.Equal(t, "demo", repo.Name)
 }
 
-// TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug pins the fix
-// for the on-disk slug tracking the DISPLAY NAME. Repository.Name doubles as the
-// worktree slug for a repo with no parseable remote, and this branch made that
-// name client-supplied twice over: the add-repo form sets it and the new PATCH
-// endpoint rewrites it. Each derivation then read whatever the name currently
-// was, so the repo's tree forked in two — new workspaces under the new slug, the
-// existing ones stranded under the old — and the sibling scan that rejects a
-// case-only path clash read an empty directory and passed unconditionally.
-//
-// The slug now comes from the repo's PATH, seeded once at import, so a repo
-// imported from .../widget keeps deriving under widget/ no matter what the user
-// calls it.
 func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing.T) {
 	h := newHarness(t)
 
 	parent := t.TempDir()
-	repoDir := filepath.Join(parent, "widget") // the on-disk identity
+	repoDir := filepath.Join(parent, "widget")
 	gitRepoWithBranches(t, repoDir, "master")
 
 	projectsWS := watchEntities(t, h, stream.KindProject)
@@ -618,7 +439,6 @@ func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing
 	projectID, _ := project["id"].(string)
 	require.NotEmpty(t, projectID)
 
-	// Imported under a display name that has nothing to do with the folder.
 	reposWS := watchEntities(t, h, stream.KindRepo)
 	importRepo(t, h, "/v0/projects/"+projectID+"/repos", map[string]string{"name": "My Custom Name", "path": repoDir})
 	repo := reposWS.read(t, func(m map[string]any) bool { return m["path"] == repoDir })
@@ -644,12 +464,6 @@ func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing
 		"the pre-rename workspace must not be stranded")
 }
 
-// createWorkspaceOnBranch cuts a workspace on branch off the repo's default
-// branch (no parent named, exactly as the deleted POST .../workspaces did with
-// no parentId in its body). There is no HTTP route for a caller-named branch any
-// more (spec §8 step 6): the chat-scoped create only auto-derives a branch name
-// or imports one that already exists on the remote, so this goes through the
-// same usecase fixtures_test.go's createWorktree does, and for the same reason.
 func createWorkspaceOnBranch(
 	t *testing.T,
 	h *harness,

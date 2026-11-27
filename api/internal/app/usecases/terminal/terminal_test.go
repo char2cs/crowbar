@@ -179,12 +179,6 @@ func TestTerminalUsecase_DeleteProfile_Error(t *testing.T) {
 	assert.Error(t, uc.DeleteProfile(ctx, "p1"))
 }
 
-// ---------------------------------------------------------------------------
-// Phase 3: RestorePersistedSessions tests (TDD — written first)
-// ---------------------------------------------------------------------------
-
-// newMetaStoreForTest builds a real sessionMetaStoreImpl backed by in-memory
-// fakes for use in restart-restore tests.
 func newMetaStoreForTest(
 	t *testing.T,
 	worktrees terminal.WorktreeResolver,
@@ -195,10 +189,6 @@ func newMetaStoreForTest(
 	return terminal.NewSessionMetaStore(worktrees, fakeWorkspaces{}, sessStore, func() (string, error) { return home, nil })
 }
 
-// TestRestorePersistedSessions_RestoresPlaceholder is the restart round-trip:
-// write a session row + .buf (simulating a pre-restart suspend), build a fresh
-// engine + metastore, call RestorePersistedSessions, and verify the session is
-// a suspended placeholder in the new engine with the scrollback loadable.
 func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -214,7 +204,6 @@ func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 	sessStore := newFakeSessionStore()
 	ms := newMetaStoreForTest(t, worktrees, sessStore, home)
 
-	// Pre-populate as if a daemon had previously written this session.
 	sessStore.rows[sessionID] = domain.TerminalSession{
 		SessionID: sessionID,
 		ChatID:    "chat-restart",
@@ -224,46 +213,35 @@ func TestRestorePersistedSessions_RestoresPlaceholder(t *testing.T) {
 		State:     "suspended",
 	}
 
-	// Write scrollback file to the storage dir that metaStore will resolve.
 	storageDir, err := ms.StorageDir(ctx, "chat-restart")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(storageDir, 0o755))
 	scrollback := []byte("pre-restart-output")
 	require.NoError(t, os.WriteFile(filepath.Join(storageDir, sessionID+".buf"), scrollback, 0o644))
 
-	// Fresh engine + usecase simulating daemon restart. The maintenance loop
-	// won't interfere: it only acts on live (detached/idle) sessions; a fresh
-	// engine with only placeholders has nothing to sweep.
 	freshEng := engineterminal.New()
 	profiles := mocks.NewTerminalProfileStore()
 	uc := terminal.New(freshEng, profiles, worktrees, ms)
 
 	require.NoError(t, uc.RestorePersistedSessions(ctx))
 
-	// Session must be registered as a suspended placeholder.
 	assert.True(t, freshEng.SessionExists(ctx, sessionID), "session must be in registry after restore")
 	state, ok := freshEng.StateOf(sessionID)
 	assert.True(t, ok)
 	assert.Equal(t, "suspended", state, "restored session must be a placeholder (suspended)")
 
-	// Cleanup.
 	require.NoError(t, freshEng.Kill(ctx, sessionID))
 }
 
-// TestRestorePersistedSessions_OrphanDeleted verifies that when a session row's
-// owning chat can no longer be resolved to a worktree (deleted chat), the row is
-// deleted from the store and no placeholder is registered in the engine.
 func TestRestorePersistedSessions_OrphanDeleted(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	sessionID := "orphan-sess-1"
 
-	// Worktree resolver that always returns "not found".
 	worktrees := &fakeWorktreeResolver{err: errors.New("workspace not found")}
 	sessStore := newFakeSessionStore()
 	ms := newMetaStoreForTest(t, worktrees, sessStore, home)
 
-	// Pre-populate an orphaned row.
 	sessStore.rows[sessionID] = domain.TerminalSession{
 		SessionID: sessionID,
 		ChatID:    "chat-deleted",
@@ -281,17 +259,12 @@ func TestRestorePersistedSessions_OrphanDeleted(t *testing.T) {
 
 	require.NoError(t, uc.RestorePersistedSessions(ctx))
 
-	// The orphan row must be deleted.
 	_, stillPresent := sessStore.rows[sessionID]
 	assert.False(t, stillPresent, "orphan row must be deleted from the store")
 
-	// No placeholder must be registered.
 	assert.NotContains(t, loadedIDs, sessionID, "no placeholder must be loaded for orphaned session")
 }
 
-// TestRestorePersistedSessions_BestEffort verifies that a per-row error (engine
-// returns error for one session) does not abort the whole restore: the remaining
-// sessions are still processed and RestorePersistedSessions returns nil.
 func TestRestorePersistedSessions_BestEffort(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -315,18 +288,12 @@ func TestRestorePersistedSessions_BestEffort(t *testing.T) {
 	profiles := mocks.NewTerminalProfileStore()
 	uc := terminal.New(eng, profiles, worktrees, ms)
 
-	// Must not return an error despite one row failing.
 	err := uc.RestorePersistedSessions(ctx)
 	require.NoError(t, err, "RestorePersistedSessions must return nil even when a row fails")
 
-	// The succeeding session must be registered.
 	assert.Contains(t, loaded, "sess-ok", "successful session must be loaded despite peer failure")
 }
 
-// TestRestorePersistedSessions_CapsToMaxAndEvictsOldest verifies that when more
-// session rows are persisted than the engine's global ceiling allows, restore
-// reloads only the cap (newest by LastActiveAt) and DELETES the excess rows plus
-// their .buf files (oldest first), bounding both memory and disk on restart.
 func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -340,10 +307,10 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 	require.NoError(t, os.MkdirAll(storageDir, 0o755))
 
 	limit := engineterminal.MaxTotalSessions()
-	total := limit + 2 // two over the cap
+	total := limit + 2
 	base := time.Now()
 	for i := 0; i < total; i++ {
-		id := fmt.Sprintf("sess-%03d", i) // higher i ⇒ more recent
+		id := fmt.Sprintf("sess-%03d", i)
 		sessStore.rows[id] = domain.TerminalSession{
 			SessionID:    id,
 			ChatID:       "chat-1",
@@ -366,12 +333,10 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 
 	require.NoError(t, uc.RestorePersistedSessions(ctx))
 
-	// Only the cap restored; the two oldest are not.
 	assert.Len(t, loaded, limit, "must restore at most the global cap")
 	assert.NotContains(t, loaded, "sess-000", "oldest must not be restored")
 	assert.NotContains(t, loaded, "sess-001", "second-oldest must not be restored")
 
-	// The two oldest rows + their .buf files are deleted from disk.
 	_, ok0 := sessStore.rows["sess-000"]
 	_, ok1 := sessStore.rows["sess-001"]
 	assert.False(t, ok0, "oldest over-cap row must be deleted")
@@ -379,20 +344,17 @@ func TestRestorePersistedSessions_CapsToMaxAndEvictsOldest(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(storageDir, "sess-000.buf"))
 	assert.NoFileExists(t, filepath.Join(storageDir, "sess-001.buf"))
 
-	// The newest row survives and is restored.
 	newest := fmt.Sprintf("sess-%03d", total-1)
 	assert.Contains(t, loaded, newest, "newest row must be restored")
 	_, okNewest := sessStore.rows[newest]
 	assert.True(t, okNewest, "newest row must remain on disk")
 }
 
-// TestRestorePersistedSessions_NilMetaStore verifies that RestorePersistedSessions
-// is a no-op when no metaStore is configured (returns nil immediately).
 func TestRestorePersistedSessions_NilMetaStore(t *testing.T) {
 	eng := mocks.NewTerminalEngine()
 	profiles := mocks.NewTerminalProfileStore()
 	worktrees := &fakeWorktreeResolver{ws: domain.Workspace{ID: "ws-1"}}
-	uc := terminal.New(eng, profiles, worktrees, nil) // no metaStore
+	uc := terminal.New(eng, profiles, worktrees, nil)
 
 	err := uc.RestorePersistedSessions(context.Background())
 	assert.NoError(t, err)

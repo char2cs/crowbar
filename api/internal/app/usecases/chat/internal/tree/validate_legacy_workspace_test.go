@@ -11,12 +11,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// A workspace created before Node rows existed (every pre-#179 production
-// checkout and locked branch — no backfill by design) has no Node row and no
-// owning chat, yet the sidebar files rows under it by its own workspace id.
-// Creates mint its anchor first (ensureWorkspaceAnchor); a placement
-// addressed under it went through resolveRow alone, which had no workspace
-// tier and answered 404 for a container that plainly exists.
 func TestRegression_PlaceChat_UnderALegacyWorkspaceWithoutANodeRow(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedChat(chats, "c1", 1)

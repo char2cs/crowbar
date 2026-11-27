@@ -1,0 +1,24 @@
+[package]
+name = "browseragent"
+description = "The desktop side of the daemon's browser tools: the peer protocol, the agent's operations and the loop that attaches a window to the daemon."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+browser.workspace = true
+journal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true

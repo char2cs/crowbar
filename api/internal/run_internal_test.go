@@ -22,30 +22,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// TestRun_ServeError_SurfacesNotHangs proves H16: when Serve fails (the listener
-// is invalid / accept fails permanently), Run must return the error so the
-// process exits non-zero and its supervisor restarts the daemon — rather than
-// silently blocking forever on <-ctx.Done() while the desktop spins reconnecting
-// to a socket that never accepts.
 func TestRun_ServeError_SurfacesNotHangs(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	require.NoError(t, ln.Close()) // closed listener -> Serve returns immediately
+	require.NoError(t, ln.Close())
 
 	c := serving(t, &http.Server{Handler: http.NewServeMux()}, ln)
 
-	// Block on Run's own return — the real signal. A 2-second deadline here would
-	// be a guess about how fast a loaded machine schedules a goroutine; if Run
-	// ever regresses to hanging on <-ctx.Done(), this receive never completes and
-	// `go test -timeout` is the backstop that says so.
 	done := make(chan error, 1)
 	go func() { done <- c.Run(context.Background()) }()
 
 	require.Error(t, <-done, "Run must surface the Serve failure instead of swallowing it")
 }
 
-// A halted boot whose error carries a failure besides the halt, such as closing
-// what it opened, warns with all of it; the halt alone is serve's to announce.
 func TestWarnHaltedBoot_WarnsOnlyOfFailuresBesidesTheHalt(t *testing.T) {
 	halt := &migrate.Halt{Reason: migrate.HaltStepFailed, Message: "step 1 of 5 failed"}
 	closeFailure := errors.New("injected close failure")
@@ -62,11 +51,8 @@ func TestWarnHaltedBoot_WarnsOnlyOfFailuresBesidesTheHalt(t *testing.T) {
 	require.ErrorIs(t, logged, halt)
 }
 
-// TestRun_ServesEveryListener proves a network-exposed daemon answers on its
-// local unix socket AND its TCP bind at once, and that a failure on either
-// listener still surfaces from Run.
 func TestRun_ServesEveryListener(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "cb") // short: macOS caps sun_path at 104 bytes
+	dir, err := os.MkdirTemp("/tmp", "cb")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "d.sock")
@@ -98,10 +84,6 @@ func TestRun_ServesEveryListener(t *testing.T) {
 	require.Error(t, <-done, "a failure on the second listener must surface from Run too")
 }
 
-// TestRun_ClosesAnIdleKeepAliveConnection proves the server drops a
-// connection left idle after a request, so an unauthenticated peer cannot hold
-// one open forever — while a hijacked connection (a WebSocket) outlives that
-// same idle period. The read deadline only bounds a failure.
 func TestRun_ClosesAnIdleKeepAliveConnection(t *testing.T) {
 	tcpLn, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -137,8 +119,6 @@ func TestRun_ClosesAnIdleKeepAliveConnection(t *testing.T) {
 	assert.Equal(t, "still here\n", line)
 }
 
-// serving is a Container whose server already serves listeners, as New leaves
-// it, with only the hook server of a stack: enough for Run's serve-failure path.
 func serving(
 	t *testing.T,
 	server *http.Server,
@@ -160,8 +140,6 @@ func serving(
 	return c
 }
 
-// echoOrOK answers "ok", or on /hijack takes the connection over and echoes
-// each line back, as a WebSocket handler holds its connection.
 func echoOrOK(
 	w http.ResponseWriter,
 	r *http.Request,

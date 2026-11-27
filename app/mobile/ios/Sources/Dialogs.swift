@@ -1,0 +1,76 @@
+import UIKit
+
+enum Dialogs {
+  static func topmost(_ root: UIViewController) -> UIViewController {
+    var top = root
+    while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+    return top
+  }
+
+  enum ConfirmAnswer {
+    case confirmed
+    case cancelled
+  }
+
+  struct ConfirmOptions: Decodable {
+    let title: String
+    let message: String
+    let confirmLabel: String
+    let cancelLabel: String
+    let destructive: Bool
+  }
+
+  struct PromptOptions: Decodable {
+    let title: String
+    let message: String?
+    let value: String
+    let placeholder: String
+    let confirmLabel: String
+  }
+
+  static func confirm(
+    _ options: ConfirmOptions,
+    over root: UIViewController,
+    answer: @escaping (ConfirmAnswer) -> Void
+  ) {
+    let alert = UIAlertController(
+      title: options.title,
+      message: options.message,
+      preferredStyle: .alert
+    )
+    alert.addAction(
+      UIAlertAction(title: options.cancelLabel, style: .cancel) { _ in answer(.cancelled) }
+    )
+    alert.addAction(
+      UIAlertAction(
+        title: options.confirmLabel,
+        style: options.destructive ? .destructive : .default
+      ) { _ in answer(.confirmed) }
+    )
+    topmost(root).present(alert, animated: true)
+  }
+
+  static func prompt(
+    _ options: PromptOptions,
+    over root: UIViewController,
+    answer: @escaping (String?) -> Void
+  ) {
+    let alert = UIAlertController(
+      title: options.title,
+      message: options.message,
+      preferredStyle: .alert
+    )
+    alert.addTextField { field in
+      field.text = options.value
+      field.placeholder = options.placeholder
+      field.clearButtonMode = .whileEditing
+    }
+    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in answer(nil) })
+    alert.addAction(
+      UIAlertAction(title: options.confirmLabel, style: .default) { [weak alert] _ in
+        answer(alert?.textFields?.first?.text ?? "")
+      }
+    )
+    topmost(root).present(alert, animated: true)
+  }
+}

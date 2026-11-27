@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestDiffAgainstRef_IncludesCommittedAndUncommitted proves the blended diff:
-// against the base ref it shows both a committed change on the branch AND an
-// uncommitted working-tree edit.
 func TestDiffAgainstRef_IncludesCommittedAndUncommitted(t *testing.T) {
 	dir := initRepo(t)
 	makeCommit(t, dir, "base.go", "package main\n", "base commit")
@@ -22,7 +19,6 @@ func TestDiffAgainstRef_IncludesCommittedAndUncommitted(t *testing.T) {
 	gitRun(t, dir, "checkout", "-b", "feature")
 	makeCommit(t, dir, "committed.go", "package main\n\nfunc c() {}\n", "committed change")
 
-	// uncommitted working-tree edit of a tracked file
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "base.go"), []byte("package main\n// edit\n"), 0o644))
 
 	ctx := context.Background()

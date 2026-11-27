@@ -37,7 +37,6 @@ func TestMap_UnsequencedDeltaWritesNoRow(t *testing.T) {
 	assert.Equal(t, LiveDelta{TurnID: turnID, ID: "m1", Text: "hel"}, *fx.Live)
 }
 
-// What is only shown while it happens is one stream per block, else per turn.
 func TestMap_TheOtherStreamsAreOnlyShown(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -88,9 +87,6 @@ func TestMap_ANumberedChunkIsRecordedOnce(t *testing.T) {
 	assert.Empty(t, again, "a retried chunk is recorded once")
 }
 
-// A message begun after its turn closed on a reply it reads as joins that
-// reply, so one answer is one message whichever of its reports landed first.
-// A subagent's words are never the chat's reply.
 func TestMap_AChunkAfterTheTurnEndedJoinsItsReply(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
@@ -109,7 +105,6 @@ func TestMap_AChunkAfterTheTurnEndedJoinsItsReply(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.AssistantText](t, rows[0]).Reply)
 }
 
-// A chunk whose message began earlier unseen joins the reply whatever it says.
 func TestMap_AJoinedMessageJoinsItsReply(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
@@ -122,8 +117,6 @@ func TestMap_AJoinedMessageJoinsItsReply(t *testing.T) {
 	assert.Equal(t, ledger.ReplyID(turnID), bodyOf[ledger.AssistantText](t, rows[0]).Reply)
 }
 
-// A message keeps the turn it began in; a new message naming no turn is the
-// running turn's.
 func TestMap_AMessageStaysInTheTurnItBeganIn(t *testing.T) {
 	c := liveChatRows(t)
 	first := c.typed("one")
@@ -300,8 +293,6 @@ func TestMap_AFinishedCallCarriesItsOutputOnlyWhenItIsShort(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.ToolCall](t, rows[0]).Output, "a long output stays in its blob")
 }
 
-// Only a call of the MCP kind names an MCP server and tool: the server is
-// optional, and a tool name is given to other kinds of call too.
 func TestMap_OnlyACallIntoAnMCPServerNamesOne(t *testing.T) {
 	for name, tc := range map[string]struct {
 		kind, server, tool  string
@@ -394,7 +385,6 @@ func TestMap_ACompactionIsMarkedOnce(t *testing.T) {
 	assert.Empty(t, none, "an end of nothing open repeats one recorded")
 }
 
-// A compaction asked for with a prompt spends that prompt: no turn will.
 func TestMap_ACompactionAskedByPromptSpendsIt(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-1", "/compact", ledger.DeliveryRestart))
@@ -409,8 +399,6 @@ func TestMap_ACompactionAskedByPromptSpendsIt(t *testing.T) {
 	assert.Equal(t, ledger.ReasonProviderBuiltin, settled.Reason)
 }
 
-// recordedRows are the rows of a feed captured off a real daemon run, one
-// `<time> <frame>` per line (testdata/live3: real claude and codex CLIs).
 func recordedRows(t *testing.T, name string) []ledger.Row {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "live3", name))
@@ -429,9 +417,6 @@ func recordedRows(t *testing.T, name string) []ledger.Row {
 	return rows
 }
 
-// replay re-decides a recording's provider reports through Map: each whole
-// message, and each provider's turn end with what the recording wrote at it
-// (its reply, streamed answers, thought). Other rows are committed as recorded.
 func replay(t *testing.T, recorded []ledger.Row) []ledger.Row {
 	t.Helper()
 	c := newChatRows(t)
@@ -463,7 +448,6 @@ func replay(t *testing.T, recorded []ledger.Row) []ledger.Row {
 	return out
 }
 
-// recordedEnd is the provider's end of turnID as the rows written at it say.
 func recordedEnd(t *testing.T, st ledger.State, turnID string, end ledger.TurnEnded, spoken []ledger.Row) (
 	engineagents.CanonicalEvent, Source,
 ) {

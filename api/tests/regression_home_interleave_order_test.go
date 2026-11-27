@@ -13,12 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// A project's top level is ONE interleaved list of repo header rows and home
-// chats/folders, sorted on one `order` (rows-from-home.ts). These tests drive
-// the two write paths that list is reordered through — PATCH .../repos/:r
-// {order} and PATCH .../home/chats/:id/placement {order} — and read back the
-// orders both GETs serve, exactly as the sidebar does.
-
 type homeRepoOrder struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -84,13 +78,6 @@ func addSecondRepo(
 	return id
 }
 
-// TestRegression_RepoCannotBeReorderedPastAHomeChat is K3's repo half. A home
-// chat created at the panel root (POST .../home/chats, CreateChat's
-// parentID=="" branch -> SpawnChat) never gets a Node row — only a placement
-// through the tree package mints one — while placeRepoAmongHomeSiblings
-// (usecases/project/project.go) builds the repo's sibling space from
-// Nodes.ListByParent("") alone. The chat is invisible to the repo's drag, its
-// own Chat.Order is never shifted, and the repo can never be placed past it.
 func TestRegression_RepoCannotBeReorderedPastAHomeChat(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -102,9 +89,6 @@ func TestRegression_RepoCannotBeReorderedPastAHomeChat(t *testing.T) {
 	c1 := createHomeChat(t, h, projectID)
 	c2 := createHomeChat(t, h, projectID)
 
-	// Give every visible row a real, distinct order through the CHAT path
-	// first (c2 to the front), so the assertion below is never decided by a
-	// tie the sidebar breaks arbitrarily.
 	var placed placedChatDTO
 	h.patch("/v0/projects/"+projectID+"/home/chats/"+c2+"/placement",
 		map[string]any{"parentId": "", "order": 0}, &placed)
@@ -114,8 +98,6 @@ func TestRegression_RepoCannotBeReorderedPastAHomeChat(t *testing.T) {
 	repos := repoOrders(t, h, projectID)
 	t.Logf("after chat drag: c1=%d c2=%d A=%d B=%d", chats[c1].Order, chats[c2].Order, repos[repoA].Order, repos[repoB].Order)
 
-	// The user's gesture: drag repo A to the END of the top level, after both
-	// chats. The frontend sends the visible target index.
 	_ = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoA, map[string]any{"order": 3}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
 
@@ -126,7 +108,6 @@ func TestRegression_RepoCannotBeReorderedPastAHomeChat(t *testing.T) {
 	assert.Greater(t, repos[repoA].Order, chats[c2].Order, "repo A dragged to the end must sort after chat c2")
 	assert.Greater(t, repos[repoA].Order, repos[repoB].Order)
 
-	// And back to the front, before both chats.
 	_ = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoA, map[string]any{"order": 0}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
 	chats = homeChatOrders(t, h, projectID)
@@ -136,21 +117,13 @@ func TestRegression_RepoCannotBeReorderedPastAHomeChat(t *testing.T) {
 	assert.Less(t, repos[repoA].Order, chats[c2].Order, "repo A dragged to the front must sort before chat c2")
 }
 
-// TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors is K3's chat
-// half. Every workspace's Node{Kind:workspace} row is minted at parent ""
-// (hierarchy/node.go, owning_chats.go) — the SAME bare root project home's
-// chats and repo headers share — and homeSnapshotAround/mergeHomeNode folds
-// every locked branch's anchor into the home level's densify. Those rows are
-// drawn INSIDE their repo, never at the top level, so the visible index the
-// sidebar asks for lands elsewhere, and the repo-internal order of the locked
-// branches is rewritten as collateral.
 func TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
-	imported := importProject(t, h) // repo with a locked managed "main": one anchor at ""
+	imported := importProject(t, h)
 	projectID := imported.projectID
 	ctx := context.Background()
-	second := chatlessLockedBranch(t, h, imported, "release/anchor") // a second anchor at ""
+	second := chatlessLockedBranch(t, h, imported, "release/anchor")
 
 	c1 := createHomeChat(t, h, projectID)
 	c2 := createHomeChat(t, h, projectID)
@@ -161,7 +134,6 @@ func TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors(t *testing.T) {
 	secondBefore, err := h.app.Repositories.Placement.GetNode(ctx, second)
 	require.NoError(t, err)
 
-	// Visible top level: [repo, c1, c2, c3]. Drag c3 to the END (index 3).
 	var placed placedChatDTO
 	h.patch("/v0/projects/"+projectID+"/home/chats/"+c3+"/placement",
 		map[string]any{"parentId": "", "order": 3}, &placed)
@@ -182,9 +154,6 @@ func TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors(t *testing.T) {
 	assert.Equal(t, secondBefore.Order, secondAfter.Order, "a home-level chat drag must not renumber a repo's locked branch")
 }
 
-// Filing a repo INTO a home folder closed the gap it left over repo rows
-// only: the repo that stayed was renumbered against its repo siblings alone
-// and collided with — or jumped past — the untouched chats sharing the level.
 func TestRegression_RepoFiledIntoHomeFolderLeavesTheRootDense(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -198,7 +167,6 @@ func TestRegression_RepoFiledIntoHomeFolderLeavesTheRootDense(t *testing.T) {
 	c2 := createHomeChat(t, h, projectID)
 	folder := createChatFolder(t, h, base, "F", "")
 
-	// A dense, interleaved root: [c1, repoA, c2, repoB, F].
 	for i, id := range []string{c1, c2} {
 		h.patch(base+"/chats/"+id+"/placement", map[string]any{"parentId": "", "order": i * 2}, nil)
 		h.Quiesce()
@@ -215,7 +183,6 @@ func TestRegression_RepoFiledIntoHomeFolderLeavesTheRootDense(t *testing.T) {
 	t.Logf("before: c1=%d A=%d c2=%d B=%d F=%d", chats[c1].Order, repos[repoA].Order, chats[c2].Order, repos[repoB].Order, f.Order)
 	require.Equal(t, []int{0, 1, 2, 3, 4}, []int{chats[c1].Order, repos[repoA].Order, chats[c2].Order, repos[repoB].Order, f.Order})
 
-	// File repoA into F.
 	_ = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoA,
 		map[string]any{"folderId": folder.ID, "order": 0}, http.StatusNoContent).Body.Close()
 	h.Quiesce()

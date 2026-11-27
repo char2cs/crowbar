@@ -1,8 +1,5 @@
 package tools
 
-// reviewTools registers the review tools, each fail-closed on its own ports: a write tool without the
-// diff outline, writer or ThreadBroadcast is not advertised, since an unvalidated or invisible write is
-// worse than none. Only post_review_comment also needs Idempotency; reply/resolve refuse a keyed call.
 func reviewTools(deps Deps) []toolDef {
 	var out []toolDef
 	if deps.Threads != nil {

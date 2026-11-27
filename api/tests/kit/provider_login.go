@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// RequireProviderLogin skips a test that needs a real model turn from
-// provider unless a test env var supplies its credential: an API key, or a
-// credential file IsolateProviderHomes copies in.
 func RequireProviderLogin(
 	t *testing.T,
 	provider string,

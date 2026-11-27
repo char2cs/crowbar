@@ -1,6 +1,3 @@
-// Package convert translates between LSP wire types and the Crowbar domain
-// DTOs defined in internal/domain/lsp. Each mapping is a small,
-// pure function with no side effects.
 package convert
 
 import (
@@ -10,22 +7,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// LSP wire types — defined here so the convert package owns its own
-// coupling surface and callers never import raw LSP structs.
-
-// LSPPosition is the LSP wire Position (0-based line and character).
 type LSPPosition struct {
 	Line      int `json:"line"`
 	Character int `json:"character"`
 }
 
-// LSPRange is the LSP wire Range.
 type LSPRange struct {
 	Start LSPPosition `json:"start"`
 	End   LSPPosition `json:"end"`
 }
 
-// LSPDiagnostic is the LSP wire Diagnostic.
 type LSPDiagnostic struct {
 	Range    LSPRange `json:"range"`
 	Severity int      `json:"severity"`
@@ -34,25 +25,20 @@ type LSPDiagnostic struct {
 	Code     string   `json:"code,omitempty"`
 }
 
-// LSPLocation is the LSP wire Location.
 type LSPLocation struct {
 	URI   string   `json:"uri"`
 	Range LSPRange `json:"range"`
 }
 
-// LSPTextEdit is the LSP wire TextEdit.
 type LSPTextEdit struct {
 	Range   LSPRange `json:"range"`
 	NewText string   `json:"newText"`
 }
 
-// LSPWorkspaceEdit is the LSP wire WorkspaceEdit.
 type LSPWorkspaceEdit struct {
 	Changes map[string][]LSPTextEdit `json:"changes"`
 }
 
-// SeverityFromLSP converts an LSP DiagnosticSeverity integer to the Crowbar
-// string label. Unknown values default to "error".
 func SeverityFromLSP(
 	severity int,
 ) string {
@@ -70,8 +56,6 @@ func SeverityFromLSP(
 	}
 }
 
-// PositionFromLSP converts LSP 0-based line/character integers to a
-// domain Position (already 0-based; mapping is 1:1).
 func PositionFromLSP(
 	line int,
 	character int,
@@ -82,25 +66,18 @@ func PositionFromLSP(
 	}
 }
 
-// PathFromURI strips the "file://" scheme from a URI, returning a plain
-// filesystem path. If the URI has no "file://" prefix it is returned as-is.
 func PathFromURI(
 	uri string,
 ) string {
 	return strings.TrimPrefix(uri, "file://")
 }
 
-// URIFromPath converts a filesystem path to a file URI by prepending
-// "file://".
 func URIFromPath(
 	path string,
 ) string {
 	return "file://" + path
 }
 
-// WorkspaceRelPath expresses an absolute path relative to worktreePath, since the
-// frontend only acts on workspace-relative paths. A path outside the worktree (stdlib,
-// module cache) is returned unchanged; its leading separator marks it out-of-workspace.
 func WorkspaceRelPath(
 	worktreePath string,
 	path string,
@@ -121,7 +98,6 @@ func WorkspaceRelPath(
 	return rel
 }
 
-// rangeFromLSP converts an LSP wire Range to a domain Range.
 func rangeFromLSP(
 	r LSPRange,
 ) lsp.Range {
@@ -131,8 +107,6 @@ func rangeFromLSP(
 	}
 }
 
-// DiagnosticFromLSP converts a single LSP wire Diagnostic to a Crowbar
-// Diagnostic, filling FilePath from the document URI.
 func DiagnosticFromLSP(
 	uri string,
 	raw LSPDiagnostic,
@@ -147,8 +121,6 @@ func DiagnosticFromLSP(
 	}
 }
 
-// LocationsFromLSP converts a slice of LSP wire Locations to Crowbar
-// Locations.
 func LocationsFromLSP(
 	raw []LSPLocation,
 ) []lsp.Location {
@@ -165,8 +137,6 @@ func LocationsFromLSP(
 	return out
 }
 
-// WorkspaceEditFromLSP converts an LSP wire WorkspaceEdit (URI-keyed) to a
-// Crowbar WorkspaceEdit (path-keyed).
 func WorkspaceEditFromLSP(
 	raw LSPWorkspaceEdit,
 ) lsp.WorkspaceEdit {
@@ -180,8 +150,6 @@ func WorkspaceEditFromLSP(
 	return lsp.WorkspaceEdit{Changes: changes}
 }
 
-// textEditsFromLSP converts a slice of LSP wire TextEdits to Crowbar
-// TextEdits.
 func textEditsFromLSP(
 	raw []LSPTextEdit,
 ) []lsp.TextEdit {

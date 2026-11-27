@@ -9,15 +9,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// workspaceGitStatusReader adapts the workspace usecase into the chat tree's
-// WorkspaceGitStatus: read-model facts the tree places rows by, never a live git call.
 type workspaceGitStatusReader struct {
 	workspace workspace.Usecase
-	// repos resolves a repo id to its project and workspaces.
-	repos store.ScopedStore[domain.Repository, string]
+	repos     store.ScopedStore[domain.Repository, string]
 }
 
-// RepoOf implements agentusecase.TreeWorkspaceGitStatus.
 func (w workspaceGitStatusReader) RepoOf(
 	ctx context.Context,
 	workspaceID string,
@@ -29,9 +25,6 @@ func (w workspaceGitStatusReader) RepoOf(
 	return ws.RepoID, nil
 }
 
-// RepoIDsForHome implements agentusecase.TreeWorkspaceGitStatus: every repo
-// id in home workspace homeWorkspaceID's project, so a bare-root placement in
-// one project never renumbers another project's repo Node row.
 func (w workspaceGitStatusReader) RepoIDsForHome(
 	ctx context.Context,
 	homeWorkspaceID string,
@@ -51,8 +44,6 @@ func (w workspaceGitStatusReader) RepoIDsForHome(
 	return ids, nil
 }
 
-// OutlivesItsChats implements agentusecase.TreeWorkspaceGitStatus: a
-// project's home and a repo's default checkout are never reaped with a chat.
 func (w workspaceGitStatusReader) OutlivesItsChats(ctx context.Context, workspaceID string) (bool, error) {
 	ws, err := w.workspace.Get(ctx, workspaceID)
 	if err != nil {
@@ -61,7 +52,6 @@ func (w workspaceGitStatusReader) OutlivesItsChats(ctx context.Context, workspac
 	return ws.Kind == domain.WorkspaceKindHome || ws.IsDefault, nil
 }
 
-// RendersAsBranch implements agentusecase.TreeWorkspaceGitStatus.
 func (w workspaceGitStatusReader) RendersAsBranch(
 	ctx context.Context,
 	workspaceID string,
@@ -73,7 +63,6 @@ func (w workspaceGitStatusReader) RendersAsBranch(
 	return ws.RendersAsBranch(), nil
 }
 
-// HomeOfRepo implements agentusecase.TreeWorkspaceGitStatus.
 func (w workspaceGitStatusReader) HomeOfRepo(
 	ctx context.Context,
 	repoID string,
@@ -95,7 +84,6 @@ func (w workspaceGitStatusReader) HomeOfRepo(
 	return "", nil
 }
 
-// CreatedAtOf implements agentusecase.TreeWorkspaceGitStatus.
 func (w workspaceGitStatusReader) CreatedAtOf(
 	ctx context.Context,
 	workspaceID string,
@@ -107,7 +95,6 @@ func (w workspaceGitStatusReader) CreatedAtOf(
 	return ws.CreatedAt, nil
 }
 
-// BranchRowsOf implements agentusecase.TreeWorkspaceGitStatus.
 func (w workspaceGitStatusReader) BranchRowsOf(
 	ctx context.Context,
 	repoID string,
@@ -129,7 +116,6 @@ func (w workspaceGitStatusReader) BranchRowsOf(
 	return ids, nil
 }
 
-// Exists implements agentusecase.TreeWorkspaceGitStatus.
 func (w workspaceGitStatusReader) Exists(
 	ctx context.Context,
 	workspaceID string,
@@ -138,9 +124,6 @@ func (w workspaceGitStatusReader) Exists(
 	return err == nil, nil
 }
 
-// Provisioned implements agentusecase.TreeWorkspaceGitStatus. An id that does
-// not resolve answers true — see the port's own doc: a failed read is not
-// evidence of a placeholder, and this guard only ever refuses.
 func (w workspaceGitStatusReader) Provisioned(
 	ctx context.Context,
 	workspaceID string,
@@ -152,8 +135,6 @@ func (w workspaceGitStatusReader) Provisioned(
 	return ws.Provisioning.HasWorktree(), nil
 }
 
-// DefaultWorkspaceOf implements agentusecase.TreeRepoRoots: repoID's default
-// checkout, "" when the repo has none.
 func (w workspaceGitStatusReader) DefaultWorkspaceOf(
 	ctx context.Context,
 	repoID string,
@@ -174,9 +155,6 @@ func (w workspaceGitStatusReader) DefaultWorkspaceOf(
 	return "", nil
 }
 
-// VisibleForkParent implements agentusecase.TreeWorkspaceGitStatus. It reduces to "" a
-// parent that draws no row of its own (the default checkout, a project home) or no longer
-// resolves; the reduction lives here because it reads domain.Workspace fields.
 func (w workspaceGitStatusReader) VisibleForkParent(
 	ctx context.Context,
 	workspaceID string,

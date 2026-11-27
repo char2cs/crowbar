@@ -41,8 +41,6 @@ func (l *live) version(ctx context.Context) Step {
 	return pass("version", versionLine(out, v))
 }
 
-// flags checks every long flag the descriptor passes against --help. Hidden
-// flags exist, so a miss warns rather than fails.
 func (l *live) flags(ctx context.Context) Step {
 	help, err := l.run(ctx, "--help")
 	if err != nil {
@@ -60,8 +58,6 @@ func (l *live) flags(ctx context.Context) Step {
 	return pass("flags", "every declared flag is documented")
 }
 
-// versionLine is the output line naming the version: a CLI may print
-// warnings first.
 func versionLine(out, v string) string {
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, v) {
@@ -114,9 +110,6 @@ func (l *live) run(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// resumeUnknown launches a resume of a session that never existed. The CLI
-// must end with the refusal session.refused recognises: nothing else loses a
-// chat's session.
 func (l *live) resumeUnknown(ctx context.Context) Step {
 	arg, ok := l.agent.ResumeArg()
 	if !ok {

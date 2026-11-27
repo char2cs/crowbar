@@ -14,26 +14,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// errBadRequest is the internal signal that a helper has already written the
-// response and the handler must stop. It never reaches a client.
 var errBadRequest = errors.New("worktree: request rejected")
 
-// mergeRequest is the POST .../chats/:id/merge-into-parent body: the merge
-// strategy to apply when folding the child branch into its parent, and whether
-// to delete the now-merged child workspace once the merge succeeds.
 type mergeRequest struct {
 	Strategy     gitdomain.MergeStrategy `json:"strategy"`
 	DeleteSource bool                    `json:"deleteSource"`
 }
 
-// reparentRequest is the POST .../chats/:id/reparent body: the id of the new
-// parent the leaf child is rebased onto.
 type reparentRequest struct {
 	NewParentID string `json:"newParentId"`
 }
 
-// applyRename runs the branch rename, writing the error response and returning
-// non-nil when the caller must stop. A nil branch is a no-op.
 func (h *Handlers) applyRename(
 	c *gin.Context,
 	id string,
@@ -53,8 +44,6 @@ func (h *Handlers) applyRename(
 	return nil
 }
 
-// ChatMergeIntoParent handles POST .../chats/:id/merge-into-parent. Validation failures are 4xx;
-// then it answers 202 with the operation running the local child→parent merge and the leaf fold.
 func (h *Handlers) ChatMergeIntoParent(
 	c *gin.Context,
 ) {
@@ -71,7 +60,6 @@ func (h *Handlers) ChatMergeIntoParent(
 	if !ok {
 		return
 	}
-	// Refused before any merge, and again as the merge starts: nothing is left half-done.
 	if body.DeleteSource {
 		if err := h.hierarchy.GuardMergeFold(c.Request.Context(), ws.ID); err != nil {
 			libs.Fail(c, err)
@@ -89,7 +77,6 @@ func (h *Handlers) ChatMergeIntoParent(
 		if mergeErr != nil {
 			return mergeErr
 		}
-		// Fold only a clean merge: a conflict keeps the child for the user to resolve.
 		if !body.DeleteSource || result.ConflictsPending {
 			return nil
 		}
@@ -97,8 +84,6 @@ func (h *Handlers) ChatMergeIntoParent(
 	})
 }
 
-// foldMergedChildIfLeaf removes the just-merged workspace only when it is a leaf: cascade-deleting
-// a non-leaf would destroy its descendants' unmerged work.
 func (h *Handlers) foldMergedChildIfLeaf(
 	ctx context.Context,
 	id string,
@@ -110,14 +95,12 @@ func (h *Handlers) foldMergedChildIfLeaf(
 	if !leaf {
 		return nil
 	}
-	// Never with consent: a fold nobody reviewed must not destroy unmerged work.
 	if err := h.hierarchy.DeleteCascade(ctx, id, domain.KeepWorkAtRisk); err != nil {
 		return &problem.Error{Code: problem.Internal, Message: "merge succeeded but removing the workspace failed", Err: err}
 	}
 	return nil
 }
 
-// workspaceIsLeaf reports whether the workspace has no child workspaces.
 func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error) {
 	all, err := h.reader.List(ctx)
 	if err != nil {
@@ -131,8 +114,6 @@ func (h *Handlers) workspaceIsLeaf(ctx context.Context, id string) (bool, error)
 	return true, nil
 }
 
-// ChatRebaseOntoParent handles POST .../chats/:id/rebase-onto-parent, the user's "finish the move"
-// for a moved-but-conflicting child; a conflicting rebase stays live for the resolve flow.
 func (h *Handlers) ChatRebaseOntoParent(
 	c *gin.Context,
 ) {
@@ -147,9 +128,6 @@ func (h *Handlers) ChatRebaseOntoParent(
 	})
 }
 
-// ChatReparent handles POST .../chats/:id/reparent: 4xx on validation, then 202 with the operation
-// rebasing the leaf onto the new parent. newParentId names a workspace, not a chat: it is the git
-// lineage parent the caller reads from the tree it draws.
 func (h *Handlers) ChatReparent(
 	c *gin.Context,
 ) {
@@ -173,8 +151,6 @@ func (h *Handlers) ChatReparent(
 	})
 }
 
-// ChatRetryProvision handles POST .../chats/:id/retry-provision, answering 202 with the operation
-// re-provisioning the placeholder in place (it fails if the branch is still held).
 func (h *Handlers) ChatRetryProvision(
 	c *gin.Context,
 ) {
@@ -188,9 +164,6 @@ func (h *Handlers) ChatRetryProvision(
 	})
 }
 
-// ChatDetachHolder handles POST .../chats/:id/detach-holder (the user consented in the modal that
-// fires it), answering 202 with the operation that detaches the branch's holder and
-// re-provisions the placeholder in place.
 func (h *Handlers) ChatDetachHolder(
 	c *gin.Context,
 ) {

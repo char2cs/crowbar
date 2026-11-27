@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// The legacy transcript's roles and an assistant message's end statuses.
 const (
 	roleUser      = "user"
 	roleAssistant = "assistant"
@@ -22,12 +21,9 @@ const (
 	statusAbandoned   = "abandoned"
 
 	kindInferred = "inferred"
-	// reasonNotice ends a turn the old daemon closed with a notice row.
 	reasonNotice = "notice"
 )
 
-// group is one ledger turn: the user or harness row that opened it and the
-// assistant rows that answered, until the next opening row.
 type group struct {
 	id, runnerID, provider string
 	head                   *LegacyTurn
@@ -37,7 +33,6 @@ type group struct {
 	inferred               *LegacyInterruption
 }
 
-// turns restates the legacy transcript, in its display order, as turns.
 func (c *conversion) turns(in LegacyChat) {
 	rows := slices.Clone(in.Turns)
 	slices.SortStableFunc(rows, func(a, b LegacyTurn) int {
@@ -61,7 +56,6 @@ func (c *conversion) turns(in LegacyChat) {
 			c.skipf("turn %s: unknown role %q", row.ID, row.Role)
 			continue
 		}
-		// A notice before any turn is in none: byID names only turns.
 		if row.ID != "" && g != nil {
 			c.byID[row.ID] = g
 		}
@@ -79,8 +73,6 @@ func (c *conversion) open(head *LegacyTurn) *group {
 	return g
 }
 
-// notice ends the turn it is in as failed; outside a turn it is what the CLI
-// told its user.
 func (c *conversion) notice(g *group, row *LegacyTurn) {
 	if g == nil {
 		c.emit(ruleMarker, row.StartedAt, row.Seq, ledger.KindMarker, "", "",
@@ -90,8 +82,6 @@ func (c *conversion) notice(g *group, row *LegacyTurn) {
 	g.notice = row
 }
 
-// inferEnds gives an inferred interruption to the turn it names when that turn
-// recorded no end of its own.
 func (c *conversion) inferEnds(interruptions []LegacyInterruption) {
 	for i, in := range interruptions {
 		if in.Kind != kindInferred {
@@ -99,13 +89,12 @@ func (c *conversion) inferEnds(interruptions []LegacyInterruption) {
 		}
 		g := c.turnOf(in.TurnID, in.At)
 		if g == nil || g.inferred != nil || g.ended() {
-			continue // the turn's own end restates it
+			continue
 		}
 		g.inferred = &interruptions[i]
 	}
 }
 
-// ended reports whether the turn's last reply recorded how it ended.
 func (g *group) ended() bool {
 	if g.notice != nil {
 		return true
@@ -117,8 +106,6 @@ func (g *group) ended() bool {
 	return last.EndedAt != nil || last.Status == statusFailed || last.Status == statusInterrupted || last.Status == statusAbandoned
 }
 
-// restate emits g's rows no earlier than floor, past the turn before it, and
-// returns the instant after its end.
 func (c *conversion) restate(g *group, prompts []LegacyPrompt, floor time.Time) time.Time {
 	g.provider = cmp.Or(g.provider, firstProvider(g.replies))
 	g.runnerID = cmp.Or(g.runnerID, firstRunner(g.replies))
@@ -153,8 +140,6 @@ func (c *conversion) restate(g *group, prompts []LegacyPrompt, floor time.Time) 
 	return g.end.Add(time.Microsecond)
 }
 
-// userMessage is the row a turn's opening row is: a crowbar prompt when the
-// journal holds its request, the harness's or the provider's otherwise.
 func userMessage(head *LegacyTurn, prompts []LegacyPrompt) ledger.UserMessage {
 	m := ledger.UserMessage{Text: head.Text, Origin: ledger.OriginProvider}
 	switch {
@@ -166,7 +151,6 @@ func userMessage(head *LegacyTurn, prompts []LegacyPrompt) ledger.UserMessage {
 	return m
 }
 
-// restatePlan records the turn's last plan before its end.
 func (c *conversion) restatePlan(g *group) {
 	var raw string
 	for _, r := range g.replies {
@@ -190,8 +174,6 @@ func (c *conversion) restatePlan(g *group) {
 	c.emit(rulePlan, g.end, 0, ledger.KindPlan, g.id, "", ledger.Plan{Op: ledger.PlanReplace, Items: items})
 }
 
-// ending is how the turn ended: failed by a notice or its last reply's status,
-// interrupted, or done; one that recorded no end ends interrupted.
 func (g *group) ending() (ledger.Kind, any) {
 	if g.notice != nil {
 		return ledger.KindTurnFailed, ledger.TurnFailed{Reason: reasonNotice, Detail: g.notice.Text}

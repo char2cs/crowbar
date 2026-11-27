@@ -19,9 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// newAsynx builds the shared asynx wiring every aggregate type gets; parked hears an
-// aggregate whose durable delivery ran out of attempts. opts run last, right before
-// Build, so a caller layers its own read model or upcaster onto the defaults.
 func newAsynx[T any](
 	es asynxModels.Store,
 	ss asynxModels.SnapshotStore,
@@ -32,8 +29,6 @@ func newAsynx[T any](
 		WithEventStore(es).
 		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
-		// Without these handlers asynx swallows a live handler's panic or publish
-		// error, and a durable read model's failing attempts, so they are logged.
 		WithPanicHandler(func(ctx context.Context, evt asynxModels.Event[T], p any) {
 			slog.ErrorContext(ctx, "asynx handler panic",
 				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "panic", p)
@@ -54,8 +49,6 @@ func newAsynx[T any](
 	return b.Build()
 }
 
-// aggregates are the per-type asynx singletons, each built with its durable
-// read model as subscriber.
 type aggregates struct {
 	workspace    asynx.Asynx[domain.Workspace]
 	reviewThread asynx.Asynx[domain.ReviewThread]
@@ -76,13 +69,11 @@ func newAggregates(
 		reviewthread.Subscriber(rm.ReviewThread)); err != nil {
 		return nil, fmt.Errorf("app: asynx review thread: %w", err)
 	}
-	// The upcaster strips the patches of fields domain.Workspace no longer has.
 	if ax.workspace, err = newAsynx(adapters.WorkspaceES(), adapters.WorkspaceSS(), parked.workspace,
 		workspace.RetiredFields,
 		workspace.Subscriber(rm.Workspace)); err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
-	// The upcaster strips the patches of fields domain.Chat no longer has.
 	if ax.agentChat, err = newAsynx(adapters.AgentChatES(), adapters.AgentChatSS(), parked.agentChat,
 		agentchat.RetiredFields,
 		agentchat.Subscriber(rm.AgentChat)); err != nil {
@@ -94,8 +85,6 @@ func newAggregates(
 	return &ax, nil
 }
 
-// logDeliveryError logs a failed durable attempt; the one that ran out of
-// attempts parks the aggregate until a restart, so it says that, not "retrying".
 func logDeliveryError[T any](
 	ctx context.Context,
 	evt asynxModels.Event[T],

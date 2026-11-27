@@ -16,11 +16,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// retiredTable is the id-to-path index view.db held before workspace paths
-// moved into the workspace read model. No code reads it any more.
 const retiredTable = "workspace_paths"
 
-// PreOpenImpls implements the steps that run before any store is open.
 func PreOpenImpls() migrate.Impls {
 	return migrate.Impls{
 		StepWorkspacePathsTable: Adopting(StepWorkspacePathsTable, migrate.Impl{
@@ -36,7 +33,6 @@ func PreOpenImpls() migrate.Impls {
 	}
 }
 
-// planWorkspacePaths has work only where an older daemon left a view.db.
 func planWorkspacePaths(
 	_ context.Context,
 	env migrate.Env,
@@ -75,7 +71,6 @@ func verifyWorkspacePaths(
 	})
 }
 
-// dropRetiredTable drops table, which may already be gone.
 func dropRetiredTable(
 	ctx context.Context,
 	db *gormdb.DB,
@@ -87,8 +82,6 @@ func dropRetiredTable(
 	return nil
 }
 
-// withViewDB runs fn over the home's view.db. A home without one has nothing
-// for fn, and none is created.
 func withViewDB(
 	h home.Home,
 	fn func(db *gormdb.DB) error,

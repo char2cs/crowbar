@@ -16,17 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// procTagEnv is inherited by every process a test starts, however deep: a
-// grandchild orphaned onto init still carries it, where its parent link does not.
 const procTagEnv = "CROWBAR_TEST_PROC_TAG"
 
-// procReapBound is how long a teardown may take to see its processes exit
-// (a server child is asked to stop gracefully, then waited on).
 const procReapBound = 10 * time.Second
 
-// RequireNoLeakedProcesses fails tb if any process started during it is still running
-// after every other cleanup, and kills it. Call it first so its cleanup runs last. It
-// reads /proc; without one it checks nothing.
 func RequireNoLeakedProcesses(tb testing.TB) {
 	tb.Helper()
 	if _, err := os.Stat("/proc/self/environ"); err != nil {
@@ -36,7 +29,6 @@ func RequireNoLeakedProcesses(tb testing.TB) {
 	tag := uuid.NewString()
 	tb.Setenv(procTagEnv, tag)
 	tb.Cleanup(func() {
-		// A process that is exiting is still listed until it is reaped.
 		if assert.Eventually(tb, func() bool { return len(taggedProcesses(tag)) == 0 },
 			procReapBound, 20*time.Millisecond, "processes started by this test outlived its teardown") {
 			return
@@ -53,8 +45,6 @@ func RequireNoLeakedProcesses(tb testing.TB) {
 	})
 }
 
-// taggedProcesses lists the live (non-zombie) processes, other than this one,
-// whose environment carries tag.
 func taggedProcesses(tag string) []int {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -76,7 +66,6 @@ func taggedProcesses(tag string) []int {
 	return out
 }
 
-// zombie reports whether pid has exited and only awaits its parent's reap.
 func zombie(pid int) bool {
 	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
@@ -100,7 +89,6 @@ func describe(pid int) string {
 	return p + " (cwd " + cwd + "): " + strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
 }
 
-// kill ends pid; one that is already gone needs no killing.
 func kill(pid int) error {
 	p, err := os.FindProcess(pid)
 	if err != nil {

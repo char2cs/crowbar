@@ -16,14 +16,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// fileBackend watches the file's directory, which survives an atomic replace;
-// siblings' events are dropped, and a missing directory watches the nearest
-// existing ancestor until the path comes back.
 type fileBackend struct {
-	fsw    *fsnotify.Watcher
-	path   string
-	parent string
-	// watched is the directory armed now; relay owns it once started.
+	fsw     *fsnotify.Watcher
+	path    string
+	parent  string
 	watched string
 	out     chan event
 	done    chan struct{}
@@ -61,7 +57,6 @@ func (b *fileBackend) errors() <-chan error {
 	return b.fsw.Errors
 }
 
-// created and removed are no-ops: nothing below the directory is followed.
 func (b *fileBackend) created(context.Context, string) {}
 
 func (b *fileBackend) removed(string) {}
@@ -91,9 +86,6 @@ func (b *fileBackend) relay() {
 	}
 }
 
-// forward passes on the file's own events and re-arms when the watched
-// directory goes or a missing directory on the path is made. It reports false
-// once the backend is closing.
 func (b *fileBackend) forward(
 	evt fsnotify.Event,
 ) bool {
@@ -111,8 +103,6 @@ func (b *fileBackend) forward(
 	return true
 }
 
-// rearm moves the watch and, once it is back on the file's directory, reports
-// the file as created if it is already there: it was made unwatched.
 func (b *fileBackend) rearm() bool {
 	if err := b.arm(); err != nil {
 		if !errors.Is(err, fsnotify.ErrClosed) {
@@ -140,8 +130,6 @@ func (b *fileBackend) send(
 	}
 }
 
-// arm watches the nearest existing directory on the way to the file, and goes
-// again while a deeper one appeared before the watch was in place.
 func (b *fileBackend) arm() error {
 	for {
 		dir, err := b.addNearest()
@@ -176,8 +164,6 @@ func (b *fileBackend) addNearest() (string, error) {
 	}
 }
 
-// watchLimit marks err as ErrWatchLimit when the kernel ran out of inotify
-// instances or watches (EMFILE, ENOSPC) or of open files (ENFILE).
 func watchLimit(
 	err error,
 ) error {

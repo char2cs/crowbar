@@ -62,8 +62,6 @@ func TestHalt_FailureHaltsWithTheStepAndKeepsLayout(t *testing.T) {
 	assert.Equal(t, 1, b.layout())
 }
 
-// A cause the session can name in plain words is named so in the halt; its
-// technical text stays in the log and the ledger.
 func TestHalt_AnExplainedCauseIsPlainInTheMessageAndRawInTheLog(t *testing.T) {
 	full := errors.New("sqlite: write: database or disk is full (13)")
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
@@ -108,7 +106,7 @@ func TestHalt_FailedLayoutWriteHalts(t *testing.T) {
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 1))
 	bump := healthy(1)[1]
 	bump.Verify = func(context.Context, Env) error {
-		return os.Mkdir(b.home.LayoutFile(), 0o700) // a directory cannot be replaced by the staged file
+		return os.Mkdir(b.home.LayoutFile(), 0o700)
 	}
 	s := b.begin()
 
@@ -197,7 +195,7 @@ func TestHalt_FailureStaysHaltedWhenTheLedgerCannotRecordIt(t *testing.T) {
 	b := newBench(t, newStep(1, "a", PreOpen, 0, 0))
 	s := b.begin()
 	closeLedger := impl(func(*Checkpoints) (Counts, error) {
-		require.NoError(t, s.led.Close()) // the ledger can no longer be written
+		require.NoError(t, s.led.Close())
 		return nil, errors.New("boom")
 	})
 
@@ -229,7 +227,6 @@ func TestHalt_AnUnrecordedBumpStillHaltsAndKeepsTheBump(t *testing.T) {
 func TestHalt_LedgerFailuresAroundTheRun(t *testing.T) {
 	tests := []struct {
 		name string
-		// arm runs after Begin; trip is asked on every clock read and breaks the ledger when true.
 		arm  func(*bench)
 		trip func(*Session) bool
 		want string
@@ -302,7 +299,6 @@ func TestHalt_IsSafeToReadWhileTheRunFails(t *testing.T) {
 	case err := <-done:
 		require.FailNow(t, "RunPostOpen returned before step 1 ran", "%v", err)
 	}
-	// Nothing orders this read against the run's write: -race decides.
 	seen := make(chan *Halt, 1)
 	go func() {
 		seen <- s.Halt()

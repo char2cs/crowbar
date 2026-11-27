@@ -50,9 +50,6 @@ func TestSweepTargets_FiltersOpenPROnly(t *testing.T) {
 	_, err = repo.Create(ctx, workspace.CreateInput{ID: "plain", RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
-	// Create/SyncProviderState commit via async Send, so the store projection that
-	// List reads settles out of band. Drain asynx so the read model is consistent,
-	// then assert deterministically (no polling, no timeout).
 	c.Repositories.WaitQuiescent()
 	targets := sweepTargets(repo)()
 	require.Len(t, targets, 1)
@@ -66,14 +63,9 @@ func TestSweeper_FiltersByPRUrlAndTerminalState(t *testing.T) {
 	repo := c.Repositories.Workspace
 	now := time.Unix(1, 0).UTC()
 
-	// open: live PR, non-terminal -> swept.
 	mkProviderWS(t, repo, "open", "open", now)
-	// merged: terminal -> never re-swept.
 	mkProviderWS(t, repo, "merged", "merged", now)
-	// closed: terminal -> never re-swept.
 	mkProviderWS(t, repo, "closed", "closed", now)
-	// conflicts: has a PRUrl but a local-conflict status; the widened filter
-	// must still sweep it (the narrow Status==pr-open filter would drop it).
 	mkProviderWS(t, repo, "conflicts", "open", now)
 	_, err := repo.SyncWorkingTreeState(ctx, workspace.SyncInput{
 		ID:           "conflicts",
@@ -84,7 +76,6 @@ func TestSweeper_FiltersByPRUrlAndTerminalState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkspaceStatusPRConflicts, conflicted.Status)
 	require.NotEmpty(t, conflicted.PRUrl)
-	// nopr: no PR at all -> never swept.
 	_, err = repo.Create(ctx, workspace.CreateInput{ID: "nopr", RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
@@ -96,8 +87,6 @@ func TestSweeper_FiltersByPRUrlAndTerminalState(t *testing.T) {
 		"nopr":      false,
 	}
 
-	// Drain asynx so the store projection reflects every Create/SyncProviderState,
-	// then assert the sweep set deterministically (no polling, no timeout).
 	c.Repositories.WaitQuiescent()
 
 	got := make(map[string]bool)

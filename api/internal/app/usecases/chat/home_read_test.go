@@ -17,11 +17,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// fakeChatUsecase is a minimal agentusecase.ChatUsecase stand-in exposing
-// only what NewHomeCorrectedChats reads (ListChats/ListChatsByWorkspace/
-// ListChatsInRepo/GetChat) — every other method panics if ever called, which
-// is itself the proof the decorator delegates everything else untouched
-// (none of these tests exercise them).
 type fakeChatUsecase struct {
 	rows []domain.Chat
 }
@@ -116,16 +111,8 @@ func (f *fakeChatUsecase) AssembleHandoff(context.Context, string) (string, erro
 
 const homeWorkspaceID = "home-ws-1"
 
-// TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat is
-// Critical 1's regression test: RED before the fix (ListChatsByWorkspace
-// answered the CHAT aggregate's own frozen ParentID/Order, "" / 0, forever —
-// exactly the "chat renders at the sidebar root permanently, not fixed by a
-// reload" bug the SDD review caught), GREEN after (the wrapped usecase
-// overlays the row's live Node position for a home-scoped chat).
 func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
-		// Frozen at creation, per this task's own write-once contract: the
-		// row's REAL container (a home folder) never got written back here.
 		{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
@@ -157,11 +144,6 @@ func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat(t *tes
 	assert.Equal(t, "folder-1", inRepo[0].ParentID, "ListChatsInRepo is corrected too")
 }
 
-// A repo-scoped chat's placement is Node-backed too now (2026-09-08
-// sidebar-placement-unification Task 8 widens Critical 1's fix from
-// home-only to every non-bubble workspace) — the decorator must overlay its
-// live Node position exactly as it already does for a home-scoped chat, not
-// leave it at its stale Chat.ParentID/.Order.
 func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForARepoScopedChatToo(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
 		{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: "ws-repo-1", ParentID: "some-branch", Order: 5},
@@ -179,9 +161,6 @@ func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForARepoScopedChatToo(t *
 	assert.Equal(t, 1, got.Order)
 }
 
-// A bubble (WorkspaceID == "") is never home-scoped -- correcting it would
-// mean calling RepoOf("") and GetNode for a row that (per this task's own
-// scope boundary) never gets a Node mint at all.
 func TestNewHomeCorrectedChats_LeavesABubbleUntouched(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
 		{ID: "c3", Type: domain.ChatTypeChat, WorkspaceID: "", ParentID: "", Order: 0},
@@ -196,14 +175,11 @@ func TestNewHomeCorrectedChats_LeavesABubbleUntouched(t *testing.T) {
 	assert.Equal(t, 0, got.Order)
 }
 
-// A home-scoped chat with no Node row yet (its very first placement is still
-// in flight) degrades to its Chat-native placement
-// rather than erroring the whole read.
 func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
 		{ID: "c4", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
-	nodes := mocks.NewNodePlacements() // no rows -- GetNode answers not-found
+	nodes := mocks.NewNodePlacements()
 
 	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
 
@@ -213,11 +189,6 @@ func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 	assert.Equal(t, 0, got.Order)
 }
 
-// fakeTreeChats is a minimal tree.Chats stand-in exposing only the two reads
-// NewHomeCorrectedTreeChats overrides (LoadChat, ListByWorkspace) — every
-// other method panics if ever called, proving the decorator delegates the
-// rest (SetPlacement/SetOrder/Get/ListChats)
-// untouched.
 type fakeTreeChats struct {
 	rows []domain.Chat
 }
@@ -251,12 +222,6 @@ func (f *fakeTreeChats) SetOrder(context.Context, string, int) (domain.Chat, err
 	panic("unused")
 }
 
-// TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition is the
-// lineage-resolver half of this fix round: internal/lineage.Resolver.
-// Ancestors (what a freshly spawned CLI is told to read) calls LoadChat
-// FIRST and early-exits on chat.ParentID == "" -- RED before this fix, since
-// LoadChat answered the frozen Chat field forever for a home-scoped chat
-// moved under a folder; GREEN after, the live Node position is overlaid.
 func TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition(t *testing.T) {
 	inner := &fakeTreeChats{rows: []domain.Chat{
 		{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
@@ -274,19 +239,9 @@ func TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition(t *testing.T
 	assert.Equal(t, 3, got.Order)
 }
 
-// TestNewHomeCorrectedTreeChats_FeedsCorrectAncestryToTheRealLineageResolver
-// runs internal/lineage's ACTUAL Resolver (via tree.NewLineage/ChatLineage,
-// the same construction container.go uses) over the wrapped Chats port, to
-// prove the fix closes the real bug end to end, not merely the two wrapper
-// methods in isolation: a home-scoped thread moved under a chat now reports
-// that chat as its ancestor, where before the fix it silently reported none
-// at all (LoadChat's own early exit on a frozen, empty ParentID).
 func TestNewHomeCorrectedTreeChats_FeedsCorrectAncestryToTheRealLineageResolver(t *testing.T) {
 	inner := &fakeTreeChats{rows: []domain.Chat{
 		{ID: "parent-chat", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
-		// thread's OWN Chat.ParentID is frozen at "" (its creation-time bubble
-		// value) even though it was later dragged under parent-chat -- the
-		// write-once-then-ignored contract this task's report discloses.
 		{ID: "thread", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
@@ -304,14 +259,6 @@ func TestNewHomeCorrectedTreeChats_FeedsCorrectAncestryToTheRealLineageResolver(
 		"a freshly spawned CLI on this thread must be told it reads parent-chat's turns")
 }
 
-// TestNewHomeCorrectedTreeChats_FeedsAncestryThroughAFolder is Task 8's own
-// addition: a folder is Folder/Node-backed now, never a Chat row, so it no
-// longer arrives through ListByWorkspace's raw read at all — RED before
-// foldersReachableFrom (internal/lineage.Resolver's own walk finds no
-// ParentID entry for the folder id, so it stops there and reports no
-// ancestor), GREEN after (the folder is folded into the list so the walk
-// steps straight through it, exactly as it already does for an ordinary
-// chat-typed container).
 func TestNewHomeCorrectedTreeChats_FeedsAncestryThroughAFolder(t *testing.T) {
 	inner := &fakeTreeChats{rows: []domain.Chat{
 		{ID: "parent-chat", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
@@ -337,13 +284,6 @@ func TestNewHomeCorrectedTreeChats_FeedsAncestryThroughAFolder(t *testing.T) {
 
 var _ tree.Chats = (*fakeTreeChats)(nil)
 
-// TestRegression_UncorrectedTreeChatsFeedsNoAncestryToTheRealLineageResolver
-// pins the RED half directly, kept as a permanent regression: the SAME
-// scenario as TestNewHomeCorrectedTreeChats_FeedsCorrectAncestryToTheRealLineageResolver
-// above, but against the RAW (uncorrected) tree.Chats a caller might wire by
-// mistake -- reproducing the actual pre-fix bug (a freshly spawned CLI told
-// it has no prior context, when it does) rather than merely asserting a lack
-// of test coverage.
 func TestRegression_UncorrectedTreeChatsFeedsNoAncestryToTheRealLineageResolver(t *testing.T) {
 	inner := &fakeTreeChats{rows: []domain.Chat{
 		{ID: "parent-chat", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
@@ -357,7 +297,6 @@ func TestRegression_UncorrectedTreeChatsFeedsNoAncestryToTheRealLineageResolver(
 		"reproduces the bug: the raw (uncorrected) frozen Chat.ParentID reports no ancestor at all")
 }
 
-// countingNodeReads counts how a list is corrected against the Node table.
 type countingNodeReads struct {
 	*mocks.NodePlacements
 	gets, all int
@@ -373,7 +312,6 @@ func (c *countingNodeReads) ListAll(ctx context.Context) ([]dtree.Node, error) {
 	return c.NodePlacements.ListAll(ctx)
 }
 
-// A list is corrected from ONE read of the Node table, not one lookup per row.
 func TestNewHomeCorrectedChats_CorrectsAListFromOneNodeRead(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
 		{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: "ws"},

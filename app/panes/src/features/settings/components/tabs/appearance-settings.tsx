@@ -1,0 +1,244 @@
+import { useEffect, useMemo, useState } from 'react'
+import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
+import { themeRegistry } from '@/extensions/themes/theme-registry'
+import {
+  formatUiFontSize,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+  UI_FONT_SIZE_STEP,
+} from '@/features/settings/lib/ui-font-size'
+import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
+import NumberInput from '@/components/ui/number-input'
+import { Switch } from '@/components/ui/switch'
+import Section, { SettingRow } from '../settings-section'
+import { SettingSelect } from '@/features/settings/components/setting-select'
+import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
+import { cn } from '@/utils/cn'
+import { FontSelector } from '../font-selector'
+import type { TabListScope, Theme, ThemeMode } from '@/features/settings/types/settings'
+
+const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: 'Sync with System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
+const TAB_LIST_SCOPE_OPTIONS: { value: TabListScope; label: string }[] = [
+  { value: 'project', label: 'Current project' },
+  { value: 'all', label: 'Everything on this client' },
+]
+
+const SIDEBAR_POSITION_OPTIONS: { value: 'left' | 'right'; label: string }[] = [
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+]
+
+export const AppearanceSettings = () => {
+  const settings = useSettingsStore((s) => s.settings)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
+  const [themeOptions, setThemeOptions] = useState<{ value: string; label: string }[]>([])
+  const [iconThemeOptions, setIconThemeOptions] = useState<{ value: string; label: string }[]>([])
+
+  useEffect(() => {
+    const load = () => {
+      const options = themeRegistry.getAllThemes().map((theme) => ({
+        value: theme.id,
+        label: theme.name,
+      }))
+      setThemeOptions(options)
+    }
+    load()
+    return themeRegistry.onRegistryChange(load)
+  }, [])
+
+  const normalizedThemeOptions = useMemo(() => {
+    if (themeOptions.some((o) => o.value === settings.theme)) return themeOptions
+    const fallback = themeRegistry.getTheme(settings.theme)
+    if (!fallback) return themeOptions
+    return [{ value: fallback.id, label: fallback.name }, ...themeOptions]
+  }, [themeOptions, settings.theme])
+
+  useEffect(() => {
+    const load = () => {
+      const options = iconThemeRegistry.getAllThemes().map((theme) => ({
+        value: theme.id,
+        label: theme.name,
+      }))
+      setIconThemeOptions(options)
+    }
+    load()
+    return iconThemeRegistry.onRegistryChange(load)
+  }, [])
+
+  const normalizedIconThemeOptions = useMemo(() => {
+    if (iconThemeOptions.some((o) => o.value === settings.iconTheme)) return iconThemeOptions
+    const fallback = iconThemeRegistry.getTheme(settings.iconTheme)
+    if (!fallback) return iconThemeOptions
+    return [{ value: fallback.id, label: fallback.name }, ...iconThemeOptions]
+  }, [iconThemeOptions, settings.iconTheme])
+
+  return (
+    <div className="space-y-4">
+      <Section title="Theme">
+        <SettingRow
+          label="Color Theme"
+          description="Choose your active color theme"
+          onReset={() => updateSetting('theme', getDefaultSetting('theme'))}
+          canReset={settings.theme !== getDefaultSetting('theme')}
+        >
+          <SettingSelect
+            options={normalizedThemeOptions}
+            value={settings.theme}
+            width="wide"
+            onValueChange={(value) => {
+              if (value) updateSetting('theme', value as Theme)
+            }}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Theme Mode"
+          description="Use light, dark, or follow system preference"
+          onReset={() => updateSetting('themeMode', getDefaultSetting('themeMode'))}
+          canReset={settings.themeMode !== getDefaultSetting('themeMode')}
+        >
+          <SettingSelect
+            options={THEME_MODE_OPTIONS}
+            value={settings.themeMode}
+            width="wide"
+            onValueChange={(value) => {
+              if (value) updateSetting('themeMode', value as ThemeMode)
+            }}
+          />
+        </SettingRow>
+      </Section>
+
+      <Section title="Icons">
+        <SettingRow
+          label="Icon Theme"
+          description="Icons displayed in the file tree and tabs"
+          onReset={() => updateSetting('iconTheme', getDefaultSetting('iconTheme'))}
+          canReset={settings.iconTheme !== getDefaultSetting('iconTheme')}
+        >
+          <SettingSelect
+            options={normalizedIconThemeOptions}
+            value={settings.iconTheme}
+            width="wide"
+            onValueChange={(value) => {
+              if (value) updateSetting('iconTheme', value)
+            }}
+          />
+        </SettingRow>
+      </Section>
+
+      <Section title="Typography">
+        <SettingRow
+          label="UI Font Family"
+          layout="stacked"
+          description="Font family for UI elements (file tree, markdown, etc.)"
+          onReset={() => updateSetting('uiFontFamily', getDefaultSetting('uiFontFamily'))}
+          canReset={settings.uiFontFamily !== getDefaultSetting('uiFontFamily')}
+        >
+          <FontSelector
+            value={settings.uiFontFamily}
+            onChange={(fontFamily) => updateSetting('uiFontFamily', fontFamily)}
+            className={SETTINGS_CONTROL_WIDTHS.text}
+            monospaceOnly={false}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Heading Font Family"
+          layout="stacked"
+          description="Font for headings — Markdown titles, dialog titles, settings section titles"
+          onReset={() => updateSetting('headingFontFamily', getDefaultSetting('headingFontFamily'))}
+          canReset={settings.headingFontFamily !== getDefaultSetting('headingFontFamily')}
+        >
+          <FontSelector
+            value={settings.headingFontFamily}
+            onChange={(fontFamily) => updateSetting('headingFontFamily', fontFamily)}
+            className={SETTINGS_CONTROL_WIDTHS.text}
+            monospaceOnly={false}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="UI Font Size"
+          description="Adjust UI text and icon scale in 0.5px steps"
+          onReset={() => updateSetting('uiFontSize', getDefaultSetting('uiFontSize'))}
+          canReset={settings.uiFontSize !== getDefaultSetting('uiFontSize')}
+        >
+          <NumberInput
+            min={String(UI_FONT_SIZE_MIN)}
+            max={String(UI_FONT_SIZE_MAX)}
+            step={String(UI_FONT_SIZE_STEP)}
+            value={settings.uiFontSize}
+            onChange={(value) => updateSetting('uiFontSize', value)}
+            className={cn(SETTINGS_CONTROL_WIDTHS.number, 'tabular-nums')}
+            size="xs"
+            aria-label={`UI font size: ${formatUiFontSize(settings.uiFontSize)} pixels`}
+          />
+        </SettingRow>
+      </Section>
+
+      <Section title="Layout">
+        <SettingRow
+          label="Sidebar Position"
+          description="Which side the file sidebar appears on"
+          onReset={() => updateSetting('sidebarPosition', getDefaultSetting('sidebarPosition'))}
+          canReset={settings.sidebarPosition !== getDefaultSetting('sidebarPosition')}
+        >
+          <SettingSelect
+            options={SIDEBAR_POSITION_OPTIONS}
+            value={settings.sidebarPosition}
+            width="compact"
+            onValueChange={(value) => {
+              if (value) updateSetting('sidebarPosition', value as 'left' | 'right')
+            }}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Tab list"
+          description="Which tabs the strip lists: those of the current project, or every tab open on this client across all projects and hosts"
+          onReset={() => updateSetting('tabListScope', getDefaultSetting('tabListScope'))}
+          canReset={settings.tabListScope !== getDefaultSetting('tabListScope')}
+        >
+          <SettingSelect
+            options={TAB_LIST_SCOPE_OPTIONS}
+            value={settings.tabListScope}
+            width="compact"
+            onValueChange={(value) => {
+              if (value) updateSetting('tabListScope', value as TabListScope)
+            }}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Sidebar follows focus"
+          description="Switch the sidebar between Chats, Files and Git as focus moves between chats, editors and diffs."
+          onReset={() =>
+            updateSetting('sidebarFollowsFocus', getDefaultSetting('sidebarFollowsFocus'))
+          }
+          canReset={settings.sidebarFollowsFocus !== getDefaultSetting('sidebarFollowsFocus')}
+        >
+          <Switch
+            checked={settings.sidebarFollowsFocus}
+            onChange={(checked) => updateSetting('sidebarFollowsFocus', checked)}
+            size="sm"
+          />
+        </SettingRow>
+        <SettingRow
+          label="Build readout"
+          description="Show the build, daemon connection, frame rate and open terminal, agent and workspace counts at the foot of the sidebar, or in the tab strip while it is hidden"
+          onReset={() => updateSetting('buildReadout', getDefaultSetting('buildReadout'))}
+          canReset={settings.buildReadout !== getDefaultSetting('buildReadout')}
+        >
+          <Switch
+            checked={settings.buildReadout}
+            onChange={(checked) => updateSetting('buildReadout', checked)}
+            size="sm"
+          />
+        </SettingRow>
+      </Section>
+    </div>
+  )
+}

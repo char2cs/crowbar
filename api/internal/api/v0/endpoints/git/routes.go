@@ -1,6 +1,3 @@
-// Package git mounts the v0 git REST routes for a chat's worktree: status,
-// diff, log, branches, stashes, conflicts and commit-diff reads, plus staging,
-// commit, sync, branch, stash, reset/merge/rebase and operation continue/abort.
 package git
 
 import (
@@ -9,9 +6,6 @@ import (
 	githandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
 )
 
-// Register mounts /v0/chats/:chatId/git/... . Git state belongs to the
-// worktree, so every chat holding it sees the same answer. The slow verbs
-// (push, fetch, pull, merge, rebase) run as operations on ops.
 func Register(
 	chatScoped *gin.RouterGroup,
 	gitSvc githandlers.Git,
@@ -21,13 +15,11 @@ func Register(
 	mount(chatScoped, "/git", h)
 }
 
-// mount registers the git surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,
 	h *githandlers.Handlers,
 ) {
-	// Reads
 	rg.GET(prefix+"/status", h.Status)
 	rg.GET(prefix+"/diff", h.Diff)
 	rg.GET(prefix+"/log", h.Log)
@@ -36,7 +28,6 @@ func mount(
 	rg.GET(prefix+"/conflicts", h.Conflicts)
 	rg.GET(prefix+"/conflict-hunks", h.ConflictHunks)
 	rg.GET(prefix+"/commit-diff", h.CommitDiff)
-	// Writes
 	rg.POST(prefix+"/stage", h.Stage)
 	rg.POST(prefix+"/stage-hunk", h.StageHunk)
 	rg.POST(prefix+"/unstage", h.Unstage)

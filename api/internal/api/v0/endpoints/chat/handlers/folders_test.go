@@ -19,10 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// fakeChatTree records each call and returns canned results, so the handlers'
-// HTTP contract can be pinned without a store.
 type fakeChatTree struct {
-	// createdWorkspace is the workspace a fork or import create answers.
 	createdWorkspace string
 	list             []domain.Chat
 	created          domain.Chat
@@ -33,21 +30,18 @@ type fakeChatTree struct {
 	deletion         agentusecase.ChatDeletion
 	err              error
 
-	gotCreate  agentusecase.CreateInput
-	gotMove    agentusecase.MoveInput
-	gotPlace   agentusecase.PlaceInput
-	gotBranch  string
-	gotRepoID  string
-	gotRename  string
-	gotID      string
-	gotPlaceID string
-	gotCreate2 createChatCall
-	gotPurge   string
-	renames    int
-	moves      int
-	// The WHOLE worktree spec the create carried, and how many creates ran —
-	// what an IMPORT is asserted through, since it flattens to the same
-	// OwnWorktree=false a plain chat does.
+	gotCreate       agentusecase.CreateInput
+	gotMove         agentusecase.MoveInput
+	gotPlace        agentusecase.PlaceInput
+	gotBranch       string
+	gotRepoID       string
+	gotRename       string
+	gotID           string
+	gotPlaceID      string
+	gotCreate2      createChatCall
+	gotPurge        string
+	renames         int
+	moves           int
 	gotWorktree     agentusecase.WorktreeSpec
 	gotSurface      string
 	createChatCalls int
@@ -71,8 +65,6 @@ func (f *fakeChatTree) ListInHome(
 	return f.list, f.err
 }
 
-// FolderScope answers f.folder when its ID matches, else a folder in the
-// repo mount's own scope, so the pre-existing repo-mount tests pass the guard.
 func (f *fakeChatTree) FolderScope(_ context.Context, id string) (tree.Folder, error) {
 	if f.folder.ID == id {
 		return f.folder, nil
@@ -118,10 +110,6 @@ func (f *fakeChatTree) Delete(
 	return f.shifted, f.err
 }
 
-// createChatCall is the argument quadruple a chat create carries, recorded
-// whole: which provider, WHERE the chat is born, and whether it asked for its
-// own worktree. The parent is the half that decides whether the new chat is a
-// thread, so a handler that dropped it would still look like a working create.
 type createChatCall struct {
 	ID          string
 	WorkspaceID string
@@ -130,10 +118,6 @@ type createChatCall struct {
 	OwnWorktree bool
 }
 
-// CreateChat records the call twice over: gotCreate2 keeps the flattened
-// "is this a fork" bool every pre-existing assertion here is written against,
-// and gotWorktree keeps the WHOLE three-state spec, which is the only way to
-// tell a WorktreeImport from a plain chat (both flatten to OwnWorktree=false).
 func (f *fakeChatTree) CreateChat(
 	_ context.Context,
 	in agentusecase.CreateChatInput,
@@ -204,10 +188,6 @@ func (f *fakeChatTree) DiscardOwningChat(
 	return f.err
 }
 
-// agentUsecases is every agent port the handler set takes, behind one type, so
-// one test double can still stand in for all five. Production wires them
-// separately — that is the whole point of the split — and each double here is
-// handed to New under each port in turn.
 type agentUsecases interface {
 	handlers.ChatUsecase
 	handlers.TurnUsecase
@@ -216,18 +196,12 @@ type agentUsecases interface {
 	handlers.ProviderUsecase
 }
 
-// newChatHandlers builds the handler set the chat tests use: a real agent
-// usecase double and an inert tree.
 func newChatHandlers(
 	uc agentUsecases,
 ) *handlers.Handlers {
 	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{})
 }
 
-// newChatHandlersWith is newChatHandlers with the tree double the caller holds,
-// for the create tests: a chat create is now a TREE operation (it has to place the
-// row before a CLI is started on it), so what the handler forwarded is recorded
-// there and nowhere else.
 func newChatHandlersWith(
 	uc agentUsecases,
 	tree *fakeChatTree,
@@ -235,15 +209,12 @@ func newChatHandlersWith(
 	return handlers.New(uc, uc, uc, uc, uc, tree)
 }
 
-// newFolderHandlers builds the handler set the tree tests use.
 func newFolderHandlers(
 	tree *fakeChatTree,
 ) *handlers.Handlers {
 	return newFolderHandlersWith(&fakeAgentUsecase{}, tree)
 }
 
-// newFolderHandlersWith is newFolderHandlers with a caller-supplied agent
-// usecase, for the routes that read the chat as well as the tree.
 func newFolderHandlersWith(
 	uc agentUsecases,
 	tree *fakeChatTree,
@@ -251,16 +222,12 @@ func newFolderHandlersWith(
 	return handlers.New(uc, uc, uc, uc, uc, tree)
 }
 
-// folderParams sets both :repoId (what the folder CRUD verbs scope by) and
-// :wsId, mirroring the real router's nesting where both are always present together.
 func folderParams(
 	extra ...gin.Param,
 ) gin.Params {
 	return append(gin.Params{{Key: "repoId", Value: "r1"}, {Key: "wsId", Value: "ws-1"}}, extra...)
 }
 
-// The URL scope is authoritative: a POST against one repo must never create a
-// folder in another, so the body carries no repo at all.
 func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
 	tree := &fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "spikes"}}
 	ctx, rec := newTestContext(t, http.MethodPost, "/chats/folders",
@@ -274,7 +241,6 @@ func TestCreateFolder_TakesTheScopeFromTheURL(t *testing.T) {
 	assert.Equal(t, "c1", tree.gotCreate.ParentID)
 }
 
-// A create densifies the level, so the rows it shifted ride back with the answer.
 func TestCreateFolder_ReturnsTheCollateral(t *testing.T) {
 	tree := &fakeChatTree{
 		created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder},
@@ -343,7 +309,6 @@ func TestListFolders_SurfacesAStoreError(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// A drag that renames AND moves must land as one answer, not two half-states.
 func TestPatchFolder_RenameThenMove(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "new", Order: 2}}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1",
@@ -362,12 +327,6 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 	assert.Equal(t, 2, *tree.gotMove.Order)
 }
 
-// A rename-only PATCH (no parentId, no order) must never fall through to
-// Move: Move's own guardNotWorking (tree.go) refuses ANY placement touching a
-// working subtree, correct for a real reparent/reorder but not for a bare
-// rename, which places nothing. Live-reported: renaming a folder failed
-// outright whenever a chat filed under it happened to be working, even
-// though what the folder is called has no bearing on any chat inside it.
 func TestRegression_PatchFolder_NameOnlySkipsTheMove(t *testing.T) {
 	tree := &fakeChatTree{renamed: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "new"}}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":"new"}`))
@@ -381,8 +340,6 @@ func TestRegression_PatchFolder_NameOnlySkipsTheMove(t *testing.T) {
 	assert.Equal(t, "new", tree.gotRename)
 }
 
-// A PATCH that reorders within one parent carries no parentId, and the nil must
-// reach the usecase as "leave it where it is" rather than "move it to the root".
 func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Order: 1}}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"order":1}`))
@@ -397,8 +354,6 @@ func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
 	assert.Equal(t, 1, *tree.gotMove.Order)
 }
 
-// An explicit empty parentId is a MOVE TO THE PANEL ROOT, and must be
-// distinguishable from an absent one.
 func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 	tree := &fakeChatTree{moved: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder}}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"parentId":""}`))
@@ -411,8 +366,6 @@ func TestPatchFolder_EmptyParentMeansThePanelRoot(t *testing.T) {
 	assert.Equal(t, "", *tree.gotMove.ParentID)
 }
 
-// A failed rename must stop before the placement runs, or a refused PATCH would
-// still half-apply.
 func TestPatchFolder_FailedRenameSkipsTheMove(t *testing.T) {
 	tree := &fakeChatTree{err: agentusecase.ErrTreeNameRequired}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":" ","order":0}`))
@@ -446,7 +399,6 @@ func TestPatchFolder_MalformedBodyIs400(t *testing.T) {
 	assert.Zero(t, tree.moves)
 }
 
-// A folder delete promotes its children rather than taking them with it.
 func TestDeleteFolder_DeletesTheAddressedFolder(t *testing.T) {
 	tree := &fakeChatTree{shifted: []domain.Chat{{ID: "child", Type: domain.ChatTypeFolder}}}
 	ctx, rec := newTestContext(t, http.MethodDelete, "/chats/folders/f1", nil)
@@ -468,7 +420,6 @@ func TestDeleteFolder_NotFoundIs404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// A drop into another workspace is the same placement call, naming where the chat runs next.
 func TestPlaceChat_ForwardsTheWorkspaceAMoveRunsIn(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1"}}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement",
@@ -504,8 +455,6 @@ func TestBranchOut_AHomeThreadIsRefusedWithTheReason(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
-// The placement endpoint is where a chat becomes a THREAD of another, so the
-// parent it is given has to reach the usecase verbatim.
 func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1", ParentID: "c1", Order: 3}}
 	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement",
@@ -528,8 +477,6 @@ func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 	assert.Equal(t, 3, env.Data.Chat.Order)
 }
 
-// A chat drop renumbers a level chats and folders SHARE, so the folder rows it
-// moved ride back with the answer.
 func TestPlaceChat_ReturnsTheShiftedFolders(t *testing.T) {
 	tree := &fakeChatTree{
 		placed:  domain.Chat{ID: "c2", WorkspaceID: "ws-1"},
@@ -551,11 +498,6 @@ func TestPlaceChat_ReturnsTheShiftedFolders(t *testing.T) {
 	assert.Equal(t, "f0", env.Data.Shifted[0].ID)
 }
 
-// TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself proves that
-// at the repo-scoped mount (Task 17: no :wsId path param) PlaceChat resolves
-// the chat's own current workspace via GetChat rather than trusting the URL,
-// so the tree usecase's move-across-workspace assertion is asked about the
-// chat's real workspace and not a stale/absent one.
 func TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself(t *testing.T) {
 	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-9", ParentID: "c1"}}
 	uc := &fakeAgentUsecase{getChat: domain.Chat{ID: "c2", WorkspaceID: "ws-9"}}
@@ -569,9 +511,6 @@ func TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself(t *testing
 	assert.Equal(t, "c2", tree.gotPlaceID)
 }
 
-// TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces proves a GetChat failure
-// during that fallback resolution surfaces as a mapped error rather than
-// reaching the tree usecase with a guessed workspace.
 func TestPlaceChat_NoPathWorkspace_GetChatErrorSurfaces(t *testing.T) {
 	tree := &fakeChatTree{}
 	uc := &fakeAgentUsecase{getChatErr: problem.ErrNotFound}
@@ -623,10 +562,6 @@ func decodeFolderResponse(
 	return env.Data
 }
 
-// A home mount (repoId "", wsId = the project's home workspace) must only see
-// and touch its OWN project's home folders: the folder list ignoring the
-// project let A render B's folders, and PATCH/DELETE by bare id let A rename
-// or remove them.
 func homeParams(
 	extra ...gin.Param,
 ) gin.Params {

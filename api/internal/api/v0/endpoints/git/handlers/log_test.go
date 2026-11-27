@@ -14,9 +14,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// logGit wraps stubGit, overriding only Log so the query-param and error
-// branches of the Log handler can be exercised without reimplementing the
-// whole Git interface.
 type logGit struct {
 	stubGit
 	commits []gitdomain.Commit
@@ -27,8 +24,6 @@ func (g logGit) Log(_ context.Context, _ string, _, _ int) ([]gitdomain.Commit, 
 	return g.commits, g.err
 }
 
-// TestLog_EmptyRepo pins that a repo with no commits yet returns 200 with an
-// empty list.
 func TestLog_EmptyRepo(
 	t *testing.T,
 ) {
@@ -43,8 +38,6 @@ func TestLog_EmptyRepo(
 	assert.Empty(t, body.Data)
 }
 
-// TestLog_WithCommits pins the normal log path, returning commits from the
-// git usecase serialised on the query envelope.
 func TestLog_WithCommits(
 	t *testing.T,
 ) {
@@ -64,8 +57,6 @@ func TestLog_WithCommits(
 	assert.Equal(t, "abc123def", body.Data[0].Hash)
 }
 
-// TestLog_InvalidLimit pins that a non-integer limit query param 400s before
-// the git usecase is ever consulted.
 func TestLog_InvalidLimit(
 	t *testing.T,
 ) {
@@ -75,8 +66,6 @@ func TestLog_InvalidLimit(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestLog_InvalidSkip pins that a non-integer skip query param 400s before
-// the git usecase is ever consulted.
 func TestLog_InvalidSkip(
 	t *testing.T,
 ) {
@@ -86,8 +75,6 @@ func TestLog_InvalidSkip(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestLog_UnknownRef pins that an unresolvable ref maps to 404 via
-// enginegit.ErrBranchNotFound's not_found code.
 func TestLog_UnknownRef(
 	t *testing.T,
 ) {

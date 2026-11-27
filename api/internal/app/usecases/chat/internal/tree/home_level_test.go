@@ -14,12 +14,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The project-home level as the chat writer counts it: the project's repos,
-// its home chats and its home folders — never a locked branch's anchor (drawn
-// inside its repo), never the hidden home owner, never another project's
-// rows. And a root create lands at the next slot with a Node row, so the
-// level is dense from birth.
-
 func newHomeUsecaseFull(
 	t *testing.T,
 ) (*mocks.AgentChatPlacements, *mocks.FolderStore, *mocks.NodePlacements, *mocks.AgentWorkspaceGitStatus, tree.Usecase) {
@@ -86,8 +80,6 @@ func TestRegression_PlaceChat_HomeLevelNeverCountsAWorkspaceAnchor(t *testing.T)
 		{ID: "c2", Kind: dtree.KindChat, Order: 2},
 	}
 
-	// Visible: [repo-A, c1, c2]. Drag c2 to the END (index 2 = stays) then
-	// c1 to the end: [repo-A, c2, c1].
 	_, _, err := uc.PlaceChat(context.Background(), homeWorkspaceID, "c1", tree.PlaceInput{ParentID: name(""), Order: index(2)})
 	require.NoError(t, err)
 
@@ -154,8 +146,6 @@ func TestRegression_PlaceChat_HomeLevelIgnoresOtherProjectsAndRepoFolders(t *tes
 	}
 }
 
-// The reverse leak: a move INSIDE a repo (a repo-root folder past a locked
-// branch) must never renumber the project-home rows sharing the bare root.
 func TestRegression_MoveRepoFolder_NeverRenumbersHomeRows(t *testing.T) {
 	chats, folders, nodes, gitStatus, uc := newHomeUsecaseFull(t)
 	gitStatus.SetRepo("locked-main", "repo-A")

@@ -1,6 +1,3 @@
-// Package tools is the agent-facing capability surface: the tools a chat's agent may call, the
-// authority model over what each caller sees, and result rendering. It is reached only through
-// DispatchMCP, so authorization happens in one place and the MCP relay never self-authorizes.
 package tools
 
 import (
@@ -11,9 +8,6 @@ import (
 	"fmt"
 )
 
-// TokenMinter issues and verifies the per-runner token binding an MCP call to its runner. It stops
-// accidental cross-runner calls and keeps the relay from self-authorizing; it is not a boundary against
-// an agent with a shell. The secret lives per daemon boot, which every runner's PTY dies with.
 type TokenMinter struct {
 	secret []byte
 }
@@ -30,16 +24,12 @@ func (m *TokenMinter) Mint(runnerID string) string {
 	return base64.RawURLEncoding.EncodeToString(m.sign(runnerID))
 }
 
-// relayDomain keeps a relay token from verifying as a runner's: the two id spaces never meet.
 const relayDomain = "relay:"
 
-// MintRelay is the token for a session's relay id. It outlives any runner, but only
-// until the daemon's next boot, whose new secret the next spawn's rewrite replaces.
 func (m *TokenMinter) MintRelay(relayID string) string {
 	return base64.RawURLEncoding.EncodeToString(m.sign(relayDomain + relayID))
 }
 
-// VerifyRelay is Verify for a relay id.
 func (m *TokenMinter) VerifyRelay(relayID, token string) bool {
 	if relayID == "" || token == "" {
 		return false
@@ -51,21 +41,15 @@ func (m *TokenMinter) VerifyRelay(relayID, token string) bool {
 	return hmac.Equal(got, m.sign(relayDomain+relayID))
 }
 
-// String redacts the secret so no %v/%+v of a struct reaching the minter leaks the HMAC key. The value
-// receiver is load-bearing: it covers both a TokenMinter copy and a *TokenMinter.
 func (m TokenMinter) String() string {
 	return "agenttools.TokenMinter{secret:REDACTED}"
 }
 
-// GoString redacts the secret under %#v. See String.
 func (m TokenMinter) GoString() string {
 	return m.String()
 }
 
-// Verify is constant-time in the comparison so a caller cannot probe the token
-// byte by byte.
 func (m *TokenMinter) Verify(runnerID, token string) bool {
-	// Mint("") and Verify("", …) would agree, letting an unset --segment flag pass.
 	if runnerID == "" || token == "" {
 		return false
 	}

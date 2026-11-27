@@ -12,10 +12,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/jsonrpc"
 )
 
-// fakeTransport is message-delimited: no newline framing, one slice per message.
 type fakeTransport struct {
-	in      chan []byte // what the peer sends to the Conn
-	out     chan []byte // what the Conn sent
+	in      chan []byte
+	out     chan []byte
 	sendErr error
 	done    chan struct{}
 }
@@ -79,7 +78,6 @@ func TestTransport_CallRoundTripsFramesWithEmbeddedNewlines(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(<-f.out, &req))
 	require.Equal(t, "a\nb", req.Params["s"])
-	// A raw newline between tokens is one frame here; a line reader would split it.
 	f.in <- []byte(`{"id":` + string(req.ID) + ",\n" + `"result":"x\ny"}`)
 
 	require.JSONEq(t, `"x\ny"`, string(<-answered))

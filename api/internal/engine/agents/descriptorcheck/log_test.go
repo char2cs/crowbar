@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// A descriptor the daemon refuses says why at boot, with its rule and line.
 func TestLogAll_ABlockedDescriptorIsAnErrorWithItsRuleAndLine(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
@@ -36,8 +35,6 @@ func TestLogAll_ABlockedDescriptorIsAnErrorWithItsRuleAndLine(t *testing.T) {
 	assert.NotContains(t, logged, "provider=claude", "the shipped claude descriptor is clean")
 }
 
-// An override refused in favour of the shipped descriptor says so, and why,
-// without claiming the provider is blocked.
 func TestLogAll_ARefusedOverrideSaysTheShippedDescriptorRuns(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))

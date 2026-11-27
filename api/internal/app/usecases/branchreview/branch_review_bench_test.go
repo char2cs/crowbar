@@ -20,20 +20,12 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// benchReviewHarness holds the real stack needed for BenchmarkBranchReview_Get.
 type benchReviewHarness struct {
 	uc          branchreview.Usecase
 	wsID        string
 	featurePath string
-	// repoPath is the base-branch checkout. The scale benchmarks need it to
-	// seed content on BOTH sides of the diff — a feature-only diff is
-	// add-only, and `git diff --numstat` on add-only changes is far cheaper
-	// than on modifications, which would understate the hot path it measures.
-	repoPath string
-	// engine is the SAME instance the usecase holds. The per-repo mutex lives
-	// on the engine, so a contention benchmark that constructed its own engine
-	// would take a different lock and measure nothing.
-	engine enginegit.Engine
+	repoPath    string
+	engine      enginegit.Engine
 }
 
 func newBenchReviewHarness(
@@ -42,12 +34,10 @@ func newBenchReviewHarness(
 	b.Helper()
 	ctx := context.Background()
 
-	// ── adapter container (per-entity workspace storage under a temp home) ────
 	adapters, err := adapter.New(adapter.WithHomeDir(b.TempDir()))
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = adapters.Close() })
 
-	// ── event stores (in-memory SQLite) ──────────────────────────────────────
 	rtES, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(b, err)
 	rtRM, err := reviewthread.OpenReadModel(adapters.ReviewThreadView())
@@ -61,7 +51,6 @@ func newBenchReviewHarness(
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = axRT.Shutdown(ctx) })
 
-	// ── GORM DB (the adapter's global view) ───────────────────────────────────
 	db := adapters.GlobalView()
 
 	rm, err := workspace.OpenReadModel(adapters.WorkspaceView())
@@ -83,19 +72,15 @@ func newBenchReviewHarness(
 	repoStore, err := storesqlite.NewFromDB[domain.Repository, string](db)
 	require.NoError(b, err)
 
-	// ── real git repo: base branch + feature branch worktree ─────────────────
 	repoPath := benchInitRepo(b)
 	baseBranch := trimNewline(benchGitRun(b, repoPath, "rev-parse", "--abbrev-ref", "HEAD"))
 
-	// seed a file on base so the three-dot diff has something to compare
 	benchCommitInWorktree(b, repoPath, "base.txt", "base content\n", "base: seed file")
 
-	// create a feature branch worktree with one added file
 	featurePath := filepath.Join(b.TempDir(), "feature-wt")
 	benchGitRun(b, repoPath, "worktree", "add", "-b", "feature/bench-review", featurePath)
 	benchCommitInWorktree(b, featurePath, "feature.txt", "feature content\n", "feature: add file")
 
-	// ── persist domain objects ────────────────────────────────────────────────
 	repoID := "bench-repo"
 	projectID := "bench-project"
 	wsID := "bench-ws"
@@ -119,7 +104,6 @@ func newBenchReviewHarness(
 	}, fixedNow)
 	require.NoError(b, err)
 
-	// seed one review thread so the ListByWorkspace read model is non-trivial
 	_, err = threads.Open(ctx, reviewthread.OpenInput{
 		ID:         "rt-bench-1",
 		WsID:       wsID,
@@ -148,8 +132,6 @@ func newBenchReviewHarness(
 	}
 }
 
-// BenchmarkBranchReview_Get measures the composite assembly hot path:
-// git RangeDiff + ReviewThread.ListByWorkspace.
 func BenchmarkBranchReview_Get(
 	b *testing.B,
 ) {
@@ -163,7 +145,6 @@ func BenchmarkBranchReview_Get(
 			b.Fatalf("BranchReview.Get: %v", err)
 		}
 		if len(review.Threads) == 0 {
-			// prevent the compiler from optimising away the call
 			b.Fatal("unexpected empty result")
 		}
 	}

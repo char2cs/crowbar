@@ -25,12 +25,8 @@ func TestDeleteCascade_RootNotFound(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
-// TestDeleteCascade_RemoveOneError_Propagates proves that (unlike a git-side
-// teardown failure, which is best-effort) a failure to drop the READ-MODEL row
-// itself is NOT swallowed — DeleteCascade must report it rather than claim
-// success for a workspace that is still listed.
 func TestDeleteCascade_RemoveOneError_Propagates(t *testing.T) {
-	all := []domain.Workspace{{ID: "root", RepoID: "r"}} // no WorktreePath: skips git entirely
+	all := []domain.Workspace{{ID: "root", RepoID: "r"}}
 	ws := &fakeWorkspace{
 		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 		DeleteFn: func(_ context.Context, _ string) error { return errBoom },
@@ -40,10 +36,6 @@ func TestDeleteCascade_RemoveOneError_Propagates(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestDeleteRepoWorkspaces_SkipsNonRootWorkspaces proves the documented
-// "walks ROOTS only" contract: a workspace whose parent is ALSO one of the
-// repo's own workspaces is never itself an iteration start — it is still
-// removed, but exactly once, as part of its root's cascade.
 func TestDeleteRepoWorkspaces_SkipsNonRootWorkspaces(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root/worktree", Provisioning: domain.WorkspaceProvisioned},
@@ -66,8 +58,6 @@ func TestDeleteRepoWorkspaces_SkipsNonRootWorkspaces(t *testing.T) {
 	assert.Equal(t, 2, countOp(g.ops(), "WorktreeRemove"), "each workspace's worktree is removed exactly once")
 }
 
-// A workspace that could not be tombstoned does not stop the others, but it is
-// reported: the caller must keep the repo row while one of its workspaces is live.
 func TestDeleteRepoWorkspaces_AFailedTombstoneIsReportedAfterTheRest(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a", WorktreePath: "/tmp/crowbar-test/projects/p/app/a/worktree", Provisioning: domain.WorkspaceProvisioned},
@@ -91,9 +81,6 @@ func TestDeleteRepoWorkspaces_AFailedTombstoneIsReportedAfterTheRest(t *testing.
 	assert.ElementsMatch(t, []string{"w1", "w2"}, tried)
 }
 
-// TestRemoveOne_DefaultBranchReattachFails_IsBestEffort proves a failed
-// re-attach of the main folder to the default branch never aborts the cascade
-// — the row is still dropped and the branch is still never force-deleted.
 func TestRemoveOne_DefaultBranchReattachFails_IsBestEffort(t *testing.T) {
 	g := &fakeGit{checkoutErr: errBoom, worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
@@ -112,9 +99,6 @@ func TestRemoveOne_DefaultBranchReattachFails_IsBestEffort(t *testing.T) {
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the default branch must never be force-deleted even on a failed reattach")
 }
 
-// erroringTerminalReaper always fails to kill a session, so
-// TestDeleteCascade_TerminalKillError_IsBestEffort can prove the cascade
-// still completes.
 type erroringTerminalReaper struct {
 	byChat map[string][]string
 	listed []string
@@ -151,8 +135,6 @@ func TestDeleteCascade_TerminalKillError_IsBestEffort(t *testing.T) {
 		"the reap fans out through the workspace's owning chat, which is where sessions are keyed")
 }
 
-// A locked child the cascade keeps is re-hung under its deleted parent's
-// nearest surviving ancestor, so no lineage names a workspace that is gone.
 func TestDeleteCascade_RehangsAKeptLockedChildUnderTheNearestSurvivor(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "top", RepoID: "r"},
@@ -176,7 +158,6 @@ func TestDeleteCascade_RehangsAKeptLockedChildUnderTheNearestSurvivor(t *testing
 	assert.Equal(t, map[string]string{"kept": "top@fp"}, rehung)
 }
 
-// DeletionPlan answers what DeleteCascade would take, or its refusal, and takes nothing.
 func TestDeletionPlan_ListsWhatGoesOrRefusesWithoutTouchingAnything(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r"},
@@ -213,14 +194,6 @@ func (f *fakeTerminalReaper) Kill(_ context.Context, sid string) error {
 	return nil
 }
 
-// TestDeleteCascade_KillsTerminalSessions proves pass-7: every cascade-deleted
-// workspace's live PTY sessions are terminated, so deleting a workspace (or a
-// whole subtree) never leaks shell processes, fds, or per-session ring buffers.
-//
-// Sessions are keyed by their OWNING CHAT, so the reap fans out through the chat
-// observer: each workspace's chats are listed, and each chat's own sessions are
-// killed. The observer is therefore load-bearing here — without it the reap has
-// no chat to ask and kills nothing.
 func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root", Provisioning: domain.WorkspaceProvisioned},
@@ -247,10 +220,6 @@ func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
 		"every cascade-deleted workspace's terminal sessions must be killed")
 }
 
-// TestDeleteCascade_SkipsLockedStatus proves the cascade planner derives the
-// skip-locked rule from Status==locked (not the legacy Locked bool): the
-// locked-status node 'b' is preserved while its unlocked descendant 'c' is
-// still deleted, and 'b' is re-hung atop its lineage.
 func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
@@ -286,8 +255,6 @@ func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 	assert.Equal(t, []string{"/repo", "b-c"}, g.calls[1].args)
 }
 
-// TestDeleteCascade_RejectsLockedRootStatus proves the root-level guard now
-// derives from Status==locked rather than the legacy Locked bool.
 func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Status: domain.WorkspaceStatusLocked, Branch: "b", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned},
@@ -301,8 +268,6 @@ func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
 	assert.Empty(t, g.calls)
 }
 
-// A repo's main checkout and a project's home are served with an owning chat,
-// so deleting that owner reaches DeleteCascade with either as root.
 func TestRegression_DeleteCascade_RefusesTheDefaultCheckoutAndTheHome(t *testing.T) {
 	for want, root := range map[error]domain.Workspace{
 		hierarchy.ErrWorkspaceIsDefault: {ID: "root", RepoID: "r", IsDefault: true, Status: domain.WorkspaceStatusNew, Branch: "main", WorktreePath: "/repo", Provisioning: domain.WorkspaceShared},
@@ -318,9 +283,6 @@ func TestRegression_DeleteCascade_RefusesTheDefaultCheckoutAndTheHome(t *testing
 	}
 }
 
-// TestDeleteCascade_RefusesAWorkingChat: DeleteCascade backs the workspace DELETE
-// route and merge --deleteSource, so it must refuse a subtree with a working chat
-// (guardNotWorking) or it would bypass the chat tree's own delete guard.
 func TestDeleteCascade_RefusesAWorkingChat(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root", Provisioning: domain.WorkspaceProvisioned},
@@ -343,8 +305,6 @@ func TestDeleteCascade_RefusesAWorkingChat(t *testing.T) {
 	assert.Empty(t, g.calls, "a refused cascade must reach no git verb at all")
 }
 
-// TestDeleteCascade_AllowsAnIdleChat proves the guard is not a blanket
-// refusal — a subtree whose chats are all idle deletes exactly as before.
 func TestDeleteCascade_AllowsAnIdleChat(t *testing.T) {
 	all := []domain.Workspace{
 		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/tmp/crowbar-test/projects/p/app/root", Provisioning: domain.WorkspaceProvisioned},
@@ -376,11 +336,6 @@ func TestDeleteCascade_ListError(t *testing.T) {
 	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk), errBoom)
 }
 
-// H17: removeOne is best-effort — a repo-path / worktree / branch teardown
-// failure must drop the read-model row anyway (the user asked to delete it),
-// never abort the cascade and never leave a ghost row pointing at a gone
-// worktree. Orphaned worktrees on disk are reaped by `git worktree prune`.
-
 func TestDeleteCascade_RepoPathError_DropsRowBestEffort(t *testing.T) {
 	all := []domain.Workspace{{ID: "root", RepoID: "r"}}
 	var deleted []string
@@ -400,8 +355,6 @@ func TestDeleteCascade_MissingRepoRow_DropsRowNoPanic(t *testing.T) {
 		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
 		DeleteFn: func(_ context.Context, id string) error { deleted = append(deleted, id); return nil },
 	}
-	// FindByKey returns (nil, nil) for a missing repo row (must not panic); the
-	// repo is gone so the worktree is unreachable, so the row is dropped best-effort.
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
 	require.NoError(t, uc.DeleteCascade(context.Background(), "root", domain.KeepWorkAtRisk))
 	assert.Equal(t, []string{"root"}, deleted)

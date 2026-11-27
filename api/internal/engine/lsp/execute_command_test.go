@@ -42,8 +42,6 @@ func TestExecuteCommand_WithoutArgumentsSendsNone(t *testing.T) {
 	assert.NotContains(t, as[map[string]any](t, fake.requests()[0].params), "arguments")
 }
 
-// A command the server never declared is the client's (e.g. a "show
-// references" lens); forwarding it would only earn a server error.
 func TestExecuteCommand_RejectsACommandTheServerDoesNotRun(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)

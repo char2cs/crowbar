@@ -53,7 +53,6 @@ func TestPreOpen_CorruptViewDBHaltsNamingTheStep(t *testing.T) {
 	assert.Same(t, halt, sess.Halt(), "the session stays live, holding the home")
 }
 
-// The step's postcondition is the table being gone, whatever Apply claimed.
 func TestVerify_FailsWhileTheRetiredTableRemains(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	verify := PreOpenImpls()[StepWorkspacePathsTable].Verify
@@ -66,8 +65,6 @@ func TestVerify_FailsWhileTheRetiredTableRemains(t *testing.T) {
 	require.ErrorContains(t, err, "workspace_paths")
 }
 
-// A view.db that cannot be looked at is not "no view.db": reading it as absent
-// would skip the drop and let Verify pass over a table still there.
 func TestPlanWorkspacePaths_AViewDBThatCannotBeExaminedFailsThePlan(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("windows reports a path through a file as not found")
@@ -90,7 +87,6 @@ func TestDropRetiredTable_DropsItAndToleratesItsAbsence(t *testing.T) {
 	assert.False(t, db.Migrator().HasTable("workspace_paths"))
 }
 
-// boot is a daemon's pre-open half on h; the session is closed with the test.
 func boot(
 	t *testing.T,
 	h home.Home,
@@ -103,8 +99,6 @@ func boot(
 	return sess
 }
 
-// finish completes the run with post-open steps that do nothing and closes
-// the session, as a daemon that opened its stores would.
 func finish(
 	t *testing.T,
 	sess *migrate.Session,

@@ -1,0 +1,39 @@
+import { useMemo, useEffect } from 'react'
+import { useStore } from 'zustand'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { getExplorerTargetPath } from '@/features/file-explorer/utils/file-explorer-tree-utils'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+
+interface UseFileExplorerSyncOptions {
+  activePath?: string
+  updateActivePath?: (path: string) => void
+}
+
+const EMPTY_BUFFERS: PaneContent[] = []
+
+export function useFileExplorerSync({ activePath, updateActivePath }: UseFileExplorerSyncOptions) {
+  const buffers = useStore(windowPaneStore, (s) => s.buffers) ?? EMPTY_BUFFERS
+  const activeBufferId = useStore(
+    windowPaneStore,
+    (s) => s.paneActions.getActivePane()?.activeEditorTabId ?? null,
+  )
+
+  const activeBuffer = useMemo(
+    () => buffers.find((buffer) => buffer.id === activeBufferId) || null,
+    [buffers, activeBufferId],
+  )
+
+  const explorerTargetPath = useMemo(() => getExplorerTargetPath(activeBuffer), [activeBuffer])
+
+  useEffect(() => {
+    if (!explorerTargetPath) {
+      if (activePath) {
+        updateActivePath?.('')
+      }
+      return
+    }
+
+    if (explorerTargetPath === activePath) return
+    updateActivePath?.(explorerTargetPath)
+  }, [activePath, explorerTargetPath, updateActivePath])
+}

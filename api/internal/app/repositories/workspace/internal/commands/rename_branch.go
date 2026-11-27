@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RenameBranch records a branch rename and nothing else: a workspace's directory
-// is fixed at creation, so there is no path to move, and children reference it
-// by ID, so nothing re-parents.
 type RenameBranch struct {
 	ID     string
 	Branch string

@@ -289,9 +289,6 @@ func (f *fakeGit) Blame(
 
 var _ editorhandlers.GitEngine = (*fakeGit)(nil)
 
-// mountEditorRoutes registers editor's REST surface under rg — the shared
-// route table newRouter and newRouterNoWorkspace both mount, so the two never
-// drift into testing different surfaces.
 func mountEditorRoutes(
 	rg *gin.RouterGroup,
 	h *editorhandlers.Handlers,
@@ -320,10 +317,6 @@ func mountEditorRoutes(
 	rg.POST("/lsp/didClose", h.DidClose)
 }
 
-// newRouter wires editor's handlers onto the flat chat-scoped group the way
-// router.go does, with a stand-in for chatScoped's resolveChatWorktree
-// middleware that always resolves a fixed workspace — the happy-path fixture
-// every test in this package but the wiring-bug guard below uses.
 func newRouter(
 	lsp editorhandlers.LSPEngine,
 	git editorhandlers.GitEngine,
@@ -339,9 +332,6 @@ func newRouter(
 	return r
 }
 
-// newRouterNoWorkspace wires the same surface WITHOUT resolveChatWorktree's
-// stand-in ever running, the wiring-bug case Handlers.workspace guards
-// against: a route mounted outside the chat group's middleware.
 func newRouterNoWorkspace(
 	lsp editorhandlers.LSPEngine,
 	git editorhandlers.GitEngine,

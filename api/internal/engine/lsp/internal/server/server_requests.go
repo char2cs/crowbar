@@ -14,15 +14,10 @@ import (
 )
 
 const (
-	// errMethodNotFound is JSON-RPC's code for a request the client cannot serve.
 	errMethodNotFound = -32601
-	// errInvalidParams is JSON-RPC's code for params the client cannot decode.
-	errInvalidParams = -32602
+	errInvalidParams  = -32602
 )
 
-// answer replies to a server-to-client request; servers block on these, so each gets a
-// reply. State is recorded on the read loop, but the write runs off it, since the loop
-// must keep draining stdout or both sides stall on full pipes.
 func (s *server) answer(
 	id json.RawMessage,
 	method string,
@@ -52,8 +47,6 @@ func (s *server) answer(
 	})
 }
 
-// collectEdit hands a workspace/applyEdit to the command that is running, so
-// the editor applies it; with no command running there is nobody to apply it.
 func (s *server) collectEdit(
 	params json.RawMessage,
 ) (json.RawMessage, error) {
@@ -72,8 +65,6 @@ func (s *server) collectEdit(
 	return json.RawMessage(`{"applied":true}`), nil
 }
 
-// emptyConfiguration answers workspace/configuration with one null per item:
-// "no client-side setting", so the server keeps its defaults.
 func emptyConfiguration(
 	params json.RawMessage,
 ) (json.RawMessage, error) {

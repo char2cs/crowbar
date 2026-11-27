@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
 )
 
-// recordingEngine is stubEngine plus a record of what SetHostTheme was handed, so the
-// endpoint's job — parse the wire colours and pass them on — can be asserted end to end.
 type recordingEngine struct {
 	stubEngine
 
@@ -58,9 +56,6 @@ func rgb(c color.Color) (r, g, b uint8) {
 	return uint8(rr >> 8), uint8(gg >> 8), uint8(bb >> 8)
 }
 
-// TestSetHostTheme_ParsesAndForwards is the endpoint half of the Codex theming fix: the
-// frontend's resolved "#rrggbb" pair must reach the engine as colours, so the next PTY the
-// daemon spawns is born answering an OSC 11 query with them.
 func TestSetHostTheme_ParsesAndForwards(t *testing.T) {
 	eng := &recordingEngine{}
 	rec := doTerminal(newHostThemeRouter(eng), http.MethodPut, "/v0/settings/terminal/theme",
@@ -79,8 +74,6 @@ func TestSetHostTheme_ParsesAndForwards(t *testing.T) {
 	assert.Equal(t, [3]uint8{0x14, 0x14, 0x14}, [3]uint8{r, g, b})
 }
 
-// TestSetHostTheme_LastPushWins mirrors what a theme switch does: the endpoint is
-// unconditional and idempotent, so the newest push is simply what later sessions inherit.
 func TestSetHostTheme_LastPushWins(t *testing.T) {
 	eng := &recordingEngine{}
 	r := newHostThemeRouter(eng)
@@ -98,8 +91,6 @@ func TestSetHostTheme_LastPushWins(t *testing.T) {
 	assert.Equal(t, [3]uint8{0x1e, 0x1e, 0x1e}, [3]uint8{rr, gg, bb})
 }
 
-// TestSetHostTheme_RejectsUnusableColours: a payload where neither channel parses changed
-// nothing, so reporting success would tell the caller a typo'd colour had been stored.
 func TestSetHostTheme_RejectsUnusableColours(t *testing.T) {
 	for _, body := range []map[string]string{
 		{"bg": "", "fg": ""},
@@ -115,8 +106,6 @@ func TestSetHostTheme_RejectsUnusableColours(t *testing.T) {
 	}
 }
 
-// TestSetHostTheme_AcceptsOneParseableChannel: a nil channel is a documented no-op downstream
-// (model.SetDefaultColors leaves it unchanged), so one good colour is a usable push.
 func TestSetHostTheme_AcceptsOneParseableChannel(t *testing.T) {
 	eng := &recordingEngine{}
 	rec := doTerminal(newHostThemeRouter(eng), http.MethodPut, "/v0/settings/terminal/theme",
@@ -129,8 +118,6 @@ func TestSetHostTheme_AcceptsOneParseableChannel(t *testing.T) {
 	assert.Nil(t, fg, "an unparseable channel must arrive as nil, not as an invented colour")
 }
 
-// The client pushes only colours the daemon does not already hold, so the held pair is
-// readable, in the form it was pushed in, and empty before any push.
 func TestHostTheme_ReadsBackTheHeldColours(t *testing.T) {
 	r := newHostThemeRouter(&recordingEngine{})
 	rec := doTerminal(r, http.MethodGet, "/v0/settings/terminal/theme", nil)

@@ -8,8 +8,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Merge merges a branch and resyncs the working tree. branch is validated so a
-// leading-dash value can never be read as a git option (argument injection).
 func (u *gitUsecase) Merge(
 	ctx context.Context,
 	wsID string,
@@ -24,9 +22,6 @@ func (u *gitUsecase) Merge(
 	})
 }
 
-// Rebase rebases the current branch and resyncs the working tree. onto is
-// validated so a leading-dash value can never be read as a git option such as
-// `--exec=<cmd>` (argument injection → arbitrary command execution).
 func (u *gitUsecase) Rebase(
 	ctx context.Context,
 	wsID string,
@@ -41,7 +36,6 @@ func (u *gitUsecase) Rebase(
 	})
 }
 
-// ResolveHunk resolves a conflict hunk and resyncs the working tree.
 func (u *gitUsecase) ResolveHunk(
 	ctx context.Context,
 	wsID string,
@@ -56,9 +50,6 @@ func (u *gitUsecase) ResolveHunk(
 	})
 }
 
-// OperationContinue finalizes an in-progress merge/rebase/pull and resyncs. Success means no conflict is
-// left in this worktree, so the sticky pr-conflicts status is cleared (a merge-into-parent conflict is
-// resolved by the parent's continue instead).
 func (u *gitUsecase) OperationContinue(
 	ctx context.Context,
 	wsID string,
@@ -75,7 +66,6 @@ func (u *gitUsecase) OperationContinue(
 	return nil
 }
 
-// OperationAbort aborts an in-progress merge/rebase/pull and resyncs.
 func (u *gitUsecase) OperationAbort(
 	ctx context.Context,
 	wsID string,

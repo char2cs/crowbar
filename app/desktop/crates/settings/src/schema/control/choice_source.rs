@@ -1,0 +1,44 @@
+use crate::values::Choice;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ChoiceSource {
+    Fixed(Vec<Choice>),
+    Provided(String),
+}
+
+impl ChoiceSource {
+    pub(crate) fn fixed(pairs: &[(&str, &str)]) -> Self {
+        Self::Fixed(
+            pairs
+                .iter()
+                .map(|&(value, label)| Choice::new(value, label))
+                .collect(),
+        )
+    }
+
+    pub(crate) fn provided(name: impl Into<String>) -> Self {
+        Self::Provided(name.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_pairs_become_choices_in_order() {
+        let source = ChoiceSource::fixed(&[("left", "Left"), ("right", "Right")]);
+        assert_eq!(
+            source,
+            ChoiceSource::Fixed(vec![
+                Choice::new("left", "Left"),
+                Choice::new("right", "Right")
+            ])
+        );
+        assert_eq!(
+            ChoiceSource::provided("themes"),
+            ChoiceSource::Provided("themes".to_owned())
+        );
+    }
+}

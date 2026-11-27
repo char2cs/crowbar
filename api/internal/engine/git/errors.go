@@ -10,8 +10,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// Sentinel errors returned by the git engine. Callers use errors.Is to
-// distinguish failure modes and map them to structured API responses.
 var (
 	ErrConflict               = problem.New(problem.Conflict, "git: conflict")
 	ErrRejectedNonFastForward = problem.New(problem.Conflict, "git: rejected_non_fast_forward")
@@ -25,17 +23,10 @@ var (
 	ErrNonFastForward         = problem.New(problem.Conflict, "git: non_fast_forward")
 )
 
-// ErrStaleHunk re-exports the diff package's stale-hunk sentinel for errors.Is outside the
-// engine: a hunk stage/unstage whose hunkID matches no current hunk. The API maps it to 409.
 var ErrStaleHunk = diff.ErrStaleHunk
 
-// ErrFileTooLarge re-exports the diff subpackage's size-ceiling sentinel so the
-// usecase can tell "too big to expand" from a failure.
 var ErrFileTooLarge = diff.ErrFileTooLarge
 
-// errorRule maps a git exit code + output substrings to a sentinel error.
-// All patterns in contains must be present in the output (AND semantics).
-// Rules are evaluated in order; first match wins.
 type errorRule struct {
 	exitCode int
 	contains []string
@@ -43,7 +34,6 @@ type errorRule struct {
 }
 
 var errorRules = []errorRule{
-	// Exit 1 — soft failure: git ran but reported a condition.
 	{1, []string{"conflict"}, ErrConflict},
 	{1, []string{"nothing to commit"}, ErrNothingToCommit},
 	{1, []string{"rejected", "non-fast-forward"}, ErrRejectedNonFastForward},
@@ -51,7 +41,6 @@ var errorRules = []errorRule{
 	{1, []string{"your local changes"}, ErrDirtyTree},
 	{1, []string{"please commit or stash"}, ErrDirtyTree},
 
-	// Exit 128 — fatal: git refused to execute.
 	{128, []string{"authentication failed"}, ErrAuthFailed},
 	{128, []string{"could not read username"}, ErrAuthFailed},
 	{128, []string{"already exists"}, ErrBranchAlreadyExists},
@@ -66,8 +55,6 @@ var errorRules = []errorRule{
 	{128, []string{"please commit or stash"}, ErrDirtyTree},
 }
 
-// matchRules returns the first sentinel whose exit code and all patterns match,
-// or nil if no rule applies.
 func matchRules(exitCode int, out string) error {
 	lower := strings.ToLower(out)
 	for _, r := range errorRules {
@@ -90,9 +77,6 @@ func allPresent(s string, patterns []string) bool {
 	return true
 }
 
-// classifyGitError maps a git subprocess result to a typed sentinel using
-// exit code as the primary discriminator and output text only to disambiguate
-// within the same exit code.
 func classifyGitError(op string, r gitexec.Result) error {
 	base := gitexec.RequireSuccess(op, r)
 	if base == nil {
@@ -104,9 +88,6 @@ func classifyGitError(op string, r gitexec.Result) error {
 	return base
 }
 
-// reclassifyError applies the same rule table to an error returned by an
-// internal subpackage (e.g. branches) that manages its own exec calls.
-// It uses errors.As to extract the exit code directly from the GitError struct.
 func reclassifyError(err error) error {
 	if err == nil {
 		return nil

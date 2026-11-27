@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestCommit_StillReturns200 asserts the fast write path is unchanged: commit
-// validates and runs synchronously, returning 200.
 func TestCommit_StillReturns200(
 	t *testing.T,
 ) {

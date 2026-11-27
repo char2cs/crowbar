@@ -1,0 +1,349 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { Suspense } from 'react'
+import { useStore } from 'zustand'
+import { renderPaneContent } from '@/features/panes/components/pane-content-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import type { BranchReviewContent } from '@/features/panes/types/pane-content'
+import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
+import type { LineRequest } from '@/features/git/components/review-diff-tab'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+import type { GitDiff } from '@/features/git/types/git-types'
+import { recordWorkspaceScope, setWorkspaceScope } from '@/lib/workspace-scope'
+import type { ReviewState } from '@/features/git/api/review-api'
+import type { Repo } from '@/core/entities/repo-types'
+import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
+import { putReviewThread } from '@/__tests__/__fixtures__/review-threads'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+
+const mocks = vi.hoisted(() => ({
+  getReview: vi.fn<() => Promise<ReviewState>>(),
+}))
+vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getReview: mocks.getReview,
+}))
+
+vi.mock('@/features/git/components/review-diff-tab', () => ({
+  ReviewDiffTab: ({ lineRequest }: { lineRequest?: LineRequest }) => (
+    <div data-testid="diff-tab" data-line={lineRequest ? lineRequest.lineNumber : ''} />
+  ),
+}))
+
+const JUMP_THREAD: ReviewThread = {
+  id: 't1',
+  filePath: 'src/a.ts',
+  lineNumber: 12,
+  startLine: 12,
+  endLine: 12,
+  side: 'new',
+  messages: [],
+  isResolved: false,
+}
+vi.mock('@/features/git/components/review-conversation-view', () => ({
+  ReviewConversationView: ({ onJumpToLine }: { onJumpToLine: (t: ReviewThread) => void }) => (
+    <button type="button" onClick={() => onJumpToLine(JUMP_THREAD)}>
+      jump
+    </button>
+  ),
+}))
+
+import { BranchReviewPane } from '@/features/git/components/branch-review-pane'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+
+function review(overrides: Partial<ReviewState> = {}): ReviewState {
+  return {
+    description: '',
+    mergeStrategy: 'merge',
+    diff: { files: [] } as unknown as ReviewState['diff'],
+    conversations: [],
+    ...overrides,
+  }
+}
+
+function renderPane(wsId: string, store: ReturnType<typeof createWorkspaceStore>) {
+  return render(
+    <WorkspaceStoreContext.Provider value={store}>
+      <BranchReviewPane onViewChange={() => {}} wsId={wsId} />
+    </WorkspaceStoreContext.Provider>,
+  )
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
+  mocks.getReview.mockResolvedValue(review())
+})
+
+describe('BranchReviewPane — owning-chat-id race', () => {
+  it('does not fetch the review before an owning chat id is recorded', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+    const store = createWorkspaceStore('ws-race')
+
+    renderPane('ws-race', store)
+    await act(async () => {})
+
+    expect(mocks.getReview).not.toHaveBeenCalled()
+    expect(store.getState().branchReview.diffStatus).toBe('idle')
+  })
+
+  it('fetches the review once the owning chat id arrives after mount', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+    const store = createWorkspaceStore('ws-race')
+    mocks.getReview.mockResolvedValue(review({ description: 'hello world' }))
+
+    renderPane('ws-race', store)
+    await act(async () => {})
+    expect(mocks.getReview).not.toHaveBeenCalled()
+
+    act(() => {
+      recordWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-race',
+        owningChatId: 'chat-1',
+      })
+    })
+
+    await waitFor(() => expect(store.getState().branchReview.description).toBe('hello world'))
+    expect(mocks.getReview).toHaveBeenCalledWith('ws-race')
+    expect(store.getState().branchReview.diffStatus).not.toBe('error')
+  })
+
+  it('still sets the error status on a genuine fetch failure once scope is ready', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-ready', owningChatId: 'chat-1' })
+    const store = createWorkspaceStore('ws-ready')
+    mocks.getReview.mockRejectedValue(new Error('502'))
+
+    renderPane('ws-ready', store)
+
+    await waitFor(() => expect(store.getState().branchReview.diffStatus).toBe('error'))
+  })
+
+  it('fetches immediately when the scope already carries an owning chat id', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-ready-2', owningChatId: 'chat-2' })
+    const store = createWorkspaceStore('ws-ready-2')
+    mocks.getReview.mockResolvedValue(review({ description: 'already scoped' }))
+
+    renderPane('ws-ready-2', store)
+
+    await waitFor(() => expect(store.getState().branchReview.description).toBe('already scoped'))
+    expect(mocks.getReview).toHaveBeenCalledWith('ws-ready-2')
+  })
+})
+
+describe('BranchReviewPane — host not yet known', () => {
+  beforeEach(() => {
+    resetHostWorld()
+    pairRemoteHost('host-1')
+  })
+  afterEach(() => resetHostWorld())
+
+  it('fetches once the project list names the host, never marking an error before then', async () => {
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-h', owningChatId: 'chat-h' })
+    const store = createWorkspaceStore('ws-h')
+    mocks.getReview.mockResolvedValue(review({ description: 'hello host' }))
+
+    renderPane('ws-h', store)
+    await act(async () => {})
+    expect(mocks.getReview).not.toHaveBeenCalled()
+    expect(store.getState().branchReview.diffStatus).toBe('idle')
+
+    act(() => loadProjects(projectOn('p1', 'local')))
+
+    await waitFor(() => expect(store.getState().branchReview.description).toBe('hello host'))
+    expect(mocks.getReview).toHaveBeenCalledExactlyOnceWith('ws-h')
+  })
+})
+
+function openReviewBuffer(wsId: string): string {
+  return windowPaneStore
+    .getState()
+    .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
+}
+
+function PersistedViewPane({ bufferId, wsId }: { bufferId: string; wsId: string }) {
+  const buffer = useStore(
+    windowPaneStore,
+    (s) => s.buffers.find((b) => b.id === bufferId) as BranchReviewContent | undefined,
+  )
+  if (!buffer) return null
+  return (
+    <Suspense fallback={null}>
+      {renderPaneContent(buffer, { isActivePane: true, paneId: 'pane-1', wsId })}
+    </Suspense>
+  )
+}
+
+async function renderPersisted(wsId: string, bufferId: string) {
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: 'chat-1' })
+  const store = createWorkspaceStore(wsId)
+  const utils = render(
+    <WorkspaceStoreContext.Provider value={store}>
+      <PersistedViewPane bufferId={bufferId} wsId={wsId} />
+    </WorkspaceStoreContext.Provider>,
+  )
+  await screen.findByRole('tab', { name: /Conversation/ })
+  return { ...utils, store }
+}
+
+function diffFile(path: string): GitDiff {
+  return {
+    file_path: path,
+    is_new: false,
+    is_deleted: false,
+    is_renamed: false,
+    additions: 1,
+    deletions: 0,
+    lines: [],
+  }
+}
+
+describe('BranchReviewPane — Conversation / Files changed shell', () => {
+  it('opens on Conversation and persists the tab the user picks on the buffer', async () => {
+    const user = userEvent.setup()
+    const id = openReviewBuffer('ws-tabs')
+    await renderPersisted('ws-tabs', id)
+
+    expect(await screen.findByRole('button', { name: 'jump' })).toBeDefined()
+    expect(screen.queryByTestId('diff-tab')).toBeNull()
+
+    await user.click(screen.getByRole('tab', { name: /Files changed/ }))
+
+    expect(screen.getByTestId('diff-tab')).toBeDefined()
+    const buf = windowPaneStore.getState().bufferActions.getBufferById(id)
+    expect((buf as BranchReviewContent).view).toBe('files')
+  })
+
+  it('shows the changed-file count on the Files changed tab', async () => {
+    getOrCreateWorkspaceStore('ws-count').setState({
+      reviewFiles: [diffFile('a.ts'), diffFile('b.ts')],
+    })
+    const id = openReviewBuffer('ws-count')
+    await renderPersisted('ws-count', id)
+
+    expect(await screen.findByRole('tab', { name: /Files changed\s*2/ })).toBeDefined()
+    destroyWorkspaceStore('ws-count')
+  })
+
+  it('shows branch line totals from the files summary and no state chip', async () => {
+    getOrCreateWorkspaceStore('ws-totals').setState({
+      reviewFiles: [
+        { ...diffFile('a.ts'), additions: 5, deletions: 2 },
+        { ...diffFile('b.ts'), additions: 3, deletions: -1 },
+      ],
+    })
+    const id = openReviewBuffer('ws-totals')
+    await renderPersisted('ws-totals', id)
+
+    expect(await screen.findByText('+8')).toBeDefined()
+    expect(screen.getByText('-2')).toBeDefined()
+    expect(screen.getByText('2 files')).toBeDefined()
+    expect(screen.queryByText('Open')).toBeNull()
+    destroyWorkspaceStore('ws-totals')
+  })
+
+  it('renders no merge card; it lives in the sidebar Changes panel', async () => {
+    const user = userEvent.setup()
+    const id = openReviewBuffer('ws-merge-head')
+    await renderPersisted('ws-merge-head', id)
+
+    expect(screen.queryByRole('region', { name: 'Merge' })).toBeNull()
+    await user.click(screen.getByRole('tab', { name: /Files changed/ }))
+    expect(screen.queryByRole('region', { name: 'Merge' })).toBeNull()
+  })
+
+  it('shows the owning chat title as the heading, and the thread count on Conversation', async () => {
+    seedRepos([
+      {
+        id: 'r1',
+        name: 'repo',
+        avatarLabel: 'R',
+        avatarColor: '#000',
+        workspaces: [
+          {
+            id: 'ws-title',
+            branch: 'feat/x',
+            age: '1h',
+            owningChatId: 'chat-1',
+            parentBranch: 'develop',
+          },
+        ],
+        chats: [{ id: 'chat-1', repoId: 'r1', title: 'Stop UI leaking', order: 0 }],
+      },
+    ] as unknown as Repo[])
+    const id = openReviewBuffer('ws-title')
+    await renderPersisted('ws-title', id)
+    act(() =>
+      putReviewThread('ws-title', {
+        id: 't1',
+        filePath: 'a.ts',
+        lineNumber: 1,
+        startLine: 1,
+        endLine: 1,
+        side: 'new',
+        isResolved: false,
+        messages: [{ id: 't1-root', author: 'me', isAgent: false, body: 'b', createdAt: '' }],
+      }),
+    )
+
+    expect(screen.getByRole('heading', { name: 'Stop UI leaking' })).toBeDefined()
+    expect(screen.getByText('feat/x')).toBeDefined()
+    expect(await screen.findByRole('tab', { name: /Conversation\s*1/ })).toBeDefined()
+  })
+
+  it('keeps the header and tab row mounted when switching tabs, and arrows move between them', async () => {
+    const user = userEvent.setup()
+    const id = openReviewBuffer('ws-stable')
+    await renderPersisted('ws-stable', id)
+
+    const heading = screen.getByRole('heading')
+    const tablist = screen.getByRole('tablist')
+    await user.click(screen.getByRole('tab', { name: /Conversation/ }))
+    await user.keyboard('{ArrowRight}')
+
+    expect(screen.getByRole('tab', { name: /Files changed/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    )
+    expect(screen.getByRole('heading')).toBe(heading)
+    expect(screen.getByRole('tablist')).toBe(tablist)
+  })
+
+  it('Jump to line switches to Files changed and hands the line to the diff surface', async () => {
+    const user = userEvent.setup()
+    const id = openReviewBuffer('ws-jump')
+    windowPaneStore.getState().bufferActions.setBranchReviewView(id, 'conversation')
+    await renderPersisted('ws-jump', id)
+
+    await user.click(screen.getByRole('button', { name: 'jump' }))
+
+    expect(screen.getByTestId('diff-tab').getAttribute('data-line')).toBe('12')
+    expect(
+      (windowPaneStore.getState().bufferActions.getBufferById(id) as BranchReviewContent).view,
+    ).toBe('files')
+  })
+
+  it('does not replay a jump the next time Files changed mounts', async () => {
+    const user = userEvent.setup()
+    const id = openReviewBuffer('ws-replay')
+    windowPaneStore.getState().bufferActions.setBranchReviewView(id, 'conversation')
+    await renderPersisted('ws-replay', id)
+
+    await user.click(screen.getByRole('button', { name: 'jump' }))
+    await user.click(screen.getByRole('tab', { name: /Conversation/ }))
+    await user.click(screen.getByRole('tab', { name: /Files changed/ }))
+
+    expect(screen.getByTestId('diff-tab').getAttribute('data-line')).toBe('')
+  })
+})

@@ -10,9 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// WorkspaceSyncer is the workspace surface the file usecase uses to resolve a
-// worktree path, find the worktree holding an absolute path, and trigger a
-// working-tree resync after a mutation.
 type WorkspaceSyncer interface {
 	Get(
 		ctx context.Context,
@@ -28,15 +25,12 @@ type WorkspaceSyncer interface {
 	) (domain.Workspace, error)
 }
 
-// FileStatusProvider resolves git status for a repo path so the file tree can be
-// decorated. It is structurally compatible with the fs engine's tree provider.
 type FileStatusProvider interface {
 	GitStatus(
 		repoPath string,
 	) (gitdomain.GitStatus, error)
 }
 
-// FsEngine is the filesystem-engine surface the file usecase passes through to.
 type FsEngine interface {
 	Tree(
 		repoPath string,
@@ -85,10 +79,7 @@ type FsEngine interface {
 	) error
 }
 
-// Usecase is a thin pass-through to the filesystem engine. Reads resolve the
-// worktree path; mutations additionally trigger a working-tree resync.
 type Usecase interface {
-	// Tree returns one level of the file tree for a workspace.
 	Tree(
 		ctx context.Context,
 		wsID string,
@@ -96,17 +87,12 @@ type Usecase interface {
 		provider FileStatusProvider,
 	) ([]domain.FileNode, error)
 
-	// ReadDocument reads the document target names: a workspace-relative path,
-	// or an absolute path resolved to the worktree holding it or to the host.
 	ReadDocument(
 		ctx context.Context,
 		target domain.DocumentRef,
 		transport domain.Transport,
 	) (domain.Document, error)
 
-	// WriteDocument writes the document target names and returns the ref it
-	// resolved to. encoding is "base64" for a byte-faithful binary payload (e.g.
-	// a file upload) or "" / "utf8" for raw UTF-8 text.
 	WriteDocument(
 		ctx context.Context,
 		target domain.DocumentRef,
@@ -116,15 +102,12 @@ type Usecase interface {
 		now time.Time,
 	) (domain.DocumentRef, error)
 
-	// HostDocument is the gate for a client that holds a host document open: it
-	// answers the host ref when path is already its canonical spelling.
 	HostDocument(
 		ctx context.Context,
 		path string,
 		transport domain.Transport,
 	) (domain.DocumentRef, error)
 
-	// CreateFile creates a file and resyncs the working tree.
 	CreateFile(
 		ctx context.Context,
 		wsID string,
@@ -132,7 +115,6 @@ type Usecase interface {
 		now time.Time,
 	) error
 
-	// CreateDir creates a directory and resyncs the working tree.
 	CreateDir(
 		ctx context.Context,
 		wsID string,
@@ -140,9 +122,6 @@ type Usecase interface {
 		now time.Time,
 	) error
 
-	// Copy duplicates a file or directory byte-faithfully and resyncs the
-	// working tree. Directories copy recursively; the destination must not
-	// already exist.
 	Copy(
 		ctx context.Context,
 		wsID string,
@@ -151,7 +130,6 @@ type Usecase interface {
 		now time.Time,
 	) error
 
-	// Rename renames a path and resyncs the working tree.
 	Rename(
 		ctx context.Context,
 		wsID string,
@@ -160,7 +138,6 @@ type Usecase interface {
 		now time.Time,
 	) error
 
-	// Delete removes a path and resyncs the working tree.
 	Delete(
 		ctx context.Context,
 		wsID string,
@@ -175,8 +152,6 @@ type fileUsecase struct {
 	crowbarHome func() (string, error)
 }
 
-// New builds a Usecase from the fs engine, the workspace syncer and the
-// daemon's home, whose state directory is never served as a document.
 func New(
 	fs FsEngine,
 	syncer WorkspaceSyncer,
@@ -189,7 +164,6 @@ func New(
 	}
 }
 
-// Tree returns one level of the file tree for a workspace.
 func (u *fileUsecase) Tree(
 	ctx context.Context,
 	wsID string,
@@ -207,7 +181,6 @@ func (u *fileUsecase) Tree(
 	return nodes, nil
 }
 
-// CreateFile creates a file and resyncs the working tree.
 func (u *fileUsecase) CreateFile(
 	ctx context.Context,
 	wsID string,
@@ -224,7 +197,6 @@ func (u *fileUsecase) CreateFile(
 	return u.resync(ctx, wsID, now)
 }
 
-// CreateDir creates a directory and resyncs the working tree.
 func (u *fileUsecase) CreateDir(
 	ctx context.Context,
 	wsID string,
@@ -241,9 +213,6 @@ func (u *fileUsecase) CreateDir(
 	return u.resync(ctx, wsID, now)
 }
 
-// Copy duplicates a file or directory byte-faithfully and resyncs the working
-// tree. Locked (protected-branch) workspaces reject the write with
-// problem.ErrLocked, same as every other mutation.
 func (u *fileUsecase) Copy(
 	ctx context.Context,
 	wsID string,
@@ -261,7 +230,6 @@ func (u *fileUsecase) Copy(
 	return u.resync(ctx, wsID, now)
 }
 
-// Rename renames a path and resyncs the working tree.
 func (u *fileUsecase) Rename(
 	ctx context.Context,
 	wsID string,
@@ -279,7 +247,6 @@ func (u *fileUsecase) Rename(
 	return u.resync(ctx, wsID, now)
 }
 
-// Delete removes a path and resyncs the working tree.
 func (u *fileUsecase) Delete(
 	ctx context.Context,
 	wsID string,

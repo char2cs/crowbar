@@ -1,0 +1,240 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }))
+vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastError } }))
+
+import { actionErrorMessage, toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
+import { report } from '@/lib/errors/report'
+import { toastManager } from '@/lib/toast-manager'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  destroyHostRuntime,
+  getHostRuntime,
+  getOrCreateHostRuntime,
+} from '@/features/hosts/stores/host-runtime-registry'
+import { HostNotConfiguredError, proxyMarkerError } from '@/lib/api/errors'
+import { ApiError } from '@/lib/errors/api-error'
+import { HostNotResolvedError } from '@/lib/host-path'
+import { hostIdForProject, hostIdForWorkspace } from '@/lib/host-resolve'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+import { markProjectsSynced } from '@/__tests__/__fixtures__/sidebar-entities'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+import { attachFeed } from '@/features/agent/stores/chat-feed'
+import { chatStore } from '@/features/agent/stores/chat-store'
+import { wsManager } from '@/core/stream/ws-manager'
+import { streamDaemonFor } from '@/__tests__/__fixtures__/stream-daemon'
+
+const unreachable = (hostId = 'h1') => proxyMarkerError('host-unreachable', hostId)!
+const changed = (hostId = 'h1') => proxyMarkerError('host-identity-changed', hostId)!
+const refused = (hostId = 'h1') =>
+  new ApiError('client is not paired', 401, undefined, undefined, hostId)
+const statusOf = (hostId: string) => getHostRuntime(hostId)?.getState().status
+const toasted = () => toastError.mock.calls.map((call) => call.join(' | ')).join('\n')
+
+beforeEach(() => {
+  toastError.mockReset()
+  resetHostWorld()
+  pairRemoteHost('h1', 'Studio Mac')
+  getOrCreateHostRuntime('h1').getState().setStatus('up')
+})
+
+afterEach(() => {
+  destroyHostRuntime('h1')
+  resetHostWorld()
+})
+
+describe('an action that failed because of its remote host', () => {
+  it('names an unreachable host by its name, and records it down', () => {
+    expect(toastHostFailure(unreachable())).toBe(true)
+
+    expect(toastError).toHaveBeenCalledExactlyOnceWith(
+      'Couldn’t reach Studio Mac',
+      'Check that it is online in Settings → Hosts.',
+    )
+    expect(statusOf('h1')).toBe('down')
+  })
+
+  it('warns that a host presenting another identity may be intercepted, to be confirmed before pairing again', () => {
+    toastHostFailure(changed())
+
+    const [message, description] = toastError.mock.calls[0] as [string, string]
+    expect(message).toBe(
+      'Studio Mac is presenting a different identity — confirm it before pairing again',
+    )
+    expect(description).toMatch(/reinstalled or reset, or someone may be intercepting/)
+    expect(description).toMatch(/refused to connect/)
+    expect(description).toMatch(/confirm its new fingerprint with whoever runs it: remove it here/)
+    expect(statusOf('h1')).toBe('needs-repair')
+  })
+
+  it('says a host that refuses this computer (401) must be paired again, and records it so', () => {
+    toastHostFailure(refused())
+
+    const [message, description] = toastError.mock.calls[0] as [string, string]
+    expect(message).toBe('Studio Mac needs to be paired again')
+    expect(description).toMatch(/doesn’t accept this computer’s credential, or none is stored/)
+    expect(statusOf('h1')).toBe('needs-repair')
+  })
+
+  it('says an answer that carries only a status is the host’s error, never a bare number', () => {
+    expect(toastHostFailure(new ApiError('502 ', 502, undefined, undefined, 'h1'))).toBe(true)
+    expect(
+      actionErrorMessage(new ApiError('504 Gateway Timeout', 504, undefined, undefined, 'h1'), 'x'),
+    ).toBe('Studio Mac returned an error (504)')
+
+    expect(toastError.mock.calls[0]?.[0]).toBe('Studio Mac returned an error (502)')
+    expect(statusOf('h1')).toBe('up')
+  })
+
+  it('never shows the host’s id or markup, whatever went wrong', () => {
+    for (const err of [unreachable(), changed(), refused()]) toastHostFailure(err)
+
+    expect(toasted()).not.toMatch(/\bh1\b|`/)
+  })
+
+  it.each([
+    [
+      'a host removed meanwhile',
+      () => (useHostConfigStore.getState().removeHost('h1'), unreachable()),
+    ],
+    ['a request for a host this app holds no pairing for', () => new HostNotConfiguredError('h9')],
+  ])('says %s is no longer paired, never its id', (_name, failure) => {
+    toastHostFailure(failure())
+
+    expect(toasted()).toBe(
+      'That host is no longer paired with this computer | Pair it again in Settings → Hosts to use it.',
+    )
+  })
+})
+
+describe('an action whose host could not be told yet', () => {
+  const thrown = (resolve: () => unknown): HostNotResolvedError => {
+    try {
+      resolve()
+    } catch (err) {
+      if (err instanceof HostNotResolvedError) return err
+    }
+    throw new Error('expected the host not to resolve')
+  }
+  const unresolved = (projectId = 'p-remote') => thrown(() => hostIdForProject(projectId))
+  afterEach(() => useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState()))
+
+  it('says the projects are still loading while the list has not been read', () => {
+    toastHostFailure(unresolved())
+
+    expect(toasted()).toBe('Still loading your projects | Try again in a moment.')
+  })
+
+  it('sends a project held on a host that is not configured to Hosts', () => {
+    loadProjects(projectOn('p-gone', 'h2'))
+    markProjectsSynced('h1')
+
+    toastHostFailure(unresolved('p-gone'))
+
+    expect(toasted()).toBe(
+      'This project’s host is not available | Check the host in Settings → Hosts.',
+    )
+  })
+
+  it('places a workspace through the project its scope names', () => {
+    loadProjects(projectOn('p-gone', 'h2'))
+    markProjectsSynced('h1')
+    recordWorkspaceScope({ projectId: 'p-gone', repoId: 'r1', wsId: 'ws-1' })
+    const err = thrown(() => hostIdForWorkspace('ws-1'))
+
+    toastHostFailure(err)
+
+    expect(toastError.mock.calls[0]?.[0]).toBe('This project’s host is not available')
+  })
+
+  it('never leaks the internal reason', () => {
+    toastHostFailure(new HostNotResolvedError('workspace', 'ws-1', 'no scope is recorded'))
+
+    expect(toasted()).not.toMatch(/scope|ws-1|no host resolved/)
+  })
+})
+
+describe('a failure that is not its host’s', () => {
+  it.each([
+    ['a local daemon’s 401', new ApiError('nope', 401, undefined, undefined, 'local')],
+    ['a local bare status', new ApiError('502 ', 502, undefined, undefined, 'local')],
+    [
+      'a remote daemon’s own error',
+      new ApiError('branch is taken', 409, undefined, undefined, 'h1'),
+    ],
+    ['a plain error', new Error('boom')],
+    ['something that is not an error', 'kaboom'],
+  ])('%s is left to the caller', (_name, err) => {
+    expect(toastHostFailure(err)).toBe(false)
+
+    expect(toastError).not.toHaveBeenCalled()
+    expect(statusOf('h1')).toBe('up')
+  })
+
+  it('is described in its own words inline', () => {
+    expect(actionErrorMessage(new Error('locked'), 'Failed')).toBe('locked')
+    expect(actionErrorMessage(42, 'Failed to commit changes')).toBe('Failed to commit changes')
+  })
+})
+
+describe('inline and toasted host failures read the same', () => {
+  it('an inline message names the host and records its status', () => {
+    expect(actionErrorMessage(changed(), 'Failed')).toBe(
+      'Studio Mac is presenting a different identity — confirm it before pairing again',
+    )
+    expect(statusOf('h1')).toBe('needs-repair')
+  })
+
+  it('a host failure an action reports is worded by the host, under the action', () => {
+    const add = vi.spyOn(toastManager, 'add')
+
+    report(unreachable(), { action: 'Failed to rename folder' })
+
+    expect(add).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        title: 'Failed to rename folder',
+        description: 'Couldn’t reach Studio Mac',
+      }),
+    )
+  })
+})
+
+describe('a chat on a host whose stream will not open', () => {
+  const feed = () => chatStore.getState().feeds['chat-1']
+  let detach = () => {}
+  afterEach(() => {
+    detach()
+    vi.restoreAllMocks()
+    chatStore.setState({ feeds: {} })
+  })
+
+  it.each([
+    {
+      refusal: 'the open names another identity',
+      status: 'up' as const,
+      cause: 'host-identity-changed: the pinned certificate does not match',
+      error: 'Studio Mac is presenting a different identity — confirm it before pairing again',
+    },
+    {
+      refusal: 'its status records the refusal',
+      status: 'needs-repair' as const,
+      cause: 'ws upgrade: HTTP error: 401 Unauthorized',
+      error: 'Studio Mac needs to be paired again',
+    },
+  ])('says why in the feed when $refusal', async ({ status, cause, error }) => {
+    getOrCreateHostRuntime('h1').getState().setStatus(status)
+    streamDaemonFor('h1').answer = () => []
+    vi.spyOn(wsManager, 'opened').mockRejectedValue(
+      new Error('h1~/v0/stream: closed before it opened', { cause }),
+    )
+    detach = attachFeed('h1', 'chat-1')
+    await vi.waitFor(() => expect(feed()?.status).toBe('error'))
+    expect(feed()?.error).toBe(error)
+  })
+})

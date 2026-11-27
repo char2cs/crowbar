@@ -16,27 +16,20 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// retiredLogs are the databases, under state/events and state/store, that the
-// chat ledger and the project trees replaced. No code opens them any more.
 var retiredLogs = []string{
 	"agent_activity", "agent_activity_snapshots", "agent_runner", "agent_runner_snapshots", "node", "node_snapshots",
 }
 
-// keptNote prefixes the note on a file the backup does not hold as it is now.
 const keptNote = "kept "
 
-// retireSubject is what the retire step deletes, as plans name it.
 const retireSubject = "legacy files the chat ledger and the project trees replaced"
 
-// legacyFile is one file the retire step may delete; verify says whether the
-// backup must hold it byte for byte first.
 type legacyFile struct {
 	rel    string
 	verify bool
 	stamp  string
 }
 
-// legacyFiles lists the retired files present under h, by path under the home.
 func legacyFiles(
 	h home.Home,
 ) ([]legacyFile, error) {
@@ -62,7 +55,6 @@ func legacyFiles(
 	return describe(h, paths)
 }
 
-// filesUnder is every regular file under the existing trees.
 func filesUnder(
 	trees []string,
 ) ([]string, error) {
@@ -84,9 +76,6 @@ func filesUnder(
 	return out, nil
 }
 
-// describe keeps the paths that exist. A SQLite shared-memory index and an
-// empty write-ahead log hold no data, and the binary copy is a copy, so only
-// the rest must be in the backup.
 func describe(
 	h home.Home,
 	paths []string,
@@ -114,9 +103,6 @@ func describe(
 	return out, nil
 }
 
-// retirable is what the step deletes this boot: nothing until the migrated home
-// has completed a boot at layout 1 and the chat ledger holds every legacy chat,
-// and never a file it already kept unless that file changed since.
 func retirable(
 	env migrate.Env,
 	noted func(key string) (migrate.Note, bool),
@@ -146,8 +132,6 @@ func planRetire(
 	return migrate.Plan{Actions: []migrate.Action{{Kind: migrate.Delete, Subject: retireSubject, Count: int64(len(files))}}}, nil
 }
 
-// RetireImpl deletes the legacy files the backup holds as they are; a file it
-// does not is kept and noted, and looked at again only once it changes.
 func RetireImpl() migrate.Impl {
 	return migrate.Impl{Apply: applyRetire}
 }
@@ -186,7 +170,6 @@ func applyRetire(
 	return counts, pruneEmptyDirs(env.Home)
 }
 
-// backedUp is which files the newest backup holds byte for byte.
 func backedUp(
 	env migrate.Env,
 	files []legacyFile,
@@ -219,8 +202,6 @@ func remove(
 	return info.Size(), nil
 }
 
-// pruneEmptyDirs removes the directories the deletes emptied, a chat's own
-// among them: what is created there now is created on first write.
 func pruneEmptyDirs(
 	h home.Home,
 ) error {
@@ -241,7 +222,6 @@ func pruneEmptyDirs(
 	return nil
 }
 
-// removeEmptyTree removes dir and the empty directories under it, deepest first.
 func removeEmptyTree(
 	dir string,
 ) error {

@@ -18,7 +18,6 @@ func BenchmarkHunkID(b *testing.B) {
 }
 
 func BenchmarkParseFiles(b *testing.B) {
-	// Build a realistic multi-file unified diff fixture (~500 lines).
 	var sb strings.Builder
 	for fileIdx := 0; fileIdx < 10; fileIdx++ {
 		name := fmt.Sprintf("pkg/file%d.go", fileIdx)

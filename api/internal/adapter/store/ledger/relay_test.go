@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// relayBound is a session "S" bound with relay id "R1".
 func relayBound(t *testing.T, cause, from string) ledger.Row {
 	t.Helper()
 	return mustRow(t, ledger.KindSessionBound, "", ledger.SessionBound{

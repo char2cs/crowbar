@@ -17,7 +17,7 @@ func TestCodexDescriptor_CommandActionsGiveKindTargetAndExitCode(t *testing.T) {
 		exit                      int
 	}{
 		{"tool_post", "item_completed.commandExecution.read.json", "read", "cat notes.txt", 0},
-		{"tool_post", "item_completed.commandExecution.json", "execute", "ls -la", 0}, // a listing it ran, not a search
+		{"tool_post", "item_completed.commandExecution.json", "execute", "ls -la", 0},
 		{"tool_fail", "item_completed.commandExecutionFailed.json", "read", "cat does-not-exist.txt", 1},
 	} {
 		tool := parseRecorded(t, d, tc.event, tc.file, spec.ChannelAPI)
@@ -55,7 +55,6 @@ func TestCodexDescriptor_ApplyPatchTargetIsItsFirstFilePath(t *testing.T) {
 	expectEq(t, "target", patch.Target, "/ws/calc.py")
 }
 
-// A hooks call carries its input, so the ask it raises binds to it by that.
 func TestCodexDescriptor_AHooksToolCallCarriesItsInput(t *testing.T) {
 	d := loadDescriptor(t, "codex")
 	for _, file := range []string{"PreToolUse.json", "PreToolUse.mcp.json", "PreToolUse.spawnAgent.json", "PreToolUse.applyPatch.json"} {
@@ -77,8 +76,6 @@ func TestCodexDescriptor_AHooksToolCallCarriesItsInput(t *testing.T) {
 	}
 }
 
-// A command names its process and directory when it starts, its output when it ends,
-// and input written to the process later names the same call.
 func TestCodexDescriptor_ACommandNamesItsProcessAndWhereItRan(t *testing.T) {
 	d := loadDescriptor(t, "codex")
 
@@ -104,7 +101,6 @@ func TestCodexDescriptor_ACommandNamesItsProcessAndWhereItRan(t *testing.T) {
 	expectEq(t, "input names the process", input.ShellRef, "10527")
 }
 
-// A failed turn is classified by the descriptor, from the status code or the named error it reports.
 func TestCodexDescriptor_ATurnFailureCarriesItsNeutralKind(t *testing.T) {
 	d := loadDescriptor(t, "codex")
 	for name, tc := range map[string]struct{ info, want string }{

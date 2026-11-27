@@ -5,14 +5,6 @@ import (
 	"testing"
 )
 
-// TestStripOSCTitlesMisprint is the mandated regression for the "phantom Claude Code" grid
-// corruption. A cursor-positioned OSC 2 title whose UTF-8 bytes contain 0x9C (the sparkle "✳"
-// U+2733 = E2 9C B3, whose middle byte is the C1 String Terminator) must NOT be printed into
-// the emulator grid: the pinned x/vt honours that 0x9C as an OSC terminator, drops to ground,
-// and stamps the leftover " Claude Code" into its grid. Feeding x/vt the stripped stream
-// removes the OSC entirely, so no title text lands in the grid — while escan still captures
-// the whole title for the tab. FAILS on the pre-strip code, where the grid contained
-// "Claude Code".
 func TestStripOSCTitlesMisprint(t *testing.T) {
 	m := newVTModel(40, 12, 100)
 	m.Write([]byte("\x1b[10;5H\x1b]2;\xe2\x9c\xb3 Claude Code\x07"))
@@ -25,15 +17,8 @@ func TestStripOSCTitlesMisprint(t *testing.T) {
 	}
 }
 
-// TestStripOSCTitlesLeadingZeroMatchesSingleDigit locks strip and escan to the IDENTICAL numeric
-// OSC-code rule for the non-conformant leading-zero title form. A leading-zero OSC 2 whose UTF-8
-// body carries 0x9C ("✳" U+2733 = E2 9C B3) must behave exactly like the "\x1b]2;" form: the
-// sequence is stripped from the emulator input (no leftover title text mis-printed into the grid
-// by x/vt's 0x9C truncation) AND the full title is captured via escan's Atoi("02")=2. Before the
-// fix, strip treated the second '0' as "code >= 10, keep" and passed "\x1b]02;" to x/vt (grid
-// mis-print) while escan still captured it (double-capture) — strip and capture disagreed.
 func TestStripOSCTitlesLeadingZeroMatchesSingleDigit(t *testing.T) {
-	const body = "\xe2\x9c\xb3 ZZLEAK" // "✳ ZZLEAK", middle byte 0x9C truncates x/vt's OSC parser
+	const body = "\xe2\x9c\xb3 ZZLEAK"
 
 	lz := newVTModel(40, 12, 100)
 	lz.Write([]byte("\x1b[10;5H\x1b]02;" + body + "\x07"))
@@ -52,9 +37,6 @@ func TestStripOSCTitlesLeadingZeroMatchesSingleDigit(t *testing.T) {
 	}
 }
 
-// TestStripOSCTitlesGridClean tables the icon/title and terminator variants: OSC 0/1/2 with a
-// 0x9C, terminated by BEL or the 7-bit ST, must leave the grid empty of title text while the
-// title/icon is still captured.
 func TestStripOSCTitlesGridClean(t *testing.T) {
 	cases := []struct {
 		name string
@@ -77,9 +59,6 @@ func TestStripOSCTitlesGridClean(t *testing.T) {
 	}
 }
 
-// TestStripOSCTitlesSplitAcrossWrites proves a title split across two Write chunks (even
-// mid-multibyte, straddling the 0x9C) is fully withheld from x/vt: neither chunk leaks any
-// title text into the grid, and the title is still captured whole.
 func TestStripOSCTitlesSplitAcrossWrites(t *testing.T) {
 	m := newVTModel(40, 12, 100)
 	m.Write([]byte("\x1b[3;1H\x1b]2;\xe2\x9c"))
@@ -93,10 +72,6 @@ func TestStripOSCTitlesSplitAcrossWrites(t *testing.T) {
 	}
 }
 
-// TestStripOSCColorsReachEmulator confirms OSC 10/11/12 (default colours, two-digit codes) are
-// NOT stripped: they reach x/vt, whose ForegroundColor/BackgroundColor/CursorColor callbacks
-// fire and set the shadow colour flags. Stripping only OSC 0/1/2 must leave the colour OSCs
-// intact.
 func TestStripOSCColorsReachEmulator(t *testing.T) {
 	m := newVTModel(40, 12, 100)
 	m.Write([]byte("\x1b]10;rgb:1111/2222/3333\x07"))
@@ -114,9 +89,6 @@ func TestStripOSCColorsReachEmulator(t *testing.T) {
 	}
 }
 
-// TestStripOSCTitlesOutput drives stripOSCTitles directly and asserts the exact bytes handed
-// to the emulator, pinning every framing branch: which OSCs are removed (0/1/2) versus passed
-// through (colours, hyperlinks, empty/multi-digit codes), and the surrounding non-OSC bytes.
 func TestStripOSCTitlesOutput(t *testing.T) {
 	cases := []struct {
 		name string
@@ -160,10 +132,6 @@ func TestStripOSCTitlesOutput(t *testing.T) {
 	}
 }
 
-// TestStripOSCTitlesSplitOutput pins the cross-chunk behaviour of stripOSCTitles at the byte
-// level: a stripped OSC withholds its introducer until it terminates (never leaking a dangling
-// partial to x/vt), while a kept OSC withholds its introducer only until a non-digit byte
-// disambiguates the code, then flushes the whole introducer to x/vt.
 func TestStripOSCTitlesSplitOutput(t *testing.T) {
 	t.Run("stripped title split mid-code and mid-char", func(t *testing.T) {
 		m := newVTModel(40, 12, 100)
@@ -176,13 +144,9 @@ func TestStripOSCTitlesSplitOutput(t *testing.T) {
 	})
 	t.Run("kept colour split at code boundary", func(t *testing.T) {
 		m := newVTModel(40, 12, 100)
-		// Chunk 1 ends on the digits alone: the code is still ambiguous (a further digit could
-		// make it 0/1/2 via a leading zero), so the introducer stays withheld — nothing leaks.
 		if got := string(m.stripOSCTitles([]byte("\x1b]10"))); got != "" {
 			t.Fatalf("chunk 1 = %q, want empty (code still ambiguous, withheld)", got)
 		}
-		// The ';' is the first non-digit: Atoi("10") = 10 is not a title, so the withheld
-		// introducer plus the rest flush through to x/vt.
 		if got := string(m.stripOSCTitles([]byte(";rgb:0/0/0\x07"))); got != "\x1b]10;rgb:0/0/0\x07" {
 			t.Fatalf("chunk 2 = %q, want %q", got, "\x1b]10;rgb:0/0/0\x07")
 		}

@@ -1,0 +1,64 @@
+{
+ "description": "Edit calls: a unified diff, a new file, a huge diff (3000 lines), an unparseable diff, then a live diff_update stream.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Edit",
+   "kind": "edit",
+   "target": "src/pricing.ts",
+   "input": {
+    "file_path": "src/pricing.ts"
+   },
+   "patch": "--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@ -1,5 +1,6 @@\n export function roundPrice(cents: number): number {\n-  return Math.round(cents / 100) * 100\n+  // Round half up to the nearest cent.\n+  return Math.round(cents)\n }\n \n export const CURRENCY = 'USD'\n"
+  },
+  {
+   "do": "tool",
+   "name": "Write",
+   "kind": "edit",
+   "target": "src/discount.ts",
+   "input": {
+    "file_path": "src/discount.ts",
+    "content": "export function discount() {}"
+   },
+   "edit_before": "",
+   "edit_after": "export function discount() {}",
+   "patch": "--- /dev/null\n+++ b/src/discount.ts\n@@ -0,0 +1,4 @@\n+export function discount(cents: number, pct: number): number {\n+  return Math.round(cents * (1 - pct / 100))\n+}\n+\n"
+  },
+  {
+   "do": "tool",
+   "name": "Write",
+   "kind": "edit",
+   "target": "src/generated/table.ts",
+   "input": {
+    "file_path": "src/generated/table.ts"
+   },
+   "patch_lines": 3000
+  },
+  {
+   "do": "tool",
+   "name": "Edit",
+   "kind": "edit",
+   "target": "src/broken.ts",
+   "input": {
+    "file_path": "src/broken.ts"
+   },
+   "patch": "this is not a unified diff\n@@ nonsense @@\n"
+  },
+  {
+   "do": "diff",
+   "text": "--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@ -1,5 +1,6 @@\n export function roundPrice(cents: number): number {\n-  return Math.round(cents / 100) * 100\n+  // Round half up to the nearest cent.\n+  return Math.round(cents)\n }\n \n export const CURRENCY = 'USD'\n"
+  },
+  {
+   "do": "sleep",
+   "ms": 300
+  },
+  {
+   "do": "diff",
+   "text": "--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@ -1,5 +1,6 @@\n export function roundPrice(cents: number): number {\n-  return Math.round(cents / 100) * 100\n+  // Round half up to the nearest cent.\n+  return Math.round(cents)\n }\n \n export const CURRENCY = 'USD'\n--- /dev/null\n+++ b/src/discount2.ts\n@@ -0,0 +1,4 @@\n+export function discount2(cents: number, pct: number): number {\n+  return Math.round(cents * (1 - pct / 100))\n+}\n+\n"
+  },
+  {
+   "do": "text",
+   "text": "Four edits made."
+  }
+ ]
+}

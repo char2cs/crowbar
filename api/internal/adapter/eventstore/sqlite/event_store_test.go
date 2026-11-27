@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	_ "github.com/glebarez/go-sqlite" // registers the "sqlite" driver for the pre-v1 fixture
+	_ "github.com/glebarez/go-sqlite"
 )
 
 func openTemp(t *testing.T) *eventStore {
@@ -65,8 +65,6 @@ func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestNewEventStore_ReadonlyDB_FailsToOpen: a store whose file and directory
-// cannot be written refuses to open instead of serving a log it cannot append to.
 func TestNewEventStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission denial has no effect")
@@ -92,7 +90,6 @@ func TestNewEventStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 	assert.Contains(t, err.Error(), "readonly database")
 }
 
-// Reads run beside an open write transaction under WAL; only writes queue.
 func TestEventStore_ReadsDoNotWaitForAnOpenTransaction(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
@@ -127,8 +124,6 @@ func TestEventStore_ReadsDoNotWaitForAnOpenTransaction(t *testing.T) {
 	require.NoError(t, <-committed)
 }
 
-// A log written before v1 (events table only, gorm's DDL of the time) opens
-// and reads back unchanged.
 func TestEventStore_OpensADatabaseWrittenBeforeV1(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.db")
 	db, err := sql.Open("sqlite", path)
@@ -205,8 +200,6 @@ type thing struct {
 	Name string `json:"name"`
 }
 
-// A delivery committed with its event but never handled (a crash between the
-// two) is redelivered by the next Build over the reopened file, then acked.
 func TestEventStore_APendingDeliverySurvivesAReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.db")
 	ctx := context.Background()

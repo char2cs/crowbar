@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// BackfillProvisioning records the Provisioning of a workspace written before the
-// field existed, the one place the legacy encoding is read; it is refused once set.
-// Purge safety for a shared parent comes from WorktreeRemover's own-root proof.
 type BackfillProvisioning struct {
 	ID string
 }

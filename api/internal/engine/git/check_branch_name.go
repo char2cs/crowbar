@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// CheckBranchName refuses a name git would not take for a new branch. git expands
-// shorthands such as "@" to another branch's name, so anything it rewrites is refused too.
 func (e *engine) CheckBranchName(ctx context.Context, repoPath, name string) error {
 	if !strings.HasPrefix(name, "-") {
 		r := e.exec(ctx, repoPath, "check-ref-format", "--branch", name)

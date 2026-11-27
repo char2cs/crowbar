@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// UploadDescriptor installs a validated YAML descriptor as a new provider.
 func (h *Handlers) UploadDescriptor(ctx *gin.Context) {
 	const maxBytes = 1 << 20
 	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxBytes)
@@ -34,8 +33,6 @@ func (h *Handlers) UploadDescriptor(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, report)
 }
 
-// Providers handles GET .../chats/providers and the global settings GET: the providers with connected
-// and enabled flags, in priority order. The list is scope-independent, so every mount returns the same.
 func (h *Handlers) Providers(
 	ctx *gin.Context,
 ) {
@@ -47,8 +44,6 @@ func (h *Handlers) Providers(
 	libs.WriteQueryOK(ctx, providerDTOs(providers))
 }
 
-// DescriptorReports handles GET /v0/settings/chat/descriptors: every
-// descriptor's static findings (rule, severity, YAML path and line, hint).
 func (h *Handlers) DescriptorReports(
 	ctx *gin.Context,
 ) {
@@ -60,14 +55,9 @@ func (h *Handlers) DescriptorReports(
 	libs.WriteQueryOK(ctx, reports)
 }
 
-// UpdateProviderPreferences handles PUT /v0/settings/chat/providers: the complete ordered list
-// replaces the preference table (position is priority) and the resolved list comes back.
 func (h *Handlers) UpdateProviderPreferences(
 	ctx *gin.Context,
 ) {
-	// Both flags arrive negated, so a missing field decodes to the absent-row default. On this full-replace
-	// PUT an omitted mcpDisabled therefore re-enables the tool surface: clients must send both flags for
-	// every provider on every write.
 	var body struct {
 		Providers []struct {
 			ID          string `json:"id"`

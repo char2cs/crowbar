@@ -1,0 +1,35 @@
+import { render } from '@testing-library/react'
+import type { Value } from 'platejs'
+import type { AnyPlatePlugin } from 'platejs/react'
+import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
+import { createStaticEditor, PlateStatic } from 'platejs/static'
+import { describe, expect, it } from 'vitest'
+
+import { CalloutKit } from '@/components/editor/plugins/callout-kit'
+import { CalloutKitStatic } from '@/components/editor/plugins/callout-kit-static'
+
+function InteractiveHarness({ plugins, value }: { plugins: AnyPlatePlugin[]; value: Value }) {
+  const editor = usePlateEditor({ plugins, value }, [])
+  return (
+    <Plate editor={editor} readOnly>
+      <PlateContent readOnly tabIndex={-1} />
+    </Plate>
+  )
+}
+
+describe('CalloutKitStatic', () => {
+  it('renders the same visible content as the interactive callout', () => {
+    const value: Value = [
+      { type: 'callout', icon: '⚠️', children: [{ text: 'Careful with this one.' }] },
+    ]
+
+    const interactive = render(<InteractiveHarness plugins={CalloutKit} value={value} />)
+    const staticEditor = createStaticEditor({ plugins: CalloutKitStatic, value })
+    const staticRender = render(<PlateStatic editor={staticEditor} />)
+
+    expect(staticRender.container.textContent).toBe(interactive.container.textContent)
+    expect(staticRender.container.querySelector('[data-slate-node]')?.textContent).toContain(
+      'Careful with this one.',
+    )
+  })
+})

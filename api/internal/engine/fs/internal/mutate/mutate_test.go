@@ -48,8 +48,6 @@ func TestCreateFile_ErrorsOnExisting(
 	require.Error(t, err)
 }
 
-// TestCreateFile_MkdirError exercises the os.MkdirAll error path by placing
-// a regular file where a directory is expected.
 func TestCreateFile_MkdirError(
 	t *testing.T,
 ) {
@@ -57,7 +55,6 @@ func TestCreateFile_MkdirError(
 		t.Skip("chmod restrictions differ on windows")
 	}
 	dir := t.TempDir()
-	// Create a regular file at "parent" so MkdirAll cannot create a dir there.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent"), []byte("x"), 0o600))
 
 	err := mutate.CreateFile(dir, "parent/child.txt")
@@ -75,7 +72,6 @@ func TestCreateDir(
 	assert.True(t, info.IsDir())
 }
 
-// TestCreateDir_AlreadyExists verifies CreateDir is idempotent.
 func TestCreateDir_AlreadyExists(
 	t *testing.T,
 ) {
@@ -117,8 +113,6 @@ func TestRename_MovesToSubdir(
 	assert.Equal(t, "x", string(data))
 }
 
-// TestRename_SourceMissing exercises the os.Rename error path when source
-// does not exist.
 func TestRename_SourceMissing(
 	t *testing.T,
 ) {
@@ -128,8 +122,6 @@ func TestRename_SourceMissing(
 	require.Error(t, err)
 }
 
-// TestRename_CrossDir renames a file to a different subdirectory (parent dirs
-// created automatically).
 func TestRename_CrossDir(
 	t *testing.T,
 ) {
@@ -145,10 +137,6 @@ func TestRename_CrossDir(
 	assert.Equal(t, "hello", string(data))
 }
 
-// TestRegression_Rename_RefusesToClobberExistingDest pins the silent-data-loss
-// fix: os.Rename replaces an occupied destination file with no error, so a rename
-// or drag-drop move onto an existing name destroyed the occupant. Rename now
-// refuses with fs.ErrExist (mapped to 409), and the occupant survives intact.
 func TestRegression_Rename_RefusesToClobberExistingDest(
 	t *testing.T,
 ) {
@@ -162,14 +150,11 @@ func TestRegression_Rename_RefusesToClobberExistingDest(
 	kept, readErr := os.ReadFile(filepath.Join(dir, "dst.txt"))
 	require.NoError(t, readErr)
 	assert.Equal(t, []byte("PRECIOUS"), kept, "existing destination must be untouched")
-	// Source also survives — the rename never happened.
 	src, srcErr := os.ReadFile(filepath.Join(dir, "src.txt"))
 	require.NoError(t, srcErr)
 	assert.Equal(t, []byte("SOURCE"), src)
 }
 
-// TestRegression_Rename_RefusesToClobberExistingDir verifies the collision guard
-// covers a directory destination too (os.Rename silently replaces an empty one).
 func TestRegression_Rename_RefusesToClobberExistingDir(
 	t *testing.T,
 ) {
@@ -184,9 +169,6 @@ func TestRegression_Rename_RefusesToClobberExistingDir(
 	require.NoError(t, statErr, "source directory must survive a refused clobber")
 }
 
-// TestRename_CaseOnlyRenameAllowed verifies the same-file exception: renaming a
-// file to a case variant of its own name (Foo → foo) is a legitimate rename, not
-// a clobber, and must not be rejected as a collision.
 func TestRename_CaseOnlyRenameAllowed(
 	t *testing.T,
 ) {
@@ -201,10 +183,6 @@ func TestRename_CaseOnlyRenameAllowed(
 	assert.Equal(t, []byte("data"), data)
 }
 
-// TestRegression_Copy_CleansUpPartialDestOnFailure verifies a recursive copy that
-// fails partway removes its half-populated destination rather than leaving cruft
-// that would both mislead the tree and make a retry fail on destination-exists.
-// An unreadable leaf (chmod 000) forces the mid-copy failure.
 func TestRegression_Copy_CleansUpPartialDestOnFailure(
 	t *testing.T,
 ) {
@@ -259,8 +237,6 @@ func TestDelete_NonExistent_NoError(
 	require.NoError(t, err)
 }
 
-// TestCreateDir_MkdirError exercises the os.MkdirAll error path in CreateDir
-// by placing a regular file where a directory path is needed.
 func TestCreateDir_MkdirError(
 	t *testing.T,
 ) {
@@ -268,15 +244,12 @@ func TestCreateDir_MkdirError(
 		t.Skip("chmod restrictions differ on windows")
 	}
 	dir := t.TempDir()
-	// Create a regular file at "blocker"; MkdirAll can't use it as a dir.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0o600))
 
 	err := mutate.CreateDir(dir, "blocker/child")
 	require.Error(t, err)
 }
 
-// TestRename_MkdirError exercises the os.MkdirAll error path in Rename by
-// placing a regular file where the destination parent directory must be.
 func TestRename_MkdirError(
 	t *testing.T,
 ) {
@@ -285,15 +258,12 @@ func TestRename_MkdirError(
 	}
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "src.txt"), []byte("data"), 0o600))
-	// "blocker" is a regular file so MkdirAll("blocker/subdir") fails.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocker"), []byte("x"), 0o600))
 
 	err := mutate.Rename(dir, "src.txt", "blocker/subdir/dst.txt")
 	require.Error(t, err)
 }
 
-// escapeCases are the adversarial workspace-relative paths every fs mutation
-// must reject (security finding R1).
 var escapeCases = []struct {
 	name string
 	path string
@@ -303,9 +273,6 @@ var escapeCases = []struct {
 	{"mid-path escape", "a/../../b"},
 }
 
-// TestRegression_CreateFile_RejectsPathEscape verifies CreateFile cannot create
-// a file outside the workspace root. Writing e.g. ../.git/hooks/pre-commit is
-// the RCE vector this guards.
 func TestRegression_CreateFile_RejectsPathEscape(
 	t *testing.T,
 ) {
@@ -324,8 +291,6 @@ func TestRegression_CreateFile_RejectsPathEscape(
 	assert.Empty(t, entries)
 }
 
-// TestRegression_CreateFile_AllowsInWorkspace confirms normal creation still
-// works.
 func TestRegression_CreateFile_AllowsInWorkspace(
 	t *testing.T,
 ) {
@@ -335,8 +300,6 @@ func TestRegression_CreateFile_AllowsInWorkspace(
 	require.NoError(t, err)
 }
 
-// TestRegression_CreateDir_RejectsPathEscape verifies CreateDir cannot create a
-// directory outside the workspace root.
 func TestRegression_CreateDir_RejectsPathEscape(
 	t *testing.T,
 ) {
@@ -349,7 +312,6 @@ func TestRegression_CreateDir_RejectsPathEscape(
 	}
 }
 
-// TestRegression_CreateDir_AllowsInWorkspace confirms normal creation works.
 func TestRegression_CreateDir_AllowsInWorkspace(
 	t *testing.T,
 ) {
@@ -360,8 +322,6 @@ func TestRegression_CreateDir_AllowsInWorkspace(
 	assert.True(t, info.IsDir())
 }
 
-// TestRegression_Rename_RejectsOldPathEscape verifies Rename validates the
-// SOURCE path: an escaping oldPath cannot move host files into the workspace.
 func TestRegression_Rename_RejectsOldPathEscape(
 	t *testing.T,
 ) {
@@ -374,9 +334,6 @@ func TestRegression_Rename_RejectsOldPathEscape(
 	}
 }
 
-// TestRegression_Rename_RejectsNewPathEscape verifies Rename validates the
-// DESTINATION path: an escaping newPath cannot move workspace files out of the
-// workspace.
 func TestRegression_Rename_RejectsNewPathEscape(
 	t *testing.T,
 ) {
@@ -390,13 +347,10 @@ func TestRegression_Rename_RejectsNewPathEscape(
 		})
 	}
 
-	// Source untouched: the rename never happened.
 	_, err := os.Stat(filepath.Join(root, "src.txt"))
 	require.NoError(t, err)
 }
 
-// TestRegression_Rename_AllowsInWorkspace confirms a normal in-workspace rename
-// still works.
 func TestRegression_Rename_AllowsInWorkspace(
 	t *testing.T,
 ) {
@@ -410,8 +364,6 @@ func TestRegression_Rename_AllowsInWorkspace(
 	assert.Equal(t, "x", string(data))
 }
 
-// TestRegression_Delete_RejectsPathEscape verifies Delete cannot remove files
-// outside the workspace root (arbitrary host delete vector).
 func TestRegression_Delete_RejectsPathEscape(
 	t *testing.T,
 ) {
@@ -427,13 +379,10 @@ func TestRegression_Delete_RejectsPathEscape(
 		})
 	}
 
-	// The outside file survived.
 	_, err := os.Stat(victim)
 	require.NoError(t, err)
 }
 
-// TestRegression_Delete_RejectsSymlinkEscape verifies Delete cannot traverse a
-// symlinked parent to remove content outside the workspace.
 func TestRegression_Delete_RejectsSymlinkEscape(
 	t *testing.T,
 ) {
@@ -452,8 +401,6 @@ func TestRegression_Delete_RejectsSymlinkEscape(
 	require.NoError(t, statErr, "victim outside the root must survive")
 }
 
-// TestRegression_Delete_AllowsInWorkspace confirms a normal in-workspace delete
-// still works.
 func TestRegression_Delete_AllowsInWorkspace(
 	t *testing.T,
 ) {
@@ -466,9 +413,6 @@ func TestRegression_Delete_AllowsInWorkspace(
 	assert.True(t, os.IsNotExist(err))
 }
 
-// TestCopy_File_BinaryBytesFaithful proves the copy is a byte copy, not a text
-// round-trip: bytes that are invalid UTF-8 (and contain NULs) must come out
-// identical. This is the case the base64 content read corrupts.
 func TestCopy_File_BinaryBytesFaithful(
 	t *testing.T,
 ) {
@@ -483,8 +427,6 @@ func TestCopy_File_BinaryBytesFaithful(
 	assert.Equal(t, binary, got)
 }
 
-// TestCopy_Directory_Recursive copies a nested tree, including a binary leaf,
-// and creates missing parents of the destination.
 func TestCopy_Directory_Recursive(
 	t *testing.T,
 ) {
@@ -503,7 +445,6 @@ func TestCopy_Directory_Recursive(
 	assert.Equal(t, []byte{0x00, 0x01}, bin)
 }
 
-// TestCopy_Symlink recreates the link itself rather than following it.
 func TestCopy_Symlink(
 	t *testing.T,
 ) {
@@ -521,8 +462,6 @@ func TestCopy_Symlink(
 	assert.Equal(t, "target.txt", got)
 }
 
-// TestCopy_DestinationExists refuses to clobber an existing destination with
-// the fs.ErrExist sentinel (mapped to 409 by the API layer).
 func TestCopy_DestinationExists(
 	t *testing.T,
 ) {
@@ -538,8 +477,6 @@ func TestCopy_DestinationExists(
 	assert.Equal(t, []byte("keep"), kept, "existing destination must be untouched")
 }
 
-// TestCopy_DestinationInsideSource rejects the self-recursive copy with the
-// fs.ErrInvalid sentinel (mapped to 400 by the API layer).
 func TestCopy_DestinationInsideSource(
 	t *testing.T,
 ) {
@@ -550,7 +487,6 @@ func TestCopy_DestinationInsideSource(
 	require.ErrorIs(t, err, fs.ErrInvalid)
 }
 
-// TestCopy_SourceMissing surfaces the Lstat not-found error.
 func TestCopy_SourceMissing(
 	t *testing.T,
 ) {
@@ -560,10 +496,6 @@ func TestCopy_SourceMissing(
 	assert.True(t, os.IsNotExist(err) || errors.Is(err, fs.ErrNotExist))
 }
 
-// TestCopy_DestMkdirError exercises Copy's own os.MkdirAll error path (the
-// destination's PARENT directory, not the destination itself): a regular file
-// blocks the parent path that Copy tries to create before it ever reaches
-// copyNode.
 func TestCopy_DestMkdirError(
 	t *testing.T,
 ) {
@@ -578,10 +510,6 @@ func TestCopy_DestMkdirError(
 	require.Error(t, err)
 }
 
-// TestCopy_Directory_ReadDirError exercises copyDir's os.ReadDir error path: the
-// source directory itself is unreadable (mode 0o000), so Lstat/IsDir succeed
-// (they only need execute permission on the PARENT) but listing its entries
-// fails.
 func TestCopy_Directory_ReadDirError(
 	t *testing.T,
 ) {
@@ -597,9 +525,6 @@ func TestCopy_Directory_ReadDirError(
 	require.Error(t, err, "an unreadable source directory must fail the copy, not silently produce an empty one")
 }
 
-// TestCopy_File_DestOpenError exercises copyFileBytes's os.OpenFile error path:
-// the destination's parent directory already exists (so Copy's own MkdirAll
-// no-ops) but lacks write permission, so creating the new file inside it fails.
 func TestCopy_File_DestOpenError(
 	t *testing.T,
 ) {
@@ -618,12 +543,6 @@ func TestCopy_File_DestOpenError(
 	assert.True(t, os.IsNotExist(statErr), "no partial file may be left in the unwritable destination")
 }
 
-// TestCopy_Directory_DestParentNotWritable exercises copyDir's own os.Mkdir
-// error path (distinct from TestCopy_File_DestOpenError, which exercises the
-// analogous failure for a plain FILE copy through copyFileBytes): the
-// destination's parent directory already exists, so Copy's own MkdirAll
-// no-ops, but it lacks write permission, so copyDir's Mkdir of the new
-// top-level directory entry fails before any recursion happens.
 func TestCopy_Directory_DestParentNotWritable(
 	t *testing.T,
 ) {
@@ -643,12 +562,6 @@ func TestCopy_Directory_DestParentNotWritable(
 	assert.True(t, os.IsNotExist(statErr), "no partial directory may be left in the unwritable destination")
 }
 
-// TestDelete_PermissionError exercises Delete's os.RemoveAll error path: the
-// target directory has its own contents but has had write permission revoked,
-// so RemoveAll can enumerate it (needs only read+execute) but cannot unlink the
-// child file inside it (needs write on the parent), and must surface the error
-// rather than silently reporting success on a locked target — unlike the
-// already-covered "nonexistent path" case, this is a REAL removal failure.
 func TestDelete_PermissionError(
 	t *testing.T,
 ) {
@@ -664,7 +577,6 @@ func TestDelete_PermissionError(
 	require.Error(t, err, "a locked directory's contents cannot be removed and must surface an error")
 }
 
-// TestCopy_TraversalRejected keeps both operands inside the workspace.
 func TestCopy_TraversalRejected(
 	t *testing.T,
 ) {

@@ -94,7 +94,6 @@ func replacer(
 	)
 }
 
-// first is the one suggestion a reply that grants a single one carries.
 func first(picked []any) any {
 	if len(picked) == 0 {
 		return nil
@@ -102,7 +101,6 @@ func first(picked []any) any {
 	return picked[0]
 }
 
-// pickedSuggestions are the suggestions raw offered that picked names, as offered.
 func pickedSuggestions(d *spec.Descriptor, canonical string, raw []byte, picked []string) []any {
 	out := []any{}
 	_, declared := d.EventFields(canonical)

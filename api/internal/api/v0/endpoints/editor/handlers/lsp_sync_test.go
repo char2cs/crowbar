@@ -45,7 +45,6 @@ func TestDidOpen_BadBody_400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// lspSyncRoutes is every document-sync route with a binding-satisfying body.
 func lspSyncRoutes() map[string]map[string]any {
 	return map[string]map[string]any{
 		"didOpen":   {"path": "main.go", "languageId": "go"},
@@ -63,9 +62,6 @@ func TestLSPSync_BadBody_400(t *testing.T) {
 	}
 }
 
-// TestLSPSync_NoResolvedWorkspace_500 is the wiring-bug guard: a route
-// mounted outside chatScoped's resolveChatWorktree middleware finds no
-// workspace on reqscope and reports a 500 (Handlers.workspace).
 func TestLSPSync_NoResolvedWorkspace_500(t *testing.T) {
 	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 

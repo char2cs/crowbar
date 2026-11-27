@@ -4,7 +4,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// pendingSteer is the steered prompt runnerID carries on its running turn.
 func pendingSteer(st ledger.State, runnerID string) (ledger.Prompt, bool) {
 	for _, p := range st.PendingPrompts() {
 		if p.Delivery == ledger.DeliverySteer && p.RunnerID == runnerID {
@@ -14,16 +13,12 @@ func pendingSteer(st ledger.State, runnerID string) (ledger.Prompt, bool) {
 	return ledger.Prompt{}, false
 }
 
-// settleSteer settles the steered prompt runnerID carries for reason.
 func settleSteer(st ledger.State, runnerID, reason string) ([]ledger.Row, error) {
 	return ledger.Settle(st, func(p ledger.Prompt) bool {
 		return p.Delivery == ledger.DeliverySteer && p.RunnerID == runnerID
 	}, false, reason)
 }
 
-// steerRows hand the steer src's runner carries to its CLI as the turn ends:
-// its turn starts in the same commit as the end, and the reply carries it. A
-// steer the runner cannot take now is settled, for its client to keep.
 func steerRows(st ledger.State, src Source) ([]ledger.Row, []byte, error) {
 	p, ok := pendingSteer(st, src.RunnerID)
 	if !ok {

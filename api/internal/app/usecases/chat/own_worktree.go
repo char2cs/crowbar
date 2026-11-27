@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 )
 
-// SpawnChatWithOwnWorktree fills a just-minted chat's empty workspace slot with a
-// fresh worktree forked from its resolved fork parent and opens providerID on it
-// (OpenChat: a CLI now only on the terminal).
 func (u *Usecase) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
@@ -40,8 +37,6 @@ func (u *Usecase) SpawnChatWithOwnWorktree(
 	return ws.ID, runnerID, nil
 }
 
-// discardUnclaimedWorkspace discards a minted workspace no row was pointed at.
-// Best-effort and logged; the caller gets cause, the failure that actually happened.
 func (u *Usecase) discardUnclaimedWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -54,9 +49,6 @@ func (u *Usecase) discardUnclaimedWorkspace(
 	return cause
 }
 
-// discardMintedWorkspace discards a workspace chatID already points at, even if the
-// clear fails: the caller purges chatID on error, so a kept
-// workspace would be unreachable. The clear only narrows the window a reader sees it.
 func (u *Usecase) discardMintedWorkspace(
 	ctx context.Context,
 	chatID string,

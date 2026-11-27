@@ -13,15 +13,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// errLayoutUnreadable is returned when the LAYOUT file exists but cannot be
-// read or does not hold a non-negative integer.
 var errLayoutUnreadable = errors.New("migrate: LAYOUT file is unreadable")
 
 var layoutNumber = regexp.MustCompile(`^[0-9]+$`)
 
-// readLayout returns the home's layout version: 0 when the file is absent (a
-// legacy home), an error wrapping errLayoutUnreadable for anything else that is
-// not a bare non-negative integer.
 func readLayout(
 	h home.Home,
 ) (int, error) {
@@ -44,9 +39,6 @@ func readLayout(
 	return layout, nil
 }
 
-// writeLayout durably replaces the LAYOUT file with v: a synced temp file in the
-// same directory is renamed over it, so a crash leaves the old or the new value.
-// The home must already exist, and the caller must hold the home lock.
 func writeLayout(
 	h home.Home,
 	v int,
@@ -65,7 +57,6 @@ func writeLayout(
 	return syncDir(h.Root())
 }
 
-// stageLayout durably writes v, as LAYOUT holds it, to the file at path.
 func stageLayout(
 	path string,
 	v int,
@@ -96,8 +87,6 @@ func removeStaged(
 	return fmt.Errorf("migrate: remove %s: %w", path, err)
 }
 
-// syncDir makes a rename or file creation inside dir durable. Windows cannot
-// flush a directory handle, so it is skipped there.
 func syncDir(
 	dir string,
 ) error {

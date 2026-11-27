@@ -22,7 +22,6 @@ func (m folderMap) FindByKey(_ context.Context, id string) (*dtree.Folder, error
 	return &f, nil
 }
 
-// A folder nests under the root, another folder, or an owning chat that has no Node.
 func TestFoldersBelow_FindsFoldersUnderTheRootFoldersAndOwningChats(t *testing.T) {
 	byParent := map[string][]dtree.Node{
 		"":      {{ID: "f1", Kind: dtree.KindFolder}, {ID: "c1", Kind: dtree.KindChat}},

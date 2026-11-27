@@ -20,7 +20,7 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 		fail.Detail = cmp.Or(ev.Failure.Detail, ev.Message)
 		fail.Kind = ev.Failure.Kind
 		if ev.Failure.Detail != "" {
-			reply = ev.Message // the provider's explanation is the detail; this is its reply
+			reply = ev.Message
 		}
 	}
 	failed, closes, fresh, err := ledger.FailTurnOf(st, src.RunnerID, ev.TurnID, fail)
@@ -28,7 +28,6 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 		return nil, Effects{}, err
 	}
 	if fresh {
-		// Nothing ran: the prompts the runner carried were never taken, as with a notice.
 		settled, err := ledger.SettleCarried(st, src.RunnerID, false, ledger.ReasonTurnFailed)
 		return append([]ledger.Row{failed}, settled...), Effects{}, err
 	}
@@ -52,9 +51,6 @@ func mapFailure(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]
 	return rows, Effects{Ended: failed.TurnID}, nil
 }
 
-// noticeRows fail the turn runnerID runs for what its screen says, or with
-// none running, record the notice as a failure of its own and settle the
-// prompts it carries unconsumed.
 func noticeRows(st ledger.State, runnerID string, notice engineagents.TerminalNotice, live Unrecorded) ([]ledger.Row, error) {
 	fail := ledger.TurnFailed{Reason: notice.Kind, Detail: notice.Text}
 	if notice.Kind == engineagents.TerminalNoticeUsageLimit {

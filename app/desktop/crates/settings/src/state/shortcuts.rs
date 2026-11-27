@@ -1,0 +1,259 @@
+mod keymap;
+
+use std::collections::BTreeMap;
+
+use super::State;
+use crate::keys::ChordSource;
+use crate::keys::Pressed;
+use crate::keys::Refusal;
+use crate::keys::Shortcut;
+use crate::keys::ShortcutGroup;
+use crate::state::effect::Effect;
+use crate::state::shortcuts::keymap::Keymap;
+use crate::values::Key;
+use crate::values::Value;
+use chord::Chord;
+
+impl State {
+    pub fn chord(
+        &self,
+        group: &ShortcutGroup,
+        shortcut: &Shortcut,
+    ) -> (Option<Chord>, ChordSource) {
+        let keymap = Keymap::new(&self.schema, &self.document);
+        (
+            keymap.chord(group, shortcut),
+            keymap.source(group, shortcut),
+        )
+    }
+
+    pub fn conflicts(
+        &self,
+        group: &ShortcutGroup,
+        shortcut: &Shortcut,
+    ) -> Vec<String> {
+        Keymap::new(&self.schema, &self.document).conflicts(group, shortcut)
+    }
+
+    pub fn has_custom_chords(&self) -> bool {
+        Keymap::new(&self.schema, &self.document).has_custom()
+    }
+
+    pub fn label(
+        &self,
+        chord: &Chord,
+    ) -> String {
+        chord.label(self.primary)
+    }
+
+    pub fn toggle_capture(
+        &mut self,
+        command: &str,
+    ) {
+        let display_only = self
+            .schema
+            .shortcuts()
+            .any(|(_, shortcut)| shortcut.command == command && shortcut.display_only);
+        if display_only {
+            return;
+        }
+        self.capture.begin(command);
+    }
+
+    pub fn capturing(&self) -> Option<&str> {
+        self.capture.target()
+    }
+
+    pub fn capture_refusal(&self) -> Option<Refusal> {
+        self.capture.refusal()
+    }
+
+    pub fn press_key(
+        &mut self,
+        pressed: &Pressed,
+    ) -> Option<Effect> {
+        let (command, chord) = self.capture.feed(pressed, self.primary)?;
+        self.set_chord(&command, Some(chord.as_str()))
+    }
+
+    pub fn clear_chord(
+        &mut self,
+        command: &str,
+    ) -> Option<Effect> {
+        self.set_chord(command, None)
+    }
+
+    fn set_chord(
+        &mut self,
+        command: &str,
+        chord: Option<&str>,
+    ) -> Option<Effect> {
+        let (group, shortcut) = self
+            .schema
+            .shortcuts()
+            .find(|(_, s)| s.command == command)?;
+        let mut map = Keymap::new(&self.schema, &self.document).overrides(group);
+        let unchanged_default =
+            chord.is_some_and(|text| shortcut.default.as_ref().map(Chord::as_str) == Some(text));
+        match chord {
+            Some(text) if !unchanged_default => map.insert(command.to_owned(), text.to_owned()),
+            _ => map.remove(command),
+        };
+        let key = group.overrides.clone();
+        Some(self.write(&key, Value::Map(map)))
+    }
+
+    pub(super) fn clear_overrides(
+        &mut self,
+        key: &Key,
+    ) -> Option<Effect> {
+        let has_any = self
+            .document
+            .value(key)
+            .and_then(Value::as_map)
+            .is_some_and(|map| !map.is_empty());
+        has_any.then(|| self.write(key, Value::Map(BTreeMap::new())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::ModifierKey;
+    use crate::schema::Action;
+    use crate::schema::ButtonSpec;
+    use crate::schema::Page;
+    use crate::schema::Schema;
+    use crate::test_support::{Case, run_cases};
+    use crate::values::Snapshot;
+    use chord::Primary;
+
+    fn state() -> State {
+        let keys = Page::new("keybindings", "Keybindings", "keyboard").block(
+            ShortcutGroup::new("Tabs", "overrides")
+                .shortcut(Shortcut::new("tabs.new", "New tab", "mod+t"))
+                .shortcut(Shortcut::new("tabs.close", "Close active tab", "mod+w"))
+                .shortcut(Shortcut::new("editor.save", "Save", "mod+s").display_only()),
+        );
+        let schema = Schema::new(vec![keys]).unwrap();
+        State::new(schema, Snapshot::default(), None, Primary::Control)
+    }
+
+    fn write(
+        key: &str,
+        value: impl Into<Value>,
+    ) -> Effect {
+        Effect::Write(Key::from(key), value.into())
+    }
+
+    fn pressed(
+        key: &str,
+        held: &[ModifierKey],
+    ) -> Pressed {
+        Pressed::new(key, held)
+    }
+
+    fn overrides(pairs: &[(&str, &str)]) -> Effect {
+        let map = pairs
+            .iter()
+            .map(|&(command, chord)| (command.to_owned(), chord.to_owned()))
+            .collect();
+        write("overrides", Value::Map(map))
+    }
+
+    fn group_of(state: &State) -> (ShortcutGroup, Shortcut) {
+        let (group, shortcut) = state.schema().shortcuts().next().unwrap();
+        (group.clone(), shortcut.clone())
+    }
+
+    fn capture_stores_a_chord_and_refuses_bare_keys() {
+        let mut state = state();
+        state.toggle_capture("tabs.new");
+        assert_eq!(state.capturing(), Some("tabs.new"));
+        assert_eq!(state.press_key(&pressed("a", &[])), None);
+        assert_eq!(state.capture_refusal(), Some(Refusal::BareKey));
+        assert_eq!(
+            state.press_key(&pressed("n", &[ModifierKey::Control, ModifierKey::Shift])),
+            Some(overrides(&[("tabs.new", "mod+shift+n")]))
+        );
+        assert_eq!(state.capturing(), None);
+        let (group, shortcut) = group_of(&state);
+        let (chord, source) = state.chord(&group, &shortcut);
+        assert_eq!(
+            chord.map(|chord| state.label(&chord)),
+            Some("Ctrl+Shift+N".to_owned())
+        );
+        assert_eq!(source, ChordSource::Custom);
+        assert!(state.has_custom_chords());
+    }
+
+    fn escape_leaves_capture_and_the_default_chord_is_not_stored_as_custom() {
+        let mut state = state();
+        state.toggle_capture("tabs.new");
+        assert_eq!(state.press_key(&pressed("escape", &[])), None);
+        assert_eq!(state.capturing(), None);
+        state.toggle_capture("tabs.new");
+        assert_eq!(
+            state.press_key(&pressed("t", &[ModifierKey::Control])),
+            Some(overrides(&[])),
+            "the default chord clears the override"
+        );
+        assert!(!state.has_custom_chords());
+    }
+
+    fn conflicts_clear_and_reset_all() {
+        let mut state = state();
+        state.toggle_capture("tabs.close");
+        state.press_key(&pressed("t", &[ModifierKey::Control, ModifierKey::Shift]));
+        state.toggle_capture("tabs.new");
+        state.press_key(&pressed("t", &[ModifierKey::Control, ModifierKey::Shift]));
+        let (group, shortcut) = group_of(&state);
+        assert_eq!(
+            state.conflicts(&group, &shortcut),
+            ["Close active tab"],
+            "the same chord is flagged"
+        );
+        assert_eq!(
+            state.clear_chord("tabs.new"),
+            Some(overrides(&[("tabs.close", "mod+shift+t")]))
+        );
+        let reset = ButtonSpec::new("Reset all", Action::ResetOverrides(Key::from("overrides")));
+        assert_eq!(state.press_button(&reset), Some(overrides(&[])));
+        assert_eq!(
+            state.press_button(&reset),
+            None,
+            "nothing custom is left to reset"
+        );
+        assert_eq!(state.clear_chord("unknown.command"), None);
+    }
+
+    fn a_display_only_shortcut_never_captures() {
+        let mut state = state();
+        state.toggle_capture("editor.save");
+        assert_eq!(state.capturing(), None);
+    }
+
+    const CASES: &[Case] = &[
+        (
+            "a display-only shortcut never captures",
+            a_display_only_shortcut_never_captures,
+        ),
+        (
+            "capture stores a chord and refuses bare keys",
+            capture_stores_a_chord_and_refuses_bare_keys,
+        ),
+        (
+            "escape leaves capture and the default chord is not stored as custom",
+            escape_leaves_capture_and_the_default_chord_is_not_stored_as_custom,
+        ),
+        (
+            "conflicts clear and reset all",
+            conflicts_clear_and_reset_all,
+        ),
+    ];
+
+    #[test]
+    fn every_scenario_holds() {
+        run_cases(CASES);
+    }
+}

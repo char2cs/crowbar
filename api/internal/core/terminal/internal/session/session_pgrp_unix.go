@@ -8,9 +8,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ptyForegroundPgid reads the PTY master's foreground process group via TIOCGPGRP. It is
-// a var only so a test can drive the ioctl-failure branch a live PTY never hits.
-// Production never reassigns it.
 var ptyForegroundPgid = func(fd uintptr) (int, error) {
 	var fgPgid int32
 	if _, _, errno := unix.Syscall(
@@ -24,6 +21,4 @@ var ptyForegroundPgid = func(fd uintptr) (int, error) {
 	return int(fgPgid), nil
 }
 
-// getpgidFn wraps unix.Getpgid; it is a var only so a test can force the getpgid
-// failure no live session reproduces. Production never reassigns it.
 var getpgidFn = unix.Getpgid

@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch/ignore"
 )
 
-// writeGitignore writes a .gitignore (or other named ignore file) with the
-// given body under dir, creating parents as needed.
 func writeIgnoreFile(
 	t *testing.T,
 	path string,

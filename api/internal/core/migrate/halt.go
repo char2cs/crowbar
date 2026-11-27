@@ -5,34 +5,20 @@ import (
 	"fmt"
 )
 
-// HaltReason says why a session stopped the boot.
 type HaltReason string
 
 const (
-	// HaltLayoutNewer means LAYOUT is ahead of what this binary knows.
-	HaltLayoutNewer HaltReason = "layout_newer"
-	// HaltLayoutUnreadable means LAYOUT exists but is not a layout number.
+	HaltLayoutNewer      HaltReason = "layout_newer"
 	HaltLayoutUnreadable HaltReason = "layout_unreadable"
-	// HaltLedgerCorrupt means the ledger cannot be trusted: a line other than a
-	// torn tail is unparsable, or the file cannot be read.
-	HaltLedgerCorrupt HaltReason = "ledger_corrupt"
-	// HaltIOFailed means the home could not be put in order before any step: a
-	// half-written backup could not be removed, or the ledger could not be written.
-	HaltIOFailed HaltReason = "io_failed"
-	// HaltPlanFailed means a pending step could not compute its plan.
-	HaltPlanFailed HaltReason = "plan_failed"
-	// HaltPreflight means a precondition (disk, git) for the pending steps failed.
-	HaltPreflight HaltReason = "preflight_failed"
-	// HaltStepFailed means a step's Apply, or recording its result, failed.
-	HaltStepFailed HaltReason = "step_failed"
-	// HaltVerifyFailed means a step applied but its Verify failed.
-	HaltVerifyFailed HaltReason = "verify_failed"
-	// HaltNoImpl means a pending step has no implementation in this binary.
-	HaltNoImpl HaltReason = "no_implementation"
+	HaltLedgerCorrupt    HaltReason = "ledger_corrupt"
+	HaltIOFailed         HaltReason = "io_failed"
+	HaltPlanFailed       HaltReason = "plan_failed"
+	HaltPreflight        HaltReason = "preflight_failed"
+	HaltStepFailed       HaltReason = "step_failed"
+	HaltVerifyFailed     HaltReason = "verify_failed"
+	HaltNoImpl           HaltReason = "no_implementation"
 )
 
-// Halt is the reason a session refused to let the daemon open its stores. It
-// is also the JSON the daemon serves while halted.
 type Halt struct {
 	Reason  HaltReason `json:"reason"`
 	Message string     `json:"message"`
@@ -45,13 +31,10 @@ type Halt struct {
 	Backup  string     `json:"backup,omitempty"`
 }
 
-// Error returns the halt's message, so a Halt can travel as an error.
 func (h *Halt) Error() string {
 	return h.Message
 }
 
-// refuse halts the session for a reason no step is to blame for: the home itself
-// cannot be taken on. It writes nothing, so a refused home stays as it was found.
 func (s *Session) refuse(
 	reason HaltReason,
 	message string,
@@ -59,18 +42,13 @@ func (s *Session) refuse(
 	s.halt(s.baseHalt(reason, message))
 }
 
-// halt stops the session on h before any run is open, so nothing is written.
 func (s *Session) halt(
 	h *Halt,
 ) {
 	s.halted.Store(h)
-	// Info: the session's owner reports the halt as the error it is, once.
 	s.opts.Log.Info("migrate: halted", "reason", string(h.Reason), "message", h.Message)
 }
 
-// fail halts the session on a step that was running, or about to. The halt is
-// set and returned even when the ledger cannot record it: the ledger refuses
-// every append once one failed.
 func (s *Session) fail(
 	reason HaltReason,
 	step Step,
@@ -79,8 +57,6 @@ func (s *Session) fail(
 	return s.stop(reason, step, cause, true)
 }
 
-// failUnstarted halts on a step that never started, as a failed plan, preflight
-// or missing implementation does: the run ends failed, with no step.fail.
 func (s *Session) failUnstarted(
 	reason HaltReason,
 	step Step,
@@ -97,7 +73,6 @@ func (s *Session) stop(
 ) error {
 	h := s.newHalt(reason, step, cause)
 	s.halted.Store(h)
-	// Info, as in refuse: the halt is reported once, by the session's owner.
 	s.opts.Log.Info("migrate: halted", "reason", string(reason), "message", h.Message, "err", cause)
 	if err := s.recordFailure(step, cause, h, stepRan); err != nil {
 		return errors.Join(h, err)
@@ -105,8 +80,6 @@ func (s *Session) stop(
 	return h
 }
 
-// recordFailure ends the run the failure interrupted; with no run open there
-// is nothing in the ledger to close.
 func (s *Session) recordFailure(
 	step Step,
 	cause error,
@@ -134,8 +107,6 @@ func (s *Session) newHalt(
 	return s.baseHalt(reason, haltMessage(reason, step, s.opts.plain(cause))).at(step)
 }
 
-// baseHalt is a halt with everything the session itself knows. Backup is the
-// copy of state/ this migration attempt started from, while it is still there.
 func (s *Session) baseHalt(
 	reason HaltReason,
 	message string,
@@ -147,7 +118,6 @@ func (s *Session) baseHalt(
 	return h
 }
 
-// haltVerbs say what happened to a step; a reason without one means it failed.
 var haltVerbs = map[HaltReason]string{
 	HaltPlanFailed:   "could not be planned",
 	HaltPreflight:    "cannot run",

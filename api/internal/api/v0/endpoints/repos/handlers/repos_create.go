@@ -17,14 +17,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// createRequest is the POST .../repos body; the project is the URL's.
 type createRequest struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 }
 
-// Create handles POST /v0/projects/:projectId/repos. Up-front checks answer 4xx; then it answers
-// 202 with the repo.create operation: one item for the repo, one per protected branch set up.
 func (h *Handlers) Create(
 	c *gin.Context,
 ) {
@@ -64,8 +61,7 @@ func (h *Handlers) Create(
 		ProjectID: in.ProjectID,
 		Label:     item.Label,
 		Items:     []domain.OperationItem{item},
-		// Only for a new key: a retry after the first add gets that operation back.
-		Validate: func(ctx context.Context) error { return h.importer.CheckRepoImportable(ctx, in.ProjectID, in.Path) },
+		Validate:  func(ctx context.Context) error { return h.importer.CheckRepoImportable(ctx, in.ProjectID, in.Path) },
 	}, func(ctx context.Context, p operation.Progress) error {
 		return h.importRepo(ctx, in, item, p)
 	})
@@ -76,8 +72,6 @@ func (h *Handlers) Create(
 	libs.WriteOperation(c, op)
 }
 
-// importRepo is repo.create's work. The repo item names the repo the import
-// returns: re-adding a folder this project has returns the existing one.
 func (h *Handlers) importRepo(
 	ctx context.Context,
 	in project.RepoImport,
@@ -96,7 +90,6 @@ func (h *Handlers) importRepo(
 	return nil
 }
 
-// repoProgress turns each protected branch's outcome into a workspace item.
 type repoProgress struct {
 	p operation.Progress
 }
@@ -112,12 +105,8 @@ func (rp repoProgress) Workspace(id, branch string, err error) {
 	rp.p.Item(item)
 }
 
-// unsafeRepoNameMessage is the 400 both name-taking endpoints answer with.
 const unsafeRepoNameMessage = "name must not contain a path separator or be a dot-only component"
 
-// safeRepoName reports whether a client-supplied repo name may be an on-disk identity. A repo with
-// no parseable remote uses its name as the worktree slug, so "../.." would place worktrees outside
-// the crowbar home where no removal guard can reclaim them; create and rename both check it.
 func safeRepoName(
 	name string,
 ) bool {

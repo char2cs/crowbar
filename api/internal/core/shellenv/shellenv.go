@@ -1,6 +1,3 @@
-// Package shellenv applies the user's login-shell PATH to the daemon process. A daemon
-// launched by launchd inherits a minimal PATH missing Homebrew, npm, go and cargo dirs,
-// so resolving it once at startup fixes every exec and PTY child in one place.
 package shellenv
 
 import (
@@ -17,16 +14,10 @@ import (
 	"time"
 )
 
-// ExecFn matches exec.CommandContext so tests can inject a stub.
 type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
-// resolveTimeout bounds the login-shell spawn: a hanging ~/.zprofile (network
-// calls, prompts) must never block daemon startup.
 const resolveTimeout = 5 * time.Second
 
-// ApplyLoginShellPath resolves the login-shell PATH and sets it on the process, merged
-// ahead of the current PATH, returning the result; on failure PATH is untouched. It sets
-// the process PATH because exec.Command looks binaries up there, not in cmd.Env.
 func ApplyLoginShellPath(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
@@ -43,7 +34,6 @@ func ApplyLoginShellPath(ctx context.Context) string {
 	return merged
 }
 
-// LoginShellPath returns the PATH exported by the user's login shell.
 func LoginShellPath(ctx context.Context) (string, error) {
 	return loginShellPath(ctx, exec.CommandContext, runtime.GOOS, os.Getenv)
 }
@@ -57,7 +47,6 @@ func loginShellPath(
 	shell := resolveShell(ctx, execFn, goos, getenv)
 
 	var stdout, stderr bytes.Buffer
-	// stderr is discarded so profile print statements don't pollute stdout.
 	cmd := execFn(ctx, shell, "-l", "-c", `printf '%s' "$PATH"`)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -72,9 +61,6 @@ func loginShellPath(
 	return path, nil
 }
 
-// resolveShell picks the user's shell: $SHELL when set, else (on macOS) the
-// account's shell from Directory Services — launchd's GUI-session environment
-// does not guarantee SHELL is set — else /bin/sh.
 func resolveShell(
 	ctx context.Context,
 	execFn ExecFn,
@@ -92,8 +78,6 @@ func resolveShell(
 	return "/bin/sh"
 }
 
-// dsclUserShell reads the current user's shell from Directory Services.
-// Output format: "UserShell: /bin/zsh". Returns "" on any failure.
 func dsclUserShell(
 	ctx context.Context,
 	execFn ExecFn,
@@ -115,8 +99,6 @@ func dsclUserShell(
 	return strings.TrimSpace(shell)
 }
 
-// mergePaths joins primary and secondary PATH strings, keeping order and
-// dropping duplicates — primary entries win the ordering.
 func mergePaths(
 	primary string,
 	secondary string,

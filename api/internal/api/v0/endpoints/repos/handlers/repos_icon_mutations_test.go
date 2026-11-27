@@ -1,8 +1,5 @@
 package handlers_test
 
-// Icon mutations save the repo row the repos stream publishes from, and an
-// emoji is one grapheme cluster, not one code point.
-
 import (
 	"bytes"
 	"context"
@@ -24,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// iconMutationRouter mounts ALL icon mutation routes on one handler.
 func iconMutationRouter(
 	store repohandlers.Store,
 	home string,
@@ -40,7 +36,6 @@ func iconMutationRouter(
 	return r
 }
 
-// savingStore serves repo and records the last row saved, nil until a save.
 func savingStore(repo domain.Repository) (*fakeStore, **domain.Repository) {
 	var saved *domain.Repository
 	store := &fakeStore{byKey: &repo}
@@ -48,7 +43,6 @@ func savingStore(repo domain.Repository) (*fakeStore, **domain.Repository) {
 	return store, &saved
 }
 
-// The saved version is bumped so the published icon URL busts <img> caches.
 func TestPutIcon_SavesABumpedVersion(t *testing.T) {
 	home := t.TempDir()
 	srcPath := filepath.Join(t.TempDir(), "photo.png")
@@ -118,8 +112,6 @@ func TestDeleteIcon_SavesTheGeneratedAvatar(t *testing.T) {
 	assert.Empty(t, (*saved).AvatarEmoji)
 }
 
-// Real-world emoji are mostly multi-codepoint grapheme clusters; every one of
-// these previously failed the single-code-point check with a 400.
 func TestPutIconEmoji_MultiCodepointEmoji_Accepted(t *testing.T) {
 	cases := map[string]string{
 		"variation selector": "❤️",
@@ -147,7 +139,6 @@ func TestPutIconEmoji_MultiCodepointEmoji_Accepted(t *testing.T) {
 	}
 }
 
-// Multi-grapheme strings must still be rejected — one user-perceived character.
 func TestPutIconEmoji_MultiGrapheme_Rejected(t *testing.T) {
 	for _, bad := range []string{"🦊🦊", "a❤️", "ab"} {
 		store, saved := savingStore(domain.Repository{ID: "r1", ProjectID: "p1"})
@@ -182,6 +173,4 @@ func TestIcon_SetsNoCacheHeader(t *testing.T) {
 	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
 }
 
-// unusedHome is the resolver for handlers whose test never reaches an icon
-// route: reaching one fails loudly instead of touching a real home.
 func unusedHome() (string, error) { return "", errors.New("no crowbar home") }

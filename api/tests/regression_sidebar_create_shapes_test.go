@@ -13,12 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests post EXACTLY the bodies the sidebar builds (space-content-actions.ts
-// handleCreate/confirmPendingCreateName -> agent-api.ts createChat /
-// createChatWithOwnWorktree) for each row kind, against a repo imported through
-// the public flow, so a "failed" badge in the UI can be split into "the daemon
-// refuses this shape" vs "the frontend never sends / mishandles it".
-
 func workspaceByID(t *testing.T, h *harness, imported importedRepo, wsID string) *workspaceDTO {
 	t.Helper()
 	var rows []workspaceDTO
@@ -56,8 +50,6 @@ func forkFromSidebar(t *testing.T, h *harness, imported importedRepo, parentID, 
 	return created.ID, ws
 }
 
-// K2: fork off the LOCKED default branch row (the row the sidebar draws with the
-// id of main's owning chat), with the slash name the user typed and a plain one.
 func TestRegression_SidebarForkOffLockedDefaultBranch(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -69,9 +61,6 @@ func TestRegression_SidebarForkOffLockedDefaultBranch(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, ws2.ParentID)
 }
 
-// K2: fork off an ORDINARY (unlocked) fork's row. rows-from-repo ids that row
-// by its WORKSPACE id; handleCreate resolves owningChatId off the workspace
-// record, so the daemon sees the owning chat id.
 func TestRegression_SidebarForkOffOrdinaryFork(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -81,9 +70,6 @@ func TestRegression_SidebarForkOffOrdinaryFork(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, ws.ParentID)
 }
 
-// K2: fork off the repo HEADER row when the home (isDefault) workspace still
-// holds the default branch. The header is drawn from the default workspace;
-// its owning chat is what the sidebar sends as parentId.
 func TestRegression_SidebarForkOffRepoHeaderHoldingDefault(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -93,8 +79,6 @@ func TestRegression_SidebarForkOffRepoHeaderHoldingDefault(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, ws.ParentID)
 }
 
-// K2 fallback shape: when the default workspace has NO owning chat the sidebar
-// falls back to the WORKSPACE id itself (resolveHomeOwnerId -> homeId).
 func TestRegression_SidebarForkWithWorkspaceIdAsParent(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -114,8 +98,6 @@ func TestRegression_SidebarForkWithWorkspaceIdAsParent(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 }
 
-// K1 fallback shape: a chatless workspace's row carries the WORKSPACE id, so a
-// thread off it posts parentId=<workspaceId>.
 func TestRegression_SidebarThreadWithWorkspaceIdAsParent(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -145,7 +127,6 @@ func TestRegression_SidebarThreadWithWorkspaceIdAsParent(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, detail.ParentID)
 	assert.Equal(t, imported.workspaceID, detail.WorkspaceID)
 	startChat(t, h, repoBase(imported), env.Data.ID)
-	// and the row must be visible in the repo's chat list
 	found := false
 	for _, c := range listChats(t, h, imported.projectID, imported.repoID) {
 		if c.ID == env.Data.ID {
@@ -155,8 +136,6 @@ func TestRegression_SidebarThreadWithWorkspaceIdAsParent(t *testing.T) {
 	assert.True(t, found, "the thread must be listed by GET .../chats")
 }
 
-// K1: thread off the locked default branch row and off a chat row — the body
-// createChat builds: {provider, parentId, workspaceId}.
 func TestRegression_SidebarThreadOffBranchAndChatRows(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -174,7 +153,6 @@ func TestRegression_SidebarThreadOffBranchAndChatRows(t *testing.T) {
 	detail = getAgentChat(t, h, base, nested)
 	assert.Equal(t, threadID, detail.ParentID)
 
-	// thread off the fresh fork's own row
 	forkID, ws := forkFromSidebar(t, h, imported, imported.chatID, "feat-x")
 	onFork := createChatWithProvider(t, h, base, "promotestub", ws.ID, forkID)
 	h.Quiesce()
@@ -183,7 +161,6 @@ func TestRegression_SidebarThreadOffBranchAndChatRows(t *testing.T) {
 	assert.Equal(t, ws.ID, detail.WorkspaceID)
 }
 
-// K1: thread off the repo header (isDefault home workspace + its owning chat).
 func TestRegression_SidebarThreadOffRepoHeaderHoldingDefault(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -196,7 +173,6 @@ func TestRegression_SidebarThreadOffRepoHeaderHoldingDefault(t *testing.T) {
 	assert.Equal(t, imported.chatID, detail.ParentID)
 }
 
-// K1: thread inside a folder (folder under the locked branch).
 func TestRegression_SidebarThreadInsideFolder(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -209,6 +185,5 @@ func TestRegression_SidebarThreadInsideFolder(t *testing.T) {
 	detail := getAgentChat(t, h, base, threadID)
 	assert.Equal(t, folder.ID, detail.ParentID)
 
-	// K2: fork inside that folder with the slash name
 	forkFromSidebar(t, h, imported, folder.ID, "test/test")
 }

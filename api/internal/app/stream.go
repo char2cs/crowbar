@@ -21,15 +21,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// lateStream lets what is built before the stream publish to it: the stream's
-// sources read the usecases, and some usecases publish.
 type lateStream struct{ hub *stream.Hub }
 
 func (l *lateStream) operation(op domain.Operation) {
 	l.hub.Entity(domainstream.Projects, domainstream.KindOperation, op.ID, op, int64(op.Version))
 }
 
-// folder publishes a folder a Tree write changed, as the folder routes list it.
 func (l *lateStream) folder(_ context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64) {
 	if gone {
 		l.hub.Gone(domainstream.Projects, domainstream.KindFolder, f.ID, rev)
@@ -40,8 +37,6 @@ func (l *lateStream) folder(_ context.Context, projectID string, f tree.Folder, 
 	}, rev)
 }
 
-// reviewThread is how an agent's review comment reaches an open review pane,
-// exactly as one written over REST does.
 func (l *lateStream) reviewThread() agentusecase.ToolThreadBroadcast {
 	return func(thread domain.ReviewThread, projectID, repoID string) {
 		scope := domainstream.Scope{Kind: domainstream.KindWs, Key: thread.WsID}
@@ -50,8 +45,6 @@ func (l *lateStream) reviewThread() agentusecase.ToolThreadBroadcast {
 	}
 }
 
-// newStream builds the stream over every scope's source and the resources a
-// held scope runs.
 func newStream(
 	ctx context.Context,
 	late *lateStream,
@@ -86,7 +79,6 @@ func newStream(
 	return set
 }
 
-// chatTelemetry is a chat's usage report as GET .../telemetry answers it.
 type chatTelemetry struct{ turns agentusecase.TurnUsecase }
 
 func (t chatTelemetry) TelemetryOf(ctx context.Context, chatID string) (any, bool) {
@@ -97,15 +89,12 @@ func (t chatTelemetry) TelemetryOf(ctx context.Context, chatID string) (any, boo
 	return report, true
 }
 
-// signals is the late stream as the resources see it.
 type signals struct{ late *lateStream }
 
 func (s signals) Signal(scope domainstream.Scope, kind string, data any) {
 	s.late.hub.Signal(scope, kind, data)
 }
 
-// admitHostDocument lets a client watch only a path it could read: a canonical
-// host path, over the local socket the stream request arrived on.
 func admitHostDocument(ucs *usecases.Container) func(ctx context.Context, path string) error {
 	return func(ctx context.Context, path string) error {
 		if _, err := ucs.File.HostDocument(ctx, path, domain.TransportOf(ctx)); err != nil {

@@ -30,18 +30,12 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// getTitle returns chatID's persisted Title for assertions. It waits for
-// quiescence first so the read observes the latest SetTitle (and so a
-// subsequent RenameChat's own read is against caught-up state).
 func getTitle(t *testing.T, f testFixture, chatID string) string {
 	t.Helper()
 	c := f.chat(t, chatID)
 	return c.Title
 }
 
-// TestRenameChat_Precedence guards RenameChat's user>agent>derived precedence:
-// derived only fills an empty title, agent may upgrade a derived title but
-// never a user-locked one, and a user rename always wins and locks the title.
 func TestRenameChat_Precedence(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -50,31 +44,23 @@ func TestRenameChat_Precedence(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	// derived sets when empty, then does not overwrite
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "First Topic", "derived"))
 	assert.Equal(t, "First Topic", getTitle(t, f, chatID))
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Second Topic", "derived"))
 	assert.Equal(t, "First Topic", getTitle(t, f, chatID))
 
-	// agent upgrades a derived title
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Agent Title", "agent"))
 	assert.Equal(t, "Agent Title", getTitle(t, f, chatID))
 
-	// user rename wins and locks; agent can no longer clobber
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "User Title", "user"))
 	assert.Equal(t, "User Title", getTitle(t, f, chatID))
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Agent Again", "agent"))
 	assert.Equal(t, "User Title", getTitle(t, f, chatID))
 
-	// empty is always a no-op, regardless of source
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "", "user"))
 	assert.Equal(t, "User Title", getTitle(t, f, chatID))
 }
 
-// TestRenameChat_BroadcastsTitleSetOnSuccessfulChange guards the title_set
-// frame firing only on an actual persisted change, never on a no-op — the hub
-// projection emits it off the SetTitle event, so a rename that returns before
-// issuing SetTitle produces no frame.
 func TestRenameChat_BroadcastsTitleSetOnSuccessfulChange(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -87,12 +73,9 @@ func TestRenameChat_BroadcastsTitleSetOnSuccessfulChange(t *testing.T) {
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "A Title", "user"))
 	assert.Equal(t, []string{"title_set"}, f.bcKinds(t))
 
-	// An empty-title no-op must not broadcast again.
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "", "user"))
 	assert.Equal(t, []string{"title_set"}, f.bcKinds(t))
 
-	// A derived rename against an already-locked (user) title is also a no-op
-	// and must not broadcast.
 	require.NoError(t, f.usecase.RenameChat(ctx, chatID, "Derived Attempt", "derived"))
 	assert.Equal(t, []string{"title_set"}, f.bcKinds(t))
 }
@@ -106,10 +89,6 @@ func TestRenameChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "rename chat: get")
 }
 
-// TestRenameByRunner_UnknownRunner_ReturnsWrappedError guards the error path: a
-// rename call naming a runner Crowbar has never heard of (or whose CLI has
-// already exited) must fail loudly here — unlike a hook, which silently drops
-// an unknown runner, this is a direct call the handler maps to a 404.
 func TestRenameByRunner_UnknownRunner_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -119,9 +98,6 @@ func TestRenameByRunner_UnknownRunner_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "rename by runner")
 }
 
-// TestIngestHook_UserPrompt_SetsDerivedTitle guards the first-prompt fallback
-// wired into IngestHook's user_prompt case: deriveTitle(prompt) is applied via
-// RenameChat(..., "derived"), which only fills an empty title.
 func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -134,17 +110,11 @@ func TestIngestHook_UserPrompt_SetsDerivedTitle(t *testing.T) {
 		mustJSON(t, map[string]any{"prompt": "Refactor the auth module to use JWT\nmore detail"})))
 	assert.Equal(t, "Refactor the auth module to use JWT", getTitle(t, f, chatID))
 
-	// a later prompt does not overwrite the derived title
 	require.NoError(t, f.usecase.IngestHook(ctx, segID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "now do something else"})))
 	assert.Equal(t, "Refactor the auth module to use JWT", getTitle(t, f, chatID))
 }
 
-// TestRegression_DeleteChat_KillsItsRunner
-//
-// A runner whose chat no longer exists is a runner with nowhere to write. The chat
-// delete cascade kills its PROCESS and returns once that exit is recorded, never by
-// forgetting a runner whose CLI would still be running, invisible.
 func TestRegression_DeleteChat_KillsItsRunner(t *testing.T) {
 	f := newFixture(t)
 
@@ -161,20 +131,6 @@ func TestRegression_DeleteChat_KillsItsRunner(t *testing.T) {
 	assert.ErrorIs(t, err, agentusecase.ErrNoLiveRunner)
 }
 
-// TestRegression_DeleteChatMidTurn_DoesNotResurrectTheChat is the zombie-chat guard.
-//
-// Found in live daemon testing: a hard-deleted chat reappeared in the read model
-// (list AND by-id GET) after deletion. The PTY teardown fires the runner-exit
-// reconcile ASYNCHRONOUSLY, and that reconcile writes to the chat (it closes the turn
-// the dead CLI left open); asynx projections are async, so a chat command that
-// commits before the Forget can have its read-model Save land AFTER Forget's
-// row-delete — re-creating the row.
-//
-// The old code fought this with an in-memory registry unbind the teardown checked
-// first. That registry is gone, so the guard is now structural: the chat is Forgotten
-// BEFORE the CLI is killed, and a Forgotten aggregate's event log is erased, so every
-// later chat command fails Validate and emits nothing at all. Deleting mid-turn — the
-// case that actually writes on exit — must leave the chat gone and staying gone.
 func TestRegression_DeleteChatMidTurn_DoesNotResurrectTheChat(t *testing.T) {
 	f := newFixture(t)
 
@@ -186,7 +142,6 @@ func TestRegression_DeleteChatMidTurn_DoesNotResurrectTheChat(t *testing.T) {
 	termSess := f.runner(t, runnerID).TerminalSession
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
-	// ...and now the CLI actually dies, off the reap goroutine, as it does in production.
 	f.term.exit(t, termSess)
 	f.wait()
 
@@ -200,8 +155,6 @@ func TestRegression_DeleteChatMidTurn_DoesNotResurrectTheChat(t *testing.T) {
 	}
 }
 
-// TestPurgeChat_ForgetsTheChatOutright: Forget erases the aggregate — event log and
-// read-model row — so a genuinely gone chat 404s even a by-id lookup.
 func TestPurgeChat_ForgetsTheChatOutright(t *testing.T) {
 	f := newFixture(t)
 
@@ -220,8 +173,6 @@ func TestPurgeChat_ForgetsTheChatOutright(t *testing.T) {
 	}
 }
 
-// TestPurgeChat_DropsConversationHistory: a session left owned by a hard-deleted chat
-// would make every later announcement of it a conflict with a chat that is gone.
 func TestPurgeChat_DropsConversationHistory(t *testing.T) {
 	f := newFixture(t)
 
@@ -237,13 +188,11 @@ func TestPurgeChat_DropsConversationHistory(t *testing.T) {
 	assert.Empty(t, f.conversation(t, chatID, "codex").SessionID)
 }
 
-// TestPurgeChat_DormantChat_NothingToTerminate: a chat no runner points at has no CLI
-// to kill, and that absence is an answer, not an error.
 func TestPurgeChat_DormantChat_NothingToTerminate(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	f.term.exit(t, f.runner(t, runnerID).TerminalSession) // the CLI exits on its own
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
 	before := len(f.term.terminateRequestIDs())
@@ -254,9 +203,6 @@ func TestPurgeChat_DormantChat_NothingToTerminate(t *testing.T) {
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }
 
-// TestPurgeChat_TerminateFailure_SessionAlreadyGone_ContinuesPurge covers the purge's
-// tolerance for a terminal session that is already gone (the one error the real
-// terminal engine returns today).
 func TestPurgeChat_TerminateFailure_SessionAlreadyGone_ContinuesPurge(t *testing.T) {
 	f := newFixture(t)
 
@@ -269,9 +215,6 @@ func TestPurgeChat_TerminateFailure_SessionAlreadyGone_ContinuesPurge(t *testing
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }
 
-// TestPurgeChat_TerminateFailure_OtherError_IsBestEffort_StillPurges: a genuine
-// TerminateGraceful failure must NOT abort the purge. An orphaned PTY is a far smaller
-// harm than a chat the user can never remove.
 func TestPurgeChat_TerminateFailure_OtherError_IsBestEffort_StillPurges(t *testing.T) {
 	f := newFixture(t)
 
@@ -287,17 +230,6 @@ func TestPurgeChat_TerminateFailure_OtherError_IsBestEffort_StillPurges(t *testi
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }
 
-// TestPurgeChat_ReapsChatDirOnDisk: a standalone hard delete must remove the chat's
-// PLAINTEXT on-disk footprint (its prompt-delivery journal), not only Forget the
-// aggregate. The reap targets worktreepath.LedgerChatsDir — keyed by the chat's id
-// alone, not a workspace lookup (spec §1.5) — which is where SubmitPrompt et al.
-// actually write it (see TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown).
-//
-// It does NOT remove the runner's tmp dir, which is not the chat's to remove: that dir is
-// the config of a PROCESS that is still alive (we have asked it to quit, and a SIGTERM is
-// not synchronous), and it is keyed by the runner rather than the chat precisely so that it
-// can be reaped when the process actually dies — or, if the daemon dies first, at the next
-// boot (worktreepath.RunnerDir).
 func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	f := newFixture(t)
 
@@ -321,13 +253,6 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir")
 }
 
-// TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if
-// crowbar home cannot be resolved, the aggregate is still Forgotten and PurgeChat
-// returns nil rather than failing a delete the user asked for.
-//
-// It faults f.homeErr, not f.ws.err: the reap no longer resolves a workspace at all
-// (worktreepath.LedgerChatsDir needs only crowbar home), which is the whole point —
-// a workspace-less chat's reap must not depend on a workspace lookup either.
 func TestPurgeChat_ReapFailure_StillPurges(t *testing.T) {
 	f := newFixture(t)
 
@@ -340,8 +265,6 @@ func TestPurgeChat_ReapFailure_StillPurges(t *testing.T) {
 	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the aggregate is still Forgotten")
 }
 
-// TestPurgeChat_UnknownChat_ReturnsWrappedError: PurgeChat on an id with no chat wraps
-// the lookup failure rather than panicking or silently no-oping.
 func TestPurgeChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	f := newFixture(t)
 
@@ -350,15 +273,6 @@ func TestPurgeChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "purge chat: get")
 }
 
-// TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound is the regression for a
-// live bug: tree.Agent's contract (Usecase is one of its implementations) is
-// problem.ErrNotFound for "nothing to purge" — that's what purgeAll's cascade
-// tolerance checks for — but this method used to hand back only the
-// conversations package's own agentchat.ErrNotFound, wrapped. purgeAll's
-// errors.Is(err, problem.ErrNotFound) never matched a real not-found, so
-// deleting a parent with one never-minted descendant, or a chat whose
-// aggregate never got created, failed the whole delete with the raw
-// "agentchat: not found" chain surfaced straight to the user.
 func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
 	f := newFixture(t)
 
@@ -368,18 +282,6 @@ func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the original cause stays inspectable too")
 }
 
-// TestReadChatLog_RendersTheLedger guards agent.ChatUsecase.ReadChatLog — the
-// production agenttools.ChatLogReader get_chat_log calls once a chat's
-// workspace has already cleared the caller's CanSee check. Unlike
-// AssembleHandoff it carries the RAW conversation with no preamble/footer
-// wrapper: get_chat_log hands prose straight to a model, not an injected
-// spawn-time context document.
-//
-// It reports TURNS, not finished text, because get_chat_log caps what it returns
-// and states how many turns it dropped — a count that can only be taken where
-// turns are still separate values. The speaker attribution still has to be the
-// ledger's own ("assistant (<provider>)"), since that is the wording every chat
-// log Crowbar has produced already uses.
 func TestReadChatLog_RendersTheLedger(t *testing.T) {
 	f := newFixture(t)
 
@@ -394,12 +296,6 @@ func TestReadChatLog_RendersTheLedger(t *testing.T) {
 	assert.Equal(t, "done thing", out[0].Body)
 }
 
-// An unspoken chat's ledger is empty. ReadChatLog itself returns "" (not an
-// error) rather than agenttools.NoChatTurnsText: turning that into explicit
-// "no turns" prose is getChatLog's job (the tool layer), the single place that
-// normalization lives, since get_chat_log is ReadChatLog's only caller today —
-// see TestGetChatLog_EmptyLedgerIsExplicitNotAnError in the agenttools package
-// for the tool-layer half of this contract.
 func TestReadChatLog_EmptyLedgerReturnsEmptyNotAnError(t *testing.T) {
 	f := newFixture(t)
 
@@ -418,8 +314,6 @@ func TestReadChatLog_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "read chat log")
 }
 
-// injectedContext is the context document spawn carried: on its fresh launch's
-// system prompt, or in the system reminder a resume is handed.
 func injectedContext(
 	t *testing.T,
 	f testFixture,
@@ -439,9 +333,6 @@ func injectedContext(
 	return ""
 }
 
-// thread makes chatID a thread of parentID, the way a drag in the Chats panel
-// does: the placement command on the chat aggregate, and nothing else. Nothing
-// is copied and no ledger is touched — the parent edge IS the whole record.
 func thread(
 	t *testing.T,
 	f testFixture,
@@ -454,9 +345,6 @@ func thread(
 	f.wait()
 }
 
-// file puts a folder row in the tree: a tree.Folder+tree.Node pair, as the
-// tree usecase's Create does. The lineage walk reads it back through
-// f.usecase's wrapped ChatLineage, the door production reads it through.
 func file(
 	t *testing.T,
 	f testFixture,
@@ -469,8 +357,6 @@ func file(
 	require.NoError(t, err)
 }
 
-// lineageBlock returns the configured thread_lineage prompt with the ids filled
-// in, so these tests track the config-driven text rather than re-hardcoding it.
 func lineageBlock(
 	ids ...string,
 ) string {
@@ -481,8 +367,6 @@ func lineageBlock(
 	return strings.ReplaceAll(config.GetPrompts().ThreadLineage, "{lineage}", strings.Join(lines, "\n"))
 }
 
-// spawnPlaced mints a claude chat, places it under parentID ("" leaves it
-// unplaced) and only then spawns it: a chat is told what it reads at its first launch.
 func spawnPlaced(t *testing.T, f testFixture, parentID string) string {
 	t.Helper()
 	chatID, err := f.usecase.MintChat(f.ctx, "", "ws1", "claude", "")
@@ -497,9 +381,6 @@ func spawnPlaced(t *testing.T, f testFixture, parentID string) string {
 	return chatID
 }
 
-// A thread is SPAWNED knowing what it reads. Not handed the turns — handed the
-// ids and told to go and get them, which is what makes the relationship live:
-// the parent's later turns are in the answer too.
 func TestSpawn_AThreadIsPointedAtTheChatItHangsOff(t *testing.T) {
 	f := newFixture(t)
 
@@ -514,9 +395,6 @@ func TestSpawn_AThreadIsPointedAtTheChatItHangsOff(t *testing.T) {
 		"a POINTER, never a paste: pasting the parent's turns would freeze it at this instant")
 }
 
-// Folders are transparent, proved where it counts — at the spawn, against the
-// document the CLI is actually given. A thread two folders deep under a chat is
-// told exactly what one sitting directly under it is told.
 func TestSpawn_FoldersDoNotChangeWhatAThreadIsTold(t *testing.T) {
 	f := newFixture(t)
 
@@ -531,7 +409,6 @@ func TestSpawn_FoldersDoNotChangeWhatAThreadIsTold(t *testing.T) {
 		"filing a thread away is organisation; it must not change one word of what it reads")
 }
 
-// Nearest parent first, because that is the order the ids are useful in.
 func TestSpawn_ADeepThreadIsToldItsWholeChainNearestFirst(t *testing.T) {
 	f := newFixture(t)
 
@@ -543,9 +420,6 @@ func TestSpawn_ADeepThreadIsToldItsWholeChainNearestFirst(t *testing.T) {
 	assert.Contains(t, injectedContext(t, f, 2), lineageBlock(parentID, grandparentID))
 }
 
-// A chat with no chat ancestors must behave exactly as it does today — not
-// "almost", exactly, which is why this compares against a chat that has never
-// been near the tree rather than against a substring.
 func TestSpawn_AChatWithNoChatAncestorsIsToldNothingExtra(t *testing.T) {
 	f := newFixture(t)
 
@@ -558,9 +432,6 @@ func TestSpawn_AChatWithNoChatAncestorsIsToldNothingExtra(t *testing.T) {
 	assert.NotContains(t, injectedContext(t, f, 1), "THREAD CONTEXT")
 }
 
-// A lineage that cannot be read fails the spawn. A thread that comes up silently
-// believing itself standalone would then do the whole task without the context
-// it exists to continue, and nothing anywhere would say so.
 func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
 	f, cs := newFaultFixture(t)
 
@@ -574,9 +445,6 @@ func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
 	require.Len(t, f.term.calls, 2, "and no CLI was started")
 }
 
-// The chat a spawn is MINTING cannot have been placed anywhere yet — the
-// aggregate is written after the CLI is live — so that spawn resolves no lineage
-// at all rather than failing on a chat that does not exist.
 func TestSpawn_MintingAChatResolvesNoLineage(t *testing.T) {
 	f, cs := newFaultFixture(t)
 	cs.failListByWorkspace = errors.New("folder table unreadable")
@@ -585,13 +453,6 @@ func TestSpawn_MintingAChatResolvesNoLineage(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// The move is written down
-// ---------------------------------------------------------------------------
-
-// Re-parenting takes effect from the move ONWARD, and the record of that says so
-// at the point in the conversation where it happened. A retroactive rewrite of
-// what a chat has read is the version nobody can audit afterwards.
 func TestNoteThreadLineage_IsAppendedToTheChatsOwnConversation(t *testing.T) {
 	f := newFixture(t)
 
@@ -616,8 +477,6 @@ func TestNoteThreadLineage_UnknownChat_ReturnsError(t *testing.T) {
 	require.Error(t, f.usecase.NoteThreadLineage(f.ctx, "no-such-chat", []string{"parent-1"}))
 }
 
-// The note is tagged as Crowbar's own, never as a provider's: a note wearing a
-// provider's name would make a session it never spoke in look resumable.
 func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -635,13 +494,6 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 	assert.Equal(t, -1, slices.Index(f.term.calls[2].argv, "--resume"), "claude never spoke in sid-claude")
 }
 
-// ---------------------------------------------------------------------------
-// The two halves of a placed create
-// ---------------------------------------------------------------------------
-
-// MintChat writes the chat and starts nothing. The chat that comes back is a
-// DORMANT one — the state the panel already models — so the caller is free to
-// place it before deciding to start anything on it.
 func TestMintChat_CreatesTheChatAndNoRunner(t *testing.T) {
 	f := newFixture(t)
 
@@ -665,10 +517,6 @@ func TestMintChat_SurfacesACreateFailure(t *testing.T) {
 	require.ErrorContains(t, err, "chat store down")
 }
 
-// The regression this whole path exists for, at the unit level: a chat that is
-// ALREADY a thread when its first CLI is started is told so on that first
-// session. StartRunner takes the ordinary spawn, so nothing
-// special-cases it — it falls out of the chat existing and being placed first.
 func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.T) {
 	f := newFixture(t)
 
@@ -687,7 +535,6 @@ func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.
 		"a thread placed before its first spawn must be told what it reads ON that first spawn")
 }
 
-// A chat that is not a thread is started exactly as it always was.
 func TestStartRunner_AnUnplacedChatIsToldNothingExtra(t *testing.T) {
 	f := newFixture(t)
 
@@ -702,8 +549,6 @@ func TestStartRunner_AnUnplacedChatIsToldNothingExtra(t *testing.T) {
 	assert.NotContains(t, injectedContext(t, f, 0), "THREAD CONTEXT")
 }
 
-// The workspace comes from the CHAT, so an unknown chat is refused before any
-// process is started rather than spawning a CLI against a workspace nobody named.
 func TestStartRunner_UnknownChat_StartsNothing(t *testing.T) {
 	f := newFixture(t)
 
@@ -712,9 +557,6 @@ func TestStartRunner_UnknownChat_StartsNothing(t *testing.T) {
 	assert.Empty(t, f.term.calls)
 }
 
-// A chat that has said nothing gets no move note. There is nothing above the line
-// for "everything above this line" to refer to, and a chat BORN under a parent is
-// told its lineage at spawn rather than reading about a move it never experienced.
 func TestNoteThreadLineage_SaysNothingInAChatThatHasNotSpoken(t *testing.T) {
 	f := newFixture(t)
 
@@ -729,17 +571,6 @@ func TestNoteThreadLineage_SaysNothingInAChatThatHasNotSpoken(t *testing.T) {
 	assert.Empty(t, turns, "a chat with no history has no move to date")
 }
 
-// The same regression one layer up, through the REAL spawn: a chat that is
-// already placed must have its lineage injected even while the read model still
-// reports it unplaced.
-//
-// The projection is forced stale rather than raced. Live, the window between a
-// placement being written and its projection folding is microseconds wide, so a
-// test that merely places and spawns passes about half the time — which is how a
-// spawn that resolved lineage from the read model, and therefore threaded
-// nothing, survived a whole suite. Holding the window open makes the property
-// testable at all: a spawn must not decide what a chat inherits on projected
-// state, whatever the projection happens to say.
 func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) {
 	f, chatStore := newFaultFixture(t)
 
@@ -749,8 +580,6 @@ func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) 
 	f.wait()
 	thread(t, f, threadID, parentID)
 
-	// Everything the projection could have folded, it has. What it reports from
-	// here is a deliberate lie, and the only truthful source left is the log.
 	chatStore.staleProjection = true
 
 	_, err = f.usecase.StartRunner(f.ctx, threadID, "claude")
@@ -772,10 +601,6 @@ func TestAssembleHandoff_WrapsLedgerEntriesInPreamble(t *testing.T) {
 	got, err := f.usecase.AssembleHandoff(f.ctx, chatID)
 	require.NoError(t, err)
 
-	// AssembleHandoff wraps the rendered ledger in the CONFIGURED handoff_wrapper
-	// (config-driven, not a hardcoded literal): assert against the actual configured
-	// template split around {conversation}, so this test tracks config-driven behavior
-	// rather than re-hardcoding it.
 	wrapper := config.GetPrompts().HandoffWrapper
 	pre, post, ok := strings.Cut(wrapper, "{conversation}")
 	require.True(t, ok, "handoff_wrapper must contain {conversation}")
@@ -783,7 +608,6 @@ func TestAssembleHandoff_WrapsLedgerEntriesInPreamble(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, post))
 	assert.Contains(t, got, "first turn transcript")
 	assert.Contains(t, got, "second turn transcript")
-	// Both entries must appear, in append order.
 	assert.Less(t, strings.Index(got, "first turn transcript"), strings.Index(got, "second turn transcript"))
 }
 
@@ -804,22 +628,6 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// resumeClaudeWithGap's callers stamp session_id: "sid-claude", the session the
-// resumed runner was launched on, on the user_prompt they deliver.
-//
-// resumeClaudeWithGap drives the one path where Crowbar's own context document comes
-// back at it as a user prompt: claude switched away and then BACK. A resumed
-// hooks-transport CLI cannot be reached through any config channel (verified against
-// 0.139.0), so the gap is delivered as a positional — which IS claude's first user
-// message, and which its user-prompt hook duly reports. Returns the new claude runner
-// and the exact document it was spawned with.
-//
-// claude, not codex: codex declares no resume_context_inject at all, so its gap never
-// rides argv on any transport — and when its api connection IS live, apiResumes
-// (resume_injection.go) additionally withholds the whole resume from the companion
-// PTY, which would otherwise answer the pointer as a second, disconnected "codex"
-// conversation (confirmed live). claude has no such competing connection: its PTY IS
-// the conversation, so this mechanism is its live, correct delivery path.
 func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, injected string) {
 	t.Helper()
 
@@ -830,10 +638,6 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
-	// codexTurnStop delivers codex's real api-shaped turn_stop (threadId/
-	// turn.items[type=agentMessage].text — see codex.yaml), NOT the flat
-	// last_assistant_message shape turn() builds for claude — using turn()
-	// here would silently extract an empty message.
 	f.announce(t, codexRunner, "sid-codex-away")
 	codexTurnStop(t, f, codexRunner, "sid-codex-away", "codex spoke while claude was away")
 
@@ -844,11 +648,6 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 	argv := f.term.calls[2].argv
 	injected = argv[len(argv)-1]
 
-	// The real gap, not a pointer asking the model to go fetch it: a
-	// get_chat_log pointer relies on the model choosing to call a tool from a
-	// context reminder, and that bet did not hold up live — claude regularly
-	// never called it (see claude.yaml's resume_context_inject for the fuller
-	// account). Handing the actual conversation removes that dependency.
 	require.Contains(t, injected, "codex spoke while claude was away",
 		"the resumed claude must be handed the real gap, not a pointer to fetch later: %v", argv)
 	require.NotContains(t, injected, "claude said this before leaving",
@@ -858,10 +657,6 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 	return chatID, claudeRunnerID, injected
 }
 
-// TestResumeClaude_InjectedPointer_IsNotRecordedAsAUserTurn: the pointer Crowbar hands a
-// resumed claude comes straight back through its user-prompt hook — that is Crowbar's own
-// message echoing, not something the user said. Recording it would put Crowbar's
-// plumbing into the conversation the next handoff is built from.
 func TestResumeClaude_InjectedPointer_IsNotRecordedAsAUserTurn(t *testing.T) {
 	f := newFixture(t)
 
@@ -880,9 +675,6 @@ func TestResumeClaude_InjectedPointer_IsNotRecordedAsAUserTurn(t *testing.T) {
 	assert.Contains(t, handoff, "claude said this before leaving")
 }
 
-// TestResumeClaude_InjectedPointer_StillOpensTheTurn: suppressing the echo from the
-// LEDGER must not suppress the turn itself — the CLI really is answering it, so the chat
-// must read as Working (the workspace spinner overlay depends on it).
 func TestResumeClaude_InjectedPointer_StillOpensTheTurn(t *testing.T) {
 	f := newFixture(t)
 
@@ -895,10 +687,6 @@ func TestResumeClaude_InjectedPointer_StillOpensTheTurn(t *testing.T) {
 	assert.True(t, f.busy(t, chatID), "the CLI is answering the gap: the chat must read as working")
 }
 
-// TestResumeClaude_UserRetypesThePointer_IsRecorded: the suppression is one-shot and
-// scoped to the runner the message was injected into, so a user who genuinely sends that
-// same text later is still recorded — the guard must never become a permanent content
-// filter.
 func TestResumeClaude_UserRetypesThePointer_IsRecorded(t *testing.T) {
 	f := newFixture(t)
 
@@ -916,19 +704,14 @@ func TestResumeClaude_UserRetypesThePointer_IsRecorded(t *testing.T) {
 		"the FIRST echo is dropped; a second, genuinely user-sent copy is recorded:\n%s", handoff)
 }
 
-// TestRunnerExit_ForgetsTheInjectedContext: the echo guard is per-spawn state about a
-// LIVE process. Once the PTY is gone the entry means nothing and must not accumulate —
-// it holds a whole handoff document, and a long-lived daemon spawns a lot of CLIs.
 func TestRunnerExit_ForgetsTheInjectedContext(t *testing.T) {
 	f := newFixture(t)
 
 	_, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
-	// Precondition: the guard is armed — Crowbar's own document is recognised as an echo.
 	_, found := f.engine.ConsumeInjectedPrefix(claudeRunner, injected)
 	require.True(t, found)
 
-	// Re-arm it (the match above consumed it), then kill the PTY.
 	f.engine.RecordInjection(claudeRunner, injected)
 	f.term.exit(t, f.runner(t, claudeRunner).TerminalSession)
 	f.wait()
@@ -944,12 +727,10 @@ func writeDescriptor(t *testing.T, f testFixture, id, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(withLifecycle(body)), 0o600))
 }
 
-// withLifecycle completes a test descriptor that declares only the part under
-// test with the wired lifecycle every descriptor needs to be enabled at all.
 func withLifecycle(body string) string {
 	var doc map[string]any
 	if err := yaml.Unmarshal([]byte(body), &doc); err != nil || doc == nil {
-		return body // a deliberately broken document stays broken
+		return body
 	}
 	events, _ := doc["events"].(map[string]any)
 	if events == nil {
@@ -1066,14 +847,6 @@ func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
 	assert.Equal(t, "high", chat.Effort)
 }
 
-// TestSetChatSelection_RecordsChatSwitchInterruptions guards the new
-// InterruptModelChanged/InterruptEffortChanged markers this fix adds:
-// recorded independently, only when the corresponding value actually
-// changes, and never on a no-op re-application of the same selection.
-//
-// Every read here waits first: Interrupt is on the async Send path, so the
-// interruption is durable in the log before its projection folds, and a read
-// taken without the drain is a read of the row set one event ago.
 func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1160,9 +933,6 @@ func TestSetChatSelection_RefusesAValueOutsideTheDeclaredCatalogue(t *testing.T)
 	}
 }
 
-// The standalone selection route is not serialized with a SubmitPrompt staging its own pick, so
-// each could narrate a change against a "before" the other already superseded; the log must
-// never keep a "changed to" for the value the chat did not settle on.
 func TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1300,9 +1070,6 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	assert.Equal(t, "high", live.LaunchEffort)
 }
 
-// The composer must never PATCH .../selection on its own — a staged pick has
-// to travel WITH the send, committed by SubmitPrompt itself, not by a prior
-// call. No SetChatSelection call precedes this one.
 func TestSubmitPrompt_CommitsAStagedSelectionItselfBeforeSpawning(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -1320,10 +1087,6 @@ func TestSubmitPrompt_CommitsAStagedSelectionItselfBeforeSpawning(t *testing.T) 
 	assert.Equal(t, "high", live.LaunchEffort)
 }
 
-// THE REGRESSION this session fixed. The picker used to call SwitchProvider
-// itself, live, the instant a cross-provider row was clicked — before the
-// user ever sent anything. Now the picker only stages the pick, and the
-// switch happens here, atomically with the send: one path, not two.
 func TestSubmitPrompt_StagedProviderSwitchesBeforeDelivering(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -1336,12 +1099,6 @@ func TestSubmitPrompt_StagedProviderSwitchesBeforeDelivering(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "codex", live.ProviderID, "the switch actually ran before delivery")
 
-	// SwitchProvider's own distinctive mark — see
-	// TestSwitchProvider_RecordsAProviderSwitchedInterruption — is exactly one
-	// interruption naming the target. Asserting on it rather than a raw
-	// terminal-call count keeps this independent of "codex" delivery's own
-	// mechanics (a real switch always fires it exactly once; ordinary prompt
-	// delivery, restart-based or not, never does).
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
@@ -1349,14 +1106,6 @@ func TestSubmitPrompt_StagedProviderSwitchesBeforeDelivering(t *testing.T) {
 	assert.Equal(t, "codex", ints[0].Detail)
 }
 
-// A resend under the SAME provider the chat is already on must never pay for
-// a switch — SwitchProvider kills and respawns the CLI unconditionally
-// whenever it runs (see switchProviderLocked), so calling it on every ordinary
-// message would tear down and restart the CLI on every send. Compared as a
-// DELTA against an ordinary (nothing-staged) submit on the same chat, not a
-// raw call count, since this fixture's own delivery may restart the TUI for
-// reasons that have nothing to do with provider — the thing under test is
-// whether STAGING the current provider costs anything ON TOP of that.
 func TestSubmitPrompt_SameProviderNeverTriggersASwitch(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -1368,8 +1117,6 @@ func TestSubmitPrompt_SameProviderNeverTriggersASwitch(t *testing.T) {
 
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
-	// A busy chat refuses the next submit — confirm dispatch, then close the
-	// turn, exactly as the CLI's own hooks would in production.
 	prompt(t, f, live.ID, "claude", "first")
 	turn(t, f, live.ID, "claude", "reply")
 	afterOrdinary := f.term.callCount()
@@ -1386,9 +1133,6 @@ func TestSubmitPrompt_SameProviderNeverTriggersASwitch(t *testing.T) {
 	assert.Empty(t, ints, "the provider never changed — nothing for SwitchProvider to have recorded")
 }
 
-// A staged pick that is not jointly valid (effort the model doesn't declare)
-// must refuse the WHOLE send, exactly as a standalone PATCH .../selection
-// would — and never deliver the prompt on a selection that failed to commit.
 func TestSubmitPrompt_RefusesAndNeverSpawnsOnAnInvalidStagedSelection(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -1408,8 +1152,6 @@ func (undeliverableAgent) Capabilities() engineagents.Capabilities {
 	return engineagents.Capabilities{PromptSubmit: true, Delivery: "telepathy"}
 }
 
-// undeliverableClaude is a live claude chat under body whose descriptor names a
-// delivery this daemon has no channel for, so only a selection switch restarts it.
 func undeliverableClaude(t *testing.T, f testFixture, body string) (string, engineagents.Runner, undeliverableAgent) {
 	t.Helper()
 	writeDescriptor(t, f, "claude", body)
@@ -1438,11 +1180,6 @@ func TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDon
 		"a pending selection switch obliges a restart on its own")
 }
 
-// permissionSelectingDescriptorBody extends selectingDescriptorBody with a
-// permission_levels block declared restart_tui, matching claude's and codex's own
-// real descriptors — needed to exercise the third clause of
-// selection.RestartRequired (PermissionLevel), which none of this suite's other
-// selecting-descriptor fixtures ever declare.
 const permissionSelectingDescriptorBody = selectingDescriptorBody + `
 permission_levels:
   strategy: restart_tui
@@ -1455,17 +1192,6 @@ permission_levels:
         - pass_arg: { arg: "--permission-mode", value: "auto" }
 `
 
-// TestRegression_PermissionLevelUnchangedDoesNotForceARestartADeliveryWouldNotHaveDone
-// guards RequirePromptRestart's `launched` selection literal, which built its
-// Selection from live.LaunchModel/live.LaunchEffort only and left PermissionLevel
-// at its zero value. That reads as "changed" against literally any chat's current
-// level, because no chat's desired PermissionLevel is ever empty (every chat is
-// seeded with a real level at creation — see domain.Chat's own doc comment): the
-// zero-value stand-in just as reliably differs from a genuinely UNCHANGED level as
-// from a genuinely different one, so a naive "prove a real switch authorises a
-// restart" test (below) passes whether or not the field is wired up — it can never
-// turn red. Only holding the level in place, as this test does, tells the two
-// readings apart.
 func TestRegression_PermissionLevelUnchangedDoesNotForceARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
 	chatID, live, descriptor := undeliverableClaude(t, f, permissionSelectingDescriptorBody)
@@ -1479,13 +1205,6 @@ func TestRegression_PermissionLevelUnchangedDoesNotForceARestartADeliveryWouldNo
 			"a delivery this daemon has no channel for must stay refused")
 }
 
-// TestSubmitPrompt_PermissionLevelSwitchAloneAuthorisesARestartADeliveryWouldNotHaveDone
-// is PermissionLevel's own counterpart to
-// TestSubmitPrompt_ASelectionSwitchAuthorisesARestartADeliveryWouldNotHaveDone,
-// completing that test's Model/Effort coverage with the third field
-// selection.RestartRequired compares. Note this one passes with or without
-// RequirePromptRestart's launched-selection fix — see the steady-state test above,
-// which is the one that actually catches the bug.
 func TestSubmitPrompt_PermissionLevelSwitchAloneAuthorisesARestartADeliveryWouldNotHaveDone(t *testing.T) {
 	f := newFixture(t)
 	chatID, live, descriptor := undeliverableClaude(t, f, permissionSelectingDescriptorBody)
@@ -1531,14 +1250,6 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	assert.NotContains(t, call.argv, "--model", "the default carries no model flag")
 }
 
-// THE REGRESSION. "" is a REAL pick — "the provider's own default", the same
-// distinct fact domain.Chat.Model's own doc records — and the composer stages
-// it like any other. Gated on "either half is non-empty" (as this path once
-// was) an all-empty pick read as "nothing staged, keep what you have", so a
-// chat pinned to opus had NO way back to the default at all: the picker no
-// longer PATCHes .../selection on its own, which makes the send the only door.
-// The test above proves the same clearing still works through the standalone
-// PATCH; this one proves it works through the door the UI actually uses.
 func TestRegression_SubmitPrompt_AnExplicitlyEmptyStagedSelectionClearsBackToTheDefault(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
@@ -1557,10 +1268,6 @@ func TestRegression_SubmitPrompt_AnExplicitlyEmptyStagedSelectionClearsBackToThe
 	assert.NotContains(t, call.argv, "--effort", "nor an effort one")
 }
 
-// A nil selection is the OTHER half of the same contract: the composer staged
-// nothing, so the chat's sticky pair must survive the send untouched. Without
-// this, making "" mean "clear it" would quietly turn every caller that passes
-// no selection at all into one that wipes the chat's model.
 func TestSubmitPrompt_ANilStagedSelectionLeavesTheStickyPairAlone(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
@@ -1575,11 +1282,6 @@ func TestSubmitPrompt_ANilStagedSelectionLeavesTheStickyPairAlone(t *testing.T) 
 	assert.Equal(t, "high", chat.Effort)
 }
 
-// Idempotency is the whole point of clientRequestId, and the staged selection
-// now rides the SAME body. A retry must replay the original outcome and must
-// not narrate the selection change a second time — setChatSelectionLocked
-// records a divider only against the value it READ first, so a replay of an
-// already-committed pick has nothing left to differ from.
 func TestRegression_SubmitPrompt_ReplayingAStagedSelectionStaysAtMostOnce(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
@@ -1619,8 +1321,6 @@ func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) 
 	assert.Equal(t, 2, f.term.callCount(), "the original spawn plus the delivery restart")
 }
 
-// unseededChat is a claude chat that predates permission-level seeding:
-// f.chats.Create bypasses MintChat's SeedPermissionLevel on purpose.
 func unseededChat(t *testing.T, f testFixture) string {
 	t.Helper()
 	writeDescriptor(t, f, "claude", permissionSelectingDescriptorBody)
@@ -1633,14 +1333,6 @@ func unseededChat(t *testing.T, f testFixture) string {
 	return chatID
 }
 
-// TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarded
-// guards a chat that predates PermissionLevel seeding entirely — the
-// "carried through the chat-model migration, never had this field" case
-// domain.Chat's own doc comment documents as a real, if transient, edge
-// case. f.chats.Create bypasses Conversations.MintChat/SeedPermissionLevel
-// on purpose, to construct exactly that state: every real chat-creation
-// path this package wires up already seeds a real level, so a chat spawned
-// through the ordinary helpers can never observe it.
 func TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarded(t *testing.T) {
 	f := newFixtureWithPermissionDefault(t, "full-auto")
 	chatID := unseededChat(t, f)
@@ -1657,11 +1349,6 @@ func TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarde
 		"an unseeded chat must spawn under the GLOBAL default, never silently guarded")
 }
 
-// TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart is the real,
-// confirmed-live sequence: a chat that predates seeding (see the test above) has
-// its permission level explicitly PUT to full-auto, then its very next prompt —
-// which always forces a full CLI restart for a restart_tui provider like claude —
-// must launch under that explicit choice, not fall back to guarded.
 func TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart(t *testing.T) {
 	f := newFixtureWithPermissionDefault(t, "guarded")
 	chatID := unseededChat(t, f)
@@ -1693,8 +1380,6 @@ func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
 	claude := list[byID["claude"]]
 	assert.True(t, claude.ModelSelect)
 	assert.True(t, claude.EffortSelect)
-	// Resolved synchronously off the embedded model-manifest.json bundle
-	// (model.manifest:, not a live probe) — deterministic even offline.
 	assert.Equal(t, []string{"fable", "opus", "sonnet", "haiku", "opusplan"}, claude.Models)
 	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, claude.Efforts[""],
 		"the '' key is the union of every model's own levels — see modeldiscovery.effortsOf")
@@ -1703,10 +1388,6 @@ func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
 	}
 	assert.Empty(t, claude.DefaultModel, "claude's manifest states no default, so this is unknown")
 
-	// codex's catalogue is DISCOVERED at runtime (model.discover:), not
-	// declared — with no codex binary in this test environment nothing has
-	// resolved, so both are empty rather than a stale hand-maintained list.
-	// The discovery mapping itself is modeldiscovery's own tests.
 	codex := list[byID["codex"]]
 	assert.True(t, codex.ModelSelect)
 	assert.True(t, codex.EffortSelect)
@@ -1836,21 +1517,6 @@ func TestSubmitPrompt_AnUnreadableSelectionRefusesTheDelivery(t *testing.T) {
 	assert.Contains(t, err.Error(), "chat selection")
 }
 
-// ---------------------------------------------------------------------------
-// A runner must never be left pointed at a chat that no longer exists.
-// ---------------------------------------------------------------------------
-
-// TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded
-//
-// PurgeChat SIGTERMs the chat's CLI, but a SIGTERM is not synchronous — the CLI is
-// still alive for a moment, and "delete the chat I just made with the wrong provider"
-// is an ordinary thing to do seconds after spawning. If that CLI's first session_start
-// lands in the window, an unguarded reducer BINDS it: the conversation projection then
-// writes a (deletedChatID, sessionID) row AFTER the purge already dropped that chat's
-// history. That row is a live trap — a later announcement of the id conflicts with a
-// chat that does not exist.
-//
-// The announcement must be REFUSED, and the CLI killed: it has nowhere to write.
 func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 
@@ -1859,7 +1525,6 @@ func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *t
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
 
-	// The CLI is still alive (SIGTERM has not landed yet) and announces its conversation.
 	lateHook(t, f, runnerID, "", "session_start", map[string]any{"session_id": "s-late"})
 
 	assert.Empty(t, f.chatForSession(t, "claude", "s-late"),
@@ -1869,31 +1534,15 @@ func TestRegression_SessionStartAfterItsChatWasDeleted_IsDroppedNotRecorded(t *t
 		"a CLI with nowhere left to write must not be left running")
 }
 
-// ---------------------------------------------------------------------------
-// Displacement is a placement FACT, not an inference from timestamps.
-// ---------------------------------------------------------------------------
-
-// TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCLI
-//
-// The window a newest-arrival ORDERING cannot close. The outgoing CLI has not announced
-// a conversation yet (claude takes ~1s; the user can hit Switch Provider well inside
-// that). The incoming CLI starts at t2 and is the rightful holder of the chat. Then the
-// outgoing CLI's session_start finally lands at t3 — and t3 > t2, so any "whoever
-// arrived last" ordering hands the chat back to the DYING runner, and the pane attaches
-// to a corpse. That is the very failure the ordering existed to prevent.
-//
-// Displacement fixes it at the source: the CLI we are killing is taken OFF the chat when
-// we kill it, so its late announcement moves no chat and is only dead-lettered.
 func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCLI(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, outgoing := f.spawn(t, "claude") // t0: spawned, and it announces NOTHING yet
+	chatID, outgoing := f.spawn(t, "claude")
 
-	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "") // t2
+	incoming, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.NoError(t, err)
 	f.wait()
 
-	// t3: the outgoing CLI, still dying, finally reports the conversation it came up in.
 	hook(t, f, outgoing, "", "session_start", map[string]any{"session_id": "s-late"})
 
 	live, err := f.liveRunnerFor(t, chatID)
@@ -1905,17 +1554,6 @@ func TestRegression_LateSessionAnnouncement_DoesNotStealTheChatFromTheIncomingCL
 	assert.False(t, f.isLive(outgoing), "the outgoing CLI was off the chat before the switch returned")
 }
 
-// TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat
-//
-// Displacement makes the READ side honest. Only serialisation fixes the WRITE side: two
-// concurrent SwitchProvider calls both read the same live runner, both kill it, and both
-// spawn — leaving two CLIs pointed at one chat, which asynx OCC cannot prevent because
-// the two spawns create DIFFERENT aggregates.
-//
-// The per-chat gate is not the old OpenSegment.Validate guard coming back: it rejects
-// nothing, and it never runs on the hook path (a hook must never block or fail). It just
-// serialises process creation on a chat, so the second switch sees the first one's runner
-// and quits it, exactly as a sequential pair of clicks would.
 func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T) {
 	f := newFixture(t)
 
@@ -1942,36 +1580,11 @@ func TestRegression_ConcurrentSwitches_LeaveExactlyOneCLIOnTheChat(t *testing.T)
 	assert.Equal(t, []string{live.ID}, onChat, "two concurrent switches must not leave two CLIs on one chat")
 }
 
-// ---------------------------------------------------------------------------
-// Displacement must not orphan the turn the displaced CLI left open.
-// ---------------------------------------------------------------------------
-
-// TestRegression_AbortedSwitchMidTurn_DoesNotLeaveTheChatSpinningForever
-//
-// reconcileRunnerExit closes a turn a dying CLI left open by looking at
-// runner.CurrentChatID — which Displace erases. So a switch that ABORTS after the outgoing
-// CLI has been quit (an unknown target provider is the tested, reachable case) used to
-// leave the chat with no runner and Working=true FOREVER: the chat row spins, and the
-// workspace's whole overlay spins with it, until the user resumes that chat and completes
-// another turn.
-//
-// Closing the turn at displacement time asserts nothing about liveness: once displaced, no
-// hook from that runner can ever reach the chat again, so "nobody is working on this chat"
-// is simply the last true thing we can say about it.
-//
-// HOW A SWITCH STILL MEETS A MID-TURN CLI, now that it WAITS for an in-flight turn before
-// quitting anything (awaitTurnComplete): the user types again while the switch is killing
-// it. The barrier is crossed, the turn is genuinely over — and then a new prompt lands in
-// the window between the terminate and the displace. That race is exactly what this drives,
-// by delivering the prompt hook from INSIDE TerminateGraceful, so the interleaving is
-// pinned rather than hoped for.
 func TestRegression_InvalidSwitchTarget_PreservesTheOutgoingRunner(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
 
-	// Descriptor resolution is deterministic target planning and therefore happens
-	// before teardown. An invalid target must not turn a healthy chat dormant.
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "not-a-real-provider", "")
 	require.Error(t, err)
 	f.wait()
@@ -1982,9 +1595,6 @@ func TestRegression_InvalidSwitchTarget_PreservesTheOutgoingRunner(t *testing.T)
 	assert.Empty(t, f.term.terminatedIDs())
 }
 
-// The same rule on the success path: the outgoing CLI is displaced with a turn open (a
-// prompt landed while it was killed), so that turn is over — nothing will send its
-// turn_stop. The incoming CLI's own turns are unaffected.
 func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	f := newFixture(t)
 
@@ -2006,7 +1616,6 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 	assert.False(t, f.busy(t, chatID),
 		"the killed CLI's turn is over: it will never send a turn_stop")
 
-	// The incoming CLI opens its own turn; the outgoing one's late PTY death must not close it.
 	f.term.duringTerminate = nil
 	require.NoError(t, f.usecase.IngestHook(f.ctx, incoming, "codex", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "the new CLI is working"})))
@@ -2018,13 +1627,6 @@ func TestSwitchProvider_MidTurn_ClosesTheOutgoingTurn(t *testing.T) {
 		"the outgoing runner's exit must not close the incoming runner's turn")
 }
 
-// ---------------------------------------------------------------------------
-// "" means NOWHERE, everywhere.
-// ---------------------------------------------------------------------------
-
-// TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel: a late hook
-// from a purged chat's CLI resolves to no runner and so no chat; GetChat's lazy
-// self-heal on a miss would replay the whole log for every dying CLI's hook.
 func TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel(t *testing.T) {
 	f, cs := newFaultFixture(t)
 
@@ -2034,13 +1636,9 @@ func TestRegression_HookFromAPurgedChatsRunner_NeverTouchesTheChatModel(t *testi
 
 	cs.failGetChat = errors.New("boom: the chat model must not be consulted for nowhere")
 
-	// Placed nowhere, it resolves to nowhere, without a lookup.
 	lateHook(t, f, runnerID, "claude", "turn_stop", map[string]any{"last_assistant_message": "a dying CLI's last words"})
 }
 
-// TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit: the purge records its
-// runner's exit before it forgets the ledger, so the exit cannot write a row back
-// into the chat it erased.
 func TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -2053,7 +1651,6 @@ func TestRegression_APurgedChatKeepsNoRowOfItsRunnersExit(t *testing.T) {
 	assert.Empty(t, rows, "a purged chat keeps no ledger row, its runner's exit included")
 }
 
-// mustLive reads the chat's live runner, failing the test if the chat is dormant.
 func mustLive(t *testing.T, f testFixture, chatID string) engineagents.Runner {
 	t.Helper()
 	r, err := f.liveRunnerFor(t, chatID)

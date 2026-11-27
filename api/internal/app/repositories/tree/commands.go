@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// edit is every Tree command: a pure change to one project's whole tree, so a
-// write decides against everything that project holds. Validate and EmitEvent
-// run the same change; it touches no IO, which is what makes running it twice safe.
 type edit struct {
 	projectID string
 	op        string
@@ -30,7 +27,6 @@ func (c edit) Validate(current *tree.Tree) error {
 	return err
 }
 
-// EmitEvent runs only after Validate passed; a change that fails here keeps the tree.
 func (c edit) EmitEvent(current *tree.Tree) tree.Tree {
 	next, err := c.apply(c.base(current))
 	if err != nil {
@@ -39,8 +35,6 @@ func (c edit) EmitEvent(current *tree.Tree) tree.Tree {
 	return next
 }
 
-// base is the tree the change applies to: a copy, so the fold's state is never
-// mutated, with every map present even on a tree an older event left without one.
 func (c edit) base(current *tree.Tree) tree.Tree {
 	if current == nil {
 		return tree.Empty(c.projectID)
@@ -64,7 +58,6 @@ func putNode(projectID string, n tree.Node) edit {
 	}}
 }
 
-// createNode mints n; a row the tree already holds is refused.
 func createNode(projectID string, n tree.Node) edit {
 	return edit{projectID: projectID, op: "put", apply: func(cur tree.Tree) (tree.Tree, error) {
 		if _, ok := cur.Nodes[n.ID]; ok {
@@ -74,8 +67,6 @@ func createNode(projectID string, n tree.Node) edit {
 	}}
 }
 
-// moveNode re-places the row the tree holds: kind and identity are its own, and
-// keepParent changes only its order, never restating a parent read earlier.
 func moveNode(projectID, id, parentID string, order int, keepParent bool) edit {
 	return edit{projectID: projectID, op: "put", apply: func(cur tree.Tree) (tree.Tree, error) {
 		n, ok := cur.Nodes[id]
@@ -150,8 +141,6 @@ func putChat(projectID, chatID string, p tree.Placement) edit {
 	}}
 }
 
-// orderChat changes only the order of the chat's current placement; a chat
-// never placed is at its root.
 func orderChat(projectID, chatID string, order int) edit {
 	return edit{projectID: projectID, op: "chat_put", apply: func(cur tree.Tree) (tree.Tree, error) {
 		p := cur.Chats[chatID]
@@ -160,7 +149,6 @@ func orderChat(projectID, chatID string, order int) edit {
 	}}
 }
 
-// dropChat removes a chat's own placement once the chat is gone.
 func dropChat(projectID, chatID string) edit {
 	return edit{projectID: projectID, op: "chat_dropped", apply: func(cur tree.Tree) (tree.Tree, error) {
 		delete(cur.Chats, chatID)
@@ -168,8 +156,6 @@ func dropChat(projectID, chatID string) edit {
 	}}
 }
 
-// take drops every record of id: the source half of moving a row to the tree
-// it belongs in.
 func take(projectID, id string) edit {
 	return edit{projectID: projectID, op: "taken", apply: func(cur tree.Tree) (tree.Tree, error) {
 		rest, _ := cur.Without(id)
@@ -177,8 +163,6 @@ func take(projectID, id string) edit {
 	}}
 }
 
-// give writes records over whatever the tree holds for their ids: the target
-// half of a move, which carries the row's current placement.
 func give(projectID string, records tree.Tree) edit {
 	return edit{projectID: projectID, op: "given", apply: func(cur tree.Tree) (tree.Tree, error) {
 		maps.Copy(cur.Nodes, records.Nodes)

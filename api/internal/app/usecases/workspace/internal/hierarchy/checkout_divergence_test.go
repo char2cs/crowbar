@@ -13,10 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestCreateChild_DerivePathEscapesCrowbarHome_Rejected proves deriveWorktreePath
-// surfaces worktreepath.Derive's escape guard: a repo whose remote does not parse
-// and whose fallback slug (its NAME) carries path-traversal segments must not be
-// allowed to land its worktree outside ~/.crowbar/projects.
 func TestCreateChild_DerivePathEscapesCrowbarHome_Rejected(t *testing.T) {
 	g := &fakeGit{}
 	ws := &fakeWorkspace{
@@ -25,8 +21,6 @@ func TestCreateChild_DerivePathEscapesCrowbarHome_Rejected(t *testing.T) {
 			return domain.Workspace{}, nil
 		},
 	}
-	// No remote URL and no PathSlug: RemoteSlug falls back to the repo NAME,
-	// which here is a traversal payload.
 	repos := &fakeRepoStore{name: "../../evil"}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, repos, newNow(), fakeHome())
 
@@ -37,17 +31,12 @@ func TestCreateChild_DerivePathEscapesCrowbarHome_Rejected(t *testing.T) {
 	assert.Empty(t, g.calls, "no git runs against an unrepresentable path")
 }
 
-// TestCreateChild_RemoteBranchExists_LocalTipFastForwarded proves
-// warnOnDiscardedLocalTip's fast-forward branch: when a diverging local branch
-// tip turns out to be an ANCESTOR of origin's tip (merge-base == the local tip),
-// nothing was actually lost, so the import proceeds without a stale-history
-// warning. The fork point still comes from origin regardless.
 func TestCreateChild_RemoteBranchExists_LocalTipFastForwarded(t *testing.T) {
 	g := &fakeGit{
 		remoteExists:  true,
 		revParseSha:   "origintip",
 		revParseByRev: map[string]string{"refs/heads/feature/x": "localtip"},
-		mergeBaseSha:  "localtip", // base == localTip: a plain fast-forward
+		mergeBaseSha:  "localtip",
 	}
 	var forkPoint string
 	ws := &fakeWorkspace{
@@ -74,16 +63,12 @@ func TestCreateChild_RemoteBranchExists_LocalTipFastForwarded(t *testing.T) {
 	assert.Equal(t, "origintip", forkPoint, "the worktree still resets to origin's tip regardless of the check")
 }
 
-// TestCreateChild_RemoteBranchExists_LocalTipDiverged_WarnsButSucceeds proves the
-// other half: a local tip that is NOT an ancestor of origin's tip (real diverged
-// history) only logs a diagnostic — it must never fail or alter the import, since
-// the old commits stay reachable via the reflog.
 func TestCreateChild_RemoteBranchExists_LocalTipDiverged_WarnsButSucceeds(t *testing.T) {
 	g := &fakeGit{
 		remoteExists:  true,
 		revParseSha:   "origintip",
 		revParseByRev: map[string]string{"refs/heads/feature/x": "localtip"},
-		mergeBaseSha:  "some-other-common-ancestor", // base != localTip: genuinely diverged
+		mergeBaseSha:  "some-other-common-ancestor",
 	}
 	var forkPoint string
 	ws := &fakeWorkspace{

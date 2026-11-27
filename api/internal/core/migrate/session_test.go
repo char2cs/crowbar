@@ -67,8 +67,6 @@ func TestBegin_RefusesAHomeAnotherSessionHolds(t *testing.T) {
 	b.begin()
 }
 
-// A home Begin cannot clean or record into halts like any other refusal: the
-// daemon stays up holding the home, and its health says why.
 func TestBegin_AHomeItCannotCleanOrRecordIntoHalts(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -123,8 +121,6 @@ func TestBegin_AHomeItCannotCleanOrRecordIntoHalts(t *testing.T) {
 	}
 }
 
-// readOnly gives path mode until the test ends, then gives the owner back what
-// the temp dir's cleanup needs.
 func readOnly(
 	tb testing.TB,
 	path string,
@@ -135,9 +131,6 @@ func readOnly(
 	tb.Cleanup(func() { require.NoError(tb, os.Chmod(path, 0o700)) })
 }
 
-// A home whose lock cannot be taken for a reason other than another holder
-// halts like any refusal, but holds nothing: the daemon serves the halt, no step
-// runs, and there is no lock to release.
 func TestBegin_AHomeItCannotLockHaltsHoldingNothing(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -189,8 +182,6 @@ func TestBegin_AHomeItCannotLockHaltsHoldingNothing(t *testing.T) {
 	}
 }
 
-// A home that cannot be created has nothing to hold and nothing to report on,
-// so Begin returns the error and no session.
 func TestBegin_AHomeThatCannotBeCreatedIsAnError(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))

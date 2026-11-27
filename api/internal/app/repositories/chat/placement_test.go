@@ -19,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// newRepoOver is newRepoWithDeps over the placements given.
 func newRepoOver(
 	t *testing.T,
 	placements chat.Placements,
@@ -46,7 +45,6 @@ func newRepoOver(
 	return context.Background(), repo, db, cap
 }
 
-// countedPlacements counts the reads of one chat's placement and of all of them.
 type countedPlacements struct {
 	chat.Placements
 	one, all int
@@ -62,8 +60,6 @@ func (c *countedPlacements) ChatPlacements(ctx context.Context, chatIDs []string
 	return c.Placements.ChatPlacements(ctx, chatIDs)
 }
 
-// GetChats places every chat it finds in one placement read, and skips an id
-// no chat has.
 func TestAgentChat_GetChats_PlacesEveryChatInOneRead(t *testing.T) {
 	counted := &countedPlacements{Placements: testutil.Placements(t)}
 	ctx, repo, _, _ := newRepoOver(t, counted)
@@ -86,8 +82,6 @@ func TestAgentChat_GetChats_PlacesEveryChatInOneRead(t *testing.T) {
 	assert.Zero(t, counted.one)
 }
 
-// A chat GetChats cannot read fails the whole read rather than being skipped as
-// a chat that is gone.
 func TestAgentChat_GetChats_AReadFailureFailsTheRead(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	createChat(t, ctx, repo, "c1", "ws", time.Unix(1, 0).UTC())

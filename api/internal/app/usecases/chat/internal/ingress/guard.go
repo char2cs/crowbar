@@ -10,9 +10,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// leftFolderWrite is the folder a tool call would write into that its chat moved
-// out of, "" when none. An edit names its file; a command is matched on the paths
-// it spells out, which is best-effort: a shell can reach a folder without naming it.
 func leftFolderWrite(st ledger.State, ev engineagents.CanonicalEvent) string {
 	left := st.LeftDirs()
 	if len(left) == 0 {
@@ -32,8 +29,6 @@ func leftFolderWrite(st ledger.State, ev engineagents.CanonicalEvent) string {
 	return ""
 }
 
-// aim is what the call ev is about to run does and to what: its own, or for an ask
-// about a call, that call's as its first phase recorded it.
 func aim(st ledger.State, ev engineagents.CanonicalEvent) (kind, target, cwd string) {
 	switch {
 	case ev.Kind == engineagents.HookToolPre && ev.Tool != nil:
@@ -69,8 +64,6 @@ func within(dirs []string, path, cwd string) string {
 	return ""
 }
 
-// guardLeftFolder is the reply refusing ev when it writes into a folder the chat left,
-// before any person is asked: a call's own hook refuses it, and so does an ask about it.
 func guardLeftFolder(
 	st ledger.State, agent engineagents.Agent, ev engineagents.CanonicalEvent, raw []byte, channel engineagents.Channel,
 ) ([]byte, bool) {
@@ -85,7 +78,6 @@ func guardLeftFolder(
 		})
 		return reply, err == nil
 	}
-	// A notice that a call started cannot refuse it: only a hook's reply can.
 	if channel != engineagents.ChannelHooks {
 		return nil, false
 	}
@@ -93,7 +85,6 @@ func guardLeftFolder(
 	return []byte(body), ok
 }
 
-// guardReason is what the agent is told when a write into dir is refused.
 func guardReason(dir, now string) string {
 	return fmt.Sprintf("Crowbar moved this conversation out of %s; it is no longer yours to write to. "+
 		"Work in %s instead.", dir, now)

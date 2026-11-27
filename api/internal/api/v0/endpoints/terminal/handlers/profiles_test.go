@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// notFoundProfiles reports every id as absent, exercising the 404 guards in
-// UpdateProfile/DeleteProfile that stubProfiles (which always finds a row)
-// never reaches.
 type notFoundProfiles struct {
 	stubProfiles
 }
@@ -29,8 +26,6 @@ func (notFoundProfiles) FindByKey(
 	return nil, nil
 }
 
-// deleteErrProfiles finds the row fine but fails the actual delete, isolating
-// DeleteProfile's own error branch from its FindByKey guard.
 type deleteErrProfiles struct {
 	stubProfiles
 }
@@ -56,8 +51,6 @@ func newProfilesRouter(
 	return r
 }
 
-// doRaw posts a raw, possibly-malformed body — unlike do/doTerminal, which
-// json.Marshal a Go value and so can never produce actually-invalid JSON.
 func doRaw(
 	r *gin.Engine,
 	method, path string,

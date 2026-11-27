@@ -7,20 +7,12 @@ import (
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 )
 
-// UploadAttachmentInput is one attachment's identity and bytes, already
-// extracted from whichever of the handler's two ingestion shapes the request
-// used — see chat/handlers.UploadAttachment.
 type UploadAttachmentInput struct {
-	// ID is the client-supplied shortid (nanoid); the backend never mints one
-	// (it may need to match an Excalidraw fence-tag id).
 	ID           string
 	OriginalName string
 	Data         []byte
 }
 
-// StoredAttachment is what a successful upload becomes: the durable logical
-// reference the caller writes back into the message's markdown text, plus
-// metadata a file card renders without a second fetch.
 type StoredAttachment struct {
 	Ref         string
 	FileName    string
@@ -28,9 +20,6 @@ type StoredAttachment struct {
 	ContentType string
 }
 
-// UploadAttachment stores one attachment into chatID's durable attachment
-// directory and returns the logical reference the frontend encodes into
-// ![]()/[]().
 func (u *Usecase) UploadAttachment(
 	ctx context.Context,
 	chatID string,
@@ -54,8 +43,6 @@ func storedAttachment(chatID, fileName, contentType string, size int) StoredAtta
 	}
 }
 
-// ReadAttachment resolves chatID's stored attachment fileName to bytes and a
-// sniffed content type, or repoattachments.ErrNotFound.
 func (u *Usecase) ReadAttachment(
 	ctx context.Context,
 	chatID, fileName string,

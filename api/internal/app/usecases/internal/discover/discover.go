@@ -1,5 +1,3 @@
-// Package discover walks a directory tree looking for git repositories,
-// bounded by a caller-specified depth limit.
 package discover
 
 import (
@@ -8,9 +6,6 @@ import (
 	"strings"
 )
 
-// Repos returns every directory within maxDepth of root (1 = direct children) that
-// holds a .git directory. A .git file (linked worktree, submodule) is not a repo of
-// its own, and descent stops at a found repo so nested repos are never returned.
 func Repos(
 	root string,
 	maxDepth int,
@@ -40,8 +35,6 @@ func (w *walker) visit(
 		return err
 	}
 
-	// Only a .git directory marks a repo: a .git file is a linked worktree or submodule
-	// belonging to another repo, which would otherwise be imported once per worktree.
 	if d.Name() == ".git" {
 		if d.IsDir() {
 			w.found = append(w.found, filepath.Dir(path))

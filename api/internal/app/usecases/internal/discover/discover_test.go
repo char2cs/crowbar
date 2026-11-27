@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// buildTree creates the given directories under root and returns root.
 func buildTree(
 	t *testing.T,
 	dirs []string,
@@ -23,9 +22,6 @@ func buildTree(
 }
 
 func TestRepos_FindsGitDirsAtOrWithinMaxDepth(t *testing.T) {
-	// depth=1 repo at root/a/.git
-	// depth=2 repo at root/x/b/.git
-	// depth=3 repo at root/x/y/c/.git — beyond maxDepth=2, should be skipped
 	root := buildTree(t, []string{
 		"a/.git",
 		"x/b/.git",
@@ -41,7 +37,6 @@ func TestRepos_FindsGitDirsAtOrWithinMaxDepth(t *testing.T) {
 }
 
 func TestRepos_SkipsDescentIntoFoundRepo(t *testing.T) {
-	// root/repo/.git exists; root/repo/nested/.git should not be found
 	root := buildTree(t, []string{
 		"repo/.git",
 		"repo/nested/.git",
@@ -68,7 +63,6 @@ func TestRepos_RootDoesNotExist_ReturnsError(t *testing.T) {
 
 func TestRepos_IgnoresRegularFiles(t *testing.T) {
 	root := buildTree(t, []string{"repo/.git"})
-	// Place a regular file alongside the .git dir to exercise the !d.IsDir() branch.
 	require.NoError(t, os.WriteFile(filepath.Join(root, "repo", "README.md"), []byte("hi"), 0o644))
 
 	got, err := Repos(root, 2)
@@ -77,9 +71,6 @@ func TestRepos_IgnoresRegularFiles(t *testing.T) {
 }
 
 func TestRepos_SkipsGitFileWorktree(t *testing.T) {
-	// A linked git worktree (and submodule) records its real git dir via a
-	// `.git` FILE, not a directory. Such checkouts belong to another repo and
-	// must NOT be discovered as repos of their own (BUG-011).
 	root := buildTree(t, []string{"wt"})
 	require.NoError(
 		t,
@@ -92,8 +83,6 @@ func TestRepos_SkipsGitFileWorktree(t *testing.T) {
 }
 
 func TestRepos_GitFileStopsDescent(t *testing.T) {
-	// A directory marked by a `.git` file is a linked worktree: it is not a
-	// repo itself and its subdirectories must not be scanned for further repos.
 	root := buildTree(t, []string{"wt/nested"})
 	require.NoError(
 		t,

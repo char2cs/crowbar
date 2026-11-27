@@ -16,23 +16,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// This file guards the FULL in-PTY callback round-trip that the plain
-// scopedAgentPath unit tests structurally cannot see:
-//
-//	descriptor template → engine/agents.Expand → flat shell string
-//	  → /bin/sh word-splitting → argv → real cobra/pflag parse → scopedAgentPath
-//
-// A project home resolves an EMPTY RepoID; a bare `--repo ` would be dropped by
-// the shell and pflag would swallow the next token as its value.
-//
-// The tests below therefore go through a REAL /bin/sh and the REAL root command.
-
-// ── The shell half ───────────────────────────────────────────────────────────
-
-// argvThroughShell executes `command` with /bin/sh exactly as a vendor CLI runs a
-// hook, with the crowbar binary replaced by a script that dumps its argv NUL-
-// separated. The returned slice is precisely the argv the real crowbar binary
-// would have parsed (its os.Args[1:]) — empty tokens collapsed, quotes honoured.
 func argvThroughShell(t *testing.T, command string) []string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "argv")
@@ -49,8 +32,6 @@ func argvThroughShell(t *testing.T, command string) []string {
 	return argv
 }
 
-// argvDumper writes the stand-in "crowbar" binary that argvThroughShell relies
-// on: it records the argv the shell handed it and exits 0.
 func argvDumper(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "crowbar")
@@ -60,18 +41,11 @@ func argvDumper(t *testing.T) string {
 	return path
 }
 
-// ── The cobra half ───────────────────────────────────────────────────────────
-
 type parsedCallback struct {
 	project, repo, workspace, segment string
 	args                              []string
 }
 
-// parseThroughCobra feeds the shell-produced argv to the REAL root command —
-// exactly as main() does with os.Args[1:] (the dumper records "$@", which likewise
-// excludes the binary). Real subcommand resolution, real pflag parsing, real Args
-// validator: ValidateArgs is what the pre-fix argv failed with cobra's
-// "accepts 1 arg(s), received 2".
 func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 	t.Helper()
 	target, rest, err := newRootCmd().Find(argv)
@@ -86,8 +60,6 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 		require.NoError(t, err)
 		return v
 	}
-	// segment is only bound on commands that carry a runner id (mcp);
-	// handoff dump has no such flag, so it is read optionally.
 	segment := ""
 	if target.Flags().Lookup("segment") != nil {
 		segment = get("segment")
@@ -98,16 +70,12 @@ func parseThroughCobra(t *testing.T, argv []string) parsedCallback {
 	}
 }
 
-// TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo keeps the empty-repo
-// guard alive with {scope_flags} in the MIDDLE of the command line: a swallowed
-// --repo value there eats the next real token — `--repo --segment SEG` would
-// parse as repo="--segment" with SEG left as a stray positional.
 func TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagents.TemplateCtx{
 		CrowbarBin:  argvDumper(t),
 		Segid:       "SEG-1",
 		ProjectID:   "PROJ",
-		RepoID:      "", // ← project-home: WorktreeDir resolves no repo
+		RepoID:      "",
 		WorkspaceID: "WS",
 	}
 	command := engineagents.Expand("{crowbar} mcp {scope_flags} --segment {segid} --token-file T", ctx)
@@ -122,11 +90,6 @@ func TestMCPRoundTrip_ScopeFlagsMidLine_ProjectHomeHasNoRepo(t *testing.T) {
 		scopedAgentPath(got.project, got.repo, got.workspace, "/runners/"+got.segment+"/mcp"))
 }
 
-// TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo covers the third callback. It has
-// no descriptor template (it is invoked by hand / by the agent), so it is driven
-// through the same shell + cobra chain from the same {scope_flags} rendering.
-// handoff dump takes a REAL chat id typed at debug time — never a template
-// token baked in at spawn — so it is written directly into the command line.
 func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 	ctx := engineagents.TemplateCtx{
 		CrowbarBin:  argvDumper(t),
@@ -144,7 +107,6 @@ func TestHandoffDumpRoundTrip_ProjectHomeHasNoRepo(t *testing.T) {
 		scopedAgentPath(got.project, got.repo, got.workspace, "/"+got.args[0]+"/handoff"))
 }
 
-// A callback must dial the socket its rendered scope flags hand it, not one derived from its --home.
 func TestHandoffDumpRoundTrip_DialsTheSocketTheDaemonBound_ForANonCleanHome(t *testing.T) {
 	base, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)

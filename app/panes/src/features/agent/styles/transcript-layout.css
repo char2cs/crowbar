@@ -1,0 +1,222 @@
+.agent-chat.chat {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+.agent-chat .scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow-anchor: none;
+  padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
+  scroll-padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
+  opacity: 1;
+  transition: opacity 320ms cubic-bezier(0, 0, 0.2, 1);
+  scroll-padding-bottom: calc(var(--agent-dock-h, 92px) + var(--agent-dock-room, 32px));
+  mask-image:
+    linear-gradient(
+      to top,
+      transparent var(--agent-dock-h, 92px),
+      black calc(var(--agent-dock-h, 92px) + var(--agent-dock-fade, 24px)),
+      black calc(100% - var(--agent-transcript-header-clearance, 0px)),
+      transparent calc(100% - var(--agent-header-clearance, 0px))
+    ),
+    linear-gradient(
+      to left,
+      black 0,
+      black var(--agent-scrollbar-w, 0px),
+      transparent var(--agent-scrollbar-w, 0px)
+    );
+  -webkit-mask-image:
+    linear-gradient(
+      to top,
+      transparent var(--agent-dock-h, 92px),
+      black calc(var(--agent-dock-h, 92px) + var(--agent-dock-fade, 24px)),
+      black calc(100% - var(--agent-transcript-header-clearance, 0px)),
+      transparent calc(100% - var(--agent-header-clearance, 0px))
+    ),
+    linear-gradient(
+      to left,
+      black 0,
+      black var(--agent-scrollbar-w, 0px),
+      transparent var(--agent-scrollbar-w, 0px)
+    );
+}
+.agent-chat .center {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.agent-chat-pane[data-touch] .agent-chat .center {
+  padding: 0 20px;
+}
+.agent-chat-pane[data-touch] .agent-chat {
+  --agent-dock-room: 14px;
+  --agent-dock-fade: 14px;
+}
+.agent-chat .scroll-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.agent-chat .stream {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  --stream-gap: 18px;
+  gap: var(--stream-gap);
+}
+.agent-chat .stream[data-pin='released'] {
+  transition: min-height 560ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.agent-chat .dock-spacer {
+  flex-shrink: 0;
+  margin-top: calc(-1 * var(--stream-gap));
+  height: calc(var(--agent-dock-h, 92px) + var(--agent-dock-room, 32px));
+}
+
+.agent-chat .stream .virtual-rows {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.agent-chat .row {
+  display: flex;
+  width: 100%;
+}
+.agent-chat .row.stacked {
+  flex-direction: column;
+}
+.agent-chat .row.me {
+  align-items: flex-end;
+}
+
+.agent-chat .bubble {
+  min-width: 0;
+  max-width: 88%;
+  font-size: 14px;
+  border-radius: 9999px;
+  background: var(--muted);
+  padding: 9px 18px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.agent-chat .bubble.multi {
+  border-radius: 18px;
+  padding: 10px 16px;
+}
+.agent-chat .queued {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: flex-end;
+  min-width: 0;
+  max-width: 88%;
+}
+.agent-chat .queued .txt {
+  display: block;
+  max-width: 100%;
+  font-size: 14px;
+  border-radius: 9999px;
+  border: 1px dashed var(--input);
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+  padding: 9px 18px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.agent-chat .queued.sent .txt {
+  border-style: solid;
+}
+.agent-chat .queued.multi .txt {
+  border-radius: 18px;
+  padding: 10px 16px;
+}
+.agent-chat .queued.bad .txt {
+  --pattern-fg: color-mix(in oklch, var(--foreground) 6%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warning) 45%, transparent);
+  background-color: color-mix(in oklch, var(--warning) 8%, transparent);
+  background-image: repeating-linear-gradient(
+    315deg,
+    var(--pattern-fg) 0,
+    var(--pattern-fg) 1px,
+    transparent 0,
+    transparent 50%
+  );
+  background-size: 6px 6px;
+}
+.agent-chat .queued .acts {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+.agent-chat .queued .err,
+.agent-chat .firstq .err {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--ui-text-xs);
+  color: var(--warning);
+}
+.agent-chat .firstq .acts {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+.agent-chat-pane[data-touch] .agent-chat :is(.queued, .firstq) .acts {
+  gap: 12px;
+}
+.agent-chat-pane[data-touch] .agent-chat :is(.queued, .firstq) .acts > button {
+  width: 44px;
+  height: 44px;
+  margin: -6px;
+}
+.agent-chat .bubble .agent-prose,
+.agent-chat .bubble .agent-prose .slate-p {
+  line-height: inherit;
+}
+
+.agent-chat .frozen {
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+.agent-chat .frozen .agent-prose,
+.agent-chat .frozen .agent-prose .slate-p {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.agent-chat .assistant {
+  position: relative;
+  width: 100%;
+  padding: 4px 0;
+}
+
+.agent-chat .slash-row {
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.agent-chat .slash-marker {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--primary) 11%, transparent);
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.agent-chat .slash-args {
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: var(--ui-text-xs);
+  overflow-wrap: anywhere;
+}

@@ -87,8 +87,6 @@ func TestFold_TurnLifecycle(t *testing.T) {
 	assert.False(t, st.Busy())
 }
 
-// A close naming a turn that is not the running one leaves it running, and
-// so does a close of the running turn into a status the diagram refuses.
 func TestFold_ACloseOfAnotherTurnKeepsTheRunningOne(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStarted(t, "T1", "run-1"),
@@ -114,9 +112,6 @@ func TestFold_ACloseOfAnotherTurnKeepsTheRunningOne(t *testing.T) {
 	assert.True(t, ok, "a subagent scope's close is not the main turn's")
 }
 
-// A turn_started over a running turn, or naming a closed one, is late: the
-// running turn keeps running, a closed one never reopens, and the prompt it
-// names stays pending.
 func TestFold_ATurnStartedOverAnOpenTurnIsLate(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStarted(t, "T1", "run-1"),
@@ -137,9 +132,6 @@ func TestFold_ATurnStartedOverAnOpenTurnIsLate(t *testing.T) {
 	assert.False(t, ok, "a closed turn never reopens")
 }
 
-// A turn closes once: an end of the running turn is its row, an end of a turn
-// the ledger never ran is a row of its own, and an end of a turn already closed
-// names that turn and writes nothing.
 func TestEndTurnOf_ATurnClosesOnce(t *testing.T) {
 	running := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"),
@@ -198,8 +190,6 @@ func TestEndTurnOf_ATurnClosesOnce(t *testing.T) {
 	assert.Equal(t, "T1", r.TurnID)
 }
 
-// A past runner's late end names no provider turn: it is about the newest turn
-// that runner ran, never the one running now.
 func TestEndTurnOf_APastRunnersLateEndNamesItsOwnTurn(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"), turnStarted(t, "T1", "r1"), turnEnded(t, "T1", ledger.TurnEnded{Status: "done", RunnerID: "r1"}),
@@ -247,8 +237,6 @@ func TestTurn_NamesAnEventOnlyWhenNeitherIDDisagrees(t *testing.T) {
 	assert.True(t, ledger.Turn{}.Names("B"), "a turn started without an id matches any")
 }
 
-// A session whose CLI writes it only once a turn completes has turned only
-// then; one written at turn start has turned as the turn starts.
 func TestFold_ASessionPersistedAtTurnEndTurnsOnlyWhenItsTurnIsDone(t *testing.T) {
 	onEnd := func(turnID string) ledger.Row {
 		return row(t, ledger.KindTurnStarted, turnID, ledger.TurnStarted{
@@ -304,8 +292,6 @@ func TestCheck_TurnEndRowsNameTheirTurn(t *testing.T) {
 	})
 }
 
-// A runner's exit ends the turn it was running, in the same rows; the exit
-// of a runner that is not the turn's leaves the turn alone.
 func TestExit_EndsTheTurnItsRunnerWasOn(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t, started(t, "r1"), turnStarted(t, "T1", "r1")))
 
@@ -348,8 +334,6 @@ func TestStop_InterruptsTheTurnAndSettlesEveryPendingPrompt(t *testing.T) {
 	assert.Empty(t, rows, "an idle chat has nothing to stop")
 }
 
-// Leaving a session and exiting are decided from the same fold, so whichever
-// commits second finds nothing left to close.
 func TestLeave_AndExitCloseTheTurnOnce(t *testing.T) {
 	base := func() ledger.State {
 		return ledger.Fold("c1", sequenced(t,
@@ -393,8 +377,6 @@ func TestLeave_AndExitCloseTheTurnOnce(t *testing.T) {
 	assert.Empty(t, left)
 }
 
-// A command the CLI ran itself (/clear) opens no turn: leaving the session settles
-// it as taken by the CLI's builtin, while a message no turn took went unacknowledged.
 func TestLeave_ACarriedCommandRanInTheCLI(t *testing.T) {
 	carried := func(id, text string) ledger.Row {
 		return row(t, ledger.KindUserMessage, "", ledger.UserMessage{

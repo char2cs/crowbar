@@ -82,9 +82,6 @@ func TestReviewHandlers_SearchDiff_ParsesFlags(t *testing.T) {
 	assert.Equal(t, 25, opts.Limit)
 }
 
-// SearchOpts.Limit <= 0 is "unlimited", which over HTTP would let a one-letter
-// query collect a hit per line of a million-line diff. The endpoint never
-// exposes it: every out-of-range limit lands inside [1, 1000].
 func TestReviewHandlers_SearchDiff_LimitIsAlwaysBounded(t *testing.T) {
 	cases := []struct {
 		query string
@@ -118,8 +115,6 @@ func TestReviewHandlers_SearchDiff_TruncatedIsReported(t *testing.T) {
 	assert.True(t, env.Data.Truncated)
 }
 
-// An empty query is the state a find box opens in, not an error: it must answer
-// an empty result rather than run a whole-diff scan or 400.
 func TestReviewHandlers_SearchDiff_EmptyQueryIsAnEmptyResult(t *testing.T) {
 	uc := stubUsecase{
 		searchFn: func(_ context.Context, _, _, _ string, _ gitdomain.SearchOpts) ([]gitdomain.SearchHit, bool, error) {
@@ -139,8 +134,6 @@ func TestReviewHandlers_SearchDiff_MalformedParamsAreBadRequests(t *testing.T) {
 	}
 }
 
-// A find-as-you-type box submits every half-finished pattern, so a broken regex
-// is the client's mistake and must not read as a daemon failure.
 func TestReviewHandlers_SearchDiff_InvalidRegexIsBadRequest(t *testing.T) {
 	uc := stubUsecase{
 		searchErr: fmt.Errorf("branch review: search: %w: bad pattern", problem.ErrInvalidArgument),

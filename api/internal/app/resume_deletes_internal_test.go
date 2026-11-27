@@ -16,8 +16,6 @@ type fixedPending []project.PendingDelete
 
 func (f fixedPending) PendingDeletes(context.Context) ([]project.PendingDelete, error) { return f, nil }
 
-// Each resumed delete is an operation that has settled when boot goes on
-// (invariant D5); one that fails again is a recorded failure, not a log line.
 func TestResumeDeletes_ResumedDeletesSettleBeforeItReturns(t *testing.T) {
 	ops, _ := recordingOps(t)
 	ran := 0
@@ -58,7 +56,6 @@ func TestResumeDeletes_ResumedDeletesSettleBeforeItReturns(t *testing.T) {
 	assert.Equal(t, domain.OpProjectDelete, failed.Kind)
 }
 
-// Only a delete that cannot be recorded stops the boot.
 func TestResumeDeletes_AnUnrecordableDeleteStopsTheBoot(t *testing.T) {
 	ops, _ := recordingOps(t)
 	require.NoError(t, ops.Shutdown(t.Context()))

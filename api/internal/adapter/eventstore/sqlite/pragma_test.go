@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An append must not pay an fsync: the event log and snapshot store run
-// synchronous=NORMAL (under WAL), which keeps a committed write across an
-// application crash. 1 is PRAGMA synchronous's answer for NORMAL.
-
 func TestNewEventStore_IsSynchronousNormal(t *testing.T) {
 	s, err := NewEventStore(filepath.Join(t.TempDir(), "events.db"))
 	require.NoError(t, err)
@@ -34,8 +30,6 @@ func TestNewSnapshotStore_IsSynchronousNormal(t *testing.T) {
 	assert.Equal(t, 1, mode)
 }
 
-// TestNewEventStore_FilesAreOwnerOnly: the event log and its snapshot file are
-// created 0600, and SQLite gives their -wal and -shm the same mode.
 func TestNewEventStore_FilesAreOwnerOnly(t *testing.T) {
 	dir := t.TempDir()
 	events := filepath.Join(dir, "events.db")

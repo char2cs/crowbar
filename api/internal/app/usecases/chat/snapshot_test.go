@@ -9,10 +9,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// §7-A target 1, end to end through the real stores and the real fanout: the
-// snapshot a frame carries and the one a read returns come from one owner,
-// carry the command-side fold, and are ordered by version.
-
 func TestSnapshot_ASpawnedChatIsLiveAndAFrameSaysSo(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -31,7 +27,6 @@ func TestSnapshot_ASpawnedChatIsLiveAndAFrameSaysSo(t *testing.T) {
 	assert.Equal(t, runnerID, last.Live.ID)
 }
 
-// Busy is the ledger's fold as of the frame.
 func TestSnapshot_BusyFollowsTheTurnAndVersionsOnlyGrow(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -54,7 +49,6 @@ func TestSnapshot_BusyFollowsTheTurnAndVersionsOnlyGrow(t *testing.T) {
 	}
 }
 
-// Stop leaves the chat dormant, and the last frame about it says so.
 func TestSnapshot_StopEndsDormant(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -78,8 +72,6 @@ func TestSnapshot_StopEndsDormant(t *testing.T) {
 	assert.False(t, last.Ledger.Busy)
 }
 
-// A switch parked on an unacknowledged prompt reports "switching" while it
-// waits — the pane renders the phase, it does not infer it.
 func TestSnapshot_AParkedSwitchReportsSwitching(t *testing.T) {
 	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
@@ -96,7 +88,6 @@ func TestSnapshot_AParkedSwitchReportsSwitching(t *testing.T) {
 	assert.Greater(t, after.Version, snap.Version)
 }
 
-// A7: a deleted chat leaves no snapshot entry behind.
 func TestSnapshot_ADeletedChatIsForgotten(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")

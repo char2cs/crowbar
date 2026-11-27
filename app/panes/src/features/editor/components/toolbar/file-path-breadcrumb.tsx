@@ -1,0 +1,208 @@
+import type React from 'react'
+import { ArrowLeft } from '@phosphor-icons/react'
+import { useRef, useState } from 'react'
+import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
+import { logger } from '@/features/editor/utils/logger'
+import { openPreview } from '@/features/editor/documents/open-preview'
+import { workspaceRef } from '@/lib/api/documents'
+import type { FileEntry } from '@/features/file-system/types/app'
+import { Button } from '@/components/ui/button'
+import { Dropdown } from '@/components/ui/dropdown'
+import { dropdownItemClassName } from '@/components/ui/dropdown-styles'
+import { normalizePath } from '@/utils/path-helpers'
+import { breadcrumbSegmentPath, loadDirectoryEntries } from './breadcrumb-directory'
+import { PathBreadcrumb } from './path-breadcrumb'
+
+interface FilePathBreadcrumbProps {
+  filePath: string
+  workspaceId: string | null
+  interactive?: boolean
+  className?: string
+}
+
+async function handleNavigate(workspaceId: string, path: string) {
+  try {
+    await openPreview(workspaceRef(workspaceId, path))
+  } catch (error) {
+    logger.error('Editor', 'Failed to navigate to path:', path, error)
+  }
+}
+
+export function FilePathBreadcrumb({
+  filePath,
+  workspaceId,
+  interactive: interactiveProp = true,
+  className,
+}: FilePathBreadcrumbProps) {
+  const interactive = interactiveProp && workspaceId !== null
+  const [dropdown, setDropdown] = useState<{
+    segmentIndex: number
+    x: number
+    y: number
+    items: FileEntry[]
+    currentPath: string
+    navigationStack: string[]
+  } | null>(null)
+  const buttonRefs = useRef<(HTMLButtonElement | null)[]>([])
+
+  const getPathSegments = () => {
+    if (!filePath) return []
+
+    if (filePath.includes('://')) {
+      return [filePath.split('://')[1] || filePath]
+    }
+
+    return normalizePath(filePath).split('/').filter(Boolean)
+  }
+
+  const segments = getPathSegments()
+
+  const handleGoBack = async () => {
+    if (!dropdown || dropdown.navigationStack.length === 0 || workspaceId === null) return
+
+    const previousPath = dropdown.navigationStack[dropdown.navigationStack.length - 1]
+
+    try {
+      const items = await loadDirectoryEntries(workspaceId, previousPath)
+      setDropdown((prev) =>
+        prev
+          ? {
+              ...prev,
+              items,
+              currentPath: previousPath,
+              navigationStack: prev.navigationStack.slice(0, -1),
+            }
+          : null,
+      )
+    } catch (error) {
+      logger.error('Editor', 'Failed to go back:', error)
+    }
+  }
+
+  const handleSegmentClick = async (
+    segmentIndex: number,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (workspaceId === null) return
+
+    if (segmentIndex === segments.length - 1) {
+      await handleNavigate(workspaceId, breadcrumbSegmentPath(segments, segmentIndex))
+      return
+    }
+
+    if (dropdown && dropdown.segmentIndex === segmentIndex) {
+      setDropdown(null)
+      return
+    }
+
+    const dirPath = breadcrumbSegmentPath(segments, segmentIndex)
+
+    try {
+      const items = await loadDirectoryEntries(workspaceId, dirPath)
+      const button = buttonRefs.current[segmentIndex]
+
+      if (!button) return
+
+      const rect = button.getBoundingClientRect()
+      setDropdown({
+        segmentIndex,
+        x: rect.left,
+        y: rect.bottom + 2,
+        items,
+        currentPath: dirPath,
+        navigationStack: [],
+      })
+    } catch (error) {
+      logger.error('Editor', 'Failed to load directory contents:', error)
+    }
+  }
+
+  if (segments.length === 0) return null
+
+  return (
+    <>
+      <PathBreadcrumb
+        segments={segments}
+        fullPath={filePath}
+        interactive={interactive}
+        onSegmentClick={interactive ? handleSegmentClick : undefined}
+        setSegmentRef={
+          interactive
+            ? (index, element) => {
+                buttonRefs.current[index] = element
+              }
+            : undefined
+        }
+        className={className}
+      />
+
+      {interactive && dropdown && (
+        <Dropdown
+          isOpen={Boolean(dropdown)}
+          point={{ x: dropdown.x, y: dropdown.y }}
+          onClose={() => setDropdown(null)}
+          className="breadcrumb-dropdown min-w-0"
+          style={{
+            zIndex: EDITOR_CONSTANTS.Z_INDEX.DROPDOWN,
+            maxHeight: `${EDITOR_CONSTANTS.BREADCRUMB_DROPDOWN_MAX_HEIGHT}px`,
+            minWidth: `${EDITOR_CONSTANTS.DROPDOWN_MIN_WIDTH}px`,
+          }}
+        >
+          {dropdown.navigationStack.length > 0 && (
+            <Button
+              onClick={handleGoBack}
+              variant="ghost"
+              className={dropdownItemClassName(
+                'justify-start border-border/70 border-b text-muted-foreground hover:text-foreground',
+              )}
+              compact
+            >
+              <ArrowLeft className="shrink-0" />
+              <span>Go back</span>
+            </Button>
+          )}
+
+          {dropdown.items.map((item) => (
+            <Button
+              key={item.path}
+              onClick={async () => {
+                if (workspaceId === null) return
+                if (item.isDir) {
+                  try {
+                    const items = await loadDirectoryEntries(workspaceId, item.path)
+                    setDropdown((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            items,
+                            currentPath: item.path,
+                            navigationStack: [...prev.navigationStack, prev.currentPath],
+                          }
+                        : null,
+                    )
+                  } catch (error) {
+                    logger.error('Editor', 'Failed to load folder contents:', error)
+                  }
+                } else {
+                  await handleNavigate(workspaceId, item.path)
+                  setDropdown(null)
+                }
+              }}
+              variant="ghost"
+              compact
+              className={dropdownItemClassName('justify-start')}
+            >
+              <PathBreadcrumb
+                segments={[item.name]}
+                fullPath={item.path}
+                className="overflow-hidden"
+              />
+            </Button>
+          ))}
+        </Dropdown>
+      )}
+    </>
+  )
+}

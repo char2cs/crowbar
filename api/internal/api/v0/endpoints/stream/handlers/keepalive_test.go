@@ -17,7 +17,6 @@ var short = handlers.KeepAlive{Ping: 10 * time.Millisecond, Pong: 200 * time.Mil
 
 const bound = 10 * time.Second
 
-// keptAlive serves one socket under short and reports when its read ends.
 func keptAlive(t *testing.T) (*websocket.Conn, <-chan struct{}) {
 	t.Helper()
 	readEnded := make(chan struct{})
@@ -63,7 +62,6 @@ func TestKeepAlive_APeerThatPongsStaysAndIsPinged(t *testing.T) {
 		}
 	}()
 
-	// Sixty pings span three pong timeouts: answering them is what keeps the socket.
 	for range 60 {
 		select {
 		case <-pings:

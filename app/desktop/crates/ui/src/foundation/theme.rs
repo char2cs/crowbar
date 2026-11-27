@@ -1,0 +1,229 @@
+mod appearance;
+mod color_mix;
+mod focus_ring;
+mod palette;
+mod scaled_text;
+mod surface;
+mod theme_id;
+mod theme_mode;
+mod vibrancy;
+mod with;
+
+pub use appearance::Appearance;
+pub(crate) use color_mix::mix;
+pub use focus_ring::focus_ring;
+pub use palette::Palette;
+pub use scaled_text::ScaledText;
+pub use surface::Surface;
+pub use theme_id::ThemeId;
+pub use theme_mode::ThemeMode;
+pub use vibrancy::Vibrancy;
+
+use gpui::{App, Global};
+
+use crate::foundation::tokens::font::{HEADING_FAMILY, MONO_FAMILY, UI_FAMILY};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Theme {
+    pub(crate) id: ThemeId,
+    pub(crate) mode: ThemeMode,
+    pub(crate) system: Appearance,
+    pub(crate) ui_scale: f32,
+    pub(crate) vibrancy: Vibrancy,
+    pub(crate) ui_family: Option<&'static str>,
+    pub(crate) heading_family: Option<&'static str>,
+    pub(crate) mono_family: Option<&'static str>,
+}
+
+impl Global for Theme {}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self {
+            id: ThemeId::default(),
+            mode: ThemeMode::default(),
+            system: Appearance::default(),
+            ui_scale: 1.0,
+            vibrancy: Vibrancy::None,
+            ui_family: None,
+            heading_family: None,
+            mono_family: None,
+        }
+    }
+}
+
+impl Theme {
+    pub fn of(cx: &App) -> &Self {
+        cx.global::<Self>()
+    }
+
+    pub fn install(
+        self,
+        cx: &mut App,
+    ) {
+        cx.set_global(self);
+        cx.refresh_windows();
+    }
+
+    pub fn id(&self) -> ThemeId {
+        self.id
+    }
+
+    pub fn mode(&self) -> ThemeMode {
+        self.mode
+    }
+
+    pub fn appearance(&self) -> Appearance {
+        self.mode.resolve(self.system)
+    }
+
+    pub fn ui_scale(&self) -> f32 {
+        self.ui_scale
+    }
+
+    pub fn ui_family(&self) -> &'static str {
+        self.ui_family.unwrap_or(UI_FAMILY)
+    }
+
+    pub fn heading_family(&self) -> &'static str {
+        self.heading_family.unwrap_or(HEADING_FAMILY)
+    }
+
+    pub fn mono_family(&self) -> &'static str {
+        self.mono_family.unwrap_or(MONO_FAMILY)
+    }
+
+    pub fn palette(
+        &self,
+        surface: Surface,
+    ) -> &'static Palette {
+        let (flat, see_through) = match (self.id, self.appearance(), surface) {
+            (ThemeId::Crowbar, Appearance::Light, Surface::Window) => {
+                (&Palette::CROWBAR_LIGHT, &Palette::CROWBAR_LIGHT_SEE_THROUGH)
+            },
+            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome) => (
+                &Palette::CROWBAR_CHROME_LIGHT_FLAT,
+                &Palette::CROWBAR_CHROME_LIGHT,
+            ),
+            (ThemeId::Crowbar, Appearance::Dark, _) => {
+                (&Palette::CROWBAR_DARK, &Palette::CROWBAR_DARK_SEE_THROUGH)
+            },
+            (ThemeId::Frosted, Appearance::Light, _) => {
+                (&Palette::FROSTED_LIGHT, &Palette::FROSTED_LIGHT_SEE_THROUGH)
+            },
+            (ThemeId::Frosted, Appearance::Dark, _) => {
+                (&Palette::FROSTED_DARK, &Palette::FROSTED_DARK_SEE_THROUGH)
+            },
+        };
+        match self.vibrancy {
+            Vibrancy::None => flat,
+            Vibrancy::Translucent => see_through,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::Hsla;
+
+    use super::*;
+
+    fn theme(
+        id: ThemeId,
+        mode: ThemeMode,
+        system: Appearance,
+    ) -> Theme {
+        Theme::default()
+            .with_id(id)
+            .with_mode(mode)
+            .with_system(system)
+    }
+
+    #[test]
+    fn system_mode_follows_the_os() {
+        let dark = theme(ThemeId::Crowbar, ThemeMode::System, Appearance::Dark);
+        let light = dark.with_system(Appearance::Light);
+        assert_eq!(dark.appearance(), Appearance::Dark);
+        assert_eq!(light.appearance(), Appearance::Light);
+        assert_ne!(
+            dark.palette(Surface::Window),
+            light.palette(Surface::Window)
+        );
+    }
+
+    #[test]
+    fn crowbar_chrome_stays_dark_in_light_mode() {
+        let light = theme(ThemeId::Crowbar, ThemeMode::Light, Appearance::Light);
+        let dark = theme(ThemeId::Crowbar, ThemeMode::Dark, Appearance::Light);
+        assert_eq!(
+            light.palette(Surface::Chrome).background(),
+            dark.palette(Surface::Window).background(),
+        );
+        assert_ne!(
+            light.palette(Surface::Chrome).background(),
+            light.palette(Surface::Window).background(),
+        );
+    }
+
+    type Washed = (ThemeId, ThemeMode, (u8, u8));
+
+    fn alphas(palette: &Palette) -> (u8, u8) {
+        let byte = |colour: Hsla| u32::from(gpui::Rgba::from(colour)).to_be_bytes()[3];
+        (byte(palette.chrome_bg()), byte(palette.pane_chrome_bg()))
+    }
+
+    #[test]
+    fn the_washes_are_see_through_exactly_where_the_window_is() {
+        const CASES: [Washed; 4] = [
+            (ThemeId::Crowbar, ThemeMode::Light, (0xa6, 0xf2)),
+            (ThemeId::Crowbar, ThemeMode::Dark, (0xa6, 0xa6)),
+            (ThemeId::Frosted, ThemeMode::Light, (0x99, 0xe6)),
+            (ThemeId::Frosted, ThemeMode::Dark, (0xa6, 0xa6)),
+        ];
+        for (id, mode, washed) in CASES {
+            let flat = theme(id, mode, Appearance::Light);
+            let through = flat.with_vibrancy(Vibrancy::Translucent);
+            assert_eq!(
+                alphas(flat.palette(Surface::Window)),
+                (0xff, 0xff),
+                "{id:?} {mode:?}"
+            );
+            assert_eq!(
+                alphas(through.palette(Surface::Window)),
+                washed,
+                "{id:?} {mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_light_chrome_washes_over_the_blur_with_dark_ink() {
+        let light = theme(ThemeId::Crowbar, ThemeMode::Light, Appearance::Light);
+        let through = light.with_vibrancy(Vibrancy::Translucent);
+        assert_eq!(alphas(light.palette(Surface::Chrome)), (0xff, 0xff));
+        assert_eq!(alphas(through.palette(Surface::Chrome)), (0xa6, 0xa6));
+    }
+
+    #[test]
+    fn frosted_has_no_special_chrome() {
+        let light = theme(ThemeId::Frosted, ThemeMode::Light, Appearance::Light);
+        assert_eq!(
+            light.palette(Surface::Chrome),
+            light.palette(Surface::Window)
+        );
+    }
+
+    #[test]
+    fn spec_literals_survive() {
+        let palette =
+            theme(ThemeId::Crowbar, ThemeMode::Dark, Appearance::Dark).palette(Surface::Window);
+        assert_eq!(
+            palette.primary(),
+            Hsla::from(palette::color::hex(0x98a8_6aff))
+        );
+        assert_eq!(
+            palette.border(),
+            Hsla::from(palette::color::hex(0x3333_30ff))
+        );
+    }
+}

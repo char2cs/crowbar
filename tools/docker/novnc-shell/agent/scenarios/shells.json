@@ -1,0 +1,119 @@
+{
+ "description": "Six background shells and one monitor started; two finish, one fails, one is stopped (TaskStop), the rest keep running.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run task-1",
+   "title": "Background task 1",
+   "input": {
+    "command": "npm run task-1",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-1",
+   "shell_kind": "shell",
+   "result": "started shell-1"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run task-2",
+   "title": "Background task 2",
+   "input": {
+    "command": "npm run task-2",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-2",
+   "shell_kind": "shell",
+   "result": "started shell-2"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run task-3",
+   "title": "Background task 3",
+   "input": {
+    "command": "npm run task-3",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-3",
+   "shell_kind": "shell",
+   "result": "started shell-3"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run task-4",
+   "title": "Background task 4",
+   "input": {
+    "command": "npm run task-4",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-4",
+   "shell_kind": "shell",
+   "result": "started shell-4"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run task-5",
+   "title": "Background task 5",
+   "input": {
+    "command": "npm run task-5",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-5",
+   "shell_kind": "shell",
+   "result": "started shell-5"
+  },
+  {
+   "do": "tool",
+   "name": "Bash",
+   "kind": "execute",
+   "target": "npm run task-6",
+   "title": "Background task 6",
+   "input": {
+    "command": "npm run task-6",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-6",
+   "shell_kind": "shell",
+   "result": "started shell-6"
+  },
+  {
+   "do": "tool",
+   "name": "Monitor",
+   "kind": "execute",
+   "target": "npm run task-7",
+   "title": "Background task 7",
+   "input": {
+    "command": "npm run task-7",
+    "run_in_background": true
+   },
+   "spawns_shell": "shell-7",
+   "shell_kind": "monitor",
+   "result": "started shell-7",
+   "shell_persistent": true,
+   "shell_timeout_ms": 600000
+  },
+  {
+   "do": "tool",
+   "name": "TaskStop",
+   "kind": "meta",
+   "target": "shell-4",
+   "input": {
+    "task_id": "shell-4"
+   },
+   "stops_shell": "shell-4"
+  },
+  {
+   "do": "text",
+   "text": "Six shells are running in the background and a monitor is watching the log."
+  }
+ ]
+}

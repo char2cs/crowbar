@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// LocationsFromResult decodes a textDocument/definition or references result
-// into Crowbar Locations. The LSP result is either a single Location object or
-// an array of Locations; a null/empty result yields an empty slice.
 func LocationsFromResult(
 	raw json.RawMessage,
 ) ([]lsp.Location, error) {
@@ -42,8 +39,6 @@ func locationFromObject(
 	return LocationsFromLSP([]LSPLocation{one}), nil
 }
 
-// WorkspaceEditFromResult decodes a textDocument/rename result into a Crowbar
-// WorkspaceEdit. A null result yields an empty edit.
 func WorkspaceEditFromResult(
 	raw json.RawMessage,
 ) (lsp.WorkspaceEdit, error) {
@@ -63,9 +58,6 @@ func isNull(
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// RelWorkspaceEdit rewrites every file a raw LSP WorkspaceEdit names
-// (changes keys, documentChanges URIs) to its workspace-relative path.
-// Anything that does not decode is passed through unchanged.
 func RelWorkspaceEdit(
 	worktreePath string,
 	raw json.RawMessage,
@@ -87,7 +79,6 @@ func RelWorkspaceEdit(
 	return out
 }
 
-// relChanges rewrites the keys of a WorkspaceEdit's changes map (file URIs).
 func relChanges(
 	worktreePath string,
 	raw json.RawMessage,
@@ -107,7 +98,6 @@ func relChanges(
 	return out
 }
 
-// relDocumentChanges rewrites each documentChanges entry's textDocument URI.
 func relDocumentChanges(
 	worktreePath string,
 	raw json.RawMessage,

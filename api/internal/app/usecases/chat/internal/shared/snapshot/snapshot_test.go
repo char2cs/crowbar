@@ -18,12 +18,9 @@ import (
 )
 
 type reader struct {
-	chats map[string]domain.Chat
-	// ledger answers ViewLedger; nil reads every chat's ledger as empty.
-	ledger func(chatID string) (ledger.State, error)
-	// released runs as ViewLedger releases the chat's writer.
-	released func()
-	// gets and batches count the one-chat and many-chat reads.
+	chats         map[string]domain.Chat
+	ledger        func(chatID string) (ledger.State, error)
+	released      func()
 	gets, batches int
 }
 
@@ -132,11 +129,8 @@ func newOwner(t *testing.T, rd *reader) (*snapshot.Snapshots, *recorder, *runtim
 
 var t0 = time.Unix(1_000, 0).UTC()
 
-// liveR1 is runner r1, live on chat c1.
 var liveR1 = agents.Runner{ID: "r1", CurrentChatID: "c1", ProviderID: "claude", StartedAt: t0}
 
-// A6: every answer about a chat carries a version, and a later answer carries
-// a larger one — whatever produced it.
 func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 	ctx := context.Background()
 	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
@@ -160,9 +154,6 @@ func TestSnapshots_EveryChangeCarriesALargerVersion(t *testing.T) {
 	assert.Equal(t, placed.Version, again.Version, "a read never advances the version")
 }
 
-// A frame must never describe a chat older than an event already announced:
-// a read model that has not caught up cannot put an older answer under a newer
-// version.
 func TestSnapshots_AFrameNeverLagsTheEventItAnnounces(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Title: "old"}}}
@@ -175,8 +166,6 @@ func TestSnapshots_AFrameNeverLagsTheEventItAnnounces(t *testing.T) {
 	assert.Equal(t, "new", rec.last(t).Snapshot.Chat.Title, "an older aggregate version never overwrites a newer one")
 }
 
-// A runner's start and exit reach its chat as the live runner the supervisor
-// holds at the time.
 func TestSnapshots_ARunnersStartAndExitReachItsChat(t *testing.T) {
 	ctx := context.Background()
 	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
@@ -194,8 +183,6 @@ func TestSnapshots_ARunnersStartAndExitReachItsChat(t *testing.T) {
 	assert.Equal(t, snapshot.PhaseDormant, exited.Snapshot.Phase)
 }
 
-// The phase a lifecycle operation sets rides the snapshot; with none set it is
-// derived from placement.
 func TestSnapshots_PhaseIsTheOperationsElseDerived(t *testing.T) {
 	ctx := context.Background()
 	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
@@ -211,8 +198,6 @@ func TestSnapshots_PhaseIsTheOperationsElseDerived(t *testing.T) {
 	assert.Equal(t, snapshot.PhaseStarting, rec.last(t).Snapshot.Phase)
 }
 
-// A7: deleting a chat removes its entry; the delete frame still carries a
-// version larger than any before it.
 func TestSnapshots_ADeletedChatLeavesNothingBehind(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
@@ -227,9 +212,6 @@ func TestSnapshots_ADeletedChatLeavesNothingBehind(t *testing.T) {
 	assert.Zero(t, s.Len(), "a deleted chat holds no entry")
 }
 
-// Events are delivered concurrently, so one older than the delete can land
-// after it — against a read model that has not caught up either. The chat
-// stays deleted.
 func TestSnapshots_AnEventLandingAfterTheDeleteDoesNotResurrectTheChat(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
@@ -249,8 +231,6 @@ func TestSnapshots_AnEventLandingAfterTheDeleteDoesNotResurrectTheChat(t *testin
 	require.Error(t, err)
 }
 
-// A chat nobody can read is not held: an unknown id answers an error and
-// leaves no entry behind.
 func TestSnapshots_AnUnknownChatIsNotHeld(t *testing.T) {
 	s, _, _ := newOwner(t, &reader{chats: map[string]domain.Chat{}})
 	_, err := s.Get(context.Background(), "ghost")
@@ -258,9 +238,6 @@ func TestSnapshots_AnUnknownChatIsNotHeld(t *testing.T) {
 	assert.Zero(t, s.Len())
 }
 
-// A restarted daemon's versions are larger than any the previous one issued,
-// so a client holding an old version accepts the new daemon's answers. The
-// previous daemon booted a millisecond ago and issued fewer versions than that.
 func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}}
@@ -279,9 +256,6 @@ func TestSnapshots_VersionsSurviveARestart(t *testing.T) {
 	assert.Greater(t, fresh.Version, old.Version)
 }
 
-// A read of many chats overlays the Node placement ONCE for the lot, and does it
-// outside the owner's lock: the overlay reads the store, and a store read under
-// the lock stalls every event and every other read behind it.
 func TestSnapshots_GetManyCorrectsOncePerReadOutsideTheLock(t *testing.T) {
 	rd := &reader{chats: map[string]domain.Chat{
 		"a": {ID: "a", WorkspaceID: "w"}, "b": {ID: "b", WorkspaceID: "w"}, "c": {ID: "c", WorkspaceID: "w"},
@@ -291,7 +265,7 @@ func TestSnapshots_GetManyCorrectsOncePerReadOutsideTheLock(t *testing.T) {
 	s.SetCorrect(func(_ context.Context, chats []domain.Chat) []domain.Chat {
 		calls++
 		batch = len(chats)
-		_ = s.Len() // takes the owner's lock: deadlocks if the overlay runs under it
+		_ = s.Len()
 		out := append([]domain.Chat(nil), chats...)
 		for i := range out {
 			out[i].Order = 7
@@ -311,8 +285,6 @@ func TestSnapshots_GetManyCorrectsOncePerReadOutsideTheLock(t *testing.T) {
 	}
 }
 
-// The Tree announces a placement before its readers can all see it, so a chat
-// loaded for that announcement keeps the announced placement, not the row read.
 func TestSnapshots_AnAnnouncedPlacementWinsOverTheRowALoadReads(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", Title: "t"}}})
@@ -328,8 +300,6 @@ func TestSnapshots_AnAnnouncedPlacementWinsOverTheRowALoadReads(t *testing.T) {
 	assert.Equal(t, "t", held.Chat.Title)
 }
 
-// A chat event read its placement when it was raised; one delivered after a
-// later move keeps the move, because placement is the Tree's and announced apart.
 func TestSnapshots_AChatEventNeverRedrawsAChatAtAPlaceItLeft(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ParentID: "f-old"}}})
@@ -344,8 +314,6 @@ func TestSnapshots_AChatEventNeverRedrawsAChatAtAPlaceItLeft(t *testing.T) {
 	assert.Equal(t, 2, got.Order)
 }
 
-// A cold read of many chats loads every one it does not hold in one read, not
-// one per chat: each placement read decodes a whole project's tree.
 func TestSnapshots_GetManyLoadsTheChatsItLacksInOneRead(t *testing.T) {
 	rd := &reader{chats: map[string]domain.Chat{
 		"a": {ID: "a", Title: "A"}, "b": {ID: "b", Title: "B"}, "c": {ID: "c", Title: "C"},
@@ -367,8 +335,6 @@ func TestSnapshots_GetManyLoadsTheChatsItLacksInOneRead(t *testing.T) {
 	assert.Equal(t, 1, rd.batches, "a read of held chats reads nothing")
 }
 
-// A listed chat deleted before the batch reads it is left out of the batch,
-// while the one-chat read still reports it missing.
 func TestSnapshots_GetManyLeavesOutAChatThatNoLongerExists(t *testing.T) {
 	s, _, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"a": {ID: "a"}}})
 
@@ -382,8 +348,6 @@ func TestSnapshots_GetManyLeavesOutAChatThatNoLongerExists(t *testing.T) {
 	require.Error(t, err)
 }
 
-// gatedReader is reader whose batch read waits for release, after saying so on
-// entered, and fails when it is asked for bad.
 type gatedReader struct {
 	*reader
 	entered, release chan struct{}
@@ -412,8 +376,6 @@ func newGated(t *testing.T, bad string) (*snapshot.Snapshots, *gatedReader) {
 	return s, gr
 }
 
-// The batch read runs outside the owner's lock, and an event that lands while
-// it runs wins over the row the batch read.
 func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
 	ctx := context.Background()
 	cases := map[string]struct {
@@ -484,7 +446,6 @@ func TestSnapshots_AnEventDuringTheBatchReadWins(t *testing.T) {
 	}
 }
 
-// A chat the batch cannot read fails the whole read, as the one-chat read did.
 func TestSnapshots_AChatTheBatchCannotReadFailsTheRead(t *testing.T) {
 	s, gr := newGated(t, "x")
 	close(gr.release)

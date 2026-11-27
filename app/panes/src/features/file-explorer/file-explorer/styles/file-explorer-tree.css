@@ -1,0 +1,130 @@
+.file-tree-container {
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+  height: 100% !important;
+  position: relative !important;
+  scroll-behavior: auto !important;
+  pointer-events: auto !important;
+  overflow-anchor: none !important;
+}
+
+.file-tree-container {
+  font-family: var(--font-sans);
+}
+
+.file-tree-container > .file-tree-scroll-body {
+  width: max-content !important;
+  min-width: 100% !important;
+}
+
+.file-tree-item {
+  width: 100% !important;
+  min-width: 100% !important;
+  position: relative;
+  --file-tree-guide-icon-offset: 7px;
+  --tree-guide-color: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
+}
+
+.file-tree-touch .file-tree-item {
+  --file-tree-guide-icon-offset: 8px;
+}
+.file-tree-touch .file-tree-row {
+  gap: 8px;
+  font-size: 15px;
+}
+.file-tree-touch .file-tree-chevron {
+  width: 16px;
+  height: 16px;
+}
+.file-tree-touch .file-tree-chevron svg {
+  width: 11px;
+  height: 11px;
+}
+.file-tree-touch .file-tree-glyph {
+  width: 16px;
+  height: 16px;
+}
+.file-tree-touch .file-tree-git-letter {
+  font-size: 12px;
+}
+
+.file-tree-row {
+  position: relative;
+  z-index: 2;
+}
+
+.file-tree-context-menu [role='menuitem'],
+.file-tree-context-menu [role='menuitem'] .ui-text-sm {
+  font-size: var(--ui-text-xs);
+}
+
+.file-tree-search-highlight {
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+  padding: 0 1px;
+}
+
+.file-tree-search-match:not(:hover):not([aria-selected='true']) {
+  background-color: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.file-tree-guides {
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+}
+
+.file-tree-guide {
+  position: absolute;
+  width: 7px;
+  cursor: pointer;
+  opacity: 0.9;
+  pointer-events: auto;
+  transform: translateX(-3px);
+}
+
+.file-tree-guide::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background-color: var(--tree-guide-color);
+  content: '';
+}
+
+.file-tree-sticky-ancestors {
+  position: sticky;
+  top: calc(var(--file-tree-header-height, 32px) - var(--file-tree-container-inset, 4px));
+  z-index: 12;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.file-tree-sticky-ancestor-stack {
+  position: relative;
+  width: calc(100% + var(--file-tree-container-inset, 4px) + var(--file-tree-container-inset, 4px));
+  min-width: calc(
+    100% + var(--file-tree-container-inset, 4px) + var(--file-tree-container-inset, 4px)
+  );
+  height: var(--file-tree-sticky-stack-height, 24px);
+  margin-left: calc(0px - var(--file-tree-container-inset, 4px));
+  overflow: hidden;
+  background-color: var(--background);
+  box-shadow: 0 -1px 0 0 var(--background);
+  pointer-events: auto;
+}
+
+.file-tree-sticky-ancestor-stack::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background-color: color-mix(in srgb, var(--border) 58%, transparent);
+  content: '';
+  opacity: 0.7;
+}

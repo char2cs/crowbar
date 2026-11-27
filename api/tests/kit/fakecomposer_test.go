@@ -23,7 +23,6 @@ const (
 	pasteClose       = "\x1b[201~"
 )
 
-// composerPTY is a fake CLI in composer mode running on a real PTY the test types into.
 type composerPTY struct {
 	t      *testing.T
 	ptmx   *os.File
@@ -42,7 +41,6 @@ func startComposer(t *testing.T, c Composer) *composerPTY {
 	return startFake(t, env...)
 }
 
-// startFake runs the fake CLI on a PTY with extra env, once its launch capture exists.
 func startFake(t *testing.T, env ...string) *composerPTY {
 	t.Helper()
 	dir := t.TempDir()
@@ -104,8 +102,6 @@ func (p *composerPTY) awaitCursor(col int) {
 	p.await("cursor at column "+strconv.Itoa(col), func(s string) bool { return cursorCol(s) == col })
 }
 
-// cursorCol replays painted output far enough to know the cursor's column: absolute moves,
-// carriage returns and the display width of printed text. Other escapes do not move it.
 func cursorCol(raw string) int {
 	col := 0
 	rs := []rune(raw)
@@ -156,7 +152,6 @@ func TestFakeComposer_PasteThenSubmitInASecondWriteIsOneMessage(t *testing.T) {
 	p.write("\r")
 	require.Equal(t, []string{"first"}, p.launch.AwaitSubmitted(t, 1))
 
-	// A second message arrives alone: the first one's draft was cleared by the submit.
 	p.write(pasteOpen + "second" + pasteClose + "\r")
 	require.Equal(t, []string{"first", "second"}, p.launch.AwaitSubmitted(t, 2))
 }
@@ -165,7 +160,6 @@ func TestFakeComposer_SplitPasteMarkersStillPaste(t *testing.T) {
 	p := startComposer(t, Composer{})
 	p.awaitCursor(len("> "))
 
-	// Markers cut across writes, with a carriage return inside the paste that must not submit.
 	p.write(pasteOpen[:3])
 	p.write(pasteOpen[3:] + "a\rb" + pasteClose[:2])
 	p.write(pasteClose[2:] + "\r")

@@ -13,11 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestCreateFromImport_ResolveHolderPath_CrowbarHomeError proves that when a
-// branch's real create fails AND resolveHolderPath cannot even resolve crowbar
-// home (needed to classify a holder as managed-vs-external), the placeholder
-// fallback still records a row with no holder path — the same degrade as a
-// genuinely free branch — rather than failing the whole import.
 func TestCreateFromImport_ResolveHolderPath_CrowbarHomeError(t *testing.T) {
 	var placeholder workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -42,10 +37,6 @@ func TestCreateFromImport_ResolveHolderPath_CrowbarHomeError(t *testing.T) {
 	assert.Empty(t, placeholder.HeldByPath, "with no crowbar home to classify against, there is no holder to name")
 }
 
-// TestCreateFromImport_ResolveHolderPath_HolderResolveError proves the same
-// degrade when resolveHolderPath's own holder.Resolve call fails (here, a
-// broken `git worktree list`): the placeholder is still created with no
-// holder path, and the import batch is not aborted.
 func TestCreateFromImport_ResolveHolderPath_HolderResolveError(t *testing.T) {
 	var placeholder workspace.CreateInput
 	ws := &fakeWorkspace{

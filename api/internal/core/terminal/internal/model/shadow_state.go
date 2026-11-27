@@ -7,21 +7,19 @@ import (
 )
 
 type shadowState struct {
-	title           string
-	iconName        string
-	altScreen       bool
-	cursorVisible   bool
-	cursorShape     vt.CursorStyle
-	cursorBlink     bool
-	cursorShapeSet  bool
-	scrollRegionSet bool
-	scrollTop       int
-	scrollBottom    int
-	g0              byte
-	g1              byte
-	glLock          int
-	// keypadApplication mirrors DECKPAM/DECKPNM. x/vt exposes it only via mode callbacks,
-	// so it is tracked here and re-emitted as ESC =, since DECSET ?66h would not restore it.
+	title             string
+	iconName          string
+	altScreen         bool
+	cursorVisible     bool
+	cursorShape       vt.CursorStyle
+	cursorBlink       bool
+	cursorShapeSet    bool
+	scrollRegionSet   bool
+	scrollTop         int
+	scrollBottom      int
+	g0                byte
+	g1                byte
+	glLock            int
 	keypadApplication bool
 	modes             map[int]bool
 	fg                color.Color
@@ -32,23 +30,19 @@ type shadowState struct {
 	cursorColorSet    bool
 }
 
-// trackedModes is the set of DEC private modes the serializer re-asserts. Modes outside
-// this set are ignored so the map stays small and serialization is minimal.
 var trackedModes = map[int]bool{
-	1:    true, // DECCKM application cursor keys
-	6:    true, // DECOM origin mode
-	7:    true, // DECAWM autowrap
-	1000: true, // X11 mouse
-	1002: true, // button-event mouse
-	1003: true, // any-event mouse
-	1004: true, // focus reporting
-	1006: true, // SGR mouse encoding
-	1015: true, // urxvt mouse encoding
-	2004: true, // bracketed paste
+	1:    true,
+	6:    true,
+	7:    true,
+	1000: true,
+	1002: true,
+	1003: true,
+	1004: true,
+	1006: true,
+	1015: true,
+	2004: true,
 }
 
-// transientModes are the app-owned modes OnForegroundReset clears. DECAWM (?7) is reset
-// separately back to its default-ON state.
 var transientModes = []int{1, 6, 1000, 1002, 1003, 1004, 1006, 1015, 2004}
 
 func newShadowState() shadowState {
@@ -96,9 +90,6 @@ func (s *shadowState) setDefaultColor(
 	}
 }
 
-// resetTransientModes clears alt-screen, mouse, focus, bracketed-paste, cursor/keypad
-// app modes, origin, charsets, scroll region and cursor shape, and restores autowrap
-// ON. Title and scrollback are kept.
 func (s *shadowState) resetTransientModes() {
 	s.altScreen = false
 	s.cursorShapeSet = false

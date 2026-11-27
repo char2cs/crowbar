@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// The read runs with the scope already live: a change that lands meanwhile
-// reaches the client, and the read's older value of it is left out.
 func TestHub_AChangeDuringASnapshotReadOutranksIt(t *testing.T) {
 	side := &sidebar{
 		entities: []appstream.Entity{{Kind: stream.KindChatEntity, ID: "c1", Data: "read"}, {Kind: stream.KindChatEntity, ID: "c2", Data: "kept"}},
@@ -37,7 +35,6 @@ func TestHub_AChangeDuringASnapshotReadOutranksIt(t *testing.T) {
 	assert.Positive(t, frames[1].V)
 }
 
-// A scope let go of while its snapshot reads is not answered by that read.
 func TestHub_ASnapshotReadLetGoOfIsDropped(t *testing.T) {
 	side := &sidebar{
 		entities: []appstream.Entity{{Kind: stream.KindChatEntity, ID: "c1", Data: "read"}},
@@ -61,8 +58,6 @@ func TestHub_ASnapshotReadLetGoOfIsDropped(t *testing.T) {
 	assert.Empty(t, frames, "nothing of the let-go projects read reached the client")
 }
 
-// Subs that arrive while a read runs share the next one, which starts after
-// they went live: a hundred tabs reconnecting cost two reads, not a hundred.
 func TestHub_SubsArrivingDuringAReadShareTheNext(t *testing.T) {
 	side := &sidebar{
 		entities: []appstream.Entity{{Kind: stream.KindChatEntity, ID: "c1", Data: "read"}},
@@ -105,7 +100,6 @@ func TestHub_SubsArrivingDuringAReadShareTheNext(t *testing.T) {
 	assert.Equal(t, int32(2), side.reads.Load())
 }
 
-// Close waits out the reads in flight, so nothing reads a store it closes next.
 func TestHub_CloseWaitsOutTheReadsInFlight(t *testing.T) {
 	side := &sidebar{entered: make(chan struct{}), gate: make(chan struct{})}
 	hub := newHub(map[stream.ScopeKind]appstream.Source{
@@ -131,7 +125,6 @@ func TestHub_CloseWaitsOutTheReadsInFlight(t *testing.T) {
 	<-closed
 }
 
-// A read whose every joiner let go before it started is not run at all.
 func TestHub_ANextReadNoJoinerWaitsOnIsNotRun(t *testing.T) {
 	side := &sidebar{
 		entities: []appstream.Entity{{Kind: stream.KindChatEntity, ID: "c1", Data: "read"}},

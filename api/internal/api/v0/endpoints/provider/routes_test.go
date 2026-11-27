@@ -51,9 +51,6 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	// provider.Register mounts State on the flat chat-scoped group and
-	// ProtectedBranches on the repo-scoped group, so build both prefixes to
-	// mirror the production router chain.
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	chatScoped := r.Group("/v0/chats/:chatId")
 	provider.Register(repoScoped, chatScoped, stubEngine{}, stubReader{})
@@ -73,11 +70,6 @@ func TestRegisterMountsRoutes(
 	}
 }
 
-// TestRegisterDropsWorkspaceScopedRoute proves spec §8 step 6's deletion is
-// real for provider: the old /v0/.../workspaces/:wsId/provider mount, kept
-// alive alongside the chat-scoped one through the rest of this refactor,
-// answers nothing any more. /protected-branches is untouched by this
-// deletion — it never moved off the repo-scoped group (spec §4.2).
 func TestRegisterDropsWorkspaceScopedRoute(
 	t *testing.T,
 ) {
@@ -92,10 +84,6 @@ func TestRegisterDropsWorkspaceScopedRoute(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegister_ProtectedBranchesDoesNotMoveToChatScope pins spec §4.2's
-// explicit carve-out: /protected-branches is repo-level, not worktree-owned,
-// so it is registered ONLY on the repo-scoped group, never on the chat-scoped
-// one — unlike State, which this step moves onto both.
 func TestRegister_ProtectedBranchesDoesNotMoveToChatScope(
 	t *testing.T,
 ) {

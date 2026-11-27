@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeReleaser records the owners ReleaseWorkspace was called for.
 type fakeReleaser struct {
 	mu       sync.Mutex
 	released []string
@@ -30,7 +29,6 @@ func (f *fakeReleaser) calls() []string {
 	return append([]string(nil), f.released...)
 }
 
-// A client that drops with documents still open must not leak their servers.
 func TestLSP_StopReleasesTheOwnersServers(t *testing.T) {
 	rel := &fakeReleaser{}
 	l := NewLSP(context.Background(), rel)

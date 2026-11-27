@@ -86,9 +86,6 @@ func (stubUsecase) SearchDiff(
 	return nil, false, nil
 }
 
-// reviewSurface is the method+relative-path set review.Register mounts,
-// written once and asserted against BOTH live prefixes (mirroring git's
-// routes_test.go, spec §8 step 4b's reference implementation for this step).
 func reviewSurface() []struct {
 	method string
 	path   string
@@ -107,9 +104,6 @@ func reviewSurface() []struct {
 	}
 }
 
-// registerChatScoped wires review.Register the way router.go does: on the
-// flat chat-scoped group alone (spec §8 step 6 retired the old
-// workspace-scoped mount).
 func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
@@ -120,8 +114,6 @@ func registerChatScoped(
 	return r
 }
 
-// TestRegisterMountsChatScopedRoutes is the route half of this step: every
-// review route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
 func TestRegisterMountsChatScopedRoutes(
 	t *testing.T,
 ) {
@@ -136,10 +128,6 @@ func TestRegisterMountsChatScopedRoutes(
 	}
 }
 
-// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
-// real for review: the old /v0/workspaces/:wsId/review... mount, kept alive
-// alongside the chat-scoped one through the rest of this refactor, answers
-// nothing any more.
 func TestRegisterDropsWorkspaceScopedRoutes(
 	t *testing.T,
 ) {

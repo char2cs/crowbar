@@ -27,9 +27,6 @@ func TestDiagnostics_200Snapshot(t *testing.T) {
 	assert.Equal(t, "boom", evt.Diagnostics[0].Message)
 }
 
-// TestDiagnostics_NoResolvedWorkspace_500 is the wiring-bug guard: a route
-// mounted outside chatScoped's resolveChatWorktree middleware finds no
-// workspace on reqscope and reports a 500 (Handlers.workspace).
 func TestDiagnostics_NoResolvedWorkspace_500(t *testing.T) {
 	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 

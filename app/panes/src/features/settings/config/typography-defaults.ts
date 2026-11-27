@@ -1,0 +1,9 @@
+export const DEFAULT_UI_FONT_FAMILY = 'CalSansUI'
+export const DEFAULT_MONO_FONT_FAMILY = 'Geist Mono Variable'
+export const DEFAULT_HEADING_FONT_FAMILY = 'Instrument Serif'
+export const DEFAULT_TERMINAL_FONT_FAMILY = 'Geist Mono Variable'
+
+export const DEFAULT_CODE_FONT_SIZE = 14
+const DEFAULT_UI_FONT_SIZE_OFFSET = 1
+export const DEFAULT_UI_FONT_SIZE = DEFAULT_CODE_FONT_SIZE + DEFAULT_UI_FONT_SIZE_OFFSET
+export const DEFAULT_MARKDOWN_FONT_SIZE = 16

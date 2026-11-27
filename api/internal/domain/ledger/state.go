@@ -7,45 +7,40 @@ import (
 	"time"
 )
 
-// State is a chat's ledger folded: what a decision about the next row needs.
 type State struct {
 	ChatID   string
 	head     int64
-	receipts map[string]Prompt // every crowbar prompt, by request id
-	pending  []string          // request ids still pending, oldest first
+	receipts map[string]Prompt
+	pending  []string
 
-	conversations []Conversation // every (provider, session) bound, by first binding
-	current       map[string]int // provider → its conversation's index in conversations
-	clearedAt     time.Time      // the newest binding the person's clear made
+	conversations []Conversation
+	current       map[string]int
+	clearedAt     time.Time
 
-	live     RunnerStarted // the runner started and not exited, while hasLive
+	live     RunnerStarted
 	hasLive  bool
-	launches map[string]RunnerStarted // provider → its newest runner_started
-	lastExit RunnerExit               // the newest runner_exited, while hasExit
+	launches map[string]RunnerStarted
+	lastExit RunnerExit
 	hasExit  bool
 
-	turn    turnState // the newest main-scope turn, while hasTurn
+	turn    turnState
 	hasTurn bool
 	agents  SubagentBook
-	plan    []PlanItem // the main agent's plan
-	effort  string     // the effort the newest main turn to report one ran at
+	plan    []PlanItem
+	effort  string
 	moves   moves
-	shells  map[string]Shell // every background shell, by id
+	shells  map[string]Shell
 
-	keys keys // what a retried hook's fact is recognised by
+	keys keys
 }
 
-// keepTurns is how many of the newest main turns keep their keys: a retried
-// or late hook names the running turn or the one before it. A live subagent
-// outlives its turn's keys until it ends.
 const keepTurns = 2
 
-// keys are the natural keys of the newest turns' facts.
 type keys struct {
-	turns      []keptTurn        // the kept turns, oldest first
-	provider   map[string]string // provider turn id → turn id
+	turns      []keptTurn
+	provider   map[string]string
 	messages   map[string]messageKeys
-	lastMain   map[string]string // turn → its newest main-scope message
+	lastMain   map[string]string
 	tools      map[string]toolKeys
 	asks       map[string]PendingAsk
 	compaction compaction
@@ -68,8 +63,6 @@ func (k keys) clone() keys {
 	return k
 }
 
-// openTurn keeps turnID's keys and drops those of the turn it pushes out,
-// which it returns.
 func (k *keys) openTurn(turnID, providerTurnID, runnerID string) string {
 	k.init()
 	if providerTurnID != "" {
@@ -89,7 +82,6 @@ func (k *keys) openTurn(turnID, providerTurnID, runnerID string) string {
 	return gone
 }
 
-// runnerOf is the runner of kept turn turnID; "" when it is not kept.
 func (k keys) runnerOf(turnID string) string {
 	for _, t := range k.turns {
 		if t.id == turnID {
@@ -99,13 +91,11 @@ func (k keys) runnerOf(turnID string) string {
 	return ""
 }
 
-// ProviderTurn is the kept turn the provider names providerTurnID.
 func (s State) ProviderTurn(providerTurnID string) (string, bool) {
 	id, ok := s.keys.provider[providerTurnID]
 	return id, ok && providerTurnID != ""
 }
 
-// RunnerTurn is the newest kept turn runnerID ran.
 func (s State) RunnerTurn(runnerID string) (string, bool) {
 	for i := len(s.keys.turns) - 1; i >= 0; i-- {
 		if t := s.keys.turns[i]; t.runnerID == runnerID && runnerID != "" {
@@ -115,7 +105,6 @@ func (s State) RunnerTurn(runnerID string) (string, bool) {
 	return "", false
 }
 
-// ref keys a fact by its scope and its own id.
 func ref(scope, id string) string { return scope + "\x00" + id }
 
 func unref(key string) (scope, id string) {
@@ -123,7 +112,6 @@ func unref(key string) (scope, id string) {
 	return scope, id
 }
 
-// Fold replays rows, in seq order, into chatID's State.
 func Fold(chatID string, rows []Row) State {
 	s := State{ChatID: chatID}
 	for _, r := range rows {
@@ -132,7 +120,6 @@ func Fold(chatID string, rows []Row) State {
 	return s
 }
 
-// appliers advance a State by a row of their kind; a kind with none keeps no key.
 var appliers = map[Kind]func(*State, Row){
 	KindUserMessage:   (*State).applyUserMessage,
 	KindTurnStarted:   (*State).startTurn,
@@ -154,8 +141,6 @@ var appliers = map[Kind]func(*State, Row){
 	KindShell:         (*State).applyShell,
 }
 
-// Apply advances s by one row. It never fails: a row naming a prompt that is
-// unknown or already past that step is late and changes nothing.
 func (s *State) Apply(r Row) {
 	if r.Seq > s.head {
 		s.head = r.Seq
@@ -200,7 +185,6 @@ func (s *State) applyUserMessage(r Row) {
 	s.pending = append(s.pending, body.RequestID)
 }
 
-// advance moves a pending prompt on; any other prompt is past that step.
 func (s *State) advance(requestID string, move func(*Prompt)) {
 	p, ok := s.receipts[requestID]
 	if !ok || p.Status != PromptStatusPending {
@@ -211,7 +195,6 @@ func (s *State) advance(requestID string, move func(*Prompt)) {
 	s.pending = slices.DeleteFunc(s.pending, func(id string) bool { return id == requestID })
 }
 
-// Clone is a State that shares nothing with s, safe to hand to another goroutine.
 func (s State) Clone() State {
 	s.receipts = maps.Clone(s.receipts)
 	s.pending = slices.Clone(s.pending)
@@ -226,18 +209,13 @@ func (s State) Clone() State {
 	return s
 }
 
-// Head is the seq of the last row applied; 0 for an empty chat.
 func (s State) Head() int64 { return s.head }
 
-// HasOpenWork reports whether something in the chat is still unfinished: a
-// prompt awaiting the provider, a running turn or subagent, or a runner that
-// has not exited, or a move still to make.
 func (s State) HasOpenWork() bool {
 	_, running := s.RunningTurn()
 	return len(s.pending) > 0 || running || s.hasLive || len(s.Subagents()) > 0 || s.moves.pending != nil
 }
 
-// PendingPrompts are the crowbar prompts not yet acknowledged, oldest first.
 func (s State) PendingPrompts() []Prompt {
 	out := make([]Prompt, 0, len(s.pending))
 	for _, id := range s.pending {
@@ -246,7 +224,6 @@ func (s State) PendingPrompts() []Prompt {
 	return out
 }
 
-// Receipt is the crowbar prompt recorded under requestID, in any status.
 func (s State) Receipt(requestID string) (Prompt, bool) {
 	p, ok := s.receipts[requestID]
 	return p, ok

@@ -1,0 +1,43 @@
+[package]
+name = "platform"
+description = "Desktop services of the Crowbar shell: open a link in the system browser, reveal a path in the file manager, the rule that decides where a link may go, and every unsafe OS call."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+raw-window-handle.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { workspace = true, features = ["shape"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSCell", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow", "objc2-quartz-core", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSGeometry", "NSRunLoop", "NSString", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGPath"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "objc2-core-foundation", "objc2-core-graphics"] }
+window-vibrancy = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSViewController"] }
+
+[lints]
+workspace = true
+
+# AppKit views need the main thread, which libtest never gives a test, so main runs the cases.
+[[test]]
+name = "platform"
+path = "tests/platform.rs"
+harness = false

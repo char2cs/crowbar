@@ -8,7 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ReopenReviewThread re-opens a resolved thread.
 type ReopenReviewThread struct {
 	ID string
 }

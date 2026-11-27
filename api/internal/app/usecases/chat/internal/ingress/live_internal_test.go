@@ -95,8 +95,6 @@ func TestRecorder_AFrameIsShownOnlyOnceItsRowsCommit(t *testing.T) {
 	assert.Empty(t, f.feed.deltas)
 }
 
-// Every frame carries what is new of its stream; what its turn's end recorded
-// is dropped with it.
 func TestRecorder_StreamedTextIsShownWholeUntilItsTurnEnds(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -143,7 +141,6 @@ func TestRecorder_AnIdleThatEndsTheTurnKeepsItsStreamedText(t *testing.T) {
 	assert.Empty(t, exit, "the end recorded it")
 }
 
-// A Stop closes the turn before the provider's end: the diff is read live.
 func TestRecorder_LiveDiffIsTheNewestWholeDiff(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -178,8 +175,6 @@ func TestRecorder_RetireAndForgetDropTheStreams(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.Marker](t, rows[len(rows)-1]).Detail, "a forgotten chat's request is gone")
 }
 
-// A tool's output is only ever shown: past the window, a frame carries its
-// tail behind a marker, so a long stream costs linear bytes, not quadratic.
 func TestLive_ALongToolOutputKeepsATailWindow(t *testing.T) {
 	l := newLive()
 	line := strings.Repeat("é", 511) + "\n"
@@ -217,12 +212,10 @@ func BenchmarkLive_ObserveALongToolOutput(b *testing.B) {
 	}
 }
 
-// fed is the feed delta observing d gives, nil when it gives none.
 func fed(l *live, runnerID string, d LiveDelta) *ledger.FeedDelta {
 	return l.observe(testChat, runnerID, d)
 }
 
-// observed is d's stream's whole text on run-1 once d is folded into it.
 func observed(l *live, d LiveDelta) string {
 	l.observe(testChat, "run-1", d)
 	return textOf(l, d)
@@ -333,8 +326,6 @@ func TestLive_AFinishedToolsOutputLeavesTheSnapshot(t *testing.T) {
 	assert.Empty(t, f.r.live.byChat, "and the buffer lets it go")
 }
 
-// A row that commits while its stream is still held is the snapshot's to
-// leave out: the state at the head is what the replay sent.
 func TestLive_TheSnapshotLeavesOutWhatTheStateRecorded(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	for _, ev := range []engineagents.CanonicalEvent{

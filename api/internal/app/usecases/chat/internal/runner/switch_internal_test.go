@@ -12,8 +12,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// runnersForDisplace builds the smallest Runners that can run displaceForSwitch
-// on chat-1, with runner r-1 live on it when live is set.
 func runnersForDisplace(t *testing.T, live bool) *Runners {
 	t.Helper()
 	liveTable := newLiveTable()
@@ -29,9 +27,8 @@ func runnersForDisplace(t *testing.T, live bool) *Runners {
 	}
 }
 
-// A switch never waits out a running turn, and never forces it: it is refused.
 func TestDisplaceForSwitch_ARunningTurnIsRefusedNotWaitedFor(t *testing.T) {
-	rs := runnersForDisplace(t, true /* live */)
+	rs := runnersForDisplace(t, true)
 	started, err := ledger.NewRow(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "r-1", Provider: "claude"})
 	require.NoError(t, err)
 	turnRow, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: "r-1"})
@@ -49,10 +46,8 @@ func TestDisplaceForSwitch_ARunningTurnIsRefusedNotWaitedFor(t *testing.T) {
 	assert.True(t, live, "the running CLI is not quit")
 }
 
-// A prompt steered into the turn the switch waited out is waited for too: the
-// switch goes round again to wait for the pending prompt rather than refusing.
 func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t *testing.T) {
-	rs := runnersForDisplace(t, true /* live */)
+	rs := runnersForDisplace(t, true)
 	appendPrompt(t, rs.ledger, "steered", "r-1")
 
 	h := held(t, rs)
@@ -65,9 +60,6 @@ func TestDisplaceForSwitch_APromptSteeredAfterTheWaitsSendsTheSwitchRoundAgain(t
 		"its live carrier still owes it")
 }
 
-// TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:
-// a provider switch on a chat attached to its native view must end that view
-// too, not only the companion PTY runner.TerminalSession still names.
 func TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := retiring(t, &Runners{

@@ -110,10 +110,6 @@ func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Op
 	return domain.Operation{}, nil
 }
 
-// gitSurface is the method+relative-path set git.Register mounts, written once
-// and asserted against BOTH live prefixes. The relative half is deliberately
-// prefix-free: a route that reached only one of the two mounts is the failure
-// this shape makes impossible to miss.
 func gitSurface() []struct {
 	method string
 	path   string
@@ -156,9 +152,6 @@ func gitSurface() []struct {
 	}
 }
 
-// registerChatScoped wires git.Register the way router.go does: on the flat
-// chat-scoped group alone (spec §8 step 6 retired the old workspace-scoped
-// mount).
 func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
@@ -173,8 +166,6 @@ func registerChatScoped(
 	return r
 }
 
-// TestRegisterMountsChatScopedRoutes is the route half of this step: every git
-// route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
 func TestRegisterMountsChatScopedRoutes(
 	t *testing.T,
 ) {
@@ -189,10 +180,6 @@ func TestRegisterMountsChatScopedRoutes(
 	}
 }
 
-// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
-// real for git: the old /v0/workspaces/:wsId/git/... mount, kept alive
-// alongside the chat-scoped one through the rest of this refactor, answers
-// nothing any more.
 func TestRegisterDropsWorkspaceScopedRoutes(
 	t *testing.T,
 ) {
@@ -207,8 +194,6 @@ func TestRegisterDropsWorkspaceScopedRoutes(
 	}
 }
 
-// Blame is served once, by the editor endpoint's GET /v0/chats/:chatId/blame;
-// git mounts no second copy that could drift from it.
 func TestRegisterLeavesBlameToEditor(
 	t *testing.T,
 ) {

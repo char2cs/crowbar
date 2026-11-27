@@ -6,8 +6,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// gitStatusEqual reports whether two statuses carry the same broadcastable
-// state (branch, ahead/behind, and the exact file list in order).
 func gitStatusEqual(
 	a gitdomain.GitStatus,
 	b gitdomain.GitStatus,
@@ -26,9 +24,6 @@ func gitStatusEqual(
 	return true
 }
 
-// scheduleGitRecompute arms the trailing git-recompute debounce: calls collapse into one
-// fanOutGit once quiet for gitRecomputeQuiet, at most gitRecomputeMaxWait after the first.
-// Only the loop goroutine calls it, so resetting the timer never races its drain.
 func (w *Watcher) scheduleGitRecompute() {
 	w.mu.Lock()
 	now := w.now()
@@ -41,8 +36,6 @@ func (w *Watcher) scheduleGitRecompute() {
 	w.gitTimer.Reset(wait)
 }
 
-// runGitRecompute clears the pending flag and performs the coalesced git
-// recompute. It runs in the loop goroutine when gitTimer fires.
 func (w *Watcher) runGitRecompute(
 	ctx context.Context,
 ) {
@@ -68,8 +61,6 @@ func (w *Watcher) fanOutGit(
 		return
 	}
 	w.unreadable = false
-	// Linked worktrees sharing a .git see each other's ref events, so an unchanged status
-	// is not re-broadcast. prevStatus starts unset, so the first recompute always sends.
 	if !w.prevStatusSet || !gitStatusEqual(w.prevStatus, status) {
 		w.prevStatus = status
 		w.prevStatusSet = true
@@ -106,8 +97,6 @@ func (w *Watcher) fanOutGit(
 	})
 }
 
-// reportUnreadable tells the client git cannot read the workspace, once per failure
-// streak, and forgets the last status and base so the recovery is re-broadcast.
 func (w *Watcher) reportUnreadable(
 	ctx context.Context,
 	err error,
@@ -121,8 +110,6 @@ func (w *Watcher) reportUnreadable(
 	w.dispatcher.OnGitStatusUnreadable(ctx, w.wsID, err)
 }
 
-// statusHasConflicts reads the unmerged entries git status already reported, so
-// the conflict check costs no process of its own.
 func statusHasConflicts(
 	status gitdomain.GitStatus,
 ) bool {

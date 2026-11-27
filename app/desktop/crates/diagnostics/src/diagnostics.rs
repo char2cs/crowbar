@@ -1,0 +1,113 @@
+use std::panic::{self, PanicHookInfo};
+use std::path::Path;
+use std::sync::Arc;
+
+use tracing_subscriber::EnvFilter;
+
+use crate::error::Error;
+use crate::file_store::DiskFiles;
+use crate::logging::CrashReport;
+use crate::logging::DiskLogStore;
+use crate::logging::LogPaths;
+use crate::logging::LogSink;
+use crate::logging::RotatingLog;
+use crate::logging::adapters::system_clock;
+
+const MAX_LOG_BYTES: u64 = 5 * 1_048_576;
+const KEPT_GENERATIONS: u32 = 3;
+const DEFAULT_FILTER: &str = "info";
+
+pub fn start(
+    paths: &LogPaths,
+    version: &str,
+) -> Result<(), Error> {
+    let store = Arc::new(DiskLogStore::default());
+    let limits = (MAX_LOG_BYTES, KEPT_GENERATIONS);
+    let file = RotatingLog::open(store, &paths.current(), limits)
+        .map_err(|source| log_error(paths.dir(), source))?;
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(LogSink::new(file))
+        .try_init()
+        .map_err(Error::AlreadyInstalled)?;
+    install_crash_hook(paths.dir(), version);
+    Ok(())
+}
+
+fn log_error(
+    dir: &Path,
+    source: std::io::Error,
+) -> Error {
+    Error::LogFile {
+        dir: dir.to_path_buf(),
+        source,
+    }
+}
+
+fn install_crash_hook(
+    dir: &Path,
+    version: &str,
+) {
+    let dir = dir.to_path_buf();
+    let version = version.to_owned();
+    let previous = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        record_panic(&report_for(info, &version), &dir);
+        previous(info);
+    }));
+}
+
+fn record_panic(
+    report: &CrashReport,
+    dir: &Path,
+) {
+    match report.write(&DiskFiles::default(), dir, system_clock::now()) {
+        Ok(path) => log_panic_reported(&path),
+        Err(error) => log_panic_unreported(&error),
+    }
+}
+
+fn log_panic_reported(path: &Path) {
+    tracing::error!(report = %path.display(), "the shell panicked");
+}
+
+fn log_panic_unreported(error: &std::io::Error) {
+    tracing::error!(%error, "the shell panicked and the report could not be written");
+}
+
+fn report_for(
+    info: &PanicHookInfo<'_>,
+    version: &str,
+) -> CrashReport {
+    let message = info
+        .payload()
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_owned())
+        .or_else(|| info.payload().downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-text panic payload".to_owned());
+    CrashReport {
+        version: version.to_owned(),
+        message,
+        location: info
+            .location()
+            .map_or_else(|| "unknown".to_owned(), ToString::to_string),
+        backtrace: std::backtrace::Backtrace::force_capture().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_log_file_error_names_the_directory() {
+        let error = log_error(
+            Path::new("/data/logs"),
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        assert!(error.to_string().contains("/data/logs"), "{error}");
+    }
+}

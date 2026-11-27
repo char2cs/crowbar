@@ -15,11 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// stubWorkspaceForInterrupt answers only WorktreeDir — the one call
-// interruptTurn makes on its way to resolving the descriptor — and panics on
-// anything else via the embedded nil interface, which is the point: a test
-// that starts relying on a second method fails loudly instead of silently
-// returning zero values.
 type stubWorkspaceForInterrupt struct {
 	seam.WorkspaceReader
 	crowbarHome string
@@ -31,8 +26,6 @@ func (s stubWorkspaceForInterrupt) WorktreeDir(
 	return s.crowbarHome, "", "", "", nil
 }
 
-// stubAgentsForInterrupt answers only Get, with whatever agent the test built —
-// interruptTurn never needs List/RecordInjection/ConsumeInjectedPrefix/ForgetRunner.
 type stubAgentsForInterrupt struct {
 	engineagents.Agents
 	agent engineagents.Agent
@@ -46,9 +39,6 @@ func (s stubAgentsForInterrupt) Get(
 
 func (stubAgentsForInterrupt) ForgetRunner(string) {}
 
-// interruptTestDescriptor mirrors apiTransportTestDescriptor's shape plus an
-// interrupt: gesture — a separate constant, not an addition to the shared one,
-// so a test wanting NO interrupt declared can still reuse apiTransportTestAgent.
 const interruptTestDescriptor = `
 id: interrupt-test
 spawn:
@@ -95,9 +85,9 @@ func TestInterruptTurn_ReturnsFalse_WhenNoLiveAPIConn(t *testing.T) {
 }
 
 func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing.T) {
-	agent := apiTransportTestAgent(t) // the shared fixture: no interrupt: event
+	agent := apiTransportTestAgent(t)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		_, _ = conn.Read() // block; no call should ever arrive
+		_, _ = conn.Read()
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -116,14 +106,10 @@ func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing
 	require.False(t, rs.interruptTurn(ctx, live))
 }
 
-// TestInterruptTurn_SendsTheInterruptAndReturnsTrue is StopChat's new path, end
-// to end: a live api connection whose descriptor declares interrupt gets the
-// wire call, carrying whatever this connection has remembered — the exact
-// codex shape (threadId + turnId) confirmed live against codex-cli 0.149.1.
 func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		msg, err := conn.Read() // turn/interrupt
+		msg, err := conn.Read()
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -134,7 +120,7 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 		received <- req.Method + ":" + string(req.Params)
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
 		require.NoError(t, conn.Write(resp))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	agent := interruptTestAgent(t)
@@ -154,8 +140,6 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	live := engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test"}
 
 	require.True(t, rs.interruptTurn(ctx, live))
-	// The send runs in the background; closing the connection under it would
-	// break the fake server's reply.
 	rs.background.wg.Wait()
 
 	select {
@@ -166,12 +150,10 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	}
 }
 
-// A provider that never answers the interrupt (a wedged turn) never holds
-// Stop: the turn already ended in the ledger, so nothing waits for the reply.
 func TestInterruptTurn_NeverWaitsForTheProvidersAnswer(t *testing.T) {
 	received := make(chan struct{})
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		_, _ = conn.Read() // the interrupt, never answered
+		_, _ = conn.Read()
 		close(received)
 		_, _ = conn.Read()
 	})

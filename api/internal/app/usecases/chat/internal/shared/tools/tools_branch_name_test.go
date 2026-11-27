@@ -106,7 +106,6 @@ func TestBranchOut_SchedulesTheCallersThreadAsABranchForItsTurnsEnd(t *testing.T
 	}
 }
 
-// Left unnamed, the branch gets a generated name, and the agent is told how to give it a real one.
 func TestBranchOut_AnUnnamedBranchIsGeneratedAndTheAgentToldToRenameIt(t *testing.T) {
 	res, minter := resolverOn(t, "ws-a")
 	outer := &fakeBranchOuter{}

@@ -9,16 +9,10 @@ import (
 	"strings"
 )
 
-// gitRepo runs git against exactly one repository. The fixture lives under a dev
-// CROWBAR_HOME inside a Crowbar checkout, so git's upward discovery would otherwise
-// reach the Crowbar repo; fenceEnv and verifyToplevel are two independent fences.
 type gitRepo struct {
 	root string
 }
 
-// gitEnvOverrides are inherited variables that would let git resolve a repo the
-// seed did not choose: GIT_DIR and relatives bypass discovery, and an inherited
-// ceiling can win over the appended one where getenv returns the first match.
 var gitEnvOverrides = []string{
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 	"GIT_CEILING_DIRECTORIES",
@@ -30,9 +24,6 @@ var gitEnvOverrides = []string{
 	"GIT_WORK_TREE",
 }
 
-// openRepo fences git to the repository whose worktree root is root, refusing a
-// path that resolves anywhere else. Every git command the seed runs goes
-// through the value it returns.
 func openRepo(
 	root string,
 ) (*gitRepo, error) {
@@ -59,8 +50,6 @@ func (g *gitRepo) output(
 	return runGit(g.root, args...)
 }
 
-// commonDir is the repository directory a worktree shares with its siblings;
-// comparing it proves a daemon-reported path belongs to the fixture.
 func (g *gitRepo) commonDir() (string, error) {
 	out, err := g.output("rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
@@ -69,9 +58,6 @@ func (g *gitRepo) commonDir() (string, error) {
 	return realPath(strings.TrimSpace(out))
 }
 
-// verifyToplevel asks git which worktree root it resolved and refuses anything
-// but dir, a fence that does not rely on git honouring an env var. env is a
-// parameter so the check can be exercised with the ceiling absent.
 func verifyToplevel(
 	dir string,
 	env []string,
@@ -90,8 +76,6 @@ func verifyToplevel(
 	return nil
 }
 
-// fenceEnv stops git's repository discovery from climbing above dir: listing
-// dir's parent in GIT_CEILING_DIRECTORIES leaves dir as the only candidate.
 func fenceEnv(
 	dir string,
 ) []string {
@@ -119,9 +103,6 @@ func runGit(
 	return gitWithEnv(dir, fenceEnv(dir), args...)
 }
 
-// gitWithEnv executes git in dir. Stderr is folded into the error because git
-// says why it refused there, and a seed that fails silently on "not a git
-// repository" is worse than no seed at all.
 func gitWithEnv(
 	dir string,
 	env []string,
@@ -142,8 +123,6 @@ func gitWithEnv(
 	return string(out), nil
 }
 
-// realPath is how this package compares paths: macOS routes the temp and home
-// dirs through symlinks, so a raw string compare would miss identical directories.
 func realPath(
 	path string,
 ) (string, error) {

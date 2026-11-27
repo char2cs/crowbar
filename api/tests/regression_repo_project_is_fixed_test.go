@@ -13,15 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// A repository's project is fixed at import (spec §3 P0-3, invariant D6).
-//
-// Everything a repo owns on disk is keyed by its project: the managed worktrees
-// (<home>/projects/<P>/<slug>/<branch>), the home checkout's chats tree, the
-// per-workspace storage dirs and the repo's entity dir. Re-pointing the rows at
-// another project moved none of it — worktrees stayed under projects/A, where a
-// delete of A could reach them — and the per-workspace re-point was a
-// non-atomic loop that a failure left half-moved. The move is refused: nothing
-// changes, on disk or in any row.
 func TestRegression_RepoMoveToAnotherProject_IsRefusedAndChangesNothing(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -58,7 +49,6 @@ func TestRegression_RepoMoveToAnotherProject_IsRefusedAndChangesNothing(t *testi
 	assert.Contains(t, filepath.ToSlash(childPath), "/projects/"+imported.projectID+"/",
 		"the worktree lives under its own project's directory (D6)")
 
-	// Naming the project the repo is already in is not a move.
 	require.NoError(t, h.raw(http.MethodPatch, repoBase(imported),
 		map[string]string{"projectId": imported.projectID}, http.StatusNoContent).Body.Close())
 }

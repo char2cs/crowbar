@@ -18,12 +18,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Invariant A1 (spec §7-A), the interruption half: after StopChat returns,
-// exactly one "stopped" interruption exists if a turn was open, and none if
-// the chat was idle. These run against the REAL turn ingress, so a teardown
-// path that completes the in-flight turn before the interruption is recorded
-// (displace does exactly that) cannot hide behind a spy.
-
 func stoppedInterruptions(t *testing.T, f testFixture, chatID string) int {
 	t.Helper()
 	f.wait()
@@ -75,16 +69,12 @@ func TestInvariantA1_ASecondStopRecordsNothingMore(t *testing.T) {
 	assert.Equal(t, 1, stoppedInterruptions(t, f, chatID))
 }
 
-// hookMark marks the ctx of one hook a test places, for readHook to find.
 type hookMark struct{}
 
-// marked is ctx marked as the hook named mark.
 func marked(ctx context.Context, mark string) context.Context {
 	return context.WithValue(ctx, hookMark{}, mark)
 }
 
-// readHook runs read once, from the first GetChat of the hook marked readBy,
-// which holds its chat's lock.
 type readHook struct {
 	agentchat.EventStore
 	mu     sync.Mutex
@@ -113,9 +103,6 @@ func (s *readHook) arm(mark string, hook func()) {
 	s.readBy, s.read = mark, hook
 }
 
-// A CLI acknowledging a prompt as its runner ends — Stop, or the CLI dying on
-// its own — opens no turn on it: nothing would ever close that turn, and every
-// later resume, switch and send would wait on it.
 func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -170,8 +157,6 @@ func TestEndingRunner_APromptItAcknowledgesOpensNoTurn(t *testing.T) {
 	}
 }
 
-// What a CLI said reaches the transcript even when its hook lands after its
-// death is recorded: nothing a hook says is dropped.
 func TestEndingRunner_ItsLastWordsAfterItsExitAreInTheTranscript(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -189,8 +174,6 @@ func TestEndingRunner_ItsLastWordsAfterItsExitAreInTheTranscript(t *testing.T) {
 	assert.Contains(t, textsOfPage(page), "the last word")
 }
 
-// A tool's and a subagent's reports that land after their runner's exit, while
-// another runner's turn runs, are placed in their own runner's turn.
 func TestEndingRunner_ItsLateToolAndSubagentReportsLandInItsOwnTurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, r1 := f.spawn(t, "claude")
@@ -231,8 +214,6 @@ func TestEndingRunner_ItsLateToolAndSubagentReportsLandInItsOwnTurn(t *testing.T
 	assert.Equal(t, turnOf[r1], last[ledger.KindSubagent].TurnID, "the subagent's stop is its runner's")
 }
 
-// acknowledge places runnerID's user_prompt as the hook marked mark: a runner
-// past its exit still takes it.
 func acknowledge(t *testing.T, f testFixture, runnerID, mark string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(marked(f.ctx, mark), 5*time.Second)
@@ -241,9 +222,6 @@ func acknowledge(t *testing.T, f testFixture, runnerID, mark string) {
 	assert.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", "user_prompt", payload))
 }
 
-// A steered prompt the ending runner's last turn_stop carries leaves no turn
-// open on it: a crash recorded first settles it before the turn_stop lands, and
-// a Stop or crash queued behind that turn_stop ends the turn it delivered.
 func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -284,9 +262,6 @@ func TestEndingRunner_ASteerItsTurnStopCarriesOpensNoTurn(t *testing.T) {
 	}
 }
 
-// A turn end the ledger refuses is refused to its CLI, so the steer it would
-// carry is never handed over: it stays pending on the runner, and no turn
-// opens for it.
 func TestSteer_ATurnEndTheLedgerRefusesHandsOverNoSteer(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -311,8 +286,6 @@ func TestSteer_ATurnEndTheLedgerRefusesHandsOverNoSteer(t *testing.T) {
 	}
 }
 
-// stopWhileTheTurnStopHoldsTheChat stops the chat once the turn_stop holds its
-// lock: the Stop queues behind it, so the steer is handed over first.
 func stopWhileTheTurnStopHoldsTheChat(
 	t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func(),
 ) {
@@ -323,9 +296,6 @@ func stopWhileTheTurnStopHoldsTheChat(
 	require.NoError(t, <-stopped)
 }
 
-// crashWhileTheStopIsIngested crashes the CLI once the turn_stop holds its
-// chat's lock, before it reads the steer it would deliver: the crash's exit
-// waits that turn_stop out, as a Stop does.
 func crashWhileTheStopIsIngested(
 	t *testing.T, f testFixture, store *readHook, mark string, live engineagents.Runner, stop func(),
 ) {
@@ -337,8 +307,6 @@ func crashWhileTheStopIsIngested(
 	finished(t, recorded, "the crash's exit")
 }
 
-// stopOnceTheCrashIsRecorded sends the turn_stop once the CLI's death is in
-// the ledger, while the exit's record still holds the chat.
 func stopOnceTheCrashIsRecorded(
 	t *testing.T, f testFixture, _ *readHook, _ string, live engineagents.Runner, stop func(),
 ) {
@@ -348,9 +316,6 @@ func stopOnceTheCrashIsRecorded(
 	finished(t, stopped, "the turn_stop")
 }
 
-// onceExitRecorded starts during from the frame announcing live's exit, while
-// the exit's record still holds the chat, so during waits that record out. The
-// channel closes once during returns.
 func onceExitRecorded(t *testing.T, f testFixture, live engineagents.Runner, during func()) <-chan struct{} {
 	t.Helper()
 	done := make(chan struct{})
@@ -401,9 +366,6 @@ func crashRunner(t *testing.T, f testFixture, _ string, live engineagents.Runner
 	f.term.exit(t, live.TerminalSession)
 }
 
-// crashOffTheHook kills live's PTY now and runs its exit callback on its own
-// goroutine, as the terminal's reaper does: the hook in flight holds the chat
-// that callback records under. The channel closes once the exit is recorded.
 func crashOffTheHook(t *testing.T, f testFixture, live engineagents.Runner) <-chan struct{} {
 	t.Helper()
 	f.term.mu.Lock()
@@ -418,8 +380,6 @@ func crashOffTheHook(t *testing.T, f testFixture, live engineagents.Runner) <-ch
 	return recorded
 }
 
-// stopOp is the walk's Stop. S4: it is bounded, and unless a send raced it the
-// chat holds no turn once it returns.
 func stopOp(t *testing.T, f testFixture, w *sessionWalk) {
 	t.Helper()
 	stopped := make(chan error, 1)
@@ -434,8 +394,6 @@ func stopOp(t *testing.T, f testFixture, w *sessionWalk) {
 	}
 }
 
-// assertTurnsStartOnTheLiveRunner checks S6: every turn the ledger records
-// starting is on the runner then live on the chat, never on one that ended.
 func assertTurnsStartOnTheLiveRunner(t *testing.T, f testFixture, chatID string, trail []string) {
 	t.Helper()
 	rows, err := f.ledger.Read(f.ctx, chatID, 0, 0)
@@ -455,7 +413,7 @@ func assertTurnsStartOnTheLiveRunner(t *testing.T, f testFixture, chatID string,
 		case ledger.KindUserMessage, ledger.KindPromptSettled, ledger.KindSessionBound,
 			ledger.KindSessionLost, ledger.KindMarker, ledger.KindTurnEnded, ledger.KindTurnFailed,
 			ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall, ledger.KindAsk,
-			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove, ledger.KindShell: // no runner starts or ends, no turn starts
+			ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove, ledger.KindShell:
 		}
 	}
 }
@@ -467,8 +425,6 @@ func decodeRow[B any](t *testing.T, r ledger.Row) B {
 	return body
 }
 
-// endWalk ends the walk's runner and checks S3 again: a turn left on a runner
-// that ended in any round is still in flight, as only its own end closes it.
 func endWalk(t *testing.T, f testFixture, w *sessionWalk, trail []string) {
 	t.Helper()
 	require.NoError(t, f.usecase.StopChat(f.ctx, w.chatID))

@@ -14,10 +14,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// A teardown removes only what Crowbar made (spec §3 P0-1, invariant D5). These
-// pin the ways a repo or workspace delete used to destroy the user's own git
-// state.
-
 func repoDeleteFixture(all []domain.Workspace) (*fakeWorkspace, *[]string) {
 	deleted := []string{}
 	return &fakeWorkspace{
@@ -38,9 +34,6 @@ func removeCall(g *fakeGit, path string) []string {
 	return nil
 }
 
-// The repo row is gone by the time its cascade runs, so the default branch has
-// to come from the caller. Without it every managed workspace looked like a
-// feature branch and the default branch was force-deleted.
 func TestRegression_DeleteRepoWorkspaces_KeepsTheDefaultBranch(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
 		{ID: "w-dev", RepoID: "r1", Branch: "develop", WorktreePath: "/tmp/crowbar-test/projects/p/app/dev/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
@@ -56,9 +49,6 @@ func TestRegression_DeleteRepoWorkspaces_KeepsTheDefaultBranch(t *testing.T) {
 	assert.Contains(t, g.ops(), "CheckoutBranch", "the main folder is re-attached to it instead")
 }
 
-// A locked (protected) worktree may hold uncommitted work that is not
-// Crowbar's to throw away: it is removed without --force, so git refuses a
-// dirty one, and its branch — which Crowbar never created — survives.
 func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
 		{
@@ -84,9 +74,6 @@ func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "a locked branch is never deleted")
 }
 
-// Only a branch Crowbar created goes with its workspace. A row that adopted a
-// branch which already existed keeps it — and so does every row written before
-// CreatedBranch was recorded, which errs toward keeping.
 func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 	ws, _ := repoDeleteFixture([]domain.Workspace{
 		{ID: "root", RepoID: "r1", Branch: "mine", WorktreePath: "/tmp/crowbar-test/projects/p/app/root/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
@@ -109,9 +96,6 @@ func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 		"an ordinary unlocked workspace is still removed with --force")
 }
 
-// A pre-leaf branch named chats is checked out at <slug>/chats — the chats
-// tree every pre-leaf sibling resolves. A forced remove would delete their
-// files with it, so git is asked without --force and keeps a dirty checkout.
 func TestRegression_DeleteCascade_NeverForcesACheckoutHoldingASiblingsChats(t *testing.T) {
 	ws, _ := repoDeleteFixture([]domain.Workspace{
 		{ID: "chats", RepoID: "r1", Branch: "chats", WorktreePath: "/tmp/crowbar-test/projects/p/app/chats", Provisioning: domain.WorkspaceProvisioned},
@@ -126,9 +110,6 @@ func TestRegression_DeleteCascade_NeverForcesACheckoutHoldingASiblingsChats(t *t
 	assert.Equal(t, "false", removeCall(g, "/tmp/crowbar-test/projects/p/app/chats")[2])
 }
 
-// A failed create only takes back a branch it made: the -B import of a remote
-// branch that already existed locally must not delete the user's local branch
-// when the row then fails to land.
 func TestCreateChild_FailedImportKeepsAPreexistingLocalBranch(t *testing.T) {
 	g := &fakeGit{remoteExists: true, revParseSha: "tip"}
 	ws := &fakeWorkspace{
@@ -147,9 +128,6 @@ func TestCreateChild_FailedImportKeepsAPreexistingLocalBranch(t *testing.T) {
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "but the user's own branch is not")
 }
 
-// Re-attaching the main folder is undoing a detach Crowbar made. A folder on a
-// branch of its own, or a detached HEAD the user has since moved, is the
-// user's checkout: removing a default-branch workspace must not switch it.
 func TestRemoveOne_LeavesAMainFolderCrowbarDidNotDetach(t *testing.T) {
 	for name, main := range map[string]enginegit.WorktreeEntry{
 		"on another branch": {Path: "/repo", Branch: "master", Head: "tip"},

@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
 )
 
-// {crowbar_hook} was the retired relay's: it is no placeholder any more.
 func TestExpand_ReplacesEveryDeclaredPlaceholder(t *testing.T) {
 	ctx := models.TemplateCtx{
 		Tmp: "/tmp/seg", ID: "sess-1", Message: "hi", Context: "doc",

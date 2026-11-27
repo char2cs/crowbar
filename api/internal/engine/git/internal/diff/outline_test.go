@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// TestOutline_SingleHunkFile pins the omitted-count form of the @@ header:
-// `@@ -1 +1 @@` is what git emits for a one-line hunk, and a parser that
-// requires "start,count" on both sides reads it as zero-length.
 func TestOutline_SingleHunkFile(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "single.txt", "one\n")
@@ -38,10 +35,6 @@ func TestOutline_SingleHunkFile(t *testing.T) {
 	}, files[0].Hunks)
 }
 
-// TestOutline_MultiHunkFile asserts the exact @@ ranges of a file whose changes
-// are far enough apart that -U3 keeps them in separate hunks. The line counts in
-// a header cover context as well as changed lines, which is precisely the number
-// the client needs to reserve scroll space.
 func TestOutline_MultiHunkFile(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "multi.txt", outlineLetterLines(""))
@@ -59,9 +52,6 @@ func TestOutline_MultiHunkFile(t *testing.T) {
 	}, files[0].Hunks)
 }
 
-// TestOutline_Rename covers `git diff -M`'s rename form, where the header names
-// two different paths: the outline must carry the NEW path in Path (the one the
-// client addresses the patch endpoint with) and the source in OldPath.
 func TestOutline_Rename(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "torename.txt", "ren1\nren2\nren3\nren4\nren5\n")
@@ -81,9 +71,6 @@ func TestOutline_Rename(t *testing.T) {
 	}, files[0].Hunks)
 }
 
-// TestOutline_BinaryFile: git emits no @@ headers at all for a binary file, so
-// the entry must still appear (the client renders a placeholder row for it) with
-// IsBinary set and no hunks.
 func TestOutline_BinaryFile(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "logo.bin", "\x00\x01\x02\x03")
@@ -100,9 +87,6 @@ func TestOutline_BinaryFile(t *testing.T) {
 	assert.Empty(t, files[0].Hunks)
 }
 
-// TestOutline_DeletedFile pins the `@@ -1,2 +0,0 @@` shape: a zero new-side
-// start and count is legal and must survive the parse as zero rather than as a
-// defaulted 1.
 func TestOutline_DeletedFile(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "todelete.txt", "x\ny\n")
@@ -149,11 +133,6 @@ func TestOutline_EmptyDiff(t *testing.T) {
 	assert.Empty(t, files)
 }
 
-// TestOutline_LineLongerThanScannerBuffer is the failure mode that only ever
-// shows up on real data: bufio.Scanner's default 64 KB token limit stops the
-// scan dead on a minified line, and everything after it — every remaining file
-// in the diff — silently vanishes from the outline. The trailing file is the
-// assertion that matters.
 func TestOutline_LineLongerThanScannerBuffer(t *testing.T) {
 	repo := initRepo(t)
 	long := strings.Repeat("a", 200*1024)
@@ -179,10 +158,6 @@ func TestOutline_LineLongerThanScannerBuffer(t *testing.T) {
 	}, byPath["zz-after.txt"].Hunks)
 }
 
-// TestOutline_DensityGuard: a file whose hunk count runs away is the shape that
-// makes the outline O(lines) instead of O(hunks), so collection stops at
-// MaxOutlineHunksPerFile and the entry is flagged partial. The scan must carry
-// on to the next file rather than abandoning the diff.
 func TestOutline_DensityGuard(t *testing.T) {
 	repo := initRepo(t)
 	const hunks = diff.MaxOutlineHunksPerFile + 5
@@ -212,12 +187,6 @@ func TestOutline_DensityGuard(t *testing.T) {
 	assert.Len(t, byPath["zz-after.txt"].Hunks, 1)
 }
 
-// TestOutline_MatchesPatchAndNumstat is the equivalence oracle. It re-derives
-// every shape from the raw `git diff -U3` body — counting the lines each hunk
-// actually contains rather than trusting its header — and cross-checks the
-// per-file +/- totals of that walk against `git diff --numstat`. Agreement pins
-// the outline parser to git's own accounting instead of to expectations written
-// alongside it.
 func TestOutline_MatchesPatchAndNumstat(t *testing.T) {
 	repo := initRepo(t)
 	seedEquivalenceBase(t, repo)
@@ -255,10 +224,6 @@ func TestOutline_MatchesPatchAndNumstat(t *testing.T) {
 	}
 }
 
-// TestOutline_BlankContextLine covers a context line that is truly empty: git
-// renders it with no leading space at all (there is nothing to prefix), which
-// is the one case body() must decrement both hunk counters from a zero-length
-// line rather than mistaking it for the hunk having ended.
 func TestOutline_BlankContextLine(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "f.txt", "a\nb\n\nc\nd\n")
@@ -270,27 +235,17 @@ func TestOutline_BlankContextLine(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 
-	// A miscounted blank context line closes the hunk early and reopens a
-	// second, spurious one from what remains — one correctly-sized hunk is the
-	// proof the blank line was consumed as context, not as a boundary.
 	assert.Equal(t, []gitdomain.HunkShape{
 		{OldStart: 1, OldLines: 5, NewStart: 1, NewLines: 5},
 	}, files[0].Hunks)
 }
 
-// TestOutline_NonexistentRepoPath_ReturnsStartError covers the branch before
-// any streaming begins: GitStream failing to even start the subprocess (a
-// nonexistent working directory makes the underlying chdir fail synchronously
-// on Start), distinct from a started process that later exits non-zero.
 func TestOutline_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
 	_, err := diff.Outline(context.Background(), "/nonexistent/path/xyz123", "HEAD")
 
 	require.Error(t, err)
 }
 
-// TestOutline_InvalidRef_ReturnsWaitError covers Outline's wait() error
-// branch: an unresolvable ref makes `git diff` itself exit non-zero, which
-// only surfaces once the stream is drained and the subprocess is waited on.
 func TestOutline_InvalidRef_ReturnsWaitError(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "f.txt", "a\n")
@@ -311,9 +266,6 @@ func outlineByPath(
 	return out
 }
 
-// outlineLetterLines builds a 20-line file. Every letter named in changed is
-// upper-cased, which at -U3 yields one hunk per changed letter as long as the
-// letters are more than six apart.
 func outlineLetterLines(
 	changed string,
 ) string {
@@ -328,8 +280,6 @@ func outlineLetterLines(
 	return b.String()
 }
 
-// outlineSpacedLines builds a file with n changes ten lines apart, which -U3
-// keeps as n separate hunks (their three-line contexts do not touch).
 func outlineSpacedLines(
 	n int,
 	changed bool,
@@ -345,10 +295,6 @@ func outlineSpacedLines(
 	return b.String()
 }
 
-// outlineReference derives the outline from the raw patch body — the hunk line
-// counts come from counting the lines in each hunk, not from re-reading the
-// header the production parser reads — and totals the +/- lines per file so the
-// caller can pin them against git numstat.
 func outlineReference(
 	t *testing.T,
 	repo string,
@@ -406,8 +352,6 @@ func outlineReferenceBody(
 	counts[f.Path] = c
 }
 
-// outlineReferenceStarts reads only the two start offsets from a header; the
-// counts are rebuilt from the body by outlineReferenceBody.
 func outlineReferenceStarts(
 	t *testing.T,
 	line string,

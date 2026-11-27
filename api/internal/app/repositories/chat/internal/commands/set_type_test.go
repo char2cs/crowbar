@@ -18,9 +18,6 @@ func TestSetType_EmitEvent_RewritesTheKind(t *testing.T) {
 	assert.Equal(t, domain.ChatTypeBranch, cmd.EmitEvent(chat).Type)
 }
 
-// The retype is what keeps one workspace to one owning row when that workspace
-// changes character, so everything the row IS besides its kind — its identity,
-// its placement, its workspace, its title — has to come through untouched.
 func TestSetType_PreservesEverythingButTheKind(t *testing.T) {
 	chat := &domain.Chat{
 		ID:              "chat-1",
@@ -55,30 +52,18 @@ func TestSetType_Validate_RefusesAKindThatIsNotOne(t *testing.T) {
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
-// Folder rows and chat rows share one table but not one set of verbs — a folder
-// delete PROMOTES what it held where a chat delete CASCADES into it — so a
-// retype across that line would hand the rows already filed under it the
-// opposite rule from the one they were filed under. Refused in both directions.
 func TestSetType_Validate_RefusesCrossingTheFolderBoundary(t *testing.T) {
 	intoFolder := commands.SetType{ID: "chat-1", Type: domain.ChatTypeFolder}
 	assert.ErrorIs(t,
 		intoFolder.Validate(&domain.Chat{ID: "chat-1", Type: domain.ChatTypeChat}),
 		asynxModels.ErrValidation)
 
-	// A VALID type on the wrong side of the boundary, so this pins the
-	// folder-boundary refusal specifically rather than passing for the
-	// unrelated reason ChatTypeBranch is no longer a valid retype target at
-	// all (see TestSetType_Validate_RefusesRetypingToABranchRow).
 	outOfFolder := commands.SetType{ID: "folder-1", Type: domain.ChatTypeChat}
 	assert.ErrorIs(t,
 		outOfFolder.Validate(&domain.Chat{ID: "folder-1", Type: domain.ChatTypeFolder}),
 		asynxModels.ErrValidation)
 }
 
-// TestSetType_Validate_RefusesRetypingToABranchRow is Task 9's own
-// regression: nothing retypes a row into a branch row any more — a
-// workspace's own position is carried by its Node{Kind:workspace} row, never
-// a Chat proxy retyped into standing for it.
 func TestSetType_Validate_RefusesRetypingToABranchRow(t *testing.T) {
 	cmd := commands.SetType{ID: "chat-1", Type: domain.ChatTypeBranch}
 	assert.ErrorIs(t,

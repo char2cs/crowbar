@@ -12,9 +12,6 @@ import (
 	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// publishingProjects is the one publisher of project rows: every write, a
-// route's or a flow's, publishes the row as the store then holds it. The read
-// and the frame are serialized, so the last frame out is the last row saved.
 type publishingProjects struct {
 	store.Store[domain.Project, string]
 	late *lateStream
@@ -43,7 +40,6 @@ func (s *publishingProjects) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// publishingRepos publishes every repo row write through entities.
 type publishingRepos struct {
 	store.ScopedStore[domain.Repository, string]
 	entities *repoEntities
@@ -65,9 +61,6 @@ func (s publishingRepos) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// repoEntities is the one publisher of repo rows. A repo is its row and its
-// Tree position, written apart: a write to either re-reads both under one
-// lock, so the last frame out holds both halves as they last landed.
 type repoEntities struct {
 	late       *lateStream
 	rows       store.ScopedStore[domain.Repository, string]
@@ -80,12 +73,10 @@ func (p *repoEntities) publish(ctx context.Context, repoID string) {
 	defer p.mu.Unlock()
 	r, err := p.rows.FindByKey(ctx, repoID)
 	if err != nil || r == nil {
-		// Gone already: its delete published that.
 		return
 	}
 	at, err := p.placements.At(ctx, repoID)
 	if err != nil {
-		// An unreadable tree lists the repo at the root, as GET does.
 		slog.WarnContext(ctx, "app: repo placement unreadable", "repo", repoID, "err", err)
 	}
 	p.late.hub.Entity(domainstream.Projects, domainstream.KindRepo, repoID, dto.RepoDTOFrom(*r, at), 0)

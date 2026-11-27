@@ -10,12 +10,8 @@ import (
 
 const gitName = "git"
 
-// xcrunShimPath is the only git on a stock macOS PATH, and it is a stub that re-resolves the developer
-// directory on every call, costing about twice what git does; the daemon spawns git constantly.
 const xcrunShimPath = "/usr/bin/git"
 
-// xcodeSelectLink is the symlink `xcode-select -s` maintains; reading it finds the developer directory
-// without spawning xcrun.
 const xcodeSelectLink = "/var/db/xcode_select_link"
 
 var (
@@ -23,9 +19,6 @@ var (
 	gitResolveMu sync.Mutex
 )
 
-// Git returns the git path to exec, resolved once per process and cached (a lock-free load after). On
-// macOS it looks past the /usr/bin shim to the binary the shim would exec. When nothing resolves it
-// returns "git", so resolution never turns a working call into a failing one.
 func Git() string {
 	if p := gitPath.Load(); p != nil {
 		return *p
@@ -40,15 +33,10 @@ func Git() string {
 	return resolved
 }
 
-// InvalidateGit drops the cached resolution so the next Git call derives it again. The daemon repairs
-// PATH before any exec and never needs it; anything that later changes PATH must call it.
 func InvalidateGit() {
 	gitPath.Store(nil)
 }
 
-// RecoverGit re-resolves git when the cached path no longer names an executable (e.g. an Xcode update
-// replaced the developer directory) and reports whether to retry. It stats the path rather than reading
-// the exec error, which a missing working directory produces identically.
 func RecoverGit() bool {
 	stale := gitPath.Load()
 	if !vanished(stale) {
@@ -56,8 +44,6 @@ func RecoverGit() bool {
 	}
 	gitResolveMu.Lock()
 	defer gitResolveMu.Unlock()
-	// Every in-flight call fails together after an update; an unchanged pointer means no one has
-	// re-resolved yet, so only one caller redoes the PATH lookup.
 	if current := gitPath.Load(); current != stale {
 		return *current != *stale
 	}
@@ -66,8 +52,6 @@ func RecoverGit() bool {
 	return resolved != *stale
 }
 
-// vanished reports whether a cached resolution stopped naming an executable. A bare name never counts:
-// it is the unresolvable fallback, and recovering on it would re-resolve on every failure.
 func vanished(
 	p *string,
 ) bool {
@@ -99,8 +83,6 @@ func developerGit(
 	return ""
 }
 
-// developerDirs lists candidate developer directories in xcrun's order: DEVELOPER_DIR, the
-// xcode-select link, then the stock locations. The first containing an executable git wins.
 func developerDirs() []string {
 	dirs := make([]string, 0, 4)
 	if dir := os.Getenv("DEVELOPER_DIR"); dir != "" {

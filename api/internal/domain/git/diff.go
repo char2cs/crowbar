@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// DiffLine is one line in a FileDiff's flat rendering. Changed lines carry
-// hunkId linking them to their Hunk.
 type DiffLine struct {
 	LineType      DiffLineType `json:"line_type"`
 	Content       string       `json:"content"`
@@ -15,7 +13,6 @@ type DiffLine struct {
 	HunkID        string       `json:"hunkId,omitempty"`
 }
 
-// DiffLineType classifies a single line in a unified diff.
 type DiffLineType string
 
 const (
@@ -25,7 +22,6 @@ const (
 	DiffLineHeader  DiffLineType = "header"
 )
 
-// FileDiff is the parsed diff for a single file.
 type FileDiff struct {
 	FilePath      string     `json:"file_path"`
 	OldPath       string     `json:"old_path,omitempty"`
@@ -41,18 +37,10 @@ type FileDiff struct {
 	Additions     int        `json:"additions"`
 	Deletions     int        `json:"deletions"`
 	Hunks         []Hunk     `json:"hunks"`
-	// Uncommitted is true when the file has working-tree changes not yet
-	// committed (staged or unstaged). Used by the blended branch-review diff to
-	// mark files as committed vs uncommitted. Always false for commit/range diffs.
-	Uncommitted bool `json:"uncommitted"`
+	Uncommitted   bool       `json:"uncommitted"`
 }
 
-// MarshalJSON emits a FileDiff whose slice fields are always arrays: a binary file's
-// Lines stays nil, and clients dereference the field as an array. Normalising here
-// keeps the guarantee for every endpoint while the parser stays honest.
 func (f FileDiff) MarshalJSON() ([]byte, error) {
-	// A local type sheds FileDiff's method set, so json.Marshal below cannot
-	// re-enter this function.
 	type wire FileDiff
 	out := wire(f)
 	if out.Lines == nil {
@@ -64,7 +52,6 @@ func (f FileDiff) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// MultiFileDiff is the diff for a commit.
 type MultiFileDiff struct {
 	CommitHash        string     `json:"commitHash,omitempty"`
 	CommitMessage     string     `json:"commitMessage,omitempty"`
@@ -77,8 +64,6 @@ type MultiFileDiff struct {
 	TotalDeletions    int        `json:"totalDeletions"`
 }
 
-// Hunk is a contiguous changed block in a FileDiff. StartLine and EndLine are
-// inclusive indices into FileDiff.Lines.
 type Hunk struct {
 	HunkID    string `json:"hunkId"`
 	Header    string `json:"header"`

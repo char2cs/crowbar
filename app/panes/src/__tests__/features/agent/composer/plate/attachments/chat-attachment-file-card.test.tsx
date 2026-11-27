@@ -1,0 +1,337 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
+import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
+import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
+import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn as remoteProject,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+
+beforeEach(() => {
+  resetHostWorld()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
+  recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
+})
+
+describe('chat attachment file card', () => {
+  it('renders an ordinary link unchanged for a non-attachment href', () => {
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>{'[docs](https://example.com)'}</MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+    const anchor = screen.getByText('docs').closest('a')
+    expect(anchor?.getAttribute('href')).toContain('example.com')
+    expect(anchor?.className).not.toContain('chat-attachment-file-card')
+  })
+
+  it('renders a file card — icon, filename, fetched size — for a chat-attachment link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '2048' } }),
+        ),
+    )
+
+    const { container } = render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    expect(screen.getByText('report.pdf')).toBeInTheDocument()
+    expect(container.querySelector('svg')).not.toBeNull()
+    await waitFor(() => expect(screen.getByText('2.00 KB')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
+
+    const anchor = screen.getByText('report.pdf').closest('a')
+    expect(anchor).toHaveAttribute(
+      'href',
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf',
+    )
+    expect(() => fireEvent.click(anchor!)).not.toThrow()
+    expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
+
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    [500, '500 bytes'],
+    [1023, '1023 bytes'],
+    [1024, '1.00 KB'],
+    [10240, '10.0 KB'],
+    [1024 ** 2, '1.00 MB'],
+    [1024 ** 3, '1.00 GB'],
+    [1024 ** 5, '1024.0 TB'],
+  ])('labels a %i byte attachment %s', async (bytes, label) => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': String(bytes) } }),
+        ),
+    )
+
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByText(label)).toBeInTheDocument())
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to the ordinary link with no MarkdownAssetContext at all', () => {
+    const { container } = render(
+      <MarkdownMessageStatic>
+        {'[report.pdf](chats/c1/attachments/report.pdf)'}
+      </MarkdownMessageStatic>,
+    )
+    const anchor = screen.getByText('report.pdf').closest('a')
+    expect(anchor).not.toBeNull()
+    expect(anchor?.className).not.toContain('chat-attachment-file-card')
+    expect(container.querySelector('svg')).toBeNull()
+  })
+
+  it('still renders the card, just without a size, when the metadata fetch fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')))
+
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    const anchor = await screen.findByText('report.pdf')
+    expect(anchor).toBeInTheDocument()
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
+    expect(screen.queryByText(/KB|MB|GB|bytes/)).toBeNull()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('renders without a working href when the workspace scope cannot be resolved, without crashing', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ChatMarkdownAssetProvider wsId="unscoped-ws" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    const anchor = screen.getByText('report.pdf').closest('a')
+    expect(anchor).not.toHaveAttribute('href')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(() => fireEvent.click(anchor!)).not.toThrow()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('renders a drag handle alongside the file card, and still behaves as a plain link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '10' } }),
+        ),
+    )
+
+    render(
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndScope>,
+    )
+    const handle = screen.getByRole('button', { name: /reorder this attachment/i })
+    expect(handle).toBeInTheDocument()
+
+    const anchor = screen.getByText('report.pdf').closest('a')
+    expect(anchor).not.toBeNull()
+    expect(anchor?.contains(handle)).toBe(false)
+    expect(handle.closest('a')).toBeNull()
+
+    await waitFor(() => expect(screen.getByText('10 bytes')).toBeInTheDocument())
+    expect(() => fireEvent.click(anchor!)).not.toThrow()
+    expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
+    expect(() => fireEvent.click(handle)).not.toThrow()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('marks the filename non-editable, so a caret cannot enter it', () => {
+    render(
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndScope>,
+    )
+    const label = screen.getByText('report.pdf')
+    expect(label.closest('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
+  })
+
+  it('renders a delete button alongside the file card, which removes the attachment on click', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '10' } }),
+        ),
+    )
+
+    render(
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndScope>,
+    )
+    const deleteButton = screen.getByRole('button', { name: /remove this attachment/i })
+    expect(deleteButton).toBeInTheDocument()
+    expect(deleteButton.closest('a')).toBeNull()
+
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => expect(screen.queryByText('report.pdf')).toBeNull())
+    vi.unstubAllGlobals()
+  })
+
+  it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { 'content-length': '10' } }),
+        ),
+    )
+
+    render(
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[report.pdf](chats/c1/attachments/report.pdf)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndScope>,
+    )
+    const handle = screen.getByRole('button', { name: /reorder this attachment/i })
+    const island = handle.closest('[contenteditable="false"]')
+    expect(island).not.toBeNull()
+    expect(island?.classList.contains('slate-editor')).toBe(false)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to an ordinary link for a non-attachment href, through the INTERACTIVE renderer too', () => {
+    render(
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+          <MarkdownMessage>{'[docs](https://example.com)'}</MarkdownMessage>
+        </ChatMarkdownAssetProvider>
+      </DndScope>,
+    )
+    const anchor = screen.getByText('docs').closest('a')
+    expect(anchor?.getAttribute('href')).toContain('example.com')
+    expect(anchor?.className).not.toContain('chat-attachment-file-card')
+    expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /remove this attachment/i })).toBeNull()
+  })
+
+  it('ignores a metadata fetch that resolves after the component has already unmounted', async () => {
+    let resolveFetch!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending))
+
+    const { unmount } = render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>
+          {'[report.pdf](chats/c1/attachments/report.pdf)'}
+        </MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+    unmount()
+    resolveFetch(new Response(null, { status: 200, headers: { 'content-length': '999' } }))
+
+    await expect(pending).resolves.toBeInstanceOf(Response)
+
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('chat attachment file card on a remote host', () => {
+  const pairHost = () => pairRemoteHost('host-1')
+  const projectOn = (hostId: string) => remoteProject('p1', hostId)
+  const REF = '[report.pdf](chats/c1/attachments/report.pdf)'
+  const renderCard = () =>
+    render(
+      <ChatMarkdownAssetProvider wsId="ws1" chatId="c1">
+        <MarkdownMessageStatic>{REF}</MarkdownMessageStatic>
+      </ChatMarkdownAssetProvider>,
+    )
+
+  it('renders without a link and asks nothing of the daemon until the host resolves, then links through that host', async () => {
+    Object.assign(window, { __TAURI_INTERNALS__: {} })
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200, headers: { 'content-length': '2048' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+    pairHost()
+
+    renderCard()
+    const anchor = () => screen.getByText('report.pdf').closest('a')!
+    expect(anchor()).not.toHaveAttribute('href')
+    expect(fetchSpy).not.toHaveBeenCalled()
+
+    act(() => loadProjects(projectOn('host-1')))
+
+    const remote = 'crowbar://host-1/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf'
+    expect(anchor()).toHaveAttribute('href', remote)
+    await waitFor(() => expect(screen.getByText('2.00 KB')).toBeInTheDocument())
+    expect(fetchSpy).toHaveBeenCalledWith(remote, expect.objectContaining({ method: 'HEAD' }))
+
+    delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    vi.unstubAllGlobals()
+  })
+
+  it('never falls back to the local daemon when the project turns out to be on another host', () => {
+    pairHost()
+    renderCard()
+    act(() => loadProjects(projectOn('host-gone')))
+    expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
+  })
+
+  it('links a local project through the local daemon the moment its row arrives', () => {
+    pairHost()
+    renderCard()
+    expect(screen.getByText('report.pdf').closest('a')).not.toHaveAttribute('href')
+    act(() => loadProjects(projectOn('local')))
+    expect(screen.getByText('report.pdf').closest('a')).toHaveAttribute(
+      'href',
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf',
+    )
+  })
+})

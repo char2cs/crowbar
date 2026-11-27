@@ -10,10 +10,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// Rebases, merges and pulls can stop midway. Paths this command left unmerged are a
-// conflict for the user; any other operation it started is aborted, and prior state is
-// never touched. Operands follow `--` so a value is never read as an option.
-
 func (e *engine) Merge(ctx context.Context, repoPath, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.stoppable(ctx, repoPath, "merge", "merge", "--", branch)
@@ -51,8 +47,6 @@ func (e *engine) settle(ctx context.Context, repoPath string, before worktreeSta
 	return e.leaveAsFound(ctx, repoPath, before, base, matchRules(r.ExitCode, r.Stderr+r.Stdout))
 }
 
-// stopMarkers are what a stopped operation leaves. AUTO_MERGE is not one: a
-// merge refused over the user's own changes writes it too.
 var stopMarkers = []string{"rebase-merge", "rebase-apply", "MERGE_HEAD", "SQUASH_HEAD", "CHERRY_PICK_HEAD"}
 
 type worktreeState struct {
@@ -82,8 +76,6 @@ func (s worktreeState) startedSince(before worktreeState) bool {
 	return false
 }
 
-// leaveAsFound settles a failed stoppable command. The probes and the abort
-// outlive a cancelled request, which can kill git midway too.
 func (e *engine) leaveAsFound(ctx context.Context, repoPath string, before worktreeState, base, sentinel error) error {
 	ctx = context.WithoutCancel(ctx)
 	after := e.snapshot(ctx, repoPath)

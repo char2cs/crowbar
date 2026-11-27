@@ -114,7 +114,6 @@ func TestFile_NotExist_ReturnsError(t *testing.T) {
 	require.ErrorIs(t, err, gitdomain.ErrNoHistory)
 }
 
-// Only a path HEAD lacks is unblamed; any other failure stays an error.
 func TestFile_FailureWithHistory(t *testing.T) {
 	deleted := initRepo(t)
 	commitFile(t, deleted, "gone.txt", "content\n", "add file")

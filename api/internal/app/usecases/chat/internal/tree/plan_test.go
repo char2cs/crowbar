@@ -12,12 +12,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// A locked branch's own row is a Node write with no projection frame of its
-// own, so the only way a client learns its order moved is the `shifted` list
-// of the drop that moved it. persist used to report folder rows alone, and
-// a chat dropped before a locked branch left the branch tied at the chat's
-// old order on every client — drawn first by the kind tie-break, the drop
-// visibly undone.
 func TestRegression_PlaceChat_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,
@@ -43,9 +37,6 @@ func TestRegression_PlaceChat_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T
 	assert.Equal(t, 1, shifted[0].Order)
 }
 
-// The same drop the other way round: a locked branch placed before a chat
-// reports the chat it shifted through the chat's own aggregate frame, and
-// PlaceWorkspace keeps reporting the folder rows it shifted.
 func TestRegression_PlaceWorkspace_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,

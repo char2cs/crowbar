@@ -1,11 +1,8 @@
 package models
 
 type Selection struct {
-	Model  string
-	Effort string
-	// PermissionLevel is Crowbar's own level name (guarded/trusted/full-auto),
-	// never empty for a chat that has ever been seeded — unlike Model/Effort,
-	// it has no "provider's own default" reading to fall back to.
+	Model           string
+	Effort          string
 	PermissionLevel string
 }
 

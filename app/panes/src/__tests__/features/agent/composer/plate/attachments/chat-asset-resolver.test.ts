@@ -1,0 +1,347 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  chatAttachmentUrl,
+  chatMarkdownAssetInfo,
+  fetchChatAttachmentMetadata,
+  parseChatAttachmentRef,
+} from '@/features/agent/composer/plate/attachments/chat-asset-resolver'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import * as scopeUrl from '@/lib/workspace-scope-url'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+
+function fetchChatAttachmentDataUrl(wsId: string, ref: string, signal?: AbortSignal) {
+  const asset = chatMarkdownAssetInfo(wsId)
+  return 'resolve' in asset ? asset.resolve(ref, signal) : Promise.resolve(null)
+}
+
+beforeEach(() => {
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
+  recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
+})
+
+describe('parseChatAttachmentRef', () => {
+  it('extracts chatId and filename', () => {
+    expect(parseChatAttachmentRef('chats/c1/attachments/pasted-image-1.png')).toEqual({
+      chatId: 'c1',
+      filename: 'pasted-image-1.png',
+    })
+  })
+
+  it('extracts a filename containing slashes as everything after attachments/', () => {
+    expect(parseChatAttachmentRef('chats/c1/attachments/sub/dir/x.png')).toEqual({
+      chatId: 'c1',
+      filename: 'sub/dir/x.png',
+    })
+  })
+
+  it('rejects anything not exactly that shape', () => {
+    expect(parseChatAttachmentRef('docs/readme.md')).toBeNull()
+    expect(parseChatAttachmentRef('chats/c1/attachments/')).toBeNull()
+    expect(parseChatAttachmentRef('https://example.com/x.png')).toBeNull()
+    expect(parseChatAttachmentRef('')).toBeNull()
+    expect(parseChatAttachmentRef('chats//attachments/x.png')).toBeNull()
+    expect(parseChatAttachmentRef('workspace/foo/bar.png')).toBeNull()
+  })
+})
+
+describe('chatAttachmentUrl', () => {
+  it('builds the URL through the same chatBase every chat endpoint uses', () => {
+    expect(chatAttachmentUrl('ws1', 'chats/c1/attachments/a b.png')).toBe(
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/a%20b.png',
+    )
+  })
+
+  it('returns null for a non-attachment ref', () => {
+    expect(chatAttachmentUrl('ws1', 'not-an-attachment')).toBeNull()
+  })
+
+  it('returns null (never throws) when the workspace scope is unrecorded', () => {
+    expect(() => chatAttachmentUrl('unknown-ws', 'chats/c1/attachments/x.png')).not.toThrow()
+    expect(chatAttachmentUrl('unknown-ws', 'chats/c1/attachments/x.png')).toBeNull()
+  })
+})
+
+describe('chatAttachmentUrl on a remote host', () => {
+  const remoteBase = 'crowbar://h1/v0/projects/p1/repos/r1/chats'
+
+  beforeEach(() => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    vi.spyOn(scopeUrl, 'repoChatsBaseForWorkspace').mockReturnValue(remoteBase)
+    useHostConfigStore.setState({
+      hosts: [
+        { id: 'h1', name: 'Box', endpoint: 'box:3737', pairedFingerprint: 'ff', clientId: 'c' },
+      ],
+    })
+  })
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+    useHostConfigStore.setState({ hosts: [] })
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('serves the attachment from that host', () => {
+    expect(chatAttachmentUrl('ws1', 'chats/c1/attachments/a b.png')).toBe(
+      `${remoteBase}/c1/attachments/a%20b.png`,
+    )
+  })
+
+  it('reads and probes it on that host', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/x.png')
+    await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.png')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      `${remoteBase}/c1/attachments/x.png`,
+      `${remoteBase}/c1/attachments/x.png`,
+    ])
+  })
+
+  it('resolves to null, never a local URL, for a host that is not configured', () => {
+    useHostConfigStore.setState({ hosts: [] })
+    expect(chatAttachmentUrl('ws1', 'chats/c1/attachments/x.png')).toBeNull()
+  })
+})
+
+describe('fetchChatAttachmentDataUrl', () => {
+  it('fetches bytes and encodes them as a data: URL', async () => {
+    const blob = new Blob(['hello'], { type: 'text/plain' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
+    )
+    expect(await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt')).toBe(
+      'data:text/plain;base64,aGVsbG8=',
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null on a non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
+    expect(await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt')).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('never fetches for a ref that is not a chat attachment', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await fetchChatAttachmentDataUrl('ws1', 'nope')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null instead of rejecting on a network error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')))
+    await expect(
+      fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt'),
+    ).resolves.toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null instead of rejecting when the workspace scope is unrecorded', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(
+      fetchChatAttachmentDataUrl('unknown-ws', 'chats/c1/attachments/x.txt'),
+    ).resolves.toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('an abort during the read stops the FileReader and resolves null', async () => {
+    const controller = new AbortController()
+    const blob = new Blob(['hello'], { type: 'text/plain' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => {
+          controller.abort()
+          return Promise.resolve(blob)
+        },
+      }),
+    )
+    const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL')
+    await expect(
+      fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt', controller.signal),
+    ).resolves.toBeNull()
+    expect(readSpy).not.toHaveBeenCalled()
+    readSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('an abort mid-read aborts the FileReader', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) }),
+    )
+    const abortSpy = vi.spyOn(FileReader.prototype, 'abort')
+    const readSpy = vi
+      .spyOn(FileReader.prototype, 'readAsDataURL')
+      .mockImplementation(() => controller.abort())
+    await expect(
+      fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt', controller.signal),
+    ).resolves.toBeNull()
+    expect(abortSpy).toHaveBeenCalledTimes(1)
+    readSpy.mockRestore()
+    abortSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('forwards the abort signal to fetch', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) })
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt', controller.signal)
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal })
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null (never rejects) when the FileReader itself reports an error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) }),
+    )
+    const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
+      this: FileReader,
+    ) {
+      Object.defineProperty(this, 'error', {
+        value: new DOMException('boom'),
+        configurable: true,
+      })
+      this.onerror?.(new ProgressEvent('error') as unknown as ProgressEvent<FileReader>)
+    })
+
+    expect(await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt')).toBeNull()
+
+    readSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to a generic error when the FileReader reports none', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) }),
+    )
+    const readSpy = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
+      this: FileReader,
+    ) {
+      this.onerror?.(new ProgressEvent('error') as unknown as ProgressEvent<FileReader>)
+    })
+
+    expect(await fetchChatAttachmentDataUrl('ws1', 'chats/c1/attachments/x.txt')).toBeNull()
+
+    readSpy.mockRestore()
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('fetchChatAttachmentMetadata', () => {
+  it('reads size from Content-Length via a HEAD request', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200, headers: { 'content-length': '1234' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf')).toEqual({
+      filename: 'report.pdf',
+      size: 1234,
+    })
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'HEAD' })
+    vi.unstubAllGlobals()
+  })
+
+  it('still returns the filename with a null size when Content-Length is absent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
+    expect(await fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf')).toEqual({
+      filename: 'report.pdf',
+      size: null,
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null for a ref that is not a chat attachment, without fetching', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await fetchChatAttachmentMetadata('ws1', 'nope')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('returns null instead of rejecting when the workspace scope is unrecorded', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(
+      await fetchChatAttachmentMetadata('unknown-ws', 'chats/c1/attachments/report.pdf'),
+    ).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to a null size instead of rejecting on a network error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')))
+    expect(await fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf')).toEqual({
+      filename: 'report.pdf',
+      size: null,
+    })
+    vi.unstubAllGlobals()
+  })
+
+  it('never rejects on a non-ok HEAD response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 404 })))
+    await expect(
+      fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf'),
+    ).resolves.toEqual({ filename: 'report.pdf', size: null })
+    vi.unstubAllGlobals()
+  })
+
+  it('ignores Content-Length on a non-ok response, even when one is present', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('{"error":"not found"}', {
+          status: 404,
+          headers: { 'content-length': '22' },
+        }),
+      ),
+    )
+    await expect(
+      fetchChatAttachmentMetadata('ws1', 'chats/c1/attachments/report.pdf'),
+    ).resolves.toEqual({ filename: 'report.pdf', size: null })
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('chatMarkdownAssetInfo', () => {
+  it('produces a resolve() that fetches the attachment as a data URL', async () => {
+    const blob = new Blob(['x'], { type: 'image/png' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
+    )
+    const asset = chatMarkdownAssetInfo('ws1')
+    expect(await ('resolve' in asset && asset.resolve('chats/c1/attachments/x.png'))).toBe(
+      `data:image/png;base64,${btoa('x')}`,
+    )
+    vi.unstubAllGlobals()
+  })
+
+  it('carries the chat’s workspace', () => {
+    expect(chatMarkdownAssetInfo('ws1')).toMatchObject({ wsId: 'ws1' })
+  })
+
+  it('resolve() returns null (never rejects) for a non-attachment src', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const asset = chatMarkdownAssetInfo('ws1')
+    await expect('resolve' in asset && asset.resolve('not-an-attachment')).resolves.toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+})

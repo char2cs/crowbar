@@ -7,13 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The one boundary a WORKSPACE placement owes beyond the repo scope every row
-// shares: its own fork chain. Organisation and git lineage are separate edges
-// here — which is exactly why one can be dragged out from under the other.
-
-// checkForkChainSplit refuses a workspace placement that carries its row out of its fork parent's space:
-// the sidebar always draws a fork under its fork parent, so such a drop would succeed and visibly do
-// nothing (reparenting is the route for that). Only a container change is checked: a reorder splits nothing.
 func (u *chatFolderUsecase) checkForkChainSplit(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -42,9 +35,6 @@ func (u *chatFolderUsecase) checkForkChainSplit(
 	)
 }
 
-// checkOwnedForkChain is checkForkChainSplit for a chat that owns a repo
-// workspace: moving that chat moves the workspace's row, so the chat route
-// owes the workspace route's guard.
 func (u *chatFolderUsecase) checkOwnedForkChain(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -70,8 +60,6 @@ func (u *chatFolderUsecase) checkOwnedForkChain(
 	})
 }
 
-// isRepoGround: "" and the repo's default checkout both name the repo root,
-// where a fork with no visible parent belongs.
 func (u *chatFolderUsecase) isRepoGround(ctx context.Context, workspaceID string) bool {
 	if workspaceID == "" {
 		return true
@@ -84,9 +72,6 @@ func (u *chatFolderUsecase) isRepoGround(ctx context.Context, workspaceID string
 	return err == nil && def == workspaceID
 }
 
-// forkAnchorAt answers the workspace a row placed at id would fork from: the nearest ancestor-or-self with a
-// WorkspaceID, "" at the root — CwdWorkspaceID's rule, which minted the fork parent it is judged against.
-// Unlike nearestWorkspaceAnchor it stops at any WorkspaceID, since an ordinary fork is drawn by its chat.
 func (u *chatFolderUsecase) forkAnchorAt(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -107,8 +92,6 @@ func (u *chatFolderUsecase) forkAnchorAt(
 	return "", nil
 }
 
-// livePlacementOf answers the container a row is in now: its Node's ParentID when it has one (Chat.ParentID
-// is frozen then), else its own ParentID.
 func (u *chatFolderUsecase) livePlacementOf(
 	ctx context.Context,
 	row domain.Chat,

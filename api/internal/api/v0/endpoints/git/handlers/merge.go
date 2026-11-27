@@ -13,9 +13,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Merge POST /v0/chats/:chatId/git/merge is a slow git op: it validates the
-// target branch synchronously (4xx) then returns 202 and runs the merge in the
-// background.
 func (h *Handlers) Merge(
 	ctx *gin.Context,
 ) {
@@ -38,9 +35,6 @@ func (h *Handlers) Merge(
 	})
 }
 
-// Rebase POST /v0/chats/:chatId/git/rebase is a slow git op: it validates the
-// onto branch synchronously (4xx) then returns 202 and runs the rebase in the
-// background.
 func (h *Handlers) Rebase(
 	ctx *gin.Context,
 ) {
@@ -63,7 +57,6 @@ func (h *Handlers) Rebase(
 	})
 }
 
-// ResolveHunk POST /v0/chats/:chatId/git/resolve-hunk
 func (h *Handlers) ResolveHunk(
 	ctx *gin.Context,
 ) {
@@ -107,7 +100,6 @@ func (h *Handlers) ResolveHunk(
 	ctx.Status(http.StatusOK)
 }
 
-// OperationContinue POST /v0/chats/:chatId/git/operation/continue
 func (h *Handlers) OperationContinue(
 	ctx *gin.Context,
 ) {
@@ -122,7 +114,6 @@ func (h *Handlers) OperationContinue(
 	ctx.Status(http.StatusOK)
 }
 
-// OperationAbort POST /v0/chats/:chatId/git/operation/abort
 func (h *Handlers) OperationAbort(
 	ctx *gin.Context,
 ) {

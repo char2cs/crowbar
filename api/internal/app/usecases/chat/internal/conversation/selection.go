@@ -23,9 +23,6 @@ func (c *Conversations) SetChatSelection(
 	return nil
 }
 
-// SetChatPermissionLevel pins the chat's own guarded/trusted/full-auto override,
-// refusing (never clamping) a level the chat's CURRENT provider does not declare,
-// the same rule the switcher's options follow.
 func (c *Conversations) SetChatPermissionLevel(
 	ctx context.Context,
 	chatID string,
@@ -64,9 +61,6 @@ func (c *Conversations) chatAgent(
 	return agent, nil
 }
 
-// ChatProviderID resolves the provider a chat's next CLI should be: the live
-// runner's (mid-switch, the incoming one), else domain.Chat.ProviderID.
-// problem.ErrUnprocessable when no provider has ever been recorded.
 func (c *Conversations) ChatProviderID(
 	ctx context.Context,
 	chatID string,
@@ -85,7 +79,6 @@ func (c *Conversations) ChatProviderID(
 	return chat.ProviderID, nil
 }
 
-// ChatSelection reads what a chat WANTS to run its provider as.
 func (c *Conversations) ChatSelection(
 	ctx context.Context,
 	chatID string,
@@ -97,17 +90,11 @@ func (c *Conversations) ChatSelection(
 	level := chat.PermissionLevel
 	switch {
 	case chat.PermissionLevelExplicit:
-		// A human chose this level FOR THIS CHAT: it wins over the global dial for good.
 	case level != "":
-		// INHERITED: the seeded value is a display snapshot, so re-resolve the CURRENT
-		// global default on every spawn and a dial change reaches every chat that never
-		// opted out. A lookup failure degrades to the seeded value.
 		if cur, cerr := c.defaultPermissionLevel(ctx); cerr == nil {
 			level = cur
 		}
 	default:
-		// A legacy chat that predates seeding: "not seeded yet", never a choice.
-		// Resolve the global default as a fresh mint does, and seed it (non-explicit).
 		level, err = c.defaultPermissionLevel(ctx)
 		if err != nil {
 			level = "guarded"

@@ -1,0 +1,80 @@
+use webview::Bounds;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Covered {
+    #[default]
+    Nothing,
+    Everything,
+    Areas(Vec<Bounds>),
+}
+
+impl Covered {
+    #[must_use]
+    pub fn hides(
+        &self,
+        bounds: &Bounds,
+    ) -> bool {
+        match self {
+            Self::Nothing => false,
+            Self::Everything => true,
+            Self::Areas(areas) => areas.iter().any(|area| meet(area, bounds)),
+        }
+    }
+}
+
+pub(crate) fn meet(
+    a: &Bounds,
+    b: &Bounds,
+) -> bool {
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PANE: Bounds = Bounds {
+        x: 100.0,
+        y: 40.0,
+        width: 200.0,
+        height: 300.0,
+    };
+
+    const fn area(
+        x: f64,
+        y: f64,
+    ) -> Bounds {
+        Bounds {
+            x,
+            y,
+            width: 50.0,
+            height: 50.0,
+        }
+    }
+
+    #[test]
+    fn a_pane_is_hidden_by_a_dialog_and_by_a_popover_that_meets_it_only() {
+        let cases = [
+            ("nothing open", Covered::Nothing, false),
+            ("a dialog", Covered::Everything, true),
+            (
+                "a card over it",
+                Covered::Areas(vec![area(120.0, 60.0)]),
+                true,
+            ),
+            (
+                "a card beside it",
+                Covered::Areas(vec![area(40.0, 60.0)]),
+                false,
+            ),
+            (
+                "a card touching its edge",
+                Covered::Areas(vec![area(50.0, 60.0)]),
+                false,
+            ),
+        ];
+        for (case, covered, hidden) in cases {
+            assert_eq!(covered.hides(&PANE), hidden, "{case}");
+        }
+    }
+}

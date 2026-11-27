@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Switch handles POST .../chats/:id/switch: quits the current provider's CLI, hands its context off
-// and starts the requested provider as a new runner on the same chat, responding with that runner's id.
 func (h *Handlers) Switch(
 	ctx *gin.Context,
 ) {
@@ -23,8 +21,7 @@ func (h *Handlers) Switch(
 
 	var body struct {
 		Provider string `json:"provider"`
-		// Surface is the view the client shows the chat on; omitted keeps the chat's own.
-		Surface string `json:"surface"`
+		Surface  string `json:"surface"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
@@ -44,8 +41,6 @@ func (h *Handlers) Switch(
 	libs.WriteMutationOK(ctx, http.StatusOK, newSegID)
 }
 
-// Resume handles POST .../chats/:id/resume: revives a chat whose CLI exited or died with the daemon
-// into its last provider's own session, responding with the runner's id (a live chat's is returned as is).
 func (h *Handlers) Resume(
 	ctx *gin.Context,
 ) {
@@ -65,8 +60,6 @@ func (h *Handlers) Resume(
 	libs.WriteMutationOK(ctx, http.StatusOK, segID)
 }
 
-// Stop handles POST .../chats/:id/stop: ends the chat's turn, in place where the provider can, else
-// with its CLI, leaving the chat dormant and resumable. A chat with no live CLI only has a stale working turn closed.
 func (h *Handlers) Stop(
 	ctx *gin.Context,
 ) {
@@ -85,8 +78,6 @@ func (h *Handlers) Stop(
 	libs.WriteNoContent(ctx)
 }
 
-// Kill handles POST /v0/chats/:chatId/kill: force-ends the chat's CLI even mid-turn, leaving the chat
-// dormant and resumable. Any paired client may kill any chat's agent.
 func (h *Handlers) Kill(
 	ctx *gin.Context,
 ) {
@@ -98,8 +89,6 @@ func (h *Handlers) Kill(
 	libs.WriteNoContent(ctx)
 }
 
-// Handoff handles GET .../chats/:id/handoff: the chat's ledger assembled into the handoff blob a newly
-// spawned provider gets as prior context (also read by `crowbar handoff dump`).
 func (h *Handlers) Handoff(
 	ctx *gin.Context,
 ) {
@@ -119,9 +108,6 @@ func (h *Handlers) Handoff(
 	libs.WriteQueryOK(ctx, dto.HandoffDTO{Handoff: handoff})
 }
 
-// Compact handles POST .../chats/:id/compact: ask the chat's CLI to compact its own
-// context. A provider that declares no compaction gesture is a 404 — the capability is
-// absent, not the chat.
 func (h *Handlers) Compact(ctx *gin.Context) {
 	if err := h.runners.Compact(ctx.Request.Context(), ctx.Param("id")); err != nil {
 		libs.Fail(ctx, err)
@@ -130,8 +116,6 @@ func (h *Handlers) Compact(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("id"))
 }
 
-// StopShell handles POST .../chats/:id/shells/:shellId/stop: ask the agent to end one of
-// its background shells. Accepted, not done: the shell shows stopping until it really ends.
 func (h *Handlers) StopShell(ctx *gin.Context) {
 	if err := h.runners.StopShell(ctx.Request.Context(), ctx.Param("id"), ctx.Param("shellId")); err != nil {
 		libs.Fail(ctx, err)
@@ -140,8 +124,6 @@ func (h *Handlers) StopShell(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusAccepted, ctx.Param("shellId"))
 }
 
-// SwitchToTerminal handles POST .../chats/:id/switch-to-terminal: moves the chat onto its provider's
-// TUI and responds with that terminal session ("" for a dormant chat, which only records the move).
 func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {
 	id := ctx.Param("id")
 	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {
@@ -155,8 +137,6 @@ func (h *Handlers) SwitchToTerminal(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusOK, termSessID)
 }
 
-// SwitchToNative handles POST .../chats/:id/switch-to-native: moves the chat
-// onto Crowbar's own chat surface; a chat already there is a no-op.
 func (h *Handlers) SwitchToNative(ctx *gin.Context) {
 	id := ctx.Param("id")
 	if _, ok := h.requireChatInWorkspace(ctx, id); !ok {

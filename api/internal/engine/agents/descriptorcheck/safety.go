@@ -11,17 +11,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// hookCommandVars are the only placeholders a hook command may carry. The
-// vendor CLI runs a hook command through its shell, so anything a user or
-// provider controls ({message}, {cwd}, {context}, …) would be interpreted there.
 var hookCommandVars = []string{"segid", "provider", "scope_flags", "hook_curl", "hook_url"}
 
-// hookCommandStarts open a hook command inside a templated string: curl posting
-// to the daemon's hook server.
 var hookCommandStarts = []string{"{hook_curl} "}
 
-// relayHookCommand is the retired relay's hook command. It is refused rather
-// than ignored so an old override names its replacement instead of going deaf.
 const relayHookCommand = "{crowbar_hook} hook "
 
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh", "fish", "cmd", "cmd.exe", "powershell", "pwsh"}
@@ -32,9 +25,6 @@ var (
 	shellSyntaxRE = regexp.MustCompile("\\$\\(|`|\\$\\{")
 )
 
-// safetyRules refuse what would let a (possibly user-uploaded) descriptor run
-// something other than its CLI: a shell command, shell syntax in argv, user values
-// in a hook command, invalid env names, or an uncomparable version range.
 func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	out = append(out, iconRules(doc, d)...)
@@ -61,8 +51,6 @@ func safetyRules(doc document, d *spec.Descriptor) []Finding {
 	return append(out, versionRules(doc, d)...)
 }
 
-// iconRules flag an icon the webview could not inject safely. Only a warning:
-// the daemon drops it at load and the provider runs without one.
 func iconRules(doc document, d *spec.Descriptor) []Finding {
 	if d.Icon == "" {
 		return nil
@@ -86,8 +74,6 @@ func shellCommandRules(doc document, d *spec.Descriptor) []Finding {
 	if len(d.Runtime.API.Attach) > 0 {
 		commands["runtime.api.attach[0]"] = d.Runtime.API.Attach[0]
 	}
-	// A shell is only an injection when a value Crowbar fills reaches its argv;
-	// a fixed script (a test stub) is merely unusual.
 	sev, why := SeverityWarning, "a shell as the CLI runs whatever its script says"
 	if interpolatesArgv(d) {
 		sev, why = SeverityError, "a shell as the CLI would interpret the values Crowbar passes it"
@@ -102,8 +88,6 @@ func shellCommandRules(doc document, d *spec.Descriptor) []Finding {
 	return out
 }
 
-// interpolatesArgv reports whether any argv element carries a template
-// variable: the spawn args, or a pass_arg of any injection.
 func interpolatesArgv(d *spec.Descriptor) bool {
 	for _, a := range d.Spawn.Args {
 		if templateVarRE.MatchString(a) {
@@ -140,8 +124,6 @@ func hookPlaceholderRules(doc document, f argvField) []Finding {
 	return out
 }
 
-// hookCommands cuts every hook command out of a templated string: from each
-// hook command start to the quote that closes the string embedding it.
 func hookCommands(s string) []string {
 	var out []string
 	for {
@@ -159,7 +141,6 @@ func hookCommands(s string) []string {
 	}
 }
 
-// firstHookCommand is the index of the earliest hook command start in s, or -1.
 func firstHookCommand(s string) int {
 	first := -1
 	for _, start := range hookCommandStarts {

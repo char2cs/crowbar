@@ -45,8 +45,6 @@ func TestMap_AFailureSettlesTheSteerItsTurnCarried(t *testing.T) {
 	assert.Equal(t, ledger.ReasonTurnFailed, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
 }
 
-// A failure of a turn the chat never saw start took none of the prompts its
-// runner carried; a late failure of a closed turn leaves the next prompt alone.
 func TestMap_AFailureWithNothingRunningSettlesTheCarriedPrompts(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-2", "hello", ledger.DeliveryRestart))

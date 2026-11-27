@@ -7,14 +7,10 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// FolderReader reads one folder by id; nil, nil is none.
 type FolderReader interface {
 	FindByKey(ctx context.Context, id string) (*dtree.Folder, error)
 }
 
-// FoldersBelow finds every folder under the panel root or any of rows (an owning chat has no
-// Node to be found through), as Chat-shaped rows a lineage walk can climb through. No reader
-// finds none.
 func FoldersBelow(
 	ctx context.Context, folders FolderReader, byParent map[string][]dtree.Node, rows []domain.Chat,
 ) ([]domain.Chat, error) {

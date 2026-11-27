@@ -12,14 +12,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// repoScopeReader loads a repository row by id for the repo scope guard.
 type repoScopeReader interface {
 	FindByKey(ctx context.Context, id string) (*domain.Repository, error)
 }
 
-// scopeRepoToPath 404s a :repoId that doesn't belong to the URL's :projectId, as for a
-// missing id. Repo handlers load by :repoId alone but act on :projectId, so without it a
-// caller could delete or read any repo from an unrelated project path.
 func scopeRepoToPath(reader repoScopeReader) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		repoID := c.Param("repoId")
@@ -42,14 +38,10 @@ func scopeRepoToPath(reader repoScopeReader) gin.HandlerFunc {
 	}
 }
 
-// workspaceScopeReader loads a workspace row by id for the scope guard.
 type workspaceScopeReader interface {
 	Get(ctx context.Context, id string) (domain.Workspace, error)
 }
 
-// scopeWorkspaceToPath 404s a :wsId that doesn't belong to the URL's :projectId/:repoId,
-// as for a missing id. Handlers load by :wsId alone, so without it a stale URL could
-// silently mutate the wrong workspace.
 func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		wsID := c.Param("wsId")
@@ -72,15 +64,10 @@ func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 	}
 }
 
-// chatWorktreeResolver resolves a chat id to the workspace whose worktree it reads and
-// writes through; usecases.WorktreeResolver satisfies it.
 type chatWorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
 }
 
-// resolveChatWorktree resolves the workspace behind a /chats/:chatId route's chat
-// ancestry once and stashes it in reqscope (a leaf package, to avoid an import cycle).
-// Any resolve failure is a 404: an unresolvable chat is indistinguishable from a missing one.
 func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		chatID := c.Param("chatId")
@@ -95,8 +82,6 @@ func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
 	}
 }
 
-// rejectEmptyPathParams 400s any empty path parameter: gin binds the empty segment in
-// "//" to a param, and handlers would otherwise treat "" as a real id.
 func rejectEmptyPathParams() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		for _, p := range c.Params {

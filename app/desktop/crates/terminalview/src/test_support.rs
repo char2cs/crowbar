@@ -1,0 +1,9 @@
+#![cfg(test)]
+
+mod harness;
+mod pointer_events;
+
+pub(crate) use harness::{
+    Harness, cell_position, draw, feed, first_row, focus, open, record_events, sent, typed,
+};
+pub(crate) use pointer_events::{press, release};

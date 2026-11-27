@@ -1,0 +1,8 @@
+[package]
+name = "layout"
+
+[lints]
+workspace = true
+
+[dependencies]
+transport = { path = "../transport" }

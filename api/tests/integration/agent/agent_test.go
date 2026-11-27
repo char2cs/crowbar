@@ -1,17 +1,5 @@
 //go:build integration
 
-// Package agent_test is the acceptance test for the agentic engine (Task 19):
-// it drives the REAL claude/codex CLIs through Crowbar's Go stack end to end.
-//
-// The one thing kit.BuildEnv cannot exercise is the hook round trip: a spawned
-// CLI POSTs each hook to the daemon's loopback hook server (claude natively over
-// HTTP, codex through curl), at the URL the daemon published under its home. So
-// this package builds its own from-scratch daemon (engine -> adapter -> app ->
-// v0 router), serves it on the real unix socket and on a published hook server,
-// wires a real built `crowbar` binary for the CLIs' `crowbar mcp` (engine.Container.CrowbarBin),
-// and drives the agent usecase directly (spawnChat / SwitchProvider) rather than
-// through HTTP — the point of the test is proving the hook comes BACK, not
-// re-testing the REST surface.
 package agent_test
 
 import (
@@ -22,9 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
@@ -40,39 +30,19 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestMain silences logs and enables gin test mode like every other integration
-// package. A vendor CLI records trust by place in its own home, so newHarness
-// points both provider homes at temp dirs before anything can spawn one.
 func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// harness is a from-scratch daemon wired the same way cmd/crowbar's `serve`
-// wires it, but pinned to a temp CROWBAR_HOME and served on the real unix
-// socket instead of a fixed system path.
 type harness struct {
-	home string
-	app  *app.Container
-	eng  *engine.Container
-	// hooks fires after every COMPLETED hook POST. It is this suite's
-	// synchronisation primitive: a vendor CLI announcing itself is an event, and
-	// awaitHook blocks on it instead of re-sampling the read model on a timer.
-	hooks *hookBarrier
-	// mcp records — and fires on — every MCP message a vendor CLI's own MCP client
-	// relays into the daemon. It is both a second wakeup source and the only
-	// evidence that the TOOL surface was reached at all: every other titling
-	// channel lands the identical field (see mcpBarrier).
-	mcp *mcpBarrier
-	// trusted records which providers have already answered a trust dialog in this
-	// harness's repo. See firstOfProvider: only the FIRST CLI of a provider is shown
-	// one, so it is the only one a test may block on.
+	home    string
+	app     *app.Container
+	eng     *engine.Container
+	hooks   *hookBarrier
+	mcp     *mcpBarrier
 	trusted map[string]bool
 }
 
-// newHarness builds a real crowbar binary, hands it to the engine over a fresh
-// temp CROWBAR_HOME, and serves the real v0
-// router on the home's unix socket and on the hook server whose URL it
-// publishes there, the one a spawned CLI's hooks are rendered to POST to.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	ctx := context.Background()
@@ -80,37 +50,10 @@ func newHarness(t *testing.T) *harness {
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
 
-	// PIN THIS SUITE TO THE HOOKS TRANSPORT (engine.Container.NoAPITransport). Every test here drives a vendor CLI by
-	// TYPING INTO ITS PTY and asserts on what that CLI's own hook POSTs put
-	// in the ledger — the hook round trip to the hook server is the entire reason
-	// this package exists (see the package doc).
-	//
-	// Codex's descriptor is api-transport (descriptors-v3/codex.yaml, runtime.
-	// transport: api), and an api-transport spawn forks TWO codexes: a headless
-	// `codex app-server` that owns the chat's conversation, and the disconnected
-	// companion PTY spawnRunner still manages alongside it (runner/attach.go calls
-	// that a known gap; HasLiveAPIConnection's own doc is where production tells the
-	// two apart). Left on, the app-server binds the chat to ITS OWN thread within
-	// a second of the spawn — so a turn typed into the companion PTY announces a
-	// DIFFERENT session id, and the two CLIs fight over the chat's binding instead of
-	// recording the conversation under test.
-	//
-	// Off, codex runs exactly as design spec §2.2b requires a provider whose api
-	// transport is unavailable to run — over hooks alone — the PTY is the ONLY codex
-	// and therefore the conversation, and the assertions mean what they say again.
-	// This is the same pin internal/app/usecases/chat/harness_test.go applies, for
-	// an adjacent reason.
-
-	// Before anything can spawn a CLI: point codex's and claude's OWN homes at
-	// throwaway directories, so the trust each one records for this test's temp repo
-	// lands there instead of in the user's real config. Both trust barriers still
-	// work — see kit.IsolateProviderHomes and firstOfProvider.
 	kit.IsolateProviderHomes(t)
 
 	bin := buildCrowbarBinary(t)
 
-	// Released after the adapter's cleanup below (LIFO): the home is held until
-	// its stores are closed.
 	session, err := kit.BootHome(ctx, home)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, session.Close()) })
@@ -127,14 +70,8 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, err)
 
 	router := gin.New()
-	// Installed BEFORE Register so it wraps the hook route: it fires once the hook
-	// handler chain has fully returned, which is the moment what the hook ingress
-	// recorded is committed and readable.
 	hooks := newHookBarrier()
 	router.Use(hooks.middleware())
-	// Installed BEFORE Register for the same reason, and it additionally has to see
-	// the request BODY on the way IN — the handler consumes it — so it snapshots and
-	// restores it rather than reading it after the fact.
 	mcp := newMCPBarrier()
 	router.Use(mcp.middleware())
 	apiContainer := v0.New(appContainer, eng, accessfake.Closed())
@@ -143,21 +80,11 @@ func newHarness(t *testing.T) *harness {
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err, "bind daemon unix socket (must be the same path `crowbar mcp` resolves via CROWBAR_HOME)")
 	go func() { _ = http.Serve(ln, router) }()
-	// Published before anything can spawn a CLI, as the daemon does: the spawner
-	// reads it to render the CLI's hook URLs.
 	hookServer, err := hookserver.Listen(ctx, router)
 	require.NoError(t, err)
 	require.NoError(t, hookserver.Publish(home, hookServer.URL()))
 	go func() { _ = hookServer.Serve() }()
 
-	// Registered LAST so it runs FIRST (t.Cleanup is LIFO): stop accepting hook
-	// traffic and tear down live realtime goroutines before the adapter's
-	// SQLite handles (registered above, so it closes after) and t.TempDir's
-	// RemoveAll run. Callers that spawn a vendor CLI must additionally
-	// t.Cleanup a Terminal.Kill of its session BEFORE calling newHarness's
-	// caller returns, so that cleanup (registered later still) runs before
-	// even this one and the CLI process is dead before its cwd's temp tree is
-	// removed (the terminal suite's documented worktree-busy flake).
 	t.Cleanup(func() {
 		_ = hookServer.Close()
 		_ = ln.Close()
@@ -167,9 +94,6 @@ func newHarness(t *testing.T) *harness {
 	return &harness{home: home, app: appContainer, eng: eng, hooks: hooks, mcp: mcp, trusted: map[string]bool{}}
 }
 
-// buildCrowbarBinary compiles a real ./cmd/crowbar binary so the daemon's
-// spawned claude/codex CLI has a `crowbar mcp` to launch. kit.BuildEnv's
-// httptest server never needed this binary because it never spawns a CLI.
 func buildCrowbarBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "crowbar")
@@ -180,9 +104,6 @@ func buildCrowbarBinary(t *testing.T) string {
 	return bin
 }
 
-// apiRootDir resolves the api/ module root from this test file's own path
-// (tests/integration/agent/agent_test.go -> api/), independent of whatever
-// directory `go test` happens to run from.
 func apiRootDir(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -190,23 +111,6 @@ func apiRootDir(t *testing.T) string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..")
 }
 
-// importRepoAndWorkspace creates a project + repo and a REAL Crowbar-managed
-// CHILD workspace (a genuine `git worktree`, not the adopted repo-home stub)
-// by calling the app usecases directly — no HTTP/WS round trip needed since
-// those endpoints are async-broadcast-only in production and we already hold
-// the app container.
-//
-// The child-workspace requirement is load-bearing, not stylistic:
-// agent.WorkspaceReader (internal/app/usecases/container.go's
-// agentWorkspaceReader) derives spawnChat's cwd from the workspace row's stored
-// WorktreePath (WorktreeDir returns it verbatim). A managed child worktree's
-// stored WorktreePath is a real on-disk directory under crowbar home (worktree.
-// CreateChild creates it there), so both the cwd and the sibling chats dir
-// resolve to real, reap-able paths. The adopted repo-home workspace's stored
-// WorktreePath is instead the external repoPath (the user's real checkout,
-// OUTSIDE home) — spawning there is still valid (its chats reroot under home via
-// AgentChatsDir, Task 7), but this harness deliberately uses a managed child so
-// the assertions observe the simple sibling-of-worktree layout.
 func (h *harness) importRepoAndWorkspace(
 	t *testing.T,
 	name string,
@@ -235,10 +139,6 @@ func (h *harness) importRepoAndWorkspace(
 	return project.ID, repo.ID, ws.ID
 }
 
-// requireCLI skips the test when name is not runnable from this process, or
-// holds no credential for the real model turn every test here drives.
-// exec.LookPath is tried first (the PATH the go test process actually has);
-// ~/.local/bin/<name> is this machine's documented fallback location.
 func requireCLI(t *testing.T, name string) {
 	t.Helper()
 	kit.RequireProviderLogin(t, name)
@@ -252,8 +152,6 @@ func requireCLI(t *testing.T, name string) {
 	t.Skipf("%s not installed", name)
 }
 
-// spawnChat mints a chat in wsID and starts provider on it, as a create then a
-// Start session do.
 func spawnChat(ctx context.Context, h *harness, wsID, provider string) (string, string, error) {
 	chatID, err := h.app.Usecases.AgentChat.MintChat(ctx, "", wsID, provider, "")
 	if err != nil {
@@ -263,13 +161,6 @@ func spawnChat(ctx context.Context, h *harness, wsID, provider string) (string, 
 	return chatID, runnerID, err
 }
 
-// liveRunnerTerminalSession returns the PTY of the runner currently placed on
-// chatID, failing the test if the chat is dormant (no live runner — which, for a
-// chat whose CLI was just spawned, means the CLI died on startup).
-//
-// It replaces the old segmentTerminalSessionID: a chat no longer carries segment
-// rows at all, and the PTY belongs to the RUNNER — the process — which is joined on
-// at read time.
 func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
 	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
@@ -278,14 +169,10 @@ func liveRunnerTerminalSession(t *testing.T, h *harness, chatID string) string {
 	return runner.TerminalSession
 }
 
-// runnerByID is runnerID's runner while the supervisor holds it, also while it
-// is exiting.
 func runnerByID(h *harness, runnerID string) (agents.Runner, bool) {
 	return h.app.Usecases.AgentRunner.(*agentusecase.Usecase).RunnerByID(runnerID) //nolint:forcetypeassert // the harness wires the concrete usecase
 }
 
-// runnerTerminalSession returns runnerID's PTY. A plain read: a runner id
-// SwitchProvider returned is already in the supervisor's live table.
 func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 	t.Helper()
 	runner, ok := runnerByID(h, runnerID)
@@ -294,10 +181,6 @@ func runnerTerminalSession(t *testing.T, h *harness, runnerID string) string {
 	return runner.TerminalSession
 }
 
-// liveRunnerID returns the id of the runner placed on chatID, or "" if the chat is
-// dormant. It is the runner-era answer to "what is this chat's active segment?" —
-// except that a dormant chat is a real answer here, not a broken one: the live row
-// exists exactly while the vendor CLI's PTY does.
 func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 	t.Helper()
 	runner, err := h.app.Usecases.AgentRunner.LiveRunnerForChat(context.Background(), chatID)
@@ -308,8 +191,6 @@ func liveRunnerID(t *testing.T, h *harness, chatID string) string {
 	return runner.ID
 }
 
-// chatSessionIDs lists the conversations chatID has hosted, oldest first — the
-// append-only history that succeeded the chat's embedded segment rows.
 func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 	t.Helper()
 	convs, err := h.app.Usecases.AgentRunner.ConversationsForChat(context.Background(), chatID)
@@ -321,12 +202,6 @@ func chatSessionIDs(t *testing.T, h *harness, chatID string) []string {
 	return out
 }
 
-// TestAgent_ClaudeSpawnAndDetect is the must-have acceptance test: it proves
-// the daemon's core/terminal spawns a real `claude` with the descriptor-built
-// argv/env, claude's SessionStart hook POSTs to the daemon's hook server, whose
-// hook route runs
-// the hook ingress, and the chat's conversation gets bound with a
-// non-empty ProviderSessionID — the full Go integration path, end to end.
 func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	requireCLI(t, "claude")
 	h := newHarness(t)
@@ -334,17 +209,11 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 	repoPath := kit.InitRepo(t)
 	_, _, wsID := h.importRepoAndWorkspace(t, "claude-spawn", repoPath)
 
-	// spawnReady spawns claude, taps its PTY and blocks until it has PAINTED its
-	// trust dialog, which it then dismisses with one Enter. That dialog is not
-	// cosmetic: claude fires no SessionStart at all until the folder is trusted, so
-	// dismissing it is the precondition for the hook this test is about.
 	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "claude")
 	require.NotEmpty(t, chatID)
 	require.NotEmpty(t, runnerID)
 	t.Logf("spawned claude: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
 
-	// No turn is driven and nothing is nudged: claude announces itself at boot, and
-	// this blocks on that hook ARRIVING rather than on a stopwatch.
 	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
 	require.NotEmpty(t, providerSessionID,
 		"claude's SessionStart hook never reached the daemon's hook route to bind a provider conversation; this means "+
@@ -352,24 +221,12 @@ func TestAgent_ClaudeSpawnAndDetect(t *testing.T) {
 			"reach the hook server, or the hook ingress did not record the outcome — runner observed: %+v",
 		runner)
 
-	// The runner spawnChat started is still the one placed on the chat: a bind stays
-	// put (it is not a move), and the chat is live because a live-runner row exists.
 	require.Equal(t, runnerID, liveRunnerID(t, h, chatID),
 		"the chat's live runner must still be the one spawnChat started")
 	require.Equal(t, []string{providerSessionID}, chatSessionIDs(t, h, chatID),
 		"the chat must have hosted exactly the one conversation claude announced")
 }
 
-// TestAgent_SwitchClaudeToCodex drives one real claude turn (a tiny prompt
-// carrying a unique codeword), waits for the resulting Stop hook to append the
-// transcript to the chat's ledger, switches the chat to codex, and asserts the
-// switch landed: the new active segment is codex, and the assembled handoff
-// still carries the codeword from the claude turn (AssembleHandoff reads the
-// whole ledger, which switching does not clear). Driving a second real codex
-// turn to prove it also detects the codeword is deliberately NOT done here
-// (the brief's "deterministic assertion" bar does not require it, and it would
-// roughly double the real-API time/cost this test spends for a probabilistic
-// assertion on a model reply).
 func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	requireCLI(t, "claude")
 	requireCLI(t, "codex")
@@ -385,19 +242,9 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.NotEmpty(t, providerSessionID, "claude never bound a session before a turn could be driven: %+v", runner)
 
 	const codeword = "FALCON-7719"
-	// drive blocks on claude's OWN ECHO of the prompt into its composer before it
-	// sends the submitting Enter — the app telling us it took the input. The two
-	// writes cannot be merged (a trailing \r in the same write is a literal newline
-	// inside the box, not a submit), and the gap between them is a real signal, not
-	// a 300ms guess.
 	drive(t, h, tap, termSessID, "Remember this exact codeword for the rest of our conversation: "+codeword+
 		". Reply with only the word: acknowledged.")
 
-	// Block on claude's Stop hook landing the turn in the ledger.
-	// Wait for claude to FINISH the turn (its turn_stop hook appending an assistant
-	// entry), not merely for the ledger to mention the codeword — the prompt we typed
-	// puts the codeword there the instant it is submitted. Switching on the weaker
-	// signal would terminate claude mid-answer.
 	awaitTurnComplete(t, h, wsID, chatID, "claude")
 	handoff := awaitHandoffContains(t, h, chatID, codeword)
 	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
@@ -406,26 +253,10 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, newRunnerID)
 
-	// No wait: the runner Start is asynx SendWait, so the moment SwitchProvider hands
-	// back a runner id that runner is durable and visible to the read model.
 	newTermSessID := runnerTerminalSession(t, h, newRunnerID)
 	require.NotEqual(t, termSessID, newTermSessID, "a provider switch must spawn a NEW PTY for the incoming CLI")
 	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), newTermSessID) })
 
-	// This is the novel dual-provider-parity claim: not just that the switch
-	// mechanically spawned a new PTY and recorded a codex runner, but that codex's OWN
-	// SessionStart hook reaches the daemon's hook server through curl, and the
-	// reducer binds a conversation to the NEW runner
-	// — exactly as Test A proves for claude.
-	//
-	// It has to DRIVE A TURN to get there, and cannot simply wait. codex creates its
-	// rollout — and so fires SessionStart — LAZILY, on its first real turn, and a
-	// switched-to codex comes up IDLE by design: the handoff reaches it through the
-	// silent developer_instructions channel, not as a prompt, so it has nothing to
-	// answer and nothing to announce. Waiting for a session id from a codex that has
-	// not spoken waits forever. (This is also why the test spends one small codex turn
-	// it once tried to avoid — that turn is the price of codex announcing itself at
-	// all, not an extra assertion.)
 	codexTap := attachReady(t, h, newTermSessID, "codex", newRunnerID)
 	drive(t, h, codexTap, newTermSessID, "Reply with only the word: ready.")
 
@@ -445,4 +276,239 @@ func TestAgent_SwitchClaudeToCodex(t *testing.T) {
 	postSwitchHandoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)
 	require.NoError(t, err)
 	require.Contains(t, postSwitchHandoff, codeword, "handoff after switching to codex must still carry claude's turn")
+}
+
+func TestAgent_CodexTurnAppendsLedger(t *testing.T) {
+	requireCLI(t, "codex")
+	h := newHarness(t)
+	ctx := context.Background()
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "codex-turn", repoPath)
+
+	chatID, runnerID, termSessID, tap := spawnReady(t, h, wsID, "codex")
+	require.NotEmpty(t, chatID)
+	require.NotEmpty(t, runnerID)
+	t.Logf("spawned codex: chat=%s runner=%s workspace=%s home=%s", chatID, runnerID, wsID, h.home)
+
+	const codeword = "MERIDIAN-2260"
+	drive(t, h, tap, termSessID, "Remember this exact codeword for the rest of our conversation: "+codeword+
+		". Reply with only the word: acknowledged.")
+
+	providerSessionID, runner := awaitSessionBound(t, h, runnerID, termSessID, tap)
+	require.NotEmpty(t, providerSessionID,
+		"codex's SessionStart hook never reached the daemon's hook route to bind a conversation; this means either "+
+			"codex never started in the PTY, its SessionStart hook never fired, its hook POST could not reach "+
+			"the hook server, or the hook ingress did not record the outcome — runner observed: %+v", runner)
+
+	awaitHook(t, h, "codex to append an ASSISTANT ledger turn", func() (bool, bool) {
+		ok := len(assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex")) > 0
+		return ok, ok
+	})
+	turns := readLedgerTurns(t, h, wsID, chatID)
+	require.NotEmpty(t, assistantReplies(turns, "codex"),
+		"codex's turn_stop hook never appended an ASSISTANT turn after a real codex turn; this "+
+			"proves codex's own Stop hook never reached the daemon's hook route, or turn_stop -> AppendTurn never "+
+			"ran; turns observed: %+v", turns)
+
+	handoff, err := h.app.Usecases.AgentChat.AssembleHandoff(ctx, chatID)
+	require.NoError(t, err)
+	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
+
+	var codexTagged, carriesCodeword bool
+	for _, tn := range turns {
+		if tn.Provider != "codex" {
+			continue
+		}
+		codexTagged = true
+		if strings.Contains(tn.Text, codeword) {
+			carriesCodeword = true
+		}
+	}
+	require.True(t, codexTagged,
+		"a turn must be durably recorded tagged with the codex provider id; turns=%+v", turns)
+	require.True(t, carriesCodeword,
+		"the codeword must round-trip onto some codex-tagged turn in the record (the UserPromptSubmit-recorded "+
+			"user turn, which echoes the driven prompt verbatim); turns=%+v", turns)
+}
+
+func readLedgerTurns(t *testing.T, h *harness, wsID, chatID string) []ledgerTurn {
+	t.Helper()
+	ctx := context.Background()
+	_, err := h.app.Repositories.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "resolve workspace %s the chat is expected on", wsID)
+
+	var turns []ledgerTurn
+	for _, m := range kit.Said(chatRows(t, h, chatID)) {
+		turns = append(turns, ledgerTurn{Role: m.Role, Provider: m.Provider, Text: m.Text})
+	}
+	return turns
+}
+
+type ledgerTurn struct {
+	Role     string
+	Provider string
+	Text     string
+}
+
+func assistantReplies(turns []ledgerTurn, provider string) []string {
+	var out []string
+	for _, tn := range turns {
+		if tn.Role == "assistant" && tn.Provider == provider {
+			out = append(out, tn.Text)
+		}
+	}
+	return out
+}
+
+func seedClaudeThenSwitchToCodex(
+	t *testing.T,
+	h *harness,
+	wsID string,
+	codeword string,
+) (chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID string, codexTap *kit.PTYTap) {
+	t.Helper()
+
+	chatID, claudeRunnerID, claudeTermSessID, claudeTap := spawnReady(t, h, wsID, "claude")
+
+	claudeSessionID, runner := awaitSessionBound(t, h, claudeRunnerID, claudeTermSessID, claudeTap)
+	require.NotEmpty(t, claudeSessionID, "claude never bound a session before a turn could be driven: %+v", runner)
+
+	drive(t, h, claudeTap, claudeTermSessID, "Remember this exact codeword for the rest of our conversation: "+
+		codeword+". Reply with only the word: acknowledged.")
+
+	awaitTurnComplete(t, h, wsID, chatID, "claude")
+	handoff := awaitHandoffContains(t, h, chatID, codeword)
+	require.Contains(t, handoff, codeword, "ledger blob must carry the turn we just drove")
+
+	codexRunnerID, codexTermSessID, codexTap = switchTo(t, h, chatID, "codex")
+	require.NotEqual(t, claudeTermSessID, codexTermSessID, "a switch must spawn a NEW PTY for the incoming codex CLI")
+
+	require.Empty(t, assistantReplies(readLedgerTurns(t, h, wsID, chatID), "codex"),
+		"a switched-to codex must not answer the handoff on sight — it is context, not a prompt")
+
+	return chatID, claudeRunnerID, claudeSessionID, codexRunnerID, codexTermSessID, codexTap
+}
+
+func TestAgent_CodexUsesHandoff(t *testing.T) {
+	requireCLI(t, "claude")
+	requireCLI(t, "codex")
+	h := newHarness(t)
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "codex-handoff", repoPath)
+
+	const codeword = "OSPREY-4482"
+	chatID, _, _, _, codexTermSessID, codexTap := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
+
+	drive(t, h, codexTap, codexTermSessID,
+		"What exact codeword appeared in the context you were given? Reply with only that word.")
+
+	replies := awaitAssistantReply(t, h, wsID, chatID, "codex", codeword)
+	require.NotEmpty(t, replies, "codex never replied referencing the codeword")
+	require.Contains(t, strings.Join(replies, "\n"), codeword,
+		"codex's own reply must reference the codeword handed off from claude's session — proves codex "+
+			"actually READ the handoff injected via developer_instructions, not just that the string was "+
+			"passed to it; codex's replies were: %q", replies)
+
+	for _, turn := range readLedgerTurns(t, h, wsID, chatID) {
+		if turn.Role == "user" {
+			require.NotContains(t, turn.Text, "HANDED-OFF CONTEXT",
+				"Crowbar's own handoff document must never be recorded as a user turn")
+		}
+	}
+}
+
+func TestAgent_SwitchBackRestoresClaudeContext(t *testing.T) {
+	requireCLI(t, "claude")
+	requireCLI(t, "codex")
+	h := newHarness(t)
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "switch-back", repoPath)
+
+	const codeword = "TALON-6631"
+	chatID, _, origClaudeSessionID, _, codexTermSessID, _ := seedClaudeThenSwitchToCodex(t, h, wsID, codeword)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), codexTermSessID) })
+
+	require.NotEmpty(t, origClaudeSessionID, "the original claude runner must have bound a session id")
+	require.Contains(t, chatSessionIDs(t, h, chatID), origClaudeSessionID,
+		"the chat's conversation history must still carry claude's conversation after it was switched away from")
+
+	newClaudeRunnerID, newClaudeTermSessID, newClaudeTap := switchTo(t, h, chatID, "claude")
+	require.NotEqual(t, codexTermSessID, newClaudeTermSessID, "switch-back must spawn a new terminal session")
+
+	resumedProviderSessionID, resumedRunner := awaitSessionBound(t, h, newClaudeRunnerID, newClaudeTermSessID, newClaudeTap)
+	require.NotEmpty(t, resumedProviderSessionID,
+		"the switched-back claude's SessionStart hook never bound: %+v", resumedRunner)
+
+	require.Equal(t, origClaudeSessionID, resumedProviderSessionID,
+		"switch-back must --resume the ORIGINAL claude session id, not mint a new one — this is the "+
+			"Go-stack proof of native resume (Phase-0 spike's Case-1)")
+	require.Equal(t, newClaudeRunnerID, liveRunnerID(t, h, chatID),
+		"the resumed claude CLI must be the one placed on the chat")
+
+	drive(t, h, newClaudeTap, newClaudeTermSessID,
+		"What was the codeword I asked you to remember earlier in our conversation? Reply with only that word.")
+
+	texts := awaitAssistantReply(t, h, wsID, chatID, "claude", codeword)
+	require.Contains(t, strings.Join(texts, "\n"), codeword,
+		"no claude assistant turn (including the follow-up's) referenced the codeword; turns observed: %q", texts)
+	for _, tx := range texts {
+		assert.NotContains(t, strings.ToLower(tx), "no response requested",
+			"a synthetic housekeeping reply means claude did not exit cleanly; turns observed: %q", texts)
+	}
+}
+
+func switchTo(t *testing.T, h *harness, chatID, provider string) (runnerID, termSessID string, tap *kit.PTYTap) {
+	t.Helper()
+	runnerID, err := h.app.Usecases.AgentRunner.SwitchProvider(context.Background(), chatID, provider, "")
+	require.NoError(t, err)
+	termSessID = runnerTerminalSession(t, h, runnerID)
+	t.Cleanup(func() { _ = h.eng.Terminal.Kill(context.Background(), termSessID) })
+	return runnerID, termSessID, attachReady(t, h, termSessID, provider, runnerID)
+}
+
+func TestAgent_SwitchBackToCodexResumesItsOwnSession(t *testing.T) {
+	requireCLI(t, "claude")
+	requireCLI(t, "codex")
+	h := newHarness(t)
+
+	repoPath := kit.InitRepo(t)
+	_, _, wsID := h.importRepoAndWorkspace(t, "codex-switch-back", repoPath)
+
+	const codeword = "PANGOLIN-9931"
+
+	chatID, codexSegID, codexTermSessID, codexTap := spawnReady(t, h, wsID, "codex")
+	diagnoseOnFailure(t, h, codexTap, "codex")
+
+	drive(t, h, codexTap, codexTermSessID, "Remember this exact codeword for the rest of our conversation: "+
+		codeword+". Reply with only the word: acknowledged.")
+
+	origSessionID, runner := awaitSessionBound(t, h, codexSegID, codexTermSessID, codexTap)
+	require.NotEmpty(t, origSessionID, "codex never bound a session even after a real turn was driven: %+v", runner)
+
+	awaitTurnComplete(t, h, wsID, chatID, "codex")
+	blob := awaitHandoffContains(t, h, chatID, codeword)
+	require.Contains(t, blob, codeword, "codex's turn never reached the ledger")
+
+	claudeSegID, claudeTermSessID, claudeLegTap := switchTo(t, h, chatID, "claude")
+	diagnoseOnFailure(t, h, claudeLegTap, "claude")
+	claudeSessionID, claudeRunner := awaitSessionBound(t, h, claudeSegID, claudeTermSessID, claudeLegTap)
+	require.NotEmpty(t, claudeSessionID, "the switched-to claude never bound a session: %+v", claudeRunner)
+
+	backSegID, backTermSessID, backTap := switchTo(t, h, chatID, "codex")
+	drive(t, h, backTap, backTermSessID, "What was the codeword I asked you to remember? Reply with only that word.")
+
+	resumedSessionID, resumedRunner := awaitSessionBound(t, h, backSegID, backTermSessID, backTap)
+	require.NotEmpty(t, resumedSessionID,
+		"the switched-back codex never bound a session — it almost certainly died on startup, which is "+
+			"what happens when its rollout was deleted with the previous runner: %+v", resumedRunner)
+	require.Equal(t, origSessionID, resumedSessionID,
+		"switching back to codex must RESUME its original native session, not mint a new one")
+
+	replies := awaitAssistantReply(t, h, wsID, chatID, "codex", codeword)
+	require.Contains(t, strings.Join(replies, "\n"), codeword,
+		"the resumed codex must answer from its OWN restored session; replies seen: %q", replies)
 }

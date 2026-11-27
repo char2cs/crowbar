@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// removeRepoDir removes the repo's entity directory (icon, storages) under the
-// crowbar home. Best-effort: the row is already gone.
 func (u *projectDelete) removeRepoDir(
 	ctx context.Context,
 	repo domain.Repository,
@@ -34,18 +32,12 @@ func (u *projectDelete) removeRepoDir(
 	}
 }
 
-// deleteRemainingWorkspaces tombstones the project's rows no repo cascade took
-// — its home workspace, which belongs to the project rather than to a repo.
-// The delete reactor purges them like any other tombstone.
 func (u *projectDelete) deleteRemainingWorkspaces(
 	ctx context.Context,
 	projectID string,
 	all []domain.Workspace,
 ) error {
 	for _, ws := range all {
-		// A repo's rows were the repo cascade's; a row of a repo that now
-		// belongs to another project is that project's, whatever its own
-		// (denormalised) ProjectID still says.
 		if ws.RepoID != "" || ws.ProjectID != projectID || ws.Status == domain.WorkspaceStatusDeleted {
 			continue
 		}
@@ -68,15 +60,10 @@ func (u *projectDelete) forgetNode(
 	}
 }
 
-// alreadyGone reports an error meaning the thing being removed no longer
-// exists — for a delete, success.
 func alreadyGone(err error) bool {
 	return errors.Is(err, problem.ErrNotFound) || errors.Is(err, asynxModels.ErrValidation)
 }
 
-// removeProjectDir removes ~/.crowbar/projects/<P> except a live git checkout (git refused
-// to remove it, e.g. uncommitted work) and any live workspace of another project; kept
-// paths keep their parents. Best-effort: the rows are gone, so failures are only logged.
 func (u *projectDelete) removeProjectDir(
 	ctx context.Context,
 	projectID string,
@@ -91,8 +78,6 @@ func (u *projectDelete) removeProjectDir(
 		return
 	}
 	dir := worktreepath.ProjectDir(home, projectID)
-	// Another project's live workspace keeps its whole root: the worktree and
-	// the chats tree beside it.
 	foreign := map[string]bool{}
 	for _, ws := range all {
 		if ownedBy(ws, projectID, repos) || ws.Status == domain.WorkspaceStatusDeleted || ws.WorktreePath == "" {
@@ -102,7 +87,6 @@ func (u *projectDelete) removeProjectDir(
 			foreign[root] = true
 			continue
 		}
-		// A pre-leaf row: its checkout, and the chats tree beside it.
 		foreign[filepath.Clean(ws.WorktreePath)] = true
 		foreign[worktreepath.ChatsDir(filepath.Clean(ws.WorktreePath))] = true
 	}
@@ -115,9 +99,6 @@ func (u *projectDelete) removeProjectDir(
 	}
 }
 
-// ownedBy reports whether ws is the project's: a repo's row belongs to the
-// project that owns the repo (the repo row is the one owner of that
-// assignment); a repo-less row — the project home — to its own ProjectID.
 func ownedBy(
 	ws domain.Workspace,
 	projectID string,
@@ -130,9 +111,6 @@ func ownedBy(
 	return mine
 }
 
-// removeTreeKeeping removes dir and everything under it except the paths keep
-// claims. A directory is removed only once it is empty, so whatever is kept
-// keeps its ancestors. It never follows a symlink.
 func removeTreeKeeping(
 	dir string,
 	keep func(path string) bool,
@@ -158,7 +136,6 @@ func removeTreeKeeping(
 			errs = append(errs, err)
 		}
 	}
-	// Fails (harmlessly) while something kept is still inside.
 	if err := os.Remove(dir); err != nil && !errors.Is(err, os.ErrNotExist) && !isNotEmpty(dir) {
 		errs = append(errs, err)
 	}

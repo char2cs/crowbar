@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RestateProvidersFromHistory makes domain.Chat.ProviderID agree, once per upgraded
-// install, with newest (the provider the legacy history last names per chat); after it
-// the field is the sole owner. Unrestatable rows are counted in skipped.
 func (c *Conversations) RestateProvidersFromHistory(
 	ctx context.Context,
 	newest map[string]string,
@@ -35,9 +32,6 @@ func (c *Conversations) RestateProvidersFromHistory(
 	return skipped, nil
 }
 
-// StaleProviders lists what RestateProvidersFromHistory leaves behind: the
-// chats whose history replays to a provider newest disagrees with. A row that
-// cannot be replayed is not listed; nothing could restate it.
 func (c *Conversations) StaleProviders(ctx context.Context, newest map[string]string) ([]string, error) {
 	rows, err := c.chats.ListChats(ctx)
 	if err != nil {
@@ -75,8 +69,6 @@ func (c *Conversations) restateProvider(
 	return nil
 }
 
-// staleProvider is the provider newest names for chat when that is not the
-// one chat records: what the restate acts on and StaleProviders checks.
 func staleProvider(chat domain.Chat, newest map[string]string) (string, bool) {
 	providerID := newest[chat.ID]
 	if chat.Type == domain.ChatTypeFolder || providerID == "" || providerID == chat.ProviderID {

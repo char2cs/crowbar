@@ -8,7 +8,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// WriteEngine is the mutating surface the git usecase passes through to.
 type WriteEngine interface {
 	StageFile(
 		ctx context.Context,
@@ -133,7 +132,6 @@ type WriteEngine interface {
 	) error
 }
 
-// OpsEngine is the full git operation surface the git usecase consumes.
 type OpsEngine interface {
 	ReadEngine
 	WriteEngine
@@ -158,7 +156,6 @@ func (u *gitUsecase) mutate(
 	return nil
 }
 
-// StageFile stages a file and resyncs the working tree.
 func (u *gitUsecase) StageFile(
 	ctx context.Context,
 	wsID string,
@@ -170,7 +167,6 @@ func (u *gitUsecase) StageFile(
 	})
 }
 
-// StageHunk stages a hunk and resyncs the working tree.
 func (u *gitUsecase) StageHunk(
 	ctx context.Context,
 	wsID string,
@@ -183,7 +179,6 @@ func (u *gitUsecase) StageHunk(
 	})
 }
 
-// UnstageFile unstages a file and resyncs the working tree.
 func (u *gitUsecase) UnstageFile(
 	ctx context.Context,
 	wsID string,
@@ -195,7 +190,6 @@ func (u *gitUsecase) UnstageFile(
 	})
 }
 
-// UnstageHunk unstages a hunk and resyncs the working tree.
 func (u *gitUsecase) UnstageHunk(
 	ctx context.Context,
 	wsID string,
@@ -208,7 +202,6 @@ func (u *gitUsecase) UnstageHunk(
 	})
 }
 
-// Discard discards changes to a file and resyncs the working tree.
 func (u *gitUsecase) Discard(
 	ctx context.Context,
 	wsID string,
@@ -220,7 +213,6 @@ func (u *gitUsecase) Discard(
 	})
 }
 
-// Commit creates a commit and resyncs the working tree.
 func (u *gitUsecase) Commit(
 	ctx context.Context,
 	wsID string,
@@ -233,9 +225,6 @@ func (u *gitUsecase) Commit(
 	})
 }
 
-// Reset runs git reset and resyncs the working tree. mode is allowlisted (it
-// becomes a `--<mode>` flag) and commit is validated as a safe operand so a
-// leading-dash value can never be read as a git option (argument injection).
 func (u *gitUsecase) Reset(
 	ctx context.Context,
 	wsID string,

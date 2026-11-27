@@ -1,0 +1,78 @@
+import { pairRemoteHost } from '@/lib/crowbar-bridge'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import type { Host } from '@/features/hosts/types'
+
+export async function redeemPairingCode(
+  hostId: string,
+  endpoint: string,
+  confirmedFingerprint: string,
+  code: string,
+  name: string,
+): Promise<void> {
+  const clientId = await pairRemoteHost(hostId, endpoint, confirmedFingerprint, code, name)
+  useHostConfigStore.getState().addHost({
+    id: hostId,
+    name,
+    endpoint,
+    pairedFingerprint: confirmedFingerprint,
+    clientId,
+  })
+}
+
+export function alreadyPairedReason(
+  hosts: readonly Host[],
+  endpoint: string,
+  fingerprint: string,
+  localFingerprint = '',
+): string | null {
+  if (fingerprint !== '' && fingerprint === localFingerprint) {
+    return 'This is this computer, already shown as Local. There is nothing to pair.'
+  }
+  const remedy = 'Remove it in Settings → Hosts to pair it again.'
+  const atAddress = hosts.find((host) => host.endpoint === endpoint)
+  if (atAddress) return `This address is already paired as ${atAddress.name}. ${remedy}`
+  const same = hosts.find((host) => fingerprint !== '' && host.pairedFingerprint === fingerprint)
+  return same ? `This host is already paired as ${same.name}. ${remedy}` : null
+}
+
+const REFUSED = /^the host refused pairing \((\d{3})[^)]*\): (.*)$/s
+const UNRESOLVED = /^cannot resolve ([^\s:]+)/
+const UNREACHABLE = /^cannot reach |did not answer within|did not finish pairing|^pairing with /
+const NOT_CROWBAR = /^TLS handshake with |presented no certificate/
+const KEYCHAIN = /^the keychain could not keep the token/
+const STILL_LISTED = /revoking it on the host failed/
+
+export function pairingFailureText(err: unknown, address: string, name: string): string {
+  const text = err instanceof Error ? err.message : String(err)
+  if (KEYCHAIN.test(text)) return keychainFailureText(text, address)
+  const refused = REFUSED.exec(text)
+  if (refused?.[1] === '401') {
+    return 'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or get a new one in Settings → Devices on the host (or run crowbar pair on a headless host).'
+  }
+  if (refused?.[1] === '429') {
+    return 'Too many attempts — wait a minute, then get a new code in Settings → Devices on the host (or run crowbar pair on a headless host).'
+  }
+  if (refused) return `${address} refused pairing: ${refused[2]}.`
+  if (text.includes('identity changed')) {
+    return `The host at ${address} no longer presents the fingerprint you confirmed, so nothing was sent to it. Go back and check the address.`
+  }
+  const unresolved = UNRESOLVED.exec(text)
+  if (unresolved) {
+    return `Couldn’t find ${unresolved[1]}. Check the spelling, or use its IP address.`
+  }
+  if (UNREACHABLE.test(text)) {
+    return `Can’t reach ${address}. Check the address and port, and that the host is running.`
+  }
+  if (NOT_CROWBAR.test(text)) {
+    return `${address} answered, but not as a Crowbar host. Check the address and port.`
+  }
+  return `Couldn’t pair with ${name}. Try again with a new code from Settings → Devices on the host (or run crowbar pair on a headless host).`
+}
+
+function keychainFailureText(text: string, address: string): string {
+  const remedy = 'Unlock your keychain or allow Crowbar to use it, then pair again with a new code.'
+  if (STILL_LISTED.test(text)) {
+    return `Your keychain couldn’t save the key for ${address}, and undoing the pairing on the host didn’t go through. No copy of the key was kept, so nothing can use it, but the host may still list this device. ${remedy}`
+  }
+  return `Your keychain couldn’t save the key for ${address}, so the pairing was undone and the host isn’t left paired with this device. ${remedy}`
+}

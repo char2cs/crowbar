@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetTitle updates the chat title, respecting user>agent>derived precedence via
-// TitleLocked. User source locks the title; agent/derived sources do not.
-// A locked title rejects non-user sources.
 type SetTitle struct {
 	ChatID string
 	Title  string

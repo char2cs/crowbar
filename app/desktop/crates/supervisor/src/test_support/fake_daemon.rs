@@ -1,0 +1,85 @@
+use std::future::Future;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+
+use crate::health::client::dial::Dial;
+
+type Answer = Arc<dyn Fn(usize, &str) -> (u16, String) + Send + Sync>;
+type Refusal = Box<dyn Fn(usize) -> Option<std::io::Error> + Send + Sync>;
+
+pub(crate) struct FakeDaemon {
+    answer: Answer,
+    refuse: Refusal,
+    dials: AtomicUsize,
+}
+
+impl FakeDaemon {
+    pub(crate) fn answering(
+        answer: impl Fn(usize, &str) -> (u16, String) + Send + Sync + 'static
+    ) -> Self {
+        Self {
+            answer: Arc::new(answer),
+            refuse: Box::new(|_| None),
+            dials: AtomicUsize::new(0),
+        }
+    }
+
+    pub(crate) fn refusing(
+        mut self,
+        refuse: impl Fn(usize) -> Option<std::io::Error> + Send + Sync + 'static,
+    ) -> Self {
+        self.refuse = Box::new(refuse);
+        self
+    }
+
+    pub(crate) fn dialled(&self) -> usize {
+        self.dials.load(Ordering::SeqCst)
+    }
+}
+
+async fn read_head(server: &mut DuplexStream) -> Vec<u8> {
+    let mut head = Vec::new();
+    let mut byte = [0_u8; 1];
+    let mut open = true;
+    while open && !head.ends_with(b"\r\n\r\n") {
+        let read = server.read(&mut byte).await.unwrap_or(0);
+        head.extend_from_slice(byte.get(..read).unwrap_or_default());
+        open = read > 0;
+    }
+    head
+}
+
+async fn serve(
+    mut server: DuplexStream,
+    index: usize,
+    answer: Answer,
+) {
+    let head = read_head(&mut server).await;
+    let text = String::from_utf8_lossy(&head);
+    let target = text.split_whitespace().nth(1).unwrap_or_default();
+    let (status, body) = answer(index, target);
+    if status == 0 {
+        return;
+    }
+    let reply = format!(
+        "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    server.write_all(reply.as_bytes()).await.unwrap();
+}
+
+impl Dial for FakeDaemon {
+    type Stream = DuplexStream;
+
+    fn dial(&self) -> impl Future<Output = std::io::Result<DuplexStream>> + Send {
+        let index = self.dials.fetch_add(1, Ordering::SeqCst);
+        if let Some(error) = (self.refuse)(index) {
+            return std::future::ready(Err(error));
+        }
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(serve(server, index, Arc::clone(&self.answer)));
+        std::future::ready(Ok(client))
+    }
+}

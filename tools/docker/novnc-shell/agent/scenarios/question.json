@@ -1,0 +1,53 @@
+{
+ "description": "A single-choice question.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "AskUserQuestion",
+   "kind": "ask",
+   "input": {
+    "questions": [
+     {
+      "header": "Scope",
+      "question": "Which module should I fix first?",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "pricing",
+        "description": "Rounding bug"
+       },
+       {
+        "label": "inventory",
+        "description": "Stock counts"
+       }
+      ]
+     }
+    ]
+   },
+   "ask": {
+    "message": "AskUserQuestion",
+    "questions": [
+     {
+      "header": "Scope",
+      "question": "Which module should I fix first?",
+      "multiSelect": false,
+      "options": [
+       {
+        "label": "pricing",
+        "description": "Rounding bug"
+       },
+       {
+        "label": "inventory",
+        "description": "Stock counts"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "do": "text",
+   "text": "Thanks."
+  }
+ ]
+}

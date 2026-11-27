@@ -10,9 +10,6 @@ const (
 	statusDeleted     = "deleted"
 )
 
-// chatWorktreeDTO is the git half of a chat that owns a worktree — the
-// seed's own slice of dto.ChatWorktreeDTO: branch, wire status, whether it is
-// the repo's own adopted home, and where it lives on disk.
 type chatWorktreeDTO struct {
 	Branch    string `json:"branch"`
 	Status    string `json:"status"`
@@ -20,30 +17,21 @@ type chatWorktreeDTO struct {
 	LocalPath string `json:"localPath"`
 }
 
-// chatDTO is the seed's own slice of dto.AgentChatDTO / AgentChatDetailDTO:
-// enough to find, read back and report the worktree a chat owns. Worktree is
-// nil for a chat that owns none (a plain conversation, a folder).
 type chatDTO struct {
 	ID          string           `json:"id"`
 	WorkspaceID string           `json:"workspaceId"`
 	Worktree    *chatWorktreeDTO `json:"worktree"`
 }
 
-// mutationDTO is the {id} envelope every v0 mutation answers with.
 type mutationDTO struct {
 	ID string `json:"id"`
 }
 
-// providerDTO is the seed's own slice of dto.AgentProviderDTO: just enough to
-// pick a provider to spawn the forked feature chat's runner with.
 type providerDTO struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 }
 
-// pickBaseChat finds the locked, Crowbar-managed chat on the repo's default branch,
-// the branch-tree root a feature chat forks from. It is not the isDefault home row:
-// home is an unmanaged checkout that owns no branch, so a child of it has no base.
 func pickBaseChat(
 	defaultBranch string,
 ) func([]chatDTO) (chatDTO, bool) {
@@ -58,9 +46,6 @@ func pickBaseChat(
 	}
 }
 
-// pickFeatureChat requires a populated LocalPath: the chat's worktree is what
-// the seed then commits into, and a row without one on disk is not yet
-// usable for that.
 func pickFeatureChat(
 	list []chatDTO,
 ) (chatDTO, bool) {
@@ -73,8 +58,6 @@ func pickFeatureChat(
 	return chatDTO{}, false
 }
 
-// waitForBaseChat blocks until repo import has provisioned the base worktree's
-// owning chat, which happens after the repo row is broadcast.
 func waitForBaseChat(
 	ctx context.Context,
 	d *daemon,
@@ -88,8 +71,6 @@ func waitForBaseChat(
 	)
 }
 
-// resolveProvider picks a connected provider for the forked feature chat's runner:
-// a fork always starts one, so unlike the rest of this tool it needs a provider.
 func resolveProvider(
 	ctx context.Context,
 	d *daemon,
@@ -109,9 +90,6 @@ func resolveProvider(
 	)
 }
 
-// ensureFeatureChat forks the seed's feature chat from the base chat, or reuses
-// the existing one. A fork gets a server-generated branch and starts a runner, so
-// this stops the runner and renames the branch back to the seed's fixed name.
 func ensureFeatureChat(
 	ctx context.Context,
 	d *daemon,

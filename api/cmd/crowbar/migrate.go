@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// newMigrateCmd has no apply path on purpose: the daemon migrates the home as
-// it boots, under the home lock, and this command only shows what that would do.
 func newMigrateCmd() *cobra.Command {
 	var plan bool
 	cmd := &cobra.Command{

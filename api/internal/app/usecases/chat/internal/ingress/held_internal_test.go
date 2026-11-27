@@ -13,8 +13,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// apiChild is a chat on session main whose agent has started spawning a
-// subagent over its api connection, the call not yet bound.
 func apiChild(t *testing.T) *recorderFixture {
 	t.Helper()
 	f := newRecorderFixture(t, "codex")
@@ -70,7 +68,6 @@ func TestIngress_ChildFramesBeforeTheBindAreHeldThenDrained(t *testing.T) {
 	assert.Zero(t, notRecorded, "a child's thread start says nothing new: acknowledged, no row")
 	assert.True(t, f.state(t).ScopeWaits("child"))
 
-	// C20: the parent's end restates nothing; the child keeps the chat working until its own end.
 	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "main", TurnID: "pt-1"})
 	assert.True(t, f.state(t).Busy(), "a backgrounded subagent keeps the chat working")
 	f.api(t, engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, SessionID: "child", Message: "done"})
@@ -124,8 +121,6 @@ func TestIngress_AnAskOfAnUnboundConversationIsNeverHeld(t *testing.T) {
 	require.ErrorIs(t, err, engineagents.ErrForeignConversation, "its sender waits on an answer a hold could never give")
 }
 
-// A late end of another turn closes nothing: the running turn's spawn still
-// starts, so what is held for it stays held for its bind.
 func TestIngress_ALateTurnEndLeavesTheRunningTurnsHeldFrames(t *testing.T) {
 	f := apiChild(t)
 	f.api(t, engineagents.CanonicalEvent{
@@ -154,13 +149,11 @@ func handBack(scope, result string) engineagents.CanonicalEvent {
 	}
 }
 
-// A hand-back of a scope no subagent is bound to, while a spawn is starting,
-// may be that spawn's: it waits for the bind instead of starting a second one.
 func TestIngress_AHandBackBeforeItsBindLandsInTheBoundSubagent(t *testing.T) {
 	f := apiChild(t)
 	other := spawnOn(engineagents.HookToolPre, "")
 	other.Tool.ID = "call-2"
-	f.api(t, other) // still starting after the bind: the hand-back is claimed by its scope
+	f.api(t, other)
 
 	f.api(t, handBack("child", "found it"))
 
@@ -174,8 +167,6 @@ func TestIngress_AHandBackBeforeItsBindLandsInTheBoundSubagent(t *testing.T) {
 	assert.Zero(t, f.unclaimedCount(t))
 }
 
-// A held hand-back nothing binds is still recorded once nothing is starting,
-// after a turn end or a runner exit: its result is never dead-lettered.
 func TestIngress_AHeldHandBackNothingBindsIsRecorded(t *testing.T) {
 	f := apiChild(t)
 	f.api(t, handBack("child", "found it"))
@@ -204,8 +195,6 @@ func TestIngress_AHeldHandBackIsRecordedWhenItsRunnerExits(t *testing.T) {
 	assert.Zero(t, f.unclaimedCount(t))
 }
 
-// A runner's exit interrupts what was starting, so nothing can claim its
-// held frames any more.
 func TestIngress_ARunnersExitDeadLettersItsHeldFrames(t *testing.T) {
 	f := apiChild(t)
 	f.api(t, engineagents.CanonicalEvent{
@@ -217,8 +206,6 @@ func TestIngress_ARunnersExitDeadLettersItsHeldFrames(t *testing.T) {
 	assert.Equal(t, 1, f.unclaimedCount(t))
 }
 
-// A drained frame that cannot be recorded is dead-lettered for the reason it
-// would have been on arrival.
 func TestDrainReason_IsTheIngresssOwn(t *testing.T) {
 	for err, want := range map[error]string{
 		fmt.Errorf("x: %w", engineagents.ErrForeignConversation): reasonForeign,

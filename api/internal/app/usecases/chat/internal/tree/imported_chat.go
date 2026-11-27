@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// createImportedWorktreeChat is CreateChat's WorktreeImport branch: mint and place the chat, then
-// attach the worktree, so a branch never lands on disk unowned. A failure after the mint returns
-// the chat for the caller to discard or keep. open opens providerID on it, else it is recorded.
 func (u *chatFolderUsecase) createImportedWorktreeChat(
 	ctx context.Context,
 	chatID string,
@@ -31,7 +28,6 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 	if err != nil {
 		return "", domain.Workspace{}, "", fmt.Errorf("agent chat folder: import chat: %w", err)
 	}
-	// An imported row is an owning row, so it is filed by placeOwningRow, not placeChat.
 	if pErr := u.placeOwningRow(ctx, chatID, parentID); pErr != nil {
 		return chatID, domain.Workspace{}, "", pErr
 	}
@@ -46,9 +42,6 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 	return chatID, ws, runnerID, nil
 }
 
-// ImportBranchAsChat is createImportedWorktreeChat for a batch importer: the default provider recorded but
-// not opened (no CLI for an unopened row), placement from the spec's git lineage, and the workspace id taken
-// from the create itself, since a read-back from the async projection may predate the attach.
 func (u *chatFolderUsecase) ImportBranchAsChat(
 	ctx context.Context,
 	chatID string,
@@ -62,8 +55,6 @@ func (u *chatFolderUsecase) ImportBranchAsChat(
 	return minted, ws.ID, err
 }
 
-// importPlacement answers where an imported row is born: an explicit parentID, else the spec's parent
-// workspace's own Node row, which shares the sibling space a chat's placement does.
 func (u *chatFolderUsecase) importPlacement(
 	ctx context.Context,
 	parentID string,

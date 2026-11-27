@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// `make dev-api` serves TCP while the desktop sidecar serves a unix socket; the
-// seed has to reach both off the same --host flag.
 func TestNewTransportPicksTCPForATCPHost(t *testing.T) {
 	got, err := newTransport("tcp://127.0.0.1:3737")
 	if err != nil {
@@ -101,8 +99,6 @@ func TestTCPTransportPatchSendsJSONBody(t *testing.T) {
 	}
 }
 
-// ipc.Client reports a non-2xx as a status with err == nil; the TCP transport
-// has to behave identically or the two wires diverge at the call site.
 func TestTCPTransportReportsNon2xxAsAStatusNotAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)

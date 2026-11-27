@@ -1,0 +1,18 @@
+[package]
+name = "atomicfile"
+description = "Replaces a file all-or-nothing: staged beside it, synced, renamed over it, private to the user."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

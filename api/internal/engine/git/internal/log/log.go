@@ -1,4 +1,3 @@
-// Package log queries a git repository's commit history.
 package log
 
 import (
@@ -17,9 +16,6 @@ const (
 	formatFields = "%H\n%h\n%s\n%b\n\x1f%aN\n%aE\n%aI"
 )
 
-// List runs paginated git log starting from HEAD.
-// limit maps to --max-count and skip maps to --skip.
-// If limit is <= 0, it defaults to 50.
 func List(
 	ctx context.Context,
 	repoPath string,

@@ -1,0 +1,30 @@
+{
+  "name": "crowbar",
+  "productName": "Crowbar",
+  "identifier": "software.rabbyte.crowbar",
+  "description": "Crowbar Desktop",
+  "authors": ["Rabbyte Software"],
+  "homepage": "https://github.com/char2cs/crowbar",
+  "category": "DeveloperTool",
+  "binariesDir": "bin",
+  "binaries": [
+    { "path": "crowbar", "main": true },
+    { "path": "crowbar-api", "main": false }
+  ],
+  "resources": [{ "src": "panes", "target": "panes" }],
+  "icons": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+  "deb": {
+    "desktopTemplate": "crowbar.desktop",
+    "depends": "depends.txt"
+  },
+  "appimage": {
+    "libs": ["WebKitNetworkProcess", "WebKitWebProcess", "libwebkit2gtkinjectedbundle.so"],
+    "bins": ["/usr/bin/xdg-open"],
+    "linuxdeployPlugins": {
+      "gtk": "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/dda522bce37387f1b853d9095713bfaa924c8423/linuxdeploy-plugin-gtk.sh"
+    }
+  },
+  "macos": {
+    "infoPlistPath": "Info.plist"
+  }
+}

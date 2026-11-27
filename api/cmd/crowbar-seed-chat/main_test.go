@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// migratedHome is a fixture home a daemon has booted once: every legacy step
-// is recorded as applied, and the seeder may open it.
 func migratedHome(t *testing.T) home.Home {
 	t.Helper()
 	ctx := context.Background()
@@ -90,8 +88,6 @@ func TestRun_RefusesAHomeAnotherProcessHolds(t *testing.T) {
 	require.ErrorIs(t, err, migrate.ErrHomeLocked)
 }
 
-// requireMigrated looked first, but a home can change between its look and the
-// lock; whatever Begin then refuses, the seeder must not open the stores on.
 func TestSeedHeld_RefusesAHomeBeginHalts(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
@@ -106,9 +102,6 @@ func TestSeedHeld_RefusesAHomeBeginHalts(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "no ledger, store or backup is written")
 }
 
-// The look before the lock can be stale by the time the lock is held, so the
-// seeder looks again while holding it, and opens no store on a home with steps
-// left to run.
 func TestSeedHeld_RefusesAHomeWithStepsPendingUnderTheLock(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/upgrades/chat-types", "")

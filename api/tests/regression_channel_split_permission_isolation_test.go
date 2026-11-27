@@ -12,13 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// channelSplitPermissionStubProviderDescriptorYAML mirrors codex.yaml's OWN
-// migrated permission shape (descriptors-v3/codex.yaml, since docs/plans/
-// 2026-09-22-descriptor-channel-split.md P2b): one canonical ASK-direction
-// event, an api: block and a hooks: block with DIFFERENT wire names and
-// DIFFERENT field paths for the same conversational fact. This is
-// regression_channel_split_hooks_isolation_test.go's own tool_pre stub,
-// with permission added as the ask-direction counterpart under test here.
 const channelSplitPermissionStubProviderDescriptorYAML = `id: channelsplitpermstub
 runtime:
   transport: hooks
@@ -54,21 +47,11 @@ events:
       deny:  '{"decision":"decline"}'
 `
 
-// permissionChannelSplitChoices are the asks chatID's feed records.
 func permissionChannelSplitChoices(t *testing.T, h *harness, chatID string) []ledger.Ask {
 	t.Helper()
 	return rowsOf(t, chatRows(t, h, chatID), ledger.KindAsk, func(ledger.Ask) bool { return true })
 }
 
-// TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedFields
-// is TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields
-// own ASK-direction counterpart — the exact gap P3's own report on permission
-// flagged: "ChannelBlock only carries in: ... so a dual-shape ASK event has
-// no channel-block spelling yet" (codex.yaml, since replaced). The hook
-// route always delivers on the HOOKS channel (the hook handler's
-// choice), regardless of what shape the BODY happens to carry, so a
-// payload shaped for the api: block posted here is exactly the foreign-shape
-// delivery the channel split exists to refuse.
 func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedFields(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "channelsplitpermstub", channelSplitPermissionStubProviderDescriptorYAML)
@@ -82,8 +65,6 @@ func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedField
 	post("user_prompt", `{"session_id":"sess-1","prompt":"do a thing"}`)
 	h.Quiesce()
 
-	// The GENUINE hooks-shaped delivery: resolves through the hooks: block, and
-	// is held for the person.
 	askHook(t.Context(), t, h, repoBase(ws), "channelsplitpermstub", runnerID, "permission",
 		`{"session_id":"sess-1","message":"allow this?","tool_name":"Bash"}`)
 	heldChoice(t, h, chatID)
@@ -92,19 +73,6 @@ func TestRegression_HooksDeliveryOfAChannelSplitAskEventCannotReadAPIShapedField
 	require.Len(t, choices, 1, "the genuine hooks-shaped permission must raise one card")
 	assert.Equal(t, "Bash", choices[0].ToolName, "resolved via the hooks: block's tool_name: tool_name")
 
-	// THE ATTACK: an api-SHAPED permission body posted to the SAME
-	// hook route. If channel selection degenerated back into
-	// reading both shapes at once — the old || cross-shape fallback this
-	// design replaces — this would resolve the attacker's own tool name.
-	//
-	// required: (design spec 2.3, P5) now makes this a HARDER isolation than
-	// "raise it anonymously": permission's own session_id/tool_name are
-	// required, neither of the hooks: block's paths (session_id/tool_name)
-	// resolve against this api-shaped body, so the delivery is REJECTED
-	// outright (RequiredFieldError) rather than raising a card under a
-	// fallback identity — strictly stronger than before: nothing
-	// attacker-controlled reaches the choice desk at all, not even a
-	// nameless card. The CLI is told so: 422.
 	resp := stubLaunch(t, h, "channelsplitpermstub", runnerID).PostHook(t, h.url+repoBase(ws), "channelsplitpermstub", "permission", //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 		[]byte(`{"threadId":"attacker-thread","reason":"attacker reason","tool":"ATTACKER-TOOL-LEAKED"}`))
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)

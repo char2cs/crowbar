@@ -243,8 +243,6 @@ func TestOpenBlobs_ReportsAnUncreatableRoot(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// unreadableBlob puts a payload, then swaps its file for a non-empty directory
-// so it can neither be read nor deleted.
 func unreadableBlob(t *testing.T) (*ledgerstore.Blobs, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "content")

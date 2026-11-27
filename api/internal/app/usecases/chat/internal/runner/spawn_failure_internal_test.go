@@ -20,8 +20,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// stubWorkspaceForSpawn answers the two calls spawnPaths makes — WorktreeDir
-// and AgentChatsDir — from fixed dirs under one temp home.
 type stubWorkspaceForSpawn struct {
 	seam.WorkspaceReader
 	home, worktree, chatsDir string
@@ -39,8 +37,6 @@ func (s stubWorkspaceForSpawn) AgentChatsDir(
 	return s.chatsDir, nil
 }
 
-// stubProvidersForSpawn always enables the provider and never turns its MCP
-// surface on — this test never touches tool injection.
 type stubProvidersForSpawn struct{}
 
 func (stubProvidersForSpawn) RequireProviderEnabled(context.Context, string) error { return nil }
@@ -49,9 +45,6 @@ func (stubProvidersForSpawn) ProviderMCPEnabled(context.Context, string) (bool, 
 	return false, nil
 }
 
-// stubConversationsForSpawn answers only the two calls a spawn's
-// spawnPreflight makes — ThreadContext and ChatSelection — panicking on
-// anything else via the embedded nil interface.
 type stubConversationsForSpawn struct {
 	Conversations
 }
@@ -66,13 +59,6 @@ func (stubConversationsForSpawn) ChatSelection(
 	return engineagents.Selection{}, nil
 }
 
-// boomSpawnPlanDescriptor is apiTransportTestDescriptor's own shape (see
-// apiconn_internal_test.go) plus a spawn.args flag that also names itself in
-// forbid_flags. Descriptor validation never cross-checks spawn.args against
-// forbid_flags (only catalog/telemetry commands — see spawn_command.go and
-// catalog_command.go), so this loads cleanly and fails only later, inside
-// spawn.Plan's own checkForbidden — the one reachable way to make a REAL
-// descriptor's SpawnPlan fail without hand-faking the whole Agent interface.
 const boomSpawnPlanDescriptor = `
 id: boom-test
 spawn:
@@ -129,8 +115,6 @@ func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {
 func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
-	// Deliberately no descriptor file for "missing-test" — rs.agents.Get must
-	// fail to resolve it.
 
 	worktree := filepath.Join(home, "worktree")
 	chatsDir := filepath.Join(home, "chats")
@@ -152,11 +136,6 @@ func TestSpawnRunner_DescriptorResolveFailure_ReturnsTheResolveError(t *testing.
 	assert.NoDirExists(t, filepath.Join(chatsDir, "runners", "runner-1-missing-test"), "no runner dir outlives the refusal")
 }
 
-// okHooksDescriptor is a minimal, entirely valid hooks-transport descriptor —
-// unlike boomSpawnPlanDescriptor, its SpawnPlan succeeds — used by the test
-// below that needs to reach forkCLI with a real, working descriptor. hooks
-// (not api) transport so this never touches applyAPITransport's serve-process
-// machinery at all.
 const okHooksDescriptor = `
 id: ok-test
 spawn:
@@ -178,15 +157,12 @@ runtime:
     delivery: http
 `
 
-// unforkable is a terminal no CLI forks on.
 type unforkable struct{ blindTerminal }
 
 func (unforkable) CreateCommand(context.Context, string, string, []string, []string, func(engineterminal.Exit)) (string, error) {
 	return "", errors.New("boom: the CLI would not fork")
 }
 
-// A respawn that puts no CLI on an existing chat is recorded as spawn_failed,
-// and the prompt it was to carry is settled rather than left waiting on it.
 func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
@@ -218,8 +194,6 @@ func TestSpawnRunner_AFailedRespawnRecordsSpawnFailedAndSettlesWhatItCarried(t *
 	assert.False(t, live, "a failed spawn leaves nothing in the live table")
 }
 
-// A carried prompt whose push finds the session gone loses the session, as a
-// refused establish does: the spawn ends resume_failed, never spawn_failed.
 func TestSpawnRunner_ACarriedPushThatFindsTheSessionGoneLosesIt(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	require.NoError(t, os.MkdirAll(filepath.Join(h.home, "descriptors"), 0o755))
@@ -248,8 +222,6 @@ func TestSpawnRunner_ACarriedPushThatFindsTheSessionGoneLosesIt(t *testing.T) {
 	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the connection is dropped")
 }
 
-// An adopting spawn whose connection has no process to watch has no exit to
-// reap it, so the spawn does: no connection, surface entry or dir is left.
 func TestSpawnRunner_AnAdoptionWithNothingToWatchReapsWhatItSetUp(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	require.NoError(t, os.MkdirAll(filepath.Join(h.home, "descriptors"), 0o755))
@@ -268,8 +240,6 @@ func TestSpawnRunner_AnAdoptionWithNothingToWatchReapsWhatItSetUp(t *testing.T) 
 	assert.NoDirExists(t, filepath.Join(h.home, "runners", "runner-1-"+apiLoseProvider))
 }
 
-// A send whose launch finds its session refused by the connection forks
-// nothing: its plan resumes that session, and the prompt it carried is settled.
 func TestSubmitPrompt_ALaunchWhoseSessionTheConnectionRefusesForksNothing(t *testing.T) {
 	h := helperServeSpawn(t, "refuse", false)
 	asked := filepath.Join(t.TempDir(), "asked")
@@ -294,7 +264,6 @@ func TestSubmitPrompt_ALaunchWhoseSessionTheConnectionRefusesForksNothing(t *tes
 	assert.Equal(t, 1, countKind(rows, ledger.KindSessionLost))
 }
 
-// An attaching spawn whose view cannot fork leaves no connection behind.
 func TestSpawnRunner_AnAttachingSpawnThatCannotForkDropsItsConnection(t *testing.T) {
 	h := helperServeSpawn(t, "answer", true)
 	h.rs.term = unforkable{}
@@ -307,8 +276,6 @@ func TestSpawnRunner_AnAttachingSpawnThatCannotForkDropsItsConnection(t *testing
 	assert.False(t, h.rs.HasLiveAPIConnection("runner-1"), "the serve it would have attached to is dropped")
 }
 
-// A chat holds one CLI: a spawn onto a chat whose runner is live is refused
-// before anything forks, and the live runner keeps the chat.
 func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	h.rs.live = liveWith(t, engineagents.Runner{ID: "runner-0", ProviderID: "claude", CurrentChatID: "chat-1"})
@@ -325,8 +292,6 @@ func TestSpawnRunner_ASecondRunnerOnALiveChatIsRefusedBeforeItForks(t *testing.T
 	assert.False(t, recorded, "a refused spawn records nothing over the live runner")
 }
 
-// A turn a hook opened on a spawn that then failed is closed with it, and none
-// opens on the runner after: the chat is free, and nothing waits on that turn.
 func TestRecordSpawnFailure_ClosesATurnOpenedInTheWindow(t *testing.T) {
 	runner := engineagents.Runner{ID: "runner-1", ProviderID: "claude", CurrentChatID: "chat-1"}
 	rs := &Runners{
@@ -351,8 +316,6 @@ func TestRecordSpawnFailure_ClosesATurnOpenedInTheWindow(t *testing.T) {
 	assert.False(t, opened, "a turn opened on a runner whose spawn failed")
 }
 
-// A spawn the connection refuses before anything forked leaves neither its
-// runner directory nor its surface entry behind: no exit callback reaps them.
 func TestSpawnRunner_ARefusedPreForkSpawnReapsItsDirAndSurface(t *testing.T) {
 	h := helperServeSpawn(t, "refuse", false)
 	t.Setenv(helperServeAsked, filepath.Join(t.TempDir(), "asked"))

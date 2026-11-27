@@ -111,8 +111,6 @@ func TestCodeActionDocumentSymbol_200(t *testing.T) {
 	}
 }
 
-// lspRequestRoutes is every request/response LSP route with a body that
-// satisfies binding, used by the table-driven guard tests.
 func lspRequestRoutes() map[string]map[string]any {
 	return map[string]map[string]any{
 		"completion":     {"path": "main.go"},
@@ -135,9 +133,6 @@ func TestLSPRequest_BadBody_400(t *testing.T) {
 	}
 }
 
-// TestLSPRequest_NoResolvedWorkspace_500 is the wiring-bug guard: a route
-// mounted outside chatScoped's resolveChatWorktree middleware finds no
-// workspace on reqscope and reports a 500 (Handlers.workspace).
 func TestLSPRequest_NoResolvedWorkspace_500(t *testing.T) {
 	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 

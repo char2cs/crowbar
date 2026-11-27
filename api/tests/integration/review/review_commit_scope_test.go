@@ -11,17 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// The windowed review routes answer the workspace's whole branch by default.
-// `?sha=` narrows them to ONE commit, which is what lets history be read on the
-// same surface as the review instead of on a second, Monaco-based one.
-//
-// The distinction these tests defend is not "does a commit-scoped read return
-// something" but "does it return the commit AND NOT the branch". Both diffs are
-// non-empty here on purpose: a scoping bug that quietly answered the branch
-// would pass any assertion that only checked for content.
-
-// commitScopeFixture lays down two commits, each touching a different file, and
-// returns their SHAs oldest-first.
 func (s *ReviewSuite) commitScopeFixture() (first, second string) {
 	worktree := s.env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.wsID)
 	kit.CommitFile(s.T(), worktree, "src/first.ts", "export const first = 1\n", "first change")
@@ -67,8 +56,6 @@ func (s *ReviewSuite) TestRegression_OutlineScopedToACommitExcludesTheRestOfTheB
 	s.Assert().NotContains(scoped, "src/first.ts",
 		"a commit-scoped outline must not carry the commit before it — that is the whole point of the range")
 
-	// And the other way round, so the test cannot pass by always answering the
-	// LAST commit.
 	scopedFirst := s.outlinePaths("?sha=" + first)
 	s.Assert().Contains(scopedFirst, "src/first.ts")
 	s.Assert().NotContains(scopedFirst, "src/second.ts")
@@ -145,36 +132,19 @@ func (s *ReviewSuite) TestRegression_SearchScopedToACommitOnlySeesThatCommit() {
 	s.Assert().NotContains(hits("?q=export&sha="+second), "src/first.ts")
 }
 
-// A root commit has no parent, so `<commit>^` does not resolve and the diff has
-// to be taken against git's empty tree instead. Without that fallback the ref
-// would come out as "..<sha>", which git reads as HEAD..<sha> — a silently
-// wrong answer rather than an error.
-//
-// The assertion is that the request SUCCEEDS, not that it returns files: this
-// suite's fixture repo is created with an `--allow-empty` initial commit (see
-// kit.InitRepo), so its root introduces no files and an empty list is the
-// correct answer here. That the ref is built against the empty tree at all is
-// pinned by TestCommitRange_RootCommitDiffsAgainstTheEmptyTree, which can name
-// the ref directly. Do not "fix" this by asserting a non-empty list — it would
-// only pass by changing the fixture.
 func (s *ReviewSuite) TestRegression_RootCommitIsReadableAgainstTheEmptyTree() {
 	worktree := s.env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.wsID)
 	root := strings.TrimSpace(kit.GitRun(s.T(), worktree, "rev-list", "--max-parents=0", "HEAD"))
 	s.Require().NotEmpty(root, "the fixture repo must have a root commit")
 	s.Require().NotContains(root, "\n", "the fixture must have exactly one root commit")
 
-	// A 500 here is the failure mode: an unresolvable parent taking the whole
-	// read down. outlinePaths requires 200.
 	s.Assert().NotNil(s.outlinePaths("?sha=" + root))
 
-	// The patch route resolves the same ref, so it must survive the same commit.
 	resp := s.env.GET(s.T(), s.base()+"/review/patch?sha="+root+"&path=whatever.ts")
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	_ = resp.Body.Close()
 }
 
-// The ref this builds becomes an argument to `git diff`, where a leading `-` is
-// a flag. A rejection here is a 400, never a subprocess.
 func (s *ReviewSuite) TestRegression_NonHexCommitScopeIsRefused() {
 	for _, bad := range []string{"--output=/tmp/pwned", "HEAD", "main..other", "$(whoami)"} {
 		resp := s.env.GET(s.T(), s.base()+"/review/outline?sha="+bad)

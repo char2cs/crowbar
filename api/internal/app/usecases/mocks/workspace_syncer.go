@@ -7,8 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// WorkspaceSyncer is a fake of the workspace syncer surface used by the file and
-// git usecases.
 type WorkspaceSyncer struct {
 	Synced     bool
 	SyncedID   string
@@ -22,7 +20,6 @@ type WorkspaceSyncer struct {
 	ResolveFn func(ctx context.Context, id string, now time.Time) (domain.Workspace, error)
 }
 
-// NewWorkspaceSyncer returns an empty WorkspaceSyncer.
 func NewWorkspaceSyncer() *WorkspaceSyncer {
 	return &WorkspaceSyncer{}
 }
@@ -34,8 +31,6 @@ func (s *WorkspaceSyncer) Get(
 	return s.GetFn(ctx, id)
 }
 
-// List returns the fake's workspace rows, defaulting to none when no ListFn is
-// set (the cascade then finds no children — the pull/fetch resyncs only itself).
 func (s *WorkspaceSyncer) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {

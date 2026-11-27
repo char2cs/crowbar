@@ -85,8 +85,6 @@ func TestGormStore_FindByKey_ContextCancelled(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestOpenDB_ReadonlyDB_FailsToOpen: OpenDB refuses a database whose file and
-// directory cannot be written.
 func TestOpenDB_ReadonlyDB_FailsToOpen(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission denial has no effect")
@@ -112,9 +110,6 @@ func TestOpenDB_ReadonlyDB_FailsToOpen(t *testing.T) {
 	assert.Contains(t, err.Error(), "readonly database")
 }
 
-// noPrimaryKey has no field tagged (or named) as a primary key, exercising
-// the "no primary key field found" error path shared by primaryKeyColumn,
-// NewFromDB and New.
 type noPrimaryKey struct {
 	Name string
 }
@@ -125,8 +120,6 @@ func TestNew_NoPrimaryKeyField_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no primary key field found")
 }
 
-// badSchemaField cannot be parsed by GORM's schema parser (function-typed
-// fields are unsupported), exercising NewFromDB's AutoMigrate error branch.
 type badSchemaField struct {
 	F func()
 }
@@ -140,10 +133,6 @@ func TestNewFromDB_AutoMigrateError(t *testing.T) {
 	assert.Contains(t, err.Error(), "sqlite: migrate:")
 }
 
-// scopedFixture is a local GORM model exercising the WIDE ScopedStore surface —
-// a repo-scoped FindWhere rather than a whole-table scan — independent of any
-// real domain type, so this generic-adapter coverage does not ride on a
-// particular aggregate's schema.
 type scopedFixture struct {
 	ID        string `gorm:"primaryKey" json:"id"`
 	RepoID    string `json:"repoId"`
@@ -174,8 +163,6 @@ func TestGormStore_FindWhere_NarrowsToTheMatchingRows(t *testing.T) {
 	assert.Equal(t, "f1", got[0].ID)
 }
 
-// Zero fields are "don't care", not "must be empty" — the semantics the
-// interface documents, and the reason parent filtering happens in memory.
 func TestGormStore_FindWhere_IgnoresZeroFields(t *testing.T) {
 	ctx, s := newScopedFixtureStore(t)
 	require.NoError(t, s.Save(ctx, scopedFixture{ID: "f1", ProjectID: "p1", RepoID: "r1", ParentID: "w1"}))
@@ -195,8 +182,6 @@ func TestGormStore_FindWhere_NoMatchReturnsEmpty(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// `order` is a SQL keyword. GORM quotes it, but a silent failure here would show
-// up as every sidebar row collapsing to index 0, so it is pinned explicitly.
 func TestGormStore_OrderColumnRoundTrips(t *testing.T) {
 	ctx, s := newScopedFixtureStore(t)
 	require.NoError(t, s.Save(ctx, scopedFixture{ID: "f1", ProjectID: "p1", RepoID: "r1", Order: 7}))
@@ -220,8 +205,6 @@ func TestGormStore_FindWhere_ClosedDB_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestOpenDB_FilesAreOwnerOnly: a database OpenDB creates is 0600 and SQLite
-// gives its -wal and -shm the same mode; an existing looser one is narrowed.
 func TestOpenDB_FilesAreOwnerOnly(t *testing.T) {
 	dir := t.TempDir()
 	fresh := filepath.Join(dir, "fresh.db")

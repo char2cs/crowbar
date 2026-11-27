@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// fault is a check the pending steps fail before the run writes anything, and
-// the step to blame. It is the cause of the boot's halt, and of the same halt in
-// a preview.
 type fault struct {
 	reason HaltReason
 	step   Step
@@ -28,15 +25,11 @@ func (f *fault) Unwrap() error {
 	return f.cause
 }
 
-// checked is what the preflight decided about the pending steps.
 type checked struct {
 	plans  []Plan
 	backup backupDue
 }
 
-// backupDue is what the run does about state/ first: copies it (copy), keeps a
-// backup an earlier attempt took (kept, that run's id), or neither. gone is a
-// backup the ledger names that is no longer on disk.
 type backupDue struct {
 	step  Step
 	copy  bool
@@ -47,9 +40,6 @@ type backupDue struct {
 	extra []string
 }
 
-// preflight plans every pending step of both phases offline, checks what the
-// plans need and backs up state/ when one rewrites it, so a boot that will fail
-// fails before it changes anything.
 func (s *Session) preflight(
 	ctx context.Context,
 	pending []Step,
@@ -68,9 +58,6 @@ func (s *Session) preflight(
 	return s.backUpState(res.backup)
 }
 
-// checkPending plans the pending steps and makes every decision the run makes
-// before it writes anything; the session acts on it and Inspect reports it. A
-// failed check is a *fault; any other error is ctx giving up.
 func checkPending(
 	ctx context.Context,
 	env Env,
@@ -113,9 +100,6 @@ func planSteps(
 	return plans, nil
 }
 
-// dueBackup is the one rule for the run's backup of state/: due when a plan
-// rewrites it and it holds files, unless an earlier attempt's backup is still on
-// disk. It fails as the run would, on an entry a backup cannot take or no room.
 func dueBackup(
 	h home.Home,
 	view ledgerView,
@@ -156,9 +140,6 @@ func dueBackup(
 	return due, nil
 }
 
-// backUpState acts on dueBackup: one copy of state/ per migration attempt, kept
-// across retries, so partly migrated state never replaces the image a person
-// would restore from.
 func (s *Session) backUpState(
 	due backupDue,
 ) error {
@@ -174,8 +155,6 @@ func (s *Session) backUpState(
 	return nil
 }
 
-// takeBackup copies state/ and records the copy. A copy the ledger cannot
-// record is removed: no halt would offer it, and no retry would reuse it.
 func (s *Session) takeBackup(
 	extra []string,
 ) error {
@@ -192,7 +171,6 @@ func (s *Session) takeBackup(
 	return writeRestoreNote(s.home)
 }
 
-// backupOnDisk reports whether the backup at path is there to restore from.
 func backupOnDisk(
 	path string,
 ) bool {
@@ -200,8 +178,6 @@ func backupOnDisk(
 	return err == nil && on
 }
 
-// backupExists reports whether the backup at path is still on disk; no path
-// means there is none.
 func backupExists(
 	path string,
 ) (bool, error) {

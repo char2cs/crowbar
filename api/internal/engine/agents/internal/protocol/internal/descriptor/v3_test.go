@@ -109,15 +109,12 @@ func TestParseV0_RejectsAReplyTheEventDoesNotDeclare(t *testing.T) {
 }
 
 func TestParseV0_RejectsADirectionMismatch(t *testing.T) {
-	// compact_start is an `out` event; declaring it with `in:` is a descriptor bug.
 	bad := strings.Replace(minimalV3, "    out: thread/compact/start", "    in: thread/compact/start", 1)
 	if _, err := descriptor.ParseV0([]byte(bad)); err == nil {
 		t.Fatal("an out-event declared with in: must be rejected")
 	}
 }
 
-// The glyph error names the descriptor by re-reading its id; when that read
-// fails too, the failure travels with the glyph rather than vanishing.
 func TestParseV0_AnUnreadableIDIsReportedBesideTheGlyphError(t *testing.T) {
 	bad := strings.Replace(minimalV3, "id: acme", "id: [acme]", 1)
 	bad = strings.Replace(bad, "map: { session_id: thread.id }", "map: { session_id: thread.id || thread.sid }", 1)
@@ -139,7 +136,6 @@ func TestParseV0_RejectsAnEventDeclaringNoWireName(t *testing.T) {
 	}
 }
 
-// Per-event transport is what makes a MIXED provider possible with no new concept.
 func TestParseV0_PerEventTransportOverridesTheRuntimeDefault(t *testing.T) {
 	mixed := strings.Replace(minimalV3,
 		"  compact_start:\n    out: thread/compact/start",
@@ -156,8 +152,6 @@ func TestParseV0_PerEventTransportOverridesTheRuntimeDefault(t *testing.T) {
 	}
 }
 
-// channelSplitTooPre replaces minimalV3's legacy tool_pre: a channel-scoped event
-// must coexist with the other legacy flat-form events in one descriptor.
 const channelSplitTooPre = `  tool_pre:
     required: [session_id, tool_id, tool_name]
     api:
@@ -198,14 +192,11 @@ func TestParseV0_ChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 		t.Errorf("tool_pre.required = %v", got)
 	}
 
-	// Legacy events in the SAME descriptor are unaffected.
 	if got := d.Events["session_start"].In.Name(); got != "thread/started" {
 		t.Errorf("session_start.in = %q (legacy events must still parse unchanged)", got)
 	}
 }
 
-// vocab.Validate must see the UNION of both channel blocks' mapped fields, or
-// a bad field name in either block would silently escape validation.
 func TestParseV0_RejectsAnUnknownFieldInAChannelBlock(t *testing.T) {
 	bad := strings.Replace(withChannelSplitEvent(minimalV3),
 		"map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name }",
@@ -233,9 +224,6 @@ func TestParseV0_RejectsAnEventMixingFlatMapAndChannelForms(t *testing.T) {
 	}
 }
 
-// A channel-scoped event whose blocks name no wire method at all is exactly
-// as broken as a legacy event with no in:/out:/ask: — checkEvent's "names
-// nothing" rule must reach through channel blocks too.
 func TestParseV0_RejectsAChannelBlockEventDeclaringNoWireName(t *testing.T) {
 	bad := strings.Replace(withChannelSplitEvent(minimalV3),
 		"    api:\n      in: item/started\n", "    api:\n", 1)
@@ -245,7 +233,6 @@ func TestParseV0_RejectsAChannelBlockEventDeclaringNoWireName(t *testing.T) {
 	}
 }
 
-// legacyPermission is minimalV3's flat permission event; channelSplitPermission replaces it.
 const legacyPermission = `  permission:
     ask: approval/request
     timeout_seconds: 270
@@ -253,8 +240,6 @@ const legacyPermission = `  permission:
     reply: { allow: '{"decision":"approved"}', deny: '{"decision":"denied"}' }
 `
 
-// channelSplitPermission is an ask event split by channel, reply: staying flat on
-// the event (see ChannelBlock).
 const channelSplitPermission = `  permission:
     required: [session_id, tool_name]
     timeout_seconds: 270
@@ -288,13 +273,11 @@ func TestParseV0_AskChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
 		t.Error("permission.reply.allow is empty — reply: must stay flat across the split")
 	}
 
-	// The other legacy events in the same descriptor are unaffected.
 	if got := d.Events["session_start"].In.Name(); got != "thread/started" {
 		t.Errorf("session_start.in = %q (legacy events must still parse unchanged)", got)
 	}
 }
 
-// AnswerFor resolves the reply from the channel-scoped shape as it does from the flat one.
 func TestParseV0_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
 	d := mustParse(t, withChannelSplitAskEvent(minimalV3))
 
@@ -307,8 +290,6 @@ func TestParseV0_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
 	}
 }
 
-// A block naming BOTH in: and ask: is ambiguous — mirrors the flat-vs-channel
-// mixing rejections above, one level down.
 func TestParseV0_RejectsAChannelBlockDeclaringBothInAndAsk(t *testing.T) {
 	bad := strings.Replace(withChannelSplitAskEvent(minimalV3),
 		"    api:\n      ask: approval/request\n",
@@ -329,7 +310,7 @@ func TestCheckProtocolVersion(t *testing.T) {
 		{"1.9", true},
 		{"2.4", false},
 		{"0.9", false},
-		{"", true}, // a provider that reports no version is not gated
+		{"", true},
 	} {
 		err := descriptor.CheckProtocolVersion(d, tc.actual)
 		if tc.wantOK && err != nil {
@@ -341,7 +322,6 @@ func TestCheckProtocolVersion(t *testing.T) {
 	}
 }
 
-// A dotted-numeric compare, not a string compare: "1.10" is NEWER than "1.9".
 func TestCheckProtocolVersion_ComparesNumericallyNotLexically(t *testing.T) {
 	y := strings.Replace(minimalV3, `min: "1.0", max: "1.9"`, `min: "1.2", max: "1.10"`, 1)
 	d := mustParse(t, y)
@@ -353,8 +333,6 @@ func TestCheckProtocolVersion_ComparesNumericallyNotLexically(t *testing.T) {
 	}
 }
 
-// A descriptor that declares no range accepts anything — providers without a readable
-// version must not be blocked.
 func TestCheckProtocolVersion_NoRangeAcceptsAnything(t *testing.T) {
 	y := strings.Replace(minimalV3, `protocol_version: { min: "1.0", max: "1.9" }`, "", 1)
 	d := mustParse(t, y)
@@ -363,8 +341,6 @@ func TestCheckProtocolVersion_NoRangeAcceptsAnything(t *testing.T) {
 	}
 }
 
-// A claude prompt and the stop that ends its turn both name the turn by its
-// prompt_id, so a stop for an earlier turn is told apart from the running one.
 func TestClaudeDescriptor_NamesTheTurnAPromptAndItsStopBelongTo(t *testing.T) {
 	d := loadDescriptor(t, "claude")
 	for name, fixture := range map[string]string{"user_prompt": "UserPromptSubmit.json", "turn_stop": "Stop.json"} {
@@ -400,7 +376,6 @@ func parseRaw(t *testing.T, d *spec.Descriptor, event string, raw []byte, ch spe
 	return ev.Tool
 }
 
-// parseRecorded unwraps an api frame to its params, as the transport hands it over.
 func parseRecorded(t *testing.T, d *spec.Descriptor, event, file string, ch spec.Channel) *models.ToolEvent {
 	t.Helper()
 	raw, err := os.ReadFile(fixtureRoot + "/" + d.ID + "/" + file)
@@ -435,8 +410,6 @@ const capturedFence = `
     send: { generation: "{fence}" }
 `
 
-// An outbound send may name any value a step captures; a name nothing captures is
-// still a typo the closed vocabulary rejects.
 func TestParseV0_AnOutboundSendMayReferenceACapturedValue(t *testing.T) {
 	d := mustParse(t, minimalV3+capturedFence)
 	if got := d.Events["interrupt"].Send["generation"]; got != "{fence}" {
@@ -455,8 +428,6 @@ const rememberedFence = `
     send: { generation: "{captured.fence}" }
 `
 
-// A value remember: keeps from frames is named captured.NAME in a send; one no
-// entry keeps is rejected like any other unknown name.
 func TestParseV0_AnOutboundSendMayReferenceARememberedFrameValue(t *testing.T) {
 	remembering := strings.Replace(minimalV3, "    serve: [acme, serve]\n",
 		"    serve: [acme, serve]\n    remember:\n      - { in: turn/started, capture: { fence: turn.generation } }\n", 1)

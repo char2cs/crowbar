@@ -11,7 +11,6 @@ import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// EncodeEntity is the wire payload of an entity frame of kind.
 func EncodeEntity(kind stream.EntityKind, v any) (json.RawMessage, error) {
 	switch kind {
 	case stream.KindOperation:
@@ -53,7 +52,6 @@ func EncodeEntity(kind stream.EntityKind, v any) (json.RawMessage, error) {
 	}
 }
 
-// encodeAs is v's JSON when v is the wire DTO kind carries.
 func encodeAs[T any](kind stream.EntityKind, v any) (json.RawMessage, error) {
 	d, ok := v.(T)
 	if !ok {
@@ -66,8 +64,6 @@ func encodeAs[T any](kind stream.EntityKind, v any) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// encodeReviewThread is a thread's ThreadDTO: a REST write hands the DTO it
-// answered with, a snapshot or an agent the thread and the ids its scope names.
 func encodeReviewThread(v any) (json.RawMessage, error) {
 	d, ok := v.(dto.ThreadDTO)
 	if th, isThread := v.(appstream.ReviewThread); isThread {

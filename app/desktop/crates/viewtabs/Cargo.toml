@@ -1,0 +1,22 @@
+[package]
+name = "viewtabs"
+description = "The view-tab strip of the Crowbar shell: one pill per tab, reorder and merge by drag, driven by the model's commands."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+layout.workspace = true
+protocol.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+ui = { workspace = true, features = ["test-support"] }
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

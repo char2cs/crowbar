@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// GetPatch streams ONE file's patch (by NEW path) from git straight into w, never holding it, and reports
-// lines written and whether maxLines (<= 0 unlimited, cut on a hunk boundary) truncated it. An empty path
-// is refused: it would match the whole tree. commit scopes the read; see resolveScopeRef.
 func (u *branchReviewUsecase) GetPatch(
 	ctx context.Context,
 	wsID string,

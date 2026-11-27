@@ -1,0 +1,99 @@
+[graph]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "aarch64-apple-ios",
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+# Each entry must name the crate, the parent that pulls it in, and when to revisit it.
+# Delete an entry as soon as `cargo deny check` stops needing it.
+ignore = [
+  # chrono, unmaintained: gpui-pre and gpui-pre-scheduler pull it in (store uses it too).
+  # Revisit when gpui-pre drops it.
+  "RUSTSEC-2026-0543",
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Crowbar itself is AGPL-3.0-only OR LicenseRef-Commercial (legal/LICENSING.md). Dependencies must be
+# permissive or weak copyleft so the commercial offer stays possible: no GPL, LGPL or AGPL crates.
+# Fonts (legal/licenses: OFL-1.1, MIT) are assets, not crates.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "CC0-1.0",
+  "BSL-1.0",
+  "MPL-2.0",
+  "Unicode-3.0",
+]
+exceptions = []
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+# The bans guard code we write. Transitive uses are allowed only through the exact direct parents
+# below, which are third-party crates we cannot change; a new parent fails the check and needs review.
+deny = [
+  { crate = "lazy_static", reason = "use std::sync::LazyLock inside a constructor, or pass state in (M24)", wrappers = [
+    "sharded-slab",    # tracing-subscriber (diagnostics). Revisit when tracing-subscriber drops it.
+    "zed-font-kit",    # gpui. Revisit when gpui bumps.
+  ] },
+  { crate = "once_cell", reason = "std covers it; global init is banned by M24", wrappers = [
+    "ahash",                  # zed-xim under gpui
+    "cairo-rs",               # gtk-rs 0.18 under wry (webview)
+    "const-random-macro",     # ahash under gpui
+    "dbus-secret-service",    # keyring's Linux Secret Service store (transport); upstream
+    "gdk-pixbuf",             # gtk-rs 0.18 under wry
+    "gio",                    # gtk-rs 0.18 under wry
+    "glib",                   # gtk-rs 0.18 under wry
+    "gpui-component",         # gpui-kit 0.11 theme colours; owner approved 2026-11-25
+    "is-docker",              # gpui
+    "is-wsl",                 # gpui
+    "naga",                   # wgpu under gpui
+    "num-bigint-dig",         # oo7 keyring under gpui
+    "pango",                  # gtk-rs 0.18 under wry
+    "proc-macro-crate",       # gtk-rs 0.18 macros
+    "read-fonts",             # gpui font stack
+    "rustls",                 # zed-reqwest under gpui; daemon transport
+    "tempfile",               # temp files in tests and the app; upstream
+    "tracing-core",           # tracing
+    "tracing-subscriber",     # diagnostics
+    "wayland-sys",            # gpui Linux
+    "webkit2gtk",             # wry on Linux
+    "wgpu-core",              # gpui renderer (gpui-pre-wgpu)
+    "wry",                    # the web view crate (webview)
+    "x11-dl",                 # gpui Linux
+    "yeslogic-fontconfig-sys",  # gpui font stack
+  ] },
+  { crate = "ctor", reason = "init magic (M24)", wrappers = [
+    "gpui-pre-macos",  # gpui's macOS platform registers its classes at load. Revisit when gpui bumps.
+  ] },
+  { crate = "inventory", reason = "init magic (M24)", wrappers = [
+    "gpui-pre",  # action and element registry. Revisit when gpui bumps.
+  ] },
+  { crate = "linkme", reason = "init magic (M24)" },
+  { crate = "failure", reason = "unmaintained; use thiserror" },
+  { crate = "error-chain", reason = "unmaintained; use thiserror" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

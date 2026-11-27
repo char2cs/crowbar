@@ -58,10 +58,6 @@ const threeQuestionPayload = `{
      "options":[{"label":"Local"},{"label":"Cloud"}]}]}}`
 
 func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
-	// suggestion_description needs a REAL first_present: [mode, destination] —
-	// claude's own shape — to prove the fallthrough this test asserts on; every
-	// other test sharing permissionMap() does not care, so it stays out of the
-	// shared single-path map.
 	fields := fieldMap(permissionMap())
 	fields["suggestion_description"] = mapping.Paths("mode", "destination")
 	d := descriptorWithFields(spec.HookPermission, fields)
@@ -454,8 +450,6 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 	assert.Len(t, permission.Choice.Options, 34, "allow and deny, then the capped suggestions")
 }
 
-// A label the descriptor gives a suggestion's exact grant reads alone: the provider's
-// machine word for it (acceptEdits) is never shown as the description.
 func TestParse_ASuggestionsExactGrantReadsInWords(t *testing.T) {
 	m := permissionMap()
 	m["suggestion_description"] = "mode"
@@ -470,8 +464,6 @@ func TestParse_ASuggestionsExactGrantReadsInWords(t *testing.T) {
 	assert.Empty(t, ev.Choice.Options[3].Description)
 }
 
-// A descriptor may declare the question's own id and plain-string choices, so the
-// answer is keyed by the id the provider will look up; undeclared, q<index> stays.
 func TestParse_AQuestionKeepsItsDeclaredIDAndStringChoices(t *testing.T) {
 	fields := fieldMap(map[string]string{
 		"prompt_id": "request_id", "questions": "questions", "question_text": "text",

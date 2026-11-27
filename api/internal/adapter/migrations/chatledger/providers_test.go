@@ -71,12 +71,12 @@ func TestNewestProviders_TheNewestOfConversationsSwitchesAndPlacementsWins(t *te
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
-		"switched":        "codex",  // the switch at :02 is newer than the conversation and the placement
-		"placed":          "claude", // the placement at :05 is newer than the conversation at :03
-		"tied":            "claude", // a tie goes to the lowest provider id, whichever source names it
+		"switched":        "codex",
+		"placed":          "claude",
+		"tied":            "claude",
 		"tied-reversed":   "claude",
-		"tied-placements": "claude", // and whichever row was written first
-		"only-switched":   "claude", // an interruption of another kind names no provider
+		"tied-placements": "claude",
+		"only-switched":   "claude",
 	}, got)
 }
 
@@ -94,8 +94,6 @@ func TestNewestProviders_MissingDatabasesAreEmpty(t *testing.T) {
 	assert.Empty(t, got, "a database without the legacy tables is empty history")
 }
 
-// A history it cannot read halts the step: reading it as empty would leave
-// those chats on the provider their history disagrees with.
 func TestNewestProviders_AHistoryItCannotReadFails(t *testing.T) {
 	for name, seed := range map[string]func(t *testing.T, h home.Home){
 		"not a database": func(t *testing.T, h home.Home) {

@@ -1,0 +1,8 @@
+{
+ "description": "Plain working: nothing streams, the turn holds until stopped.",
+ "steps": [
+  {
+   "do": "hang"
+  }
+ ]
+}

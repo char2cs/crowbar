@@ -48,8 +48,6 @@ type postReviewCommentArgs struct {
 	IdempotencyKey string `json:"idempotencyKey"`
 }
 
-// postReviewComment validates the anchor against the current review before writing anything, then opens
-// the thread under the caller's own workspace; a guessed line must never become a stored comment.
 func postReviewComment(
 	ctx context.Context,
 	deps Deps,
@@ -70,8 +68,6 @@ func postReviewComment(
 	if err := render.CheckBody("post_review_comment", in.Body); err != nil {
 		return "", err
 	}
-	// commit="" is the whole branch diff get_review_scope reports; a user viewing one commit sees
-	// narrower geometry, so a branch-valid anchor can still fall outside their view.
 	outline, err := deps.Review.GetOutline(ctx, c.Workspace.ID, "")
 	if err != nil {
 		return "", fmt.Errorf("agenttools: post_review_comment: outline: %w", err)
@@ -89,11 +85,9 @@ func postReviewComment(
 	if err != nil {
 		return "", fmt.Errorf("agenttools: post_review_comment: %w", err)
 	}
-	// Only a real write is announced; a dedup hit changed nothing.
 	if out.created {
 		deps.ThreadBroadcast(out.fresh.NormalizedMessages(), c.Workspace.ProjectID, c.Workspace.RepoID)
 	}
-	// Report the stored anchor: a keyed retry with different lines wrote nothing.
 	stored := out.stored
 	return fmt.Sprintf(
 		"Posted review comment %s on %s:%d-%d (%s side).",
@@ -101,9 +95,6 @@ func postReviewComment(
 	), nil
 }
 
-// openInputFor builds the thread write. WsID, ProviderID and ChatID come from the resolved Caller, never
-// the arguments, so a model cannot steer or forge them. LineNumber repeats StartLine for clients that
-// read only the single-line anchor.
 func openInputFor(
 	c Caller,
 	in postReviewCommentArgs,
@@ -126,8 +117,6 @@ func openInputFor(
 	}
 }
 
-// authorOf attributes the finding to the vendor CLI that reported it, so another agent can tell who left
-// it. It is never empty: a blank author renders as the user.
 func authorOf(c Caller) string {
 	if c.ProviderID == "" {
 		return "agent"

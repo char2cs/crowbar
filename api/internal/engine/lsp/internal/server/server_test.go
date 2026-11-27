@@ -19,9 +19,6 @@ import (
 
 var errBoom = errors.New("boom")
 
-// fakeServer is an in-process LSP peer speaking the protocol framing over one
-// end of a net.Pipe. It records received requests/notifications and lets the
-// test drive responses and notifications.
 type fakeServer struct {
 	conn   net.Conn
 	reader *bufio.Reader
@@ -32,7 +29,6 @@ type fakeServer struct {
 
 	gotReq   chan protocol.Request
 	gotNotif chan protocol.Notification
-	// gotReply receives the client's replies to requests the fake sent.
 	gotReply chan []byte
 }
 
@@ -137,11 +133,6 @@ func (f *fakeServer) notifCount(
 	return n
 }
 
-// newTestServer wires a server over one end of a net.Pipe and returns the
-// server plus the fake peer on the other end. The spawn closure reconnects
-// the same fake on Replay by handing back a fresh pipe whose far end is
-// served by a new fakeServer recorded into fakeRef.
-// newOverTransport is New over an in-memory transport; spawn (nil for none) is what Replay respawns.
 func newOverTransport(
 	transport io.ReadWriteCloser,
 	spawn spawnFunc,
@@ -253,9 +244,6 @@ func TestServer_DiagnosticsCallback(t *testing.T) {
 		},
 	})
 
-	// Block on the callback the server actually invokes when it decodes the
-	// notification off the wire — the real signal. `go test -timeout` is the
-	// backstop if it never arrives.
 	ev := <-got
 	require.Len(t, ev.Diagnostics, 1)
 	assert.Equal(t, "/main.go", ev.Diagnostics[0].FilePath)
@@ -282,9 +270,6 @@ func TestServer_RequestRespectsContextCancel(t *testing.T) {
 		done <- err
 	}()
 
-	// The fake server receiving the request is the real signal that the in-flight
-	// waiter is registered — cancelling before that would exercise the early-bail
-	// path instead. A 50ms deadline was only ever a guess that we had got here.
 	<-fake.gotReq
 	cancel()
 
@@ -326,16 +311,13 @@ func TestServer_NotifyRespectsContextCancel(t *testing.T) {
 func TestServer_DispatchIgnoresMalformedAndUnknownID(t *testing.T) {
 	srv, fake := newTestServer(t)
 
-	// Malformed JSON payload — dispatch must ignore it without panicking.
 	require.NoError(t, protocol.WriteMessage(fake.conn, []byte("not json")))
 
-	// Response for an id with no waiter — must be dropped silently.
 	id := 9999
 	resp := protocol.Response{JSONRPC: "2.0", ID: &id, Result: json.RawMessage(`{}`)}
 	out, _ := json.Marshal(resp)
 	require.NoError(t, protocol.WriteMessage(fake.conn, out))
 
-	// A subsequent correlated request still works, proving the loop survived.
 	done := make(chan json.RawMessage, 1)
 	go func() {
 		raw, _ := srv.Request(context.Background(), "ping", nil)
@@ -350,10 +332,8 @@ func TestServer_DispatchIgnoresMalformedAndUnknownID(t *testing.T) {
 func TestServer_DiagnosticsIgnoredWithoutCallback(t *testing.T) {
 	srv, fake := newTestServer(t)
 
-	// No OnDiagnostics registered — push must be a no-op.
 	fake.pushDiagnostics("file:///x.go", []map[string]any{{"severity": 1, "message": "m"}})
 
-	// Then a bad-params publishDiagnostics with a callback set must not panic.
 	srv.OnDiagnostics(func(lsp.DiagnosticsEvent) {})
 	resp := protocol.Response{
 		JSONRPC: "2.0",
@@ -363,7 +343,6 @@ func TestServer_DiagnosticsIgnoredWithoutCallback(t *testing.T) {
 	out, _ := json.Marshal(resp)
 	require.NoError(t, protocol.WriteMessage(fake.conn, out))
 
-	// Liveness check.
 	done := make(chan json.RawMessage, 1)
 	go func() {
 		raw, _ := srv.Request(context.Background(), "ping", nil)
@@ -387,7 +366,7 @@ type errTransport struct {
 func (e *errTransport) Read(
 	p []byte,
 ) (int, error) {
-	select {} // block forever; the read loop just parks
+	select {}
 }
 
 func (e *errTransport) Write(
@@ -421,7 +400,6 @@ func TestServer_EmptyDiagnosticsDeliversEmptyBatch(t *testing.T) {
 
 	fake.pushDiagnostics("file:///x.go", nil)
 
-	// Block on the real callback; an empty batch is still a delivered batch.
 	ev := <-got
 	assert.Empty(t, ev.Diagnostics)
 }
@@ -434,7 +412,7 @@ func TestServer_PendingRequestFailsOnClose(t *testing.T) {
 		_, err := srv.Request(context.Background(), "slow", nil)
 		done <- err
 	}()
-	<-fake.gotReq // ensure the waiter is registered before closing
+	<-fake.gotReq
 
 	require.NoError(t, srv.Close())
 

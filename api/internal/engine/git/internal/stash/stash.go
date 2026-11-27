@@ -1,4 +1,3 @@
-// Package stash provides git stash operations for a repository.
 package stash
 
 import (
@@ -13,10 +12,8 @@ import (
 
 const stashDateFormat = "2006-01-02 15:04:05 -0700"
 
-// gitRunner is the function used to run git commands; overridable in tests.
 var gitRunner = exec.Git
 
-// List returns all stash entries for the repository at repoPath.
 func List(
 	ctx context.Context,
 	repoPath string,
@@ -48,7 +45,6 @@ func List(
 	return stashes, nil
 }
 
-// Push stashes current working-tree changes. message is optional.
 func Push(
 	ctx context.Context,
 	repoPath string,
@@ -62,7 +58,6 @@ func Push(
 	return exec.RequireSuccess("stash: push", r)
 }
 
-// Apply applies a stash entry without removing it. id is "stash@{N}".
 func Apply(
 	ctx context.Context,
 	repoPath string,
@@ -72,7 +67,6 @@ func Apply(
 	return exec.RequireSuccess("stash: apply", r)
 }
 
-// Pop applies a stash entry and removes it from the stash list. id is "stash@{N}".
 func Pop(
 	ctx context.Context,
 	repoPath string,
@@ -82,7 +76,6 @@ func Pop(
 	return exec.RequireSuccess("stash: pop", r)
 }
 
-// Drop removes a stash entry without applying it. id is "stash@{N}".
 func Drop(
 	ctx context.Context,
 	repoPath string,

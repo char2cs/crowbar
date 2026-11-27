@@ -9,23 +9,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Resolver reads a chat's lineage out of the store, a read-only service the spawn path and the tool
-// surface share so they agree on one answer.
 type Resolver struct {
 	chats Chats
 }
 
-// New builds the resolver over the chat repository. It is assembled before the agent usecase, not hung off
-// the tree usecase, because the tree usecase holds the agent usecase and the reverse would be a cycle.
 func New(
 	chats Chats,
 ) *Resolver {
 	return &Resolver{chats: chats}
 }
 
-// Ancestors returns chatID's chat ancestors, nearest first; empty at the root or in a folder. The subject
-// comes from LoadChat because the early exit on its ParentID would be wrong on stale projected state right
-// after a create; a parentless chat, nearly every one, costs a single log fold.
 func (r *Resolver) Ancestors(
 	ctx context.Context,
 	chatID string,
@@ -48,8 +41,6 @@ func (r *Resolver) Ancestors(
 	), nil
 }
 
-// lookups folds the workspace's rows into Walk's two maps (container, is-chat), stamping the log-folded
-// subject last so a stale projected row cannot overwrite the one authoritative answer.
 func (r *Resolver) lookups(
 	ctx context.Context,
 	chat domain.Chat,
@@ -72,8 +63,6 @@ func (r *Resolver) lookups(
 	return parents, chats, nil
 }
 
-// fillUnlisted loads, from the log, every row on chatID's chain the workspace
-// list does not carry: a folder owns no workspace, so the list never has it.
 func (r *Resolver) fillUnlisted(
 	ctx context.Context,
 	chatID string,
@@ -88,7 +77,7 @@ func (r *Resolver) fillUnlisted(
 		}
 		row, err := r.chats.LoadChat(ctx, at)
 		if errors.Is(err, agentchat.ErrNotFound) {
-			return nil // not a chat or folder (a workspace node): the walk ends here
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("chat lineage: ancestor %s: %w", at, err)

@@ -6,7 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 )
 
-// loadRule places a daemon load rule in the document and says how to fix it.
 type loadRule struct {
 	path string
 	hint string

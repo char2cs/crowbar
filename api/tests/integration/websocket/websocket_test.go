@@ -17,7 +17,6 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// WebSocketSuite exercises the projects stream scope end-to-end.
 type WebSocketSuite struct {
 	suite.Suite
 	env *kit.Env
@@ -31,8 +30,6 @@ func TestWebSocketSuite(t *testing.T) {
 	suite.Run(t, new(WebSocketSuite))
 }
 
-// triggerWorktreeEvent pushes a mock-provider poll result for wsID: a real,
-// deterministic workspace mutation whose row reaches the projects scope live.
 func triggerWorktreeEvent(t *testing.T, env *kit.Env, wsID, prURL string) {
 	t.Helper()
 	env.PushProviderState(t, wsID, kit.ProviderState{
@@ -43,13 +40,10 @@ func triggerWorktreeEvent(t *testing.T, env *kit.Env, wsID, prURL string) {
 	})
 }
 
-// prURLIs matches a workspace row carrying url.
 func prURLIs(url string) func(map[string]any) bool {
 	return func(m map[string]any) bool { return m["prUrl"] == url }
 }
 
-// TestWS_ProjectsScopeCarriesAWorkspaceChange proves a workspace's live change
-// reaches a projects-scope holder as the row its snapshot would carry.
 func (s *WebSocketSuite) TestWS_ProjectsScopeCarriesAWorkspaceChange() {
 	t := s.T()
 
@@ -64,8 +58,6 @@ func (s *WebSocketSuite) TestWS_ProjectsScopeCarriesAWorkspaceChange() {
 	s.Equal(imported.ProjectID, msg["projectId"])
 }
 
-// TestWS_ProjectsScopeCarriesAnImportedRepo proves an imported repo reaches a
-// projects-scope holder under its project.
 func (s *WebSocketSuite) TestWS_ProjectsScopeCarriesAnImportedRepo() {
 	t := s.T()
 
@@ -80,8 +72,6 @@ func (s *WebSocketSuite) TestWS_ProjectsScopeCarriesAnImportedRepo() {
 	kit.RequireStatus(t, resp, http.StatusAccepted)
 	resp.Body.Close()
 
-	// The importer derives the repo name from the on-disk directory, so match on
-	// its project, not the request body name.
 	msg := watcher.Next(t, 5*time.Second, stream.KindRepo, func(m map[string]any) bool {
 		id, _ := m["id"].(string)
 		return m["projectId"] == projectID && id != ""
@@ -89,8 +79,6 @@ func (s *WebSocketSuite) TestWS_ProjectsScopeCarriesAnImportedRepo() {
 	s.Assert().Equal(projectID, msg["projectId"])
 }
 
-// TestWS_MultiClientFanOut verifies that a workspace change reaches every
-// connection holding the projects scope.
 func (s *WebSocketSuite) TestWS_MultiClientFanOut() {
 	t := s.T()
 

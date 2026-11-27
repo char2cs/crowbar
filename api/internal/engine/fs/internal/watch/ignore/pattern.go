@@ -8,17 +8,12 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// pattern is one compiled gitignore line. glob has any leading "!", trailing "/" and
-// leading "/" stripped; anchored means the line had a leading or internal slash (match
-// relative to its .gitignore's dir); negate means a leading "!".
 type pattern struct {
 	glob     string
 	anchored bool
 	negate   bool
 }
 
-// parseLine compiles one gitignore line into a pattern. It returns ok=false for
-// blank lines, comments and a malformed glob, none of which can match anything.
 func parseLine(
 	line string,
 ) (pattern, bool) {
@@ -48,9 +43,6 @@ func parseLine(
 	}, true
 }
 
-// match reports whether absPath matches, base being the pattern's .gitignore directory:
-// an anchored pattern matches the path relative to base, an unanchored one the final
-// component at any depth below it.
 func (p pattern) match(
 	base string,
 	absPath string,

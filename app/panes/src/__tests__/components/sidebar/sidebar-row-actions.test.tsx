@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render } from '@testing-library/react'
+import { SidebarRowActions } from '@/components/sidebar/sidebar-row-actions'
+import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { resetOperations } from '@/__tests__/__fixtures__/operations'
+import { operationsState } from '@/core/entities/operations'
+
+const { retryProvision } = vi.hoisted(() => ({
+  retryProvision: vi.fn().mockResolvedValue({ items: [] }),
+}))
+vi.mock('@/lib/api/workspace', () => ({ retryProvision }))
+
+const provisioned: SidebarRowType = {
+  id: 'chat-owning-ws-1',
+  kind: 'branch',
+  parentId: 'repo-home-1',
+  order: 0,
+  label: 'main',
+  ownsWorktree: true,
+  workspaceId: 'ws-1',
+  working: false,
+  hasView: false,
+  branchName: 'main',
+  locked: true,
+  status: 'locked',
+  isPlaceholder: false,
+}
+
+function renderActions(row: SidebarRowType, isProjectHome = false, movePending = false) {
+  return render(
+    <SidebarRowActions
+      row={row}
+      isProjectHome={isProjectHome}
+      expanded={false}
+      movePending={movePending}
+      subActionClass=""
+      onCreate={vi.fn()}
+      onTrash={vi.fn()}
+      onToggleFold={vi.fn()}
+    />,
+  )
+}
+
+function controlsOf(row: SidebarRowType, isProjectHome = false, movePending = false): string[] {
+  const { container } = renderActions(row, isProjectHome, movePending)
+  return Array.from(container.querySelectorAll('[data-control]')).map(
+    (el) => el.getAttribute('data-control') ?? '',
+  )
+}
+
+describe('SidebarRowActions', () => {
+  it('offers Make this thread a branch on a repo thread only, and not while it moves', () => {
+    const thread = { ...provisioned, kind: 'chat' as const, ownsWorktree: false }
+    expect(controlsOf({ ...thread, canBranchOut: true })).toEqual([
+      'remove',
+      'thread',
+      'branch-out',
+      'fold',
+    ])
+    expect(controlsOf({ ...thread, canBranchOut: false })).not.toContain('branch-out')
+    expect(controlsOf({ ...thread, canBranchOut: true }, false, true)).not.toContain('branch-out')
+  })
+
+  it('offers Thread and Fork on a branch row whose workspace is provisioned', () => {
+    expect(controlsOf(provisioned)).toEqual(['thread', 'fork', 'fold'])
+  })
+
+  it('offers neither Thread nor Fork on a placeholder branch row', () => {
+    const controls = controlsOf({ ...provisioned, isPlaceholder: true })
+    expect(controls).not.toContain('thread')
+    expect(controls).not.toContain('fork')
+  })
+
+  it('leaves a placeholder branch row its remedy, remove and fold', () => {
+    const controls = controlsOf({ ...provisioned, locked: false, isPlaceholder: true })
+    expect(controls).toEqual(['retry-provision', 'remove', 'fold'])
+  })
+
+  it('Retry runs a retry_provision operation', () => {
+    resetOperations()
+    const { container } = renderActions({ ...provisioned, locked: false, isPlaceholder: true })
+    const retry = container.querySelector('[data-control="retry-provision"]')
+    if (!retry) throw new Error('no Retry control')
+    fireEvent.click(retry)
+
+    const [op] = Object.values(operationsState().ops)
+    expect(op).toMatchObject({
+      kind: 'workspace.retry_provision',
+      subject: { kind: 'workspace', id: 'ws-1' },
+      label: 'Retry main',
+    })
+    expect(retryProvision).toHaveBeenCalledWith('ws-1', op.id)
+  })
+
+  it("names a branch row's removal as the branch and its worktree, not the chat", () => {
+    const { getByRole } = renderActions({ ...provisioned, locked: false, label: 'Add div' })
+    expect(getByRole('button', { name: 'Remove branch main and its worktree' })).toBeTruthy()
+  })
+
+  it('orders Remove before Thread and Fork on an ordinary unlocked branch row', () => {
+    const controls = controlsOf({ ...provisioned, locked: false })
+    expect(controls).toEqual(['remove', 'thread', 'fork', 'fold'])
+  })
+
+  it('shows repo-menu instead of a standalone Remove on a project-home row', () => {
+    const controls = controlsOf(
+      {
+        ...provisioned,
+        locked: false,
+        repoIcon: {
+          repoId: 'repo-1',
+          projectId: 'project-1',
+          name: 'repo',
+          avatarLabel: 'R',
+          avatarColor: '#000',
+        },
+      },
+      true,
+    )
+    expect(controls).toEqual(['repo-menu', 'thread', 'fork', 'fold'])
+    expect(controls).not.toContain('remove')
+  })
+})

@@ -32,7 +32,6 @@ func newAdapter(
 	return c
 }
 
-// wsAx builds axWorkspace over ad with ad's read model as its durable subscriber.
 func wsAx(
 	t *testing.T,
 	ad *adapter.Container,
@@ -70,9 +69,6 @@ func newRepo(
 	return context.Background(), repo
 }
 
-// listQuiescent drains the async store projection (Send returns before the read
-// model is updated — decision 4), then reads List and asserts it holds want rows —
-// deterministically, with no polling and no timeout.
 func listQuiescent(
 	t *testing.T,
 	ctx context.Context,
@@ -87,9 +83,6 @@ func listQuiescent(
 	return rows
 }
 
-// Rows written before Provisioning existed replay without it. The boot backfill
-// records it once, as an event, so every later read and cold replay sees it;
-// running it again changes nothing.
 func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *testing.T) {
 	ctx, repo := newRepo(t)
 	legacy := map[string]domain.Workspace{
@@ -107,7 +100,7 @@ func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *tes
 	require.True(t, ok)
 
 	sweeper.BackfillProvisioning(ctx)
-	sweeper.BackfillProvisioning(ctx) // a second run finds nothing to do
+	sweeper.BackfillProvisioning(ctx)
 
 	want := map[string]domain.WorkspaceProvisioning{
 		"managed":      domain.WorkspaceProvisioned,
@@ -124,7 +117,6 @@ func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *tes
 	}
 }
 
-// A create must say what its worktree is, and the path must agree.
 func TestWorkspace_Create_RequiresAnExplicitProvisioning(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0).UTC()
@@ -159,8 +151,6 @@ func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	assert.Equal(t, "p1", reloaded.ProjectID)
 }
 
-// A rename never moves the workspace: the purge removes exactly the tombstone's
-// WorktreePath, so a repointed one would aim a delete at the other name.
 func TestRegression_RenameBranch_LeavesTheWorktreePathUntouched(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo := buildRepo(t, ad)
@@ -205,8 +195,6 @@ func TestList_AcrossAggregates(t *testing.T) {
 	listQuiescent(t, ctx, repo, 3)
 }
 
-// Delete folds Status=deleted and the projection persists that tombstone rather
-// than forgetting it, so the boot orphan-sweep can still find the row.
 func TestDelete_PersistsDeletedTombstone(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
@@ -215,12 +203,10 @@ func TestDelete_PersistsDeletedTombstone(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, "w1"))
 
-	// The aggregate is tombstoned, not forgotten: Get still folds it.
 	got, err := repo.Get(ctx, "w1")
 	require.NoError(t, err)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, got.Status)
 
-	// The read model persists the deleted row (no reactor forgets it in Task 7).
 	rows := listQuiescent(t, ctx, repo, 1)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, rows[0].Status)
 }
@@ -244,11 +230,10 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 		Provisioning: domain.WorkspacePlaceholder,
 	}, now)
 	require.NoError(t, err)
-	// Ensure the projection persisted the row before we tear the first env down.
 	listQuiescent(t, ctx, repo1, 1)
 
-	require.NoError(t, ax1.Shutdown(ctx)) // drain projections, release ES handle
-	require.NoError(t, first.Close())     // WAL checkpoint + close all DBs
+	require.NoError(t, ax1.Shutdown(ctx))
+	require.NoError(t, first.Close())
 
 	second := newAdapter(t, home)
 	repo2 := buildRepo(t, second)
@@ -257,7 +242,6 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "persisted", got.Branch)
 
-	// The durable store read model survives the restart with ZERO replay.
 	all, err := repo2.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, all, 1)
@@ -276,7 +260,6 @@ func TestWorkspace_SyncKeepsNewStatus(t *testing.T) {
 		HasCommits: true,
 	}, now)
 	require.NoError(t, err)
-	// Dual-write (W4-mig-1): the new→"" transition is removed; status stays "new".
 	assert.Equal(t, domain.WorkspaceStatusNew, synced.Status)
 	assert.Equal(t, 10, synced.Added)
 
@@ -339,7 +322,6 @@ func TestWorkspace_SyncProviderState_SetsPR(t *testing.T) {
 		PRUrl:     "u",
 	}, now)
 	require.NoError(t, err)
-	// Protected wins per D4 precedence → Status=locked.
 	assert.Equal(t, domain.WorkspaceStatusLocked, got.Status)
 	assert.Equal(t, "u", got.PRUrl)
 }
@@ -596,8 +578,6 @@ func TestListInRepo_ScopesToTheRepoWhateverARowsProjectSays(t *testing.T) {
 	for _, r := range rows {
 		ids = append(ids, r.ID)
 	}
-	// w3 is r1's row whose own ProjectID a repo move never got to: the repo row
-	// owns the project assignment, so r1's rows are all of them (spec §3 P0-3).
 	assert.ElementsMatch(t, []string{"w1", "w3"}, ids)
 }
 
@@ -673,16 +653,13 @@ func TestGetHomeForProject_StorageError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The boot sweep re-purges every row still read as deleted from its own
-// WorktreePath, including a placeholder provisioned in place after creation
-// (w1); the live workspace is left alone.
 func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
 
 	var purged, removed []string
 	gate := drain.New()
-	gate.Wait(ctx) // draining: the reactor refuses every event, as at shutdown
+	gate.Wait(ctx)
 	registrar, ok := repo.(workspace.DeleteReactorRegistrar)
 	require.True(t, ok)
 	require.NoError(t, registrar.RegisterDeleteReactor(
@@ -715,7 +692,6 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 	assert.Error(t, err, "the purged aggregate is Forgotten: %+v", exists)
 }
 
-// A sweep with no purger registered is a wiring error, never a silent no-op.
 func TestWorkspace_Sweep_RefusesWithoutAPurger(t *testing.T) {
 	ctx, repo := newRepo(t)
 	sweeper, ok := repo.(workspace.BootSweeper)
@@ -723,8 +699,6 @@ func TestWorkspace_Sweep_RefusesWithoutAPurger(t *testing.T) {
 	require.Error(t, sweeper.Sweep(ctx, func(context.Context, string) {}))
 }
 
-// spyReconciler records the ids passed to OnOpen so a test can assert which read
-// paths trigger reconcile-on-open.
 type spyReconciler struct {
 	mu     sync.Mutex
 	opened []string
@@ -757,8 +731,6 @@ func buildRepoWithReconciler(
 	return repo
 }
 
-// TestGet_TriggersReconcileOnOpen proves the §3.8 per-id read path: a Get
-// dispatches reconcile-on-open for that id (off the caller's read path).
 func TestGet_TriggersReconcileOnOpen(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	spy := &spyReconciler{}
@@ -773,9 +745,6 @@ func TestGet_TriggersReconcileOnOpen(t *testing.T) {
 	assert.Equal(t, []string{"w1"}, spy.calls(), "Get must trigger reconcile-on-open")
 }
 
-// TestList_DoesNotTriggerReconcile proves the §3.8 rule that List reads the
-// durable read model directly and MUST NOT fan out a per-workspace reconcile
-// (which would reintroduce the wake-storm wedge this refactor kills).
 func TestList_DoesNotTriggerReconcile(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	spy := &spyReconciler{}
@@ -788,8 +757,6 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 	assert.Empty(t, spy.calls(), "List must never trigger per-workspace reconcile")
 }
 
-// A provider poll that changes nothing appends no event and publishes no frame:
-// the polls below differ only in their timestamp, the sweep's steady state.
 func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo := buildRepo(t, ad)
@@ -809,7 +776,6 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 
 	events := func() int {
 		t.Helper()
-		// asynx keys the log "events:<id>" and versions from 1 (see its reader).
 		evs, readErr := es.ReadFrom(ctx, "events:w1", 1)
 		require.NoError(t, readErr)
 		return len(evs)
@@ -833,7 +799,6 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	workspace.WaitQuiescentForTest(repo)
 	assert.Equal(t, settledFrames, frames.Load(), "an unchanged provider poll must broadcast nothing")
 
-	// The guard must not swallow a real change.
 	in.PRStatus = "merged"
 	changed, err := repo.SyncProviderState(ctx, in, now)
 	require.NoError(t, err)
@@ -843,9 +808,6 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	assert.Equal(t, settledFrames+1, frames.Load(), "a changed provider poll must broadcast once")
 }
 
-// A repo's home is keyed by a deterministic id, so concurrent adopts of the
-// same folder contend for ONE aggregate: exactly one wins and the repo keeps a
-// single default workspace (invariant D2). A random id let both succeed.
 func TestRegression_RepoHomeID_ConcurrentAdoptsYieldOneDefault(t *testing.T) {
 	ctx, repo := newRepo(t)
 	id := workspace.RepoHomeID("r1")
@@ -874,8 +836,6 @@ func TestRegression_RepoHomeID_ConcurrentAdoptsYieldOneDefault(t *testing.T) {
 	assert.Equal(t, 1, wins)
 }
 
-// A working-tree sync is published before it returns, so an operation's
-// success never reaches a client ahead of the status it changed.
 func TestWorkspace_SyncReturnsOnceItsRowIsPublished(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, repo := newRepo(t)

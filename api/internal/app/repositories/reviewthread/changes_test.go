@@ -35,7 +35,6 @@ func TestChanges_FansOutToEveryWatcherOfAWorkspace(t *testing.T) {
 	require.Equal(t, "t1", (<-second).ID)
 }
 
-// A waiter that never drains must not stall the projection that calls Notify.
 func TestChanges_NotifyNeverBlocksOnAFullWatcher(t *testing.T) {
 	c := reviewthread.NewChanges()
 	ch, cancel := c.Watch("ws-a")

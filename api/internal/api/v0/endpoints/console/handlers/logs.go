@@ -12,17 +12,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/origin"
 )
 
-// upgrader rejects cross-origin upgrades from a non-allow-listed Origin: log
-// lines can carry paths and ids, so any website must not read them.
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return origin.Allowed(r.Header.Get("Origin"), r.Host)
 	},
 }
 
-// Logs handles GET /v0/console/logs: it upgrades to a WebSocket, replays the
-// last 500 records (or those after since), sends one ready frame, then every new
-// record. A client 256 records behind is closed and reconnects with since.
 func (h *Handlers) Logs(
 	c *gin.Context,
 ) {

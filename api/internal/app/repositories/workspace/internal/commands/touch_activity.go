@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TouchActivity bumps only lastActivity, representing chat/agent activity.
 type TouchActivity struct {
 	ID  string
 	Now time.Time

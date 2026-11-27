@@ -17,11 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// compactAPITestDescriptor mirrors interruptTestDescriptor's shape (same
-// package, same "acme" fake CLI convention) with a compact_start gesture
-// whose wire is an api-transport call, not "prompt" — the shape codex.yaml
-// itself declares (thread/compact/start), and the one Compact() used to
-// refuse outright.
 const compactAPITestDescriptor = `
 id: compact-api-test
 spawn:
@@ -60,8 +55,6 @@ func compactAPITestAgent(t *testing.T) engineagents.Agent {
 	return a
 }
 
-// stubChatsForCompact answers only GetChat — Compact's first call, to learn
-// the chat's WorkspaceID.
 type stubChatsForCompact struct {
 	agentchat.EventStore
 	chat domain.Chat
@@ -71,8 +64,6 @@ func (s stubChatsForCompact) GetChat(context.Context, string) (domain.Chat, erro
 	return s.chat, nil
 }
 
-// stubConversationsForCompact answers only ChatProviderID — Compact's second
-// call, to resolve which descriptor to ask.
 type stubConversationsForCompact struct {
 	Conversations
 	providerID string
@@ -82,19 +73,10 @@ func (s stubConversationsForCompact) ChatProviderID(context.Context, string) (st
 	return s.providerID, nil
 }
 
-// TestCompact_APITransport_SendsThreadCompactStart is Compact()'s new path,
-// end to end: a provider whose compact_start declares an api-transport call
-// (codex: thread/compact/start, confirmed live against codex-cli 0.149.1)
-// now gets it actually SENT over the chat's live connection, exactly the way
-// interruptTurn already drives turn/interrupt. Before this fix, Compact()
-// refused any wire other than "prompt" outright — codex's own compact button
-// never worked at all, which meant compact_pre/compact_post's new live
-// mapping (item/started/completed, item.type: contextCompaction) had nothing
-// to actually observe outside of codex's own automatic compaction.
 func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		msg, err := conn.Read() // thread/compact/start
+		msg, err := conn.Read()
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -105,7 +87,7 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 		received <- req.Method + ":" + string(req.Params)
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
 		require.NoError(t, conn.Write(resp))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	agent := compactAPITestAgent(t)
@@ -135,10 +117,6 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 	}
 }
 
-// TestCompact_APITransport_NoLiveConnIsUnavailable is the refusal Compact()
-// still owes a chat with no live api connection to ask — still spawning,
-// running over hooks-only, or between runners — rather than silently doing
-// nothing or dialing a fresh connection with no session to compact.
 func TestCompact_APITransport_NoLiveConnIsUnavailable(t *testing.T) {
 	agent := compactAPITestAgent(t)
 	rs := &Runners{
@@ -155,15 +133,6 @@ func TestCompact_APITransport_NoLiveConnIsUnavailable(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrUnavailable)
 }
 
-// TestRegression_CompactIsRefusedOnTheProvidersOwnTerminal: compaction is a
-// CROWBAR NATIVE-CHAT affordance, not a provider capability the TUI is
-// missing. On the terminal surface the user types the provider's own gesture
-// themselves — Crowbar has no business drawing a second control for it, and
-// the control it was drawing errored.
-//
-// The rule is about the SURFACE and is provider-independent: claude, whose
-// compact_start is a channel-agnostic `/compact` over the prompt and would
-// work perfectly well down its own PTY, is refused here too.
 func TestRegression_CompactIsRefusedOnTheProvidersOwnTerminal(t *testing.T) {
 	agent := compactAPITestAgent(t)
 	rs := &Runners{
@@ -178,8 +147,6 @@ func TestRegression_CompactIsRefusedOnTheProvidersOwnTerminal(t *testing.T) {
 	require.ErrorIs(t, err, ErrCompactionOffSurface)
 }
 
-// And the same chat on Crowbar's own chat surface is not refused — the gate
-// is the surface, never the provider.
 func TestCompact_IsOfferedOnCrowbarsOwnChatSurface(t *testing.T) {
 	agent := compactAPITestAgent(t)
 	rs := &Runners{
@@ -191,8 +158,6 @@ func TestCompact_IsOfferedOnCrowbarsOwnChatSurface(t *testing.T) {
 		live:          liveWith(t, engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test", CurrentChatID: "chat-1"}),
 	}
 
-	// No live connection, so this still refuses — but on availability, not
-	// on the surface, which is the distinction under test.
 	err := rs.Compact(context.Background(), "chat-1")
 	require.ErrorIs(t, err, problem.ErrUnavailable)
 	require.NotErrorIs(t, err, ErrCompactionOffSurface)

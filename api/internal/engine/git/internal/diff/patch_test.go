@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// gitPatchOracle is what `git diff` itself produces for one path, so the tests
-// pin FilePatch against git rather than against a hand-written expectation.
 func gitPatchOracle(
 	t *testing.T,
 	dir string,
@@ -28,9 +26,6 @@ func gitPatchOracle(
 	return r.Stdout
 }
 
-// TestFilePatch_ModifiedFile is the ordinary case: one file's unified patch,
-// byte-identical to git's own, with the written line count reported and no
-// truncation.
 func TestFilePatch_ModifiedFile(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "a\nb\nc\n")
@@ -54,9 +49,6 @@ func TestFilePatch_ModifiedFile(t *testing.T) {
 	assert.Equal(t, countLines(out), lines)
 }
 
-// TestFilePatch_NonexistentRepoPath_ReturnsStartError covers the branch before
-// any streaming begins: GitStream failing to even start the subprocess (a
-// nonexistent working directory fails the chdir synchronously on Start).
 func TestFilePatch_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
 	var buf bytes.Buffer
 	_, _, err := diff.FilePatch(context.Background(), "/nonexistent/path/xyz123", "HEAD", "a.txt", 0, &buf)
@@ -64,9 +56,6 @@ func TestFilePatch_NonexistentRepoPath_ReturnsStartError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestFilePatch_PathNotInDiff proves a path that simply has no changes is not
-// an error — it is an empty patch, which is what a client asking for a file it
-// no longer has changes in must see.
 func TestFilePatch_PathNotInDiff(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "hello\n")
@@ -91,11 +80,6 @@ func TestFilePatch_PathNotInDiff(t *testing.T) {
 	assert.Empty(t, missing.String())
 }
 
-// TestFilePatch_RenamedFileAddressedByNewPath drives the rename case the client
-// reaches from the outline: the outline carries OldPath, but the patch is
-// fetched by the NEW path. Scoping the diff to one path is what keeps the query
-// off the O(diff size) path, and it necessarily hides the rename pairing — git
-// renders the surviving half as an addition. The content must still be there.
 func TestFilePatch_RenamedFileAddressedByNewPath(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "before.txt", "one\ntwo\n")
@@ -120,9 +104,6 @@ func TestFilePatch_RenamedFileAddressedByNewPath(t *testing.T) {
 	assert.Equal(t, gitPatchOracle(t, dir, base, "after.txt"), out)
 }
 
-// TestFilePatch_BinaryFile proves a binary file yields git's marker line rather
-// than its bytes — a patch endpoint that streamed raw binary into a text
-// response would corrupt the client.
 func TestFilePatch_BinaryFile(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "logo.bin", "\x00\x01\x02\x03")
@@ -143,11 +124,6 @@ func TestFilePatch_BinaryFile(t *testing.T) {
 	assert.NotContains(t, out, "\xff\xfe\xfd", "binary content must never reach the writer")
 }
 
-// TestFilePatch_TruncatedPatchStaysParseable is the load-bearing case: a cut
-// that left a hunk header promising more lines than follow would hand a client
-// parser garbage rather than an error. The cut may land mid-hunk, but every
-// header it emits must describe the body that actually follows it, and the
-// result must still apply.
 func TestFilePatch_TruncatedPatchStaysParseable(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "many.txt", numberedLines(1, 200))
@@ -174,20 +150,6 @@ func TestFilePatch_TruncatedPatchStaysParseable(t *testing.T) {
 	assertApplies(t, dir, base, out)
 }
 
-// TestFilePatch_TruncationWhenFirstHunkExceedsCap pins the degenerate shape the
-// perf fixture actually has, and the bug that shape exposed: a single hunk far
-// larger than the cap.
-//
-// Dropping a hunk that could not fit whole meant this file — and every
-// whole-file rewrite, which is always exactly one hunk — came back as its
-// header and nothing else. The review surface rendered that as an empty file: a
-// blank region where 500 changed lines should be. Worse, it had reserved scroll
-// space from the file's real line count, so materialising the empty result
-// collapsed the scroll by the difference and threw every file below it upwards.
-//
-// The cut therefore lands INSIDE the hunk, with the @@ counts rewritten to
-// describe what survives, and the caller receives a full cap's worth of content
-// that a parser can read and git can apply.
 func TestFilePatch_TruncationWhenFirstHunkExceedsCap(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "big.txt", "seed\n")
@@ -211,10 +173,6 @@ func TestFilePatch_TruncationWhenFirstHunkExceedsCap(t *testing.T) {
 	assertApplies(t, dir, base, out)
 }
 
-// TestFilePatch_TruncationLeavesHeaderAloneWhenNoBodyFits covers the far end of
-// the same knob: a cap with no room for a hunk header plus even one line of
-// body. There is no valid partial hunk to emit, so the file header stands alone
-// — the one case where a client legitimately receives no content.
 func TestFilePatch_TruncationLeavesHeaderAloneWhenNoBodyFits(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "big.txt", "seed\n")
@@ -223,8 +181,6 @@ func TestFilePatch_TruncationLeavesHeaderAloneWhenNoBodyFits(t *testing.T) {
 	base := headSHA(t, dir)
 	writeFile(t, dir, "big.txt", "seed\n"+numberedLines(1, 500))
 
-	// Four header lines (diff --git, index, ---, +++) plus one leaves no room
-	// for an @@ header AND a body line.
 	var buf bytes.Buffer
 	lines, truncated, err := diff.FilePatch(context.Background(), dir, base, "big.txt", 5, &buf)
 	require.NoError(t, err)
@@ -238,8 +194,6 @@ func TestFilePatch_TruncationLeavesHeaderAloneWhenNoBodyFits(t *testing.T) {
 	assertEveryHunkComplete(t, out)
 }
 
-// TestFilePatch_NotTruncatedWhenPatchFitsExactly guards the off-by-one: a patch
-// whose length equals the cap is complete, not truncated.
 func TestFilePatch_NotTruncatedWhenPatchFitsExactly(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "fit.txt", "a\nb\nc\n")
@@ -258,7 +212,6 @@ func TestFilePatch_NotTruncatedWhenPatchFitsExactly(t *testing.T) {
 	assert.Equal(t, gitPatchOracle(t, dir, base, "fit.txt"), buf.String())
 }
 
-// TestFilePatch_MaxLinesUnlimited proves a non-positive cap means no cap.
 func TestFilePatch_MaxLinesUnlimited(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "wide.txt", numberedLines(1, 400))
@@ -278,11 +231,6 @@ func TestFilePatch_MaxLinesUnlimited(t *testing.T) {
 	}
 }
 
-// TestFilePatch_PathspecHostileNames drives the names that break a naive
-// pathspec. Each repo carries a decoy the requested name would also match if
-// the pathspec were interpreted as magic or as a glob, so a passing assertion
-// proves the :(top,literal) prefix is doing its job rather than that the diff
-// happened to contain one file.
 func TestFilePatch_PathspecHostileNames(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -319,11 +267,6 @@ func TestFilePatch_PathspecHostileNames(t *testing.T) {
 	}
 }
 
-// TestFilePatch_LineLongerThanScannerDefault is the failure mode that only
-// shows up on real data: bufio.Scanner caps a token at 64 KB by default and the
-// perf fixture's minified bundle carries a 657 KB line. A patch reader that
-// silently drops or errors on it is useless on exactly the files a user most
-// needs the windowed API for.
 func TestFilePatch_LineLongerThanScannerDefault(t *testing.T) {
 	const lineLen = 300 * 1024
 	huge := strings.Repeat("m", lineLen)
@@ -346,9 +289,6 @@ func TestFilePatch_LineLongerThanScannerDefault(t *testing.T) {
 	assert.Equal(t, countLines(out), lines)
 }
 
-// TestFilePatch_NoTrailingNewline proves a patch git ends without a final
-// newline (the "\ No newline at end of file" shape) still round-trips byte for
-// byte rather than gaining a newline the copy invented.
 func TestFilePatch_NoTrailingNewline(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "nl.txt", "a\nb")
@@ -365,11 +305,6 @@ func TestFilePatch_NoTrailingNewline(t *testing.T) {
 	assert.Equal(t, countLines(buf.String()), lines)
 }
 
-// TestFilePatch_EmptyPathIsRefused closes the trapdoor under this whole API.
-// ":(top,literal)" with nothing after it is a valid pathspec that matches the
-// top of the tree — every file — so an empty path silently turns the one query
-// guaranteed to be O(one file) into the O(whole diff) read the windowed API
-// exists to abolish. On the perf fixture that is 1.44 million lines.
 func TestFilePatch_EmptyPathIsRefused(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "one\n")
@@ -388,9 +323,6 @@ func TestFilePatch_EmptyPathIsRefused(t *testing.T) {
 	assert.Empty(t, buf.String())
 }
 
-// TestFilePatch_BadRef surfaces git's failure rather than an empty patch: a
-// caller handed a ref that no longer resolves must learn that, not conclude the
-// file is unchanged.
 func TestFilePatch_BadRef(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "hello\n")
@@ -401,8 +333,6 @@ func TestFilePatch_BadRef(t *testing.T) {
 	_, _, err := diff.FilePatch(context.Background(), dir, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "a.txt", 0, &buf)
 	require.Error(t, err)
 }
-
-// --- helpers ---
 
 func firstLine(
 	s string,
@@ -439,8 +369,6 @@ func numberedLines(
 	return sb.String()
 }
 
-// editEvery rewrites every nth line so the resulting diff has many small hunks
-// separated by context, which is the shape a hunk-boundary cut needs.
 func editEvery(
 	text string,
 	n int,
@@ -455,9 +383,6 @@ func editEvery(
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// assertEveryHunkComplete reads each `@@` header's declared old/new line counts
-// and checks the body that follows actually delivers them. This is the property
-// that makes a truncated patch parseable at all.
 func assertEveryHunkComplete(
 	t *testing.T,
 	patch string,
@@ -526,8 +451,6 @@ func rangeCount(
 	return n
 }
 
-// assertApplies is the strongest validity oracle available: git itself accepts
-// the truncated patch against the base tree.
 func assertApplies(
 	t *testing.T,
 	dir string,

@@ -1,0 +1,25 @@
+[package]
+name = "sidebar"
+description = "The sidebar of the Crowbar shell without a window: its data contract with the shell and every rule the views apply."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# DemoShell, the fixed workspace of the unit tests here and in sidebarview.
+fixtures = []
+
+[dependencies]
+atomicfile.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+sidebar = { workspace = true, features = ["fixtures"] }
+
+[lints]
+workspace = true

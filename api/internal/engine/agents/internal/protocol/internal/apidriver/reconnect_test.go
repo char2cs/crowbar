@@ -20,8 +20,6 @@ import (
 
 const waitFor = 5 * time.Second
 
-// link is one fake connection: a scripted peer answering every request, and the
-// methods it saw (with the session id a call named, if any).
 type link struct {
 	in    chan []byte
 	out   chan []byte
@@ -100,7 +98,6 @@ func (l *link) drop() { close(l.in) }
 
 func (l *link) notify(method string) { l.in <- []byte(`{"method":"` + method + `","params":{}}`) }
 
-// next fails the test unless the peer's next call is want.
 func (l *link) next(t *testing.T, want string) {
 	t.Helper()
 	select {
@@ -133,7 +130,6 @@ func reconnectDescriptor() *spec.Descriptor {
 	}
 }
 
-// dialer hands out links in order; a nil entry is a failed dial.
 func dialer(links ...*link) func(context.Context) (jsonrpc.Transport, error) {
 	var mu sync.Mutex
 	return func(context.Context) (jsonrpc.Transport, error) {
@@ -222,7 +218,7 @@ func TestReconnect_IdleDropResumesTheSameSessionWithNoFailureEvent(t *testing.T)
 	require.NoError(t, err)
 	first.next(t, "open:")
 
-	first.notify("done") // the turn ended before the drop
+	first.notify("done")
 	require.Equal(t, "turn_stop", nextEvent(t, drv).Canonical)
 	first.drop()
 

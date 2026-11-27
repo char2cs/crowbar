@@ -18,8 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// A read model that keeps refusing an event parks its aggregate; the user
-// learns of it as a failed operation on the entity, not from the log.
 func TestNewAsynx_AParkedAggregateIsAFailedOperationOnItsEntity(t *testing.T) {
 	ops, frames := recordingOps(t)
 	es, err := eventsqlite.NewEventStore(":memory:")
@@ -83,8 +81,6 @@ func TestNewParkedReports_NameEachAggregatesEntity(t *testing.T) {
 	}
 }
 
-// The rows no project can be named for yet have no entity a user sees, so their
-// parked tree is a log line, not an operation nobody can show.
 func TestNewParkedReports_TheUnplacedTreeIsOnlyLogged(t *testing.T) {
 	ops, frames := recordingOps(t)
 	reports := newParkedReports(ops)

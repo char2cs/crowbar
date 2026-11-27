@@ -1,5 +1,3 @@
-// Package wsconn is a jsonrpc.Transport over a WebSocket: one JSON-RPC message per
-// text frame, with ping/pong so a dead peer fails Recv.
 package wsconn
 
 import (
@@ -21,7 +19,6 @@ const (
 	pongWait     = 3 * pingEvery / 2
 )
 
-// Conn is one live socket.
 type Conn struct {
 	ws        *websocket.Conn
 	writeMu   sync.Mutex
@@ -30,8 +27,6 @@ type Conn struct {
 	closeErr  error
 }
 
-// Dial resolves an endpoint and connects. A failed handshake re-resolves once,
-// because tickets are single-use; the second failure is returned.
 func Dial(ctx context.Context, resolve func(context.Context) (connect.Endpoint, error)) (*Conn, error) {
 	var err error
 	for range 2 {
@@ -83,7 +78,6 @@ func (c *Conn) ping() {
 	}
 }
 
-// Send writes msg as one text frame.
 func (c *Conn) Send(msg []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -96,7 +90,6 @@ func (c *Conn) Send(msg []byte) error {
 	return nil
 }
 
-// Recv returns the next text frame; a clean close is io.EOF.
 func (c *Conn) Recv() ([]byte, error) {
 	for {
 		if err := c.ws.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
@@ -115,7 +108,6 @@ func (c *Conn) Recv() ([]byte, error) {
 	}
 }
 
-// Close sends a close frame and drops the socket; later calls return the first result.
 func (c *Conn) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)

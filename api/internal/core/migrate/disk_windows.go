@@ -8,8 +8,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// freeBytes reports the bytes the calling user can still allocate on the volume
-// holding path, which honours per-user quotas.
 func freeBytes(
 	path string,
 ) (uint64, error) {

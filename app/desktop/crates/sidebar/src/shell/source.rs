@@ -1,0 +1,58 @@
+use crate::shell::command::RowActions;
+use crate::shell::daemons::HostChoice;
+use crate::shell::git::ChangesSource;
+use crate::shell::listing::FileAccess;
+use crate::shell::listing::FilesSource;
+use crate::shell::listing::FolderSource;
+use crate::shell::switcher::ActiveSpace;
+use crate::shell::switcher::PaneFocus;
+use crate::shell::switcher::Requests;
+use crate::shell::switcher::SpaceList;
+
+pub trait Source:
+    SpaceList
+    + HostChoice
+    + ActiveSpace
+    + Requests
+    + PaneFocus
+    + RowActions
+    + FilesSource
+    + FolderSource
+    + FileAccess
+    + ChangesSource
+{
+}
+
+impl<T> Source for T where
+    T: SpaceList
+        + HostChoice
+        + ActiveSpace
+        + Requests
+        + PaneFocus
+        + RowActions
+        + FilesSource
+        + FolderSource
+        + FileAccess
+        + ChangesSource
+{
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::switcher::ScopeSync;
+    use crate::test_support::DemoShell;
+
+    #[test]
+    fn the_active_project_is_one_the_data_lists() {
+        let data = DemoShell::rich();
+        let active = data.active_project().expect("an active project");
+        assert!(data.projects().iter().any(|project| project.id == active));
+    }
+
+    #[test]
+    fn a_loading_source_reports_pending_and_a_ready_one_ready() {
+        assert_eq!(DemoShell::loading().sync(), ScopeSync::Pending);
+        assert_eq!(DemoShell::reference().sync(), ScopeSync::Ready);
+    }
+}

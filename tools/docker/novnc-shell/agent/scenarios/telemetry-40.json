@@ -1,0 +1,38 @@
+{
+ "description": "Context at 40%, tokens, cost and rate-limit windows.",
+ "steps": [
+  {
+   "do": "telemetry",
+   "context": {
+    "capacity_tokens": 200000,
+    "used_tokens": 80000,
+    "used_percent": 40,
+    "remaining_percent": 60
+   },
+   "input_tokens": 80000,
+   "output_tokens": 4200,
+   "cost": {
+    "total_usd": 1.84,
+    "api_duration_ms": 52000
+   },
+   "model": {
+    "id": "scripted-large",
+    "display_name": "Scripted Large"
+   },
+   "rate_limits": {
+    "five_hour": {
+     "used_percent": 35,
+     "resets_at": 1795000000
+    },
+    "seven_day": {
+     "used_percent": 12,
+     "resets_at": 1795400000
+    }
+   }
+  },
+  {
+   "do": "text",
+   "text": "Context is at 40%."
+  }
+ ]
+}

@@ -1,4 +1,3 @@
-// Package blame parses git blame output into per-line annotations.
 package blame
 
 import (
@@ -19,19 +18,13 @@ type commitMeta struct {
 	summary string
 }
 
-// gitRunner is the function used to run git commands; overridable in tests.
 var gitRunner = exec.Git
 
-// File runs git blame --porcelain on filePath inside repoPath and returns
-// one BlameEntry per line, annotated with the commit that last changed it.
 func File(
 	ctx context.Context,
 	repoPath string,
 	filePath string,
 ) ([]gitdomain.BlameEntry, error) {
-	// `--` end-of-options separator so a file path beginning with `-` can never
-	// be read as a git option (e.g. `--output=<path>` writing an arbitrary file);
-	// `git blame --porcelain -- <path>` treats everything after `--` as a path.
 	r := gitRunner(ctx, repoPath, "blame", "--porcelain", "--", filePath)
 	if r.ExitCode == 0 {
 		return parsePorcelain(r.Stdout)
@@ -42,9 +35,6 @@ func File(
 	return nil, fmt.Errorf("blame: file: exit %d: %s", r.ExitCode, strings.TrimSpace(r.Stderr))
 }
 
-// missingFromHead reports whether HEAD lacks filePath (or there is no HEAD).
-// batch-check answers "<name> missing" on stdout with exit 0, so neither a
-// failed git nor one that never started, nor localised stderr, can pass.
 func missingFromHead(
 	ctx context.Context,
 	repoPath string,
@@ -55,9 +45,6 @@ func missingFromHead(
 	return r.ExitCode == 0 && strings.TrimRight(r.Stdout, "\n") == name+" missing"
 }
 
-// parseCommitHeader extracts the SHA and result line number from a porcelain
-// commit-header line ("SHA origLine resultLine count"), consulting cache for
-// previously seen commit metadata.
 func parseCommitHeader(
 	line string,
 	cache map[string]commitMeta,

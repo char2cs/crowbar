@@ -1,0 +1,23 @@
+{
+ "description": "A subagent left running with a running tool (the turn holds until stopped).",
+ "steps": [
+  {
+   "do": "subagent",
+   "id": "sub-live",
+   "title": "Long investigation",
+   "status": "open",
+   "steps": [
+    {
+     "do": "tool",
+     "name": "Bash",
+     "kind": "execute",
+     "target": "npm run bench",
+     "status": "open"
+    }
+   ]
+  },
+  {
+   "do": "hang"
+  }
+ ]
+}

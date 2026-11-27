@@ -11,9 +11,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Blame handles GET /v0/chats/:chatId/blame, annotating each line of the
-// ?path= file with its last-changing commit. The BlameEntry array is empty for
-// a file with no committed history.
 func (h *Handlers) Blame(
 	c *gin.Context,
 ) {

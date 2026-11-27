@@ -87,8 +87,6 @@ func TestGit_ProcessCantStart_ExitCodeOne(
 	assert.Equal(t, 1, r.ExitCode)
 }
 
-// A rejected push says why and then how to fix it in hint lines; the user reads
-// git's refusal, without the hints or the blank lines between them.
 func TestGitError_DetailIsGitsRefusalWithoutItsHints(t *testing.T) {
 	ctx := context.Background()
 	origin := t.TempDir()

@@ -1,6 +1,3 @@
-// Package runner (file sessionmove.go) moves a session another chat holds
-// onto a chat whose own conversation never turned: the holder gives it up
-// first, so no two chats ever hold one session.
 package runner
 
 import (
@@ -13,15 +10,13 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// claimHeld announces sessionID, which another chat holds, on chatID: a
-// conflict while chatID holds a conversation, else the session moves here.
 func (rs *Runners) claimHeld(ctx context.Context, chatID, providerID, sessionID, relayID string) ([]ledger.Row, error) {
 	owner, ok, err := rs.ledger.SessionOwner(ctx, providerID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("session owner: %w", err)
 	}
 	if !ok {
-		return rs.announce(ctx, chatID, providerID, sessionID, "", relayID) // its holder was erased meanwhile
+		return rs.announce(ctx, chatID, providerID, sessionID, "", relayID)
 	}
 	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
@@ -39,8 +34,6 @@ func (rs *Runners) claimHeld(ctx context.Context, chatID, providerID, sessionID,
 	return rs.announce(ctx, chatID, providerID, sessionID, owner, held)
 }
 
-// heldRelayID is the relay id owner bound sessionID with: the provider pinned it for
-// that session, so the chat the session moves to keeps it.
 func (rs *Runners) heldRelayID(ctx context.Context, owner, providerID, sessionID string) (string, error) {
 	st, err := rs.ledger.State(ctx, owner)
 	if err != nil {
@@ -54,8 +47,6 @@ func (rs *Runners) heldRelayID(ctx context.Context, owner, providerID, sessionID
 	return "", nil
 }
 
-// giveUp loses sessionID on owner to toChat, and ends owner's runner on it:
-// one CLI per session.
 func (rs *Runners) giveUp(ctx context.Context, owner, toChat, providerID, sessionID string) error {
 	live, ok := rs.live.byChat(owner)
 	carrier := ""
@@ -78,8 +69,6 @@ func (rs *Runners) giveUp(ctx context.Context, owner, toChat, providerID, sessio
 	return nil
 }
 
-// endOffLock ends runner for cause without waiting: its exit is recorded under
-// its chat's lock, which the caller may hold.
 func (rs *Runners) endOffLock(ctx context.Context, runner engineagents.Runner, cause string) {
 	if _, ok := rs.markEnding(runner, cause); !ok {
 		return

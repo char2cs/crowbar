@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// positions answers each repo's Node row; a repo in broken fails the read the
-// way its project's unreadable tree does, one with no row is not found.
 func positions(rows map[string]tree.Node, broken map[string]bool) func(context.Context, string) (tree.Node, error) {
 	return func(_ context.Context, id string) (tree.Node, error) {
 		if broken[id] {
@@ -28,8 +26,6 @@ func positions(rows map[string]tree.Node, broken map[string]bool) func(context.C
 	}
 }
 
-// One project's unreadable tree lists that project's repos at the root and
-// leaves every other project's positions alone; it is logged once per project.
 func TestPlacements_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
 	logged := map[string]int{}
 	p := dto.NewPlacements(

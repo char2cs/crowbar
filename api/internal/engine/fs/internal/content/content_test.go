@@ -49,13 +49,11 @@ func TestRead_MissingFile(
 	require.Error(t, err)
 }
 
-// TestRead_LargeTextFile verifies clean UTF-8 past the old 8 KiB sample window
-// is still returned as text.
 func TestRead_LargeTextFile(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	data := bytes.Repeat([]byte("x"), 20000) // all ASCII, no NUL, valid UTF-8
+	data := bytes.Repeat([]byte("x"), 20000)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.txt"), data, 0o600))
 
 	fc, err := content.Read(dir, "large.txt")
@@ -63,15 +61,12 @@ func TestRead_LargeTextFile(
 	assert.Empty(t, fc.Encoding, "all-text file must stay text")
 }
 
-// TestRegression_Read_NullBytePastSampleWindowIsBinary pins the fix for the
-// leading-8-KiB sampling bug: a NUL byte beyond offset 8192 must be detected, so
-// the file is base64-encoded (binary) rather than returned as text.
 func TestRegression_Read_NullBytePastSampleWindowIsBinary(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
 	data := bytes.Repeat([]byte("x"), 8193)
-	data[8192] = 0x00 // beyond the retired 8192-byte check window
+	data[8192] = 0x00
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "late-nul.bin"), data, 0o600))
 
 	fc, err := content.Read(dir, "late-nul.bin")
@@ -79,15 +74,12 @@ func TestRegression_Read_NullBytePastSampleWindowIsBinary(
 	assert.Equal(t, "base64", fc.Encoding, "NUL anywhere in the file is binary")
 }
 
-// TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful pins that an
-// invalid byte past the first 8 KiB makes the file binary: as text, JSON would
-// rewrite it to U+FFFD and a save would persist the corruption.
 func TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
 	data := bytes.Repeat([]byte("x"), 8192)
-	data = append(data, 0xE9) // invalid standalone UTF-8, past the old window
+	data = append(data, 0xE9)
 	data = append(data, []byte("trailer")...)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "latin1.txt"), data, 0o600))
 
@@ -100,9 +92,6 @@ func TestRegression_Read_InvalidUTF8PastSampleWindowIsByteFaithful(
 	assert.Equal(t, data, decoded, "base64 round-trip must be byte-identical to the original")
 }
 
-// TestRead_PermissionDenied exercises readFile's os.Open error path: Stat
-// succeeds (it doesn't require read permission on the file itself) but the
-// subsequent os.Open fails because the file has no read permission.
 func TestRead_PermissionDenied(
 	t *testing.T,
 ) {
@@ -117,9 +106,6 @@ func TestRead_PermissionDenied(
 	require.Error(t, err)
 }
 
-// TestRead_DirectoryPath exercises readFile's io.ReadAll error path: Stat
-// and Open both succeed against a directory on Unix, but reading from it fails
-// with "is a directory".
 func TestRead_DirectoryPath(
 	t *testing.T,
 ) {
@@ -166,10 +152,6 @@ func TestReadWrite_RoundTrip(
 	assert.Equal(t, original, fc.Content)
 }
 
-// TestWrite_Base64ByteFaithful proves a base64-encoded write lands byte-identical
-// on disk — the upload counterpart of the byte-faithful copy verb. Bytes that are
-// invalid UTF-8 and contain NULs would corrupt if written through the UTF-8 text
-// path; here they survive because encoding "base64" is decoded before the write.
 func TestWrite_Base64ByteFaithful(
 	t *testing.T,
 ) {
@@ -184,9 +166,6 @@ func TestWrite_Base64ByteFaithful(
 	assert.Equal(t, binary, got)
 }
 
-// TestWrite_Base64RoundTripsThroughRead proves the write/read pair is symmetric:
-// a binary payload written as base64 reads back with Encoding "base64" and the
-// same content string, so a client can round-trip a binary file losslessly.
 func TestWrite_Base64RoundTripsThroughRead(
 	t *testing.T,
 ) {
@@ -202,8 +181,6 @@ func TestWrite_Base64RoundTripsThroughRead(
 	assert.Equal(t, encoded, fc.Content)
 }
 
-// TestWrite_InvalidBase64Rejected verifies a malformed base64 payload is a hard
-// error (no partial file written), so a corrupt upload fails loudly.
 func TestWrite_InvalidBase64Rejected(
 	t *testing.T,
 ) {
@@ -214,8 +191,6 @@ func TestWrite_InvalidBase64Rejected(
 	assert.True(t, os.IsNotExist(statErr), "no file should be written on a decode error")
 }
 
-// TestWrite_UnsupportedEncodingRejected verifies an unknown encoding is rejected
-// rather than silently written as text.
 func TestWrite_UnsupportedEncodingRejected(
 	t *testing.T,
 ) {
@@ -224,8 +199,6 @@ func TestWrite_UnsupportedEncodingRejected(
 	require.Error(t, err)
 }
 
-// TestWrite_MkdirError exercises the os.MkdirAll error path by placing a
-// regular file where a directory must be created.
 func TestWrite_MkdirError(
 	t *testing.T,
 ) {
@@ -233,15 +206,12 @@ func TestWrite_MkdirError(
 		t.Skip("chmod restrictions differ on windows")
 	}
 	dir := t.TempDir()
-	// "parent" exists as a file — MkdirAll cannot use it as a directory.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "parent"), []byte("x"), 0o600))
 
 	err := content.Write(dir, "parent/child.txt", "hello", "")
 	require.Error(t, err)
 }
 
-// TestWrite_WriteFileError exercises the os.WriteFile error path by writing
-// to a read-only directory.
 func TestWrite_WriteFileError(
 	t *testing.T,
 ) {
@@ -259,8 +229,6 @@ func TestWrite_WriteFileError(
 	require.Error(t, err)
 }
 
-// TestRegression_Write_LeavesNoTempCruft verifies the atomic write leaves no
-// leftover temp file after a SUCCESSFUL write — only the target lands in the dir.
 func TestRegression_Write_LeavesNoTempCruft(
 	t *testing.T,
 ) {
@@ -276,27 +244,20 @@ func TestRegression_Write_LeavesNoTempCruft(
 	assert.Equal(t, []string{"file.txt"}, names, "no .tmp-* temp file may survive a successful write")
 }
 
-// TestRegression_Write_PreservesOriginalAndTempOnFailure verifies a failed
-// rename-over (the target is a directory) leaves the original untouched and no
-// temp behind, which os.WriteFile's O_TRUNC could not.
 func TestRegression_Write_PreservesOriginalAndTempOnFailure(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
-	// "occupied" already exists as a directory; renaming a temp FILE over a
-	// directory fails, exercising the failure path after the temp is created.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "occupied"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "occupied", "keep.txt"), []byte("keep"), 0o600))
 
 	err := content.Write(dir, "occupied", "clobber", "")
 	require.Error(t, err, "writing over an existing directory must fail")
 
-	// The directory and its content survived.
 	kept, readErr := os.ReadFile(filepath.Join(dir, "occupied", "keep.txt"))
 	require.NoError(t, readErr)
 	assert.Equal(t, []byte("keep"), kept)
 
-	// No temp cruft left in the root.
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	for _, e := range entries {
@@ -304,8 +265,6 @@ func TestRegression_Write_PreservesOriginalAndTempOnFailure(
 	}
 }
 
-// TestRegression_Write_PreservesExecutableBit verifies the replacement inode
-// keeps an existing file's mode, so saving a script does not strip its +x.
 func TestRegression_Write_PreservesExecutableBit(
 	t *testing.T,
 ) {
@@ -327,8 +286,6 @@ func TestRegression_Write_PreservesExecutableBit(
 	assert.Equal(t, "#!/bin/sh\necho bye\n", string(data))
 }
 
-// TestRegression_Write_ThroughSymlinkKeepsLink verifies a save to a live link
-// updates its target and keeps the link, where temp+rename would replace it.
 func TestRegression_Write_ThroughSymlinkKeepsLink(
 	t *testing.T,
 ) {
@@ -341,7 +298,6 @@ func TestRegression_Write_ThroughSymlinkKeepsLink(
 
 	require.NoError(t, content.Write(dir, "link.txt", "new", ""))
 
-	// The link is still a link, and it resolved to the updated target.
 	fi, err := os.Lstat(filepath.Join(dir, "link.txt"))
 	require.NoError(t, err)
 	assert.NotZero(t, fi.Mode()&os.ModeSymlink, "link.txt must still be a symlink")
@@ -351,9 +307,6 @@ func TestRegression_Write_ThroughSymlinkKeepsLink(
 	assert.Equal(t, "new", string(target), "write must go through the link to its target")
 }
 
-// TestRegression_Write_RefusesADanglingSymlink verifies a save never creates the
-// file a dangling link names: it may point anywhere, into the daemon's state or
-// out of the worktree.
 func TestRegression_Write_RefusesADanglingSymlink(
 	t *testing.T,
 ) {
@@ -370,28 +323,22 @@ func TestRegression_Write_RefusesADanglingSymlink(
 	assert.ErrorIs(t, err, os.ErrNotExist, "no write may create the link's target")
 }
 
-// TestRegression_ContentRead_RejectsOversizeFile verifies the cap (finding R16)
-// through an injected 4-byte one, so no 25 MiB file has to exist.
 func TestRegression_ContentRead_RejectsOversizeFile(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
 
-	// File that exceeds the injected cap (5 bytes > 4-byte cap).
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.txt"), []byte("hello"), 0o600))
 	_, err := content.ReadWithCap(dir, "big.txt", 4)
 	require.Error(t, err)
 	require.ErrorIs(t, err, content.ErrFileTooLarge, "oversized file must return ErrFileTooLarge")
 
-	// File that fits within the injected cap (3 bytes <= 4-byte cap).
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "small.txt"), []byte("hi\n"), 0o600))
 	fc, err := content.ReadWithCap(dir, "small.txt", 4)
 	require.NoError(t, err, "file within cap must succeed")
 	assert.Equal(t, "hi\n", fc.Content)
 }
 
-// escapeCases are the adversarial workspace-relative paths every fs op must
-// reject (security finding R1).
 var escapeCases = []struct {
 	name string
 	path string
@@ -401,13 +348,10 @@ var escapeCases = []struct {
 	{"mid-path escape", "a/../../b"},
 }
 
-// TestRegression_Read_RejectsPathEscape verifies content.Read refuses any path
-// that escapes the workspace root, so it cannot read arbitrary host files.
 func TestRegression_Read_RejectsPathEscape(
 	t *testing.T,
 ) {
 	root := t.TempDir()
-	// A real secret outside the root to prove it is never returned.
 	outside := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "passwd"), []byte("root:x:0:0"), 0o600))
 
@@ -419,8 +363,6 @@ func TestRegression_Read_RejectsPathEscape(
 	}
 }
 
-// TestRegression_Write_RejectsPathEscape verifies content.Write refuses to
-// write outside the workspace root (arbitrary host write / RCE vector).
 func TestRegression_Write_RejectsPathEscape(
 	t *testing.T,
 ) {
@@ -434,14 +376,11 @@ func TestRegression_Write_RejectsPathEscape(
 		})
 	}
 
-	// Nothing was written outside the root.
 	entries, err := os.ReadDir(outside)
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 }
 
-// TestRegression_Write_RejectsSymlinkEscape verifies content.Write cannot
-// follow a symlinked parent that points outside the workspace.
 func TestRegression_Write_RejectsSymlinkEscape(
 	t *testing.T,
 ) {
@@ -459,8 +398,6 @@ func TestRegression_Write_RejectsSymlinkEscape(
 	assert.True(t, os.IsNotExist(statErr), "write must not land outside the root via symlink")
 }
 
-// TestAbs_RejectsRelativeAndUncleanPaths verifies the host-path reader and
-// writer take only an absolute, clean path: a ".." never reaches the disk.
 func TestAbs_RejectsRelativeAndUncleanPaths(
 	t *testing.T,
 ) {
@@ -471,8 +408,6 @@ func TestAbs_RejectsRelativeAndUncleanPaths(
 	}
 }
 
-// TestAbs_RoundTripAndCap verifies a host file round-trips byte-faithfully and
-// the read keeps the 25 MiB cap (the sparse file costs no disk).
 func TestAbs_RoundTripAndCap(
 	t *testing.T,
 ) {

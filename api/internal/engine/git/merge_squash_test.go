@@ -18,12 +18,10 @@ func TestMergeSquash_ProducesSquashedCommit(
 	repo := initRepo(t)
 	makeCommit(t, repo, "base.txt", "base\n", "base commit")
 
-	// create child branch with two commits
 	gitRun(t, repo, "checkout", "-b", "feature/sq")
 	makeCommit(t, repo, "a.txt", "a\n", "commit A")
 	makeCommit(t, repo, "b.txt", "b\n", "commit B")
 
-	// switch back to main
 	gitRun(t, repo, "checkout", "main")
 	parentTipBefore := headSHA(t, repo)
 
@@ -36,7 +34,6 @@ func TestMergeSquash_ProducesSquashedCommit(
 	parentTipAfter := headSHA(t, repo)
 	assert.NotEqual(t, parentTipBefore, parentTipAfter, "parent tip should advance after squash merge")
 
-	// the squash should produce exactly one new commit on main
 	commits, err := e.Log(ctx, repo, 10, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "squashed work", commits[0].Message)
@@ -86,7 +83,6 @@ func TestMergeSquash_NoNetChange_ReturnsNil(
 	repo := initRepo(t)
 	makeCommit(t, repo, "base.txt", "base\n", "base commit")
 
-	// branch from main with no new commits: squash stages nothing.
 	gitRun(t, repo, "branch", "feature/empty")
 	parentTipBefore := headSHA(t, repo)
 
@@ -99,8 +95,6 @@ func TestMergeSquash_NoNetChange_ReturnsNil(
 	assert.Equal(t, parentTipBefore, headSHA(t, repo), "parent must be unchanged")
 }
 
-// A squash into a parent holding the user's staged work is refused before it
-// starts: committing would take that work into the squash, undoing would drop it.
 func TestMergeSquash_RefusesAParentWithStagedWork(t *testing.T) {
 	for name, edit := range map[string]string{"staged": "", "staged then edited": "edited\n"} {
 		t.Run(name, func(t *testing.T) {
@@ -126,7 +120,6 @@ func TestMergeSquash_RefusesAParentWithStagedWork(t *testing.T) {
 	}
 }
 
-// A squash with no net change commits nothing and leaves no squash pending.
 func TestMergeSquash_NoNetChangeLeavesNothingInProgress(t *testing.T) {
 	repo := initRepo(t)
 	makeCommit(t, repo, "base.txt", "base\n", "base")
@@ -143,8 +136,6 @@ func TestMergeSquash_NoNetChangeLeavesNothingInProgress(t *testing.T) {
 	assert.Empty(t, op)
 }
 
-// An intent-to-add entry is staged work too: a squash committing over it, then
-// refused by a hook, could not be undone (`reset --merge` rejects ita entries).
 func TestMergeSquash_RefusesAParentWithAnIntentToAddEntry(t *testing.T) {
 	repo := initRepo(t)
 	makeCommit(t, repo, "base.txt", "base\n", "base")
@@ -167,8 +158,6 @@ func TestMergeSquash_RefusesAParentWithAnIntentToAddEntry(t *testing.T) {
 	assert.Empty(t, op)
 }
 
-// A parent branch with no commit yet has no HEAD to squash onto: refused in
-// plain words, not as git's own error.
 func TestMergeSquash_RefusesAParentWithNoCommitYet(t *testing.T) {
 	repo := initRepo(t)
 	makeCommit(t, repo, "base.txt", "base\n", "base")

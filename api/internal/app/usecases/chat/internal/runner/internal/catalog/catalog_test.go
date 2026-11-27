@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/catalog"
 )
 
-// Four is the whole daemon's budget, not four per chat: a panel of eight chats
-// must not fork eight vendor CLIs at once.
 func TestAcquireProcess_EnforcesOneDaemonWideBudget(t *testing.T) {
 	t.Parallel()
 
@@ -38,8 +36,6 @@ func TestAcquireProcess_EnforcesOneDaemonWideBudget(t *testing.T) {
 	}
 }
 
-// The release is deferred by its caller and may also be called early. Releasing
-// twice must not hand back a slot that was never taken.
 func TestAcquireProcess_ReleaseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -51,7 +47,6 @@ func TestAcquireProcess_ReleaseIsIdempotent(t *testing.T) {
 	release()
 	release()
 
-	// Four more must still fit: a double release would have leaked capacity.
 	var releases []func()
 	for range 4 {
 		r, err := runs.AcquireProcess(context.Background())
@@ -67,8 +62,6 @@ func TestAcquireProcess_ReleaseIsIdempotent(t *testing.T) {
 	}
 }
 
-// A second probe on one chat makes the first pointless: the user changed
-// something, and the answer in flight is about to be wrong.
 func TestStart_ASecondProbeCancelsTheFirst(t *testing.T) {
 	t.Parallel()
 
@@ -97,9 +90,6 @@ func TestStart_ChatsDoNotCancelEachOther(t *testing.T) {
 	assert.NoError(t, theirs.Err())
 }
 
-// finish must retire only the probe it belongs to. A superseded probe finishing
-// late would otherwise evict the registry entry of the probe that replaced it,
-// and the NEXT probe would then have nothing to cancel.
 func TestStart_ASupersededProbeFinishingLateDoesNotEvictItsReplacement(t *testing.T) {
 	t.Parallel()
 

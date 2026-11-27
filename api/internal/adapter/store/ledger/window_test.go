@@ -17,7 +17,6 @@ func ended(t *testing.T, requestID string) ledger.Row {
 	return mustRow(t, ledger.KindTurnEnded, "T-"+requestID, ledger.TurnEnded{Status: "done"})
 }
 
-// turns appends n whole turns r1..rn (prompt, start, end: seqs 3i-2..3i).
 func turns(t *testing.T, s *ledgerstore.Store, n int) {
 	t.Helper()
 	for i := 1; i <= n; i++ {
@@ -48,7 +47,6 @@ func TestWindow_PullsInATurnStillOpenOrNamedInsideIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), kept, "an open turn's rows come whole, and every row after them")
 
-	// A subagent of turn 2 reports after turn 4 began: cutting turn 2 would orphan it.
 	late := mustRow(t, ledger.KindAssistantText, "T-r2", ledger.AssistantText{MessageID: "m", Index: -1, Text: "late"})
 	late.Scope = "sub-1"
 	_, _, err = s.Append(t.Context(), "c1", prompt(t, "r5", "r5"), started(t, "r5"), late)
@@ -58,7 +56,6 @@ func TestWindow_PullsInATurnStillOpenOrNamedInsideIt(t *testing.T) {
 	assert.Equal(t, int64(3), pulled)
 }
 
-// bulky appends turns r1..rn whose prompt carries size bytes of text.
 func bulky(t *testing.T, s *ledgerstore.Store, n, size int) {
 	t.Helper()
 	text := strings.Repeat("x", size)

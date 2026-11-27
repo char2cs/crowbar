@@ -1,0 +1,1 @@
+# Ratchet baseline for rust: path<TAB>rule<TAB>count. Counts only shrink; never add or raise an entry.

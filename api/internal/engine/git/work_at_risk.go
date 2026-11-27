@@ -18,7 +18,6 @@ func (e *engine) UncommittedFiles(
 	if err := gitexec.RequireSuccess("status", r); err != nil {
 		return 0, err
 	}
-	// Non -z porcelain quotes any path with a newline, so one line is one path.
 	n := 0
 	for _, line := range strings.Split(r.Stdout, "\n") {
 		if line != "" {
@@ -38,7 +37,6 @@ func (e *engine) UnmergedCommits(
 	args := append([]string{"rev-list", "--count", "--ignore-missing"}, tips...)
 	args = append(args, "--not")
 	if dropBranch != "" {
-		// --exclude takes a pattern relative to refs/heads/ when it precedes --branches.
 		args = append(args, "--exclude="+dropBranch)
 	}
 	args = append(args, "--branches", "--remotes", "--tags")

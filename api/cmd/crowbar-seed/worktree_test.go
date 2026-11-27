@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// seededWorktree is the shape a seed run leaves behind: the fixture repo, and a
-// worktree of it on the feature branch, the way Crowbar provisions one for a
-// workspace.
 func seededWorktree(
 	t *testing.T,
 ) (*gitRepo, string) {
@@ -44,9 +41,6 @@ func TestEnsureWorktreeReusesAHealthyWorktree(t *testing.T) {
 	}
 }
 
-// The reported failure: regenerating the fixture drops
-// <fixture>/.git/worktrees/<name> while the worktree directory survives, and
-// every git command in it dies with "not a git repository: .../worktrees/...".
 func TestEnsureWorktreeRepairsAVanishedRegistration(t *testing.T) {
 	fixture, path := seededWorktree(t)
 	registry, err := fixture.commonDir()
@@ -72,8 +66,6 @@ func TestEnsureWorktreeRepairsAVanishedRegistration(t *testing.T) {
 	}
 }
 
-// The mirror inconsistency: the directory is gone but the registration is not,
-// and `git worktree add` then refuses with "already used by worktree".
 func TestEnsureWorktreeRepairsAVanishedDirectory(t *testing.T) {
 	fixture, path := seededWorktree(t)
 	if err := os.RemoveAll(path); err != nil {
@@ -92,8 +84,6 @@ func TestEnsureWorktreeRepairsAVanishedDirectory(t *testing.T) {
 	}
 }
 
-// A repair must not throw the review commit away when the fixture still carries
-// the branch, or every rerun rewrites the diff the review surface is showing.
 func TestRepairKeepsTheBranchHistoryTheFixtureStillHas(t *testing.T) {
 	fixture, path := seededWorktree(t)
 	worktree, err := openWorktree(fixture, path)
@@ -124,8 +114,6 @@ func TestRepairKeepsTheBranchHistoryTheFixtureStillHas(t *testing.T) {
 	}
 }
 
-// clearOrphan calls os.RemoveAll, so what it will and will not delete is the
-// dangerous part. A directory it cannot prove the fixture owns has to survive.
 func TestEnsureWorktreeRefusesAPathTheFixtureDoesNotOwn(t *testing.T) {
 	fixture, _ := seededWorktree(t)
 	outer, inner := enclosingRepo(t)
@@ -143,8 +131,6 @@ func TestEnsureWorktreeRefusesAPathTheFixtureDoesNotOwn(t *testing.T) {
 	}
 }
 
-// A worktree of some other repository is not a repair case either: committing
-// into it would write the seed's fixture sources into a checkout it does not own.
 func TestOpenWorktreeRefusesAWorktreeOfAnotherRepository(t *testing.T) {
 	fixture, _ := seededWorktree(t)
 	other, otherPath := seededWorktree(t)

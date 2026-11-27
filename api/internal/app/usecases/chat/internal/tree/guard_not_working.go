@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// Busy answers whether a chat is working.
 type Busy interface {
 	ChatBusy(ctx context.Context, chatID string) (bool, error)
 }

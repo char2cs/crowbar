@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// openingSessions is a websocket provider whose prompt opens a session with one call.
 func openingSessions(send map[string]any) *spec.Descriptor {
 	d := withWebsocket(valid())
 	d.Events["prompt"] = spec.EventSpec{

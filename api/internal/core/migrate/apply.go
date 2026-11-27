@@ -8,12 +8,8 @@ import (
 	"slices"
 )
 
-// runIDLayout names a run by its start time. It is one path segment because the
-// run id also names the run's backup directory.
 const runIDLayout = "20060102T150405.000000000Z"
 
-// runState is the run in progress: how many steps it will run, how many it has,
-// and what they counted.
 type runState struct {
 	id     string
 	total  int
@@ -21,9 +17,6 @@ type runState struct {
 	counts Counts
 }
 
-// RunPreOpen preflights every pending step of both phases, then runs the pending
-// pre-open steps in catalog order before any database opens. A failure halts the
-// session as a *Halt; a ctx cancel ends the run as interrupted, its error returned as is.
 func (s *Session) RunPreOpen(
 	ctx context.Context,
 	impls Impls,
@@ -31,8 +24,6 @@ func (s *Session) RunPreOpen(
 	return s.runPhase(ctx, PreOpen, impls)
 }
 
-// RunPostOpen runs the pending post-open steps and closes the run RunPreOpen
-// started. It refuses to run while a pre-open step is pending or no run is open.
 func (s *Session) RunPostOpen(
 	ctx context.Context,
 	impls Impls,
@@ -68,9 +59,6 @@ func (s *Session) runPhase(
 	}
 }
 
-// ensureRun opens the boot's run the first time anything is pending, whichever
-// phase it is in, and preflights every pending step before any of them runs.
-// Only RunPreOpen may start it: RunPostOpen runs after the stores are open.
 func (s *Session) ensureRun(
 	ctx context.Context,
 	phase Phase,
@@ -88,7 +76,6 @@ func (s *Session) ensureRun(
 	return s.preflight(ctx, pending)
 }
 
-// admit refuses a phase that cannot run in full, before it changes anything.
 func (s *Session) admit(
 	phase Phase,
 	impls Impls,
@@ -107,11 +94,8 @@ func (s *Session) admit(
 	return nil
 }
 
-// errNoImpl is why a pending step this build has no implementation for cannot run.
 var errNoImpl = errors.New("no implementation in this build")
 
-// unimplemented is the first of steps this build cannot run: the step a boot
-// halts on, and a preview with it.
 func unimplemented(
 	steps []Step,
 	implemented func(number int) bool,
@@ -123,7 +107,6 @@ func unimplemented(
 	return steps[i], true
 }
 
-// checkKnown catches an implementation wired to a step the catalog lacks.
 func (s *Session) checkKnown(
 	impls Impls,
 ) error {
@@ -135,7 +118,6 @@ func (s *Session) checkKnown(
 	return nil
 }
 
-// leading is the steps at the front of the pending order that belong to phase.
 func leading(
 	pending []Step,
 	phase Phase,
@@ -173,8 +155,6 @@ func (s *Session) runStep(
 	return s.complete(ctx, step, cp, counts)
 }
 
-// attemptFailed skips a recurring step that failed on a home it was already
-// applied to, and otherwise halts on the failure or ends an interrupted run.
 func (s *Session) attemptFailed(
 	ctx context.Context,
 	reason HaltReason,
@@ -188,8 +168,6 @@ func (s *Session) attemptFailed(
 	return s.stepError(ctx, reason, step, err)
 }
 
-// stepError ends the run as interrupted when err is the step stopping for a
-// cancelled ctx, and halts on it otherwise.
 func (s *Session) stepError(
 	ctx context.Context,
 	reason HaltReason,
@@ -202,8 +180,6 @@ func (s *Session) stepError(
 	return s.fail(reason, step, err)
 }
 
-// interrupted reports whether err is a call giving up because ctx was cancelled.
-// An error that merely arrives while ctx is cancelled is a failure of its own.
 func interrupted(
 	ctx context.Context,
 	err error,
@@ -211,8 +187,6 @@ func interrupted(
 	return err != nil && ctx.Err() != nil && errors.Is(err, ctx.Err())
 }
 
-// complete makes a verified step durable: LAYOUT first for a bump, since LAYOUT
-// alone decides a bump is done, then the ledger's record of it.
 func (s *Session) complete(
 	ctx context.Context,
 	step Step,
@@ -239,12 +213,8 @@ func (s *Session) complete(
 	return nil
 }
 
-// skippedNote is the note a recurring step that failed once applied leaves,
-// under its own key, for its next plan to read.
 const skippedNote = "skipped"
 
-// skipAgain ends a recurring step that failed, or failed its check, on a home
-// it was already applied to: the boot runs on what it did, so it is a warning.
 func (s *Session) skipAgain(
 	ctx context.Context,
 	step Step,
@@ -263,9 +233,6 @@ func (s *Session) skipAgain(
 	return nil
 }
 
-// beginRun writes run.start for the steps pending now. A ledger that cannot be
-// written halts on the step that would have run first: the boot must not go on
-// unrecorded, and a halt is what the health endpoint can report.
 func (s *Session) beginRun(
 	pending []Step,
 ) error {
@@ -291,9 +258,6 @@ func (s *Session) beginRun(
 	return nil
 }
 
-// finish closes the run once nothing is pending. Every step is already durable
-// by then, so a ledger that cannot take the run.end does not undo the migration;
-// the next boot closes the dangling run.
 func (s *Session) finish() error {
 	if s.run == nil || len(s.pending()) > 0 {
 		return nil
@@ -305,8 +269,6 @@ func (s *Session) finish() error {
 	return nil
 }
 
-// interrupt closes the run a cancelled ctx stopped. It is not a failure, so
-// there is no halt; the next boot resumes from the checkpoints.
 func (s *Session) interrupt(
 	cause error,
 ) error {
@@ -328,8 +290,6 @@ func (s *Session) endRun(
 	return nil
 }
 
-// writeRunEnd appends the record that closes run id, whether or not this
-// session started it.
 func (s *Session) writeRunEnd(
 	id string,
 	counts Counts,

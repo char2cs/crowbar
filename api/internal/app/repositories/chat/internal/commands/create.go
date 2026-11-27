@@ -10,24 +10,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Create seeds a new AgentChat: an identity, a workspace and a clock. It carries
-// no terminal session because a chat does not own the process talking to it:
-// its ledger records each runner_started instead.
 type Create struct {
 	ID          string
 	WorkspaceID string
-	// RepoID is meaningful only when Type is ChatTypeFolder — see
-	// domain.Chat.RepoID's own doc. Left "" for every other type.
-	RepoID string
-	Type   domain.ChatType
-	// Surface is the chat's landing VIEW — see domain.Chat.Surface. "" is
-	// the provider's own default and is what every chat minted before this
-	// field existed carries.
-	Surface string
-	// ProviderID is the vendor the chat is BORN on — see domain.Chat.ProviderID.
-	// This mint starts nothing; "" is what a chat minted before the field carries.
-	ProviderID string
-	Now        time.Time
+	RepoID      string
+	Type        domain.ChatType
+	Surface     string
+	ProviderID  string
+	Now         time.Time
 }
 
 func (c Create) AggregateID() string  { return c.ID }
@@ -47,9 +37,6 @@ func (c Create) Validate(current *domain.Chat) error {
 	return nil
 }
 
-// validChatType refuses ChatTypeFolder and ChatTypeBranch: a folder is a
-// tree.Folder row and a workspace's position is its Node{Kind:workspace} row,
-// so neither is minted or retyped as a Chat aggregate.
 func validChatType(t domain.ChatType) bool {
 	switch t {
 	case domain.ChatTypeChat, domain.ChatTypeWorkflow:

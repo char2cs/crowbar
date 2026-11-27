@@ -12,9 +12,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// MergeResult is a local merge-into-parent's outcome. On conflict the merge is aborted (never a stuck
-// worktree), the child shows pr-conflicts and ParentTipSha is empty; on success ParentTipSha is the
-// parent's new HEAD, which the child's fork point has advanced to.
 type MergeResult struct {
 	ConflictsPending bool   `json:"conflictsPending"`
 	ParentTipSha     string `json:"parentTipSha"`
@@ -38,8 +35,6 @@ func (u *hierarchyUsecase) MergeIntoParent(
 	return u.finalizeMerge(ctx, child, parent)
 }
 
-// GuardMergeFold refuses a merge that would delete childID with it while one of
-// its chats works. A child with children is never deleted by its merge.
 func (u *hierarchyUsecase) GuardMergeFold(ctx context.Context, childID string) error {
 	hasKids, err := u.childHasChildren(ctx, childID)
 	if err != nil {
@@ -135,8 +130,6 @@ func (u *hierarchyUsecase) handleMergeError(
 	if !errors.Is(mergeErr, enginegit.ErrConflict) {
 		return MergeResult{}, fmt.Errorf("merge: run: %w", mergeErr)
 	}
-	// A conflicting merge must never leave a worktree stuck: abort the op where it runs (parent for
-	// squash/merge, child for rebase) and surface the conflict as the child's pr-conflicts state.
 	abortPath := parent.WorktreePath
 	abortWS := parent.ID
 	if strategy == gitdomain.MergeStrategyRebase {
@@ -146,8 +139,6 @@ func (u *hierarchyUsecase) handleMergeError(
 	if abortErr := u.git.OperationAbort(ctx, abortPath); abortErr != nil { //nolint:nestif // stuck-worktree recovery after a failed conflict abort; flattening risks the recovery path
 		slog.WarnContext(ctx, "merge: abort after conflict failed; worktree may be stuck",
 			"workspace_id", child.ID, "abort_path", abortPath, "err", abortErr)
-		// The abort failed, so that worktree is still mid-merge: flag the parent pr-conflicts too, so the stuck
-		// state is visible and recoverable rather than reported as success.
 		if abortWS != child.ID {
 			if _, perr := u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
 				ID:           abortWS,
@@ -158,8 +149,6 @@ func (u *hierarchyUsecase) handleMergeError(
 			}
 		}
 	}
-	// A local merge/rebase conflict transitions the child to Status=pr-conflicts:
-	// the HasConflicts sync input drives the status enum.
 	_, err := u.workspaces.SyncWorkingTreeState(ctx, workspace.SyncInput{
 		ID:           child.ID,
 		HasConflicts: true,
@@ -191,9 +180,6 @@ func (u *hierarchyUsecase) finalizeMerge(
 	return MergeResult{ParentTipSha: tip}, nil
 }
 
-// resyncSummary recomputes a workspace's summary after a merge; conflicted marks a conflict git no
-// longer shows. forkPointSha is a freshly computed post-op SHA used as the diff base verbatim, and is
-// superseded on the next branch-based recompute.
 func (u *hierarchyUsecase) resyncSummary(
 	ctx context.Context,
 	id string,

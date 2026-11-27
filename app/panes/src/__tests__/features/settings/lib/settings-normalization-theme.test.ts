@@ -1,0 +1,44 @@
+import { describe, expect, it } from 'vitest'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
+import {
+  normalizeSettings,
+  normalizeSettingValue,
+} from '@/features/settings/lib/settings-normalization'
+
+describe('normalizeSettings theme coercion', () => {
+  it('coerces a theme id the registry does not know to the default theme', () => {
+    const normalized = normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'terra' })
+
+    expect(normalized.theme).toBe('crowbar')
+  })
+
+  it('coerces the removed zen theme to the default theme', () => {
+    expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'zen' }).theme).toBe(
+      'crowbar',
+    )
+  })
+
+  it('keeps a registered theme id untouched', () => {
+    expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'frosted' }).theme).toBe(
+      'frosted',
+    )
+    expect(normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'crowbar' }).theme).toBe(
+      'crowbar',
+    )
+  })
+
+  it('coerces a non-string persisted theme', () => {
+    const normalized = normalizeSettings({
+      ...getDefaultSettingsSnapshot(),
+      theme: undefined as unknown as string,
+    })
+
+    expect(normalized.theme).toBe('crowbar')
+  })
+
+  it('coerces an unknown theme on write too', () => {
+    expect(normalizeSettingValue('theme', 'terra')).toBe('crowbar')
+    expect(normalizeSettingValue('theme', 'zen')).toBe('crowbar')
+    expect(normalizeSettingValue('theme', 'frosted')).toBe('frosted')
+  })
+})

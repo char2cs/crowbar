@@ -1,0 +1,5 @@
+[package]
+name = "c"
+
+[lints]
+workspace = true

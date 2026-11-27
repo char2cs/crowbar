@@ -1,0 +1,11 @@
+:root[data-platform='ios'] :is(input, textarea, select, [contenteditable='true']) {
+  font-size: 16px;
+}
+
+:root[data-platform='ios'] {
+  touch-action: manipulation;
+}
+
+:root[data-chrome-page] {
+  background-color: var(--chrome-bg);
+}

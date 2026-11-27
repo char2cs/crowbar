@@ -12,26 +12,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// CreateChildInput carries the fields needed to create a worktree-backed child. Repo fields are
-// required only without a ParentID; leaving both RepoID and RepoPath blank inherits the parent's repo,
-// while a caller that names its own repo (even a path-less one) keeps the explicit create.
 type CreateChildInput struct {
-	RepoID       string
-	ProjectID    string
-	RepoPath     string
-	RemoteURL    string // git remote origin URL; required for worktree path derivation
-	Branch       string
-	ParentID     string
-	ParentBranch string
-	// OwnWorktree nil inherits whether the parent owns a worktree; a set value always wins.
-	OwnWorktree *bool
-	// ForceLocked marks the workspace locked regardless of branch protection, for a workspace the caller
-	// knows is immutable (a default-branch workspace adopted without a git provider).
-	ForceLocked bool
-	// FromParentHead starts a new branch at the commit the parent's checkout holds,
-	// never origin's tip: a thread made a branch keeps what its folder committed.
+	RepoID         string
+	ProjectID      string
+	RepoPath       string
+	RemoteURL      string
+	Branch         string
+	ParentID       string
+	ParentBranch   string
+	OwnWorktree    *bool
+	ForceLocked    bool
 	FromParentHead bool
-	parentWorktree string // the inherited parent's checkout: a branchless parent forks from its HEAD
+	parentWorktree string
 }
 
 //nolint:gocyclo // orchestrates create with intricate worktree/branch rollback paths; splitting risks the rollback invariants
@@ -43,14 +35,9 @@ func (u *hierarchyUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, err
 	}
-	// Repos with no on-disk path (e.g. virtual/test repos), and a create that
-	// does not own a worktree (explicitly, or defaulted off a workspace-less
-	// parent), skip all git operations and create a workspace row directly.
 	if in.RepoPath == "" || !ownWorktree {
 		return u.createDirectRow(ctx, in)
 	}
-	// A spontaneous create leaves Branch blank: naming happens server-side because only this side can
-	// collision-check against real refs.
 	if in.Branch == "" {
 		branch, genErr := u.generateBranchName(ctx, in.RepoPath)
 		if genErr != nil {
@@ -58,8 +45,6 @@ func (u *hierarchyUsecase) CreateChild(
 		}
 		in.Branch = branch
 	}
-	// At most one MANAGED (non-default) workspace per (repo, branch). The default
-	// workspace (the imported repo folder) never counts — see branchWorkspaceExists.
 	exists, err := u.branchWorkspaceExists(ctx, in.RepoID, in.Branch)
 	if err != nil {
 		return domain.Workspace{}, err
@@ -67,8 +52,6 @@ func (u *hierarchyUsecase) CreateChild(
 	if exists {
 		return domain.Workspace{}, fmt.Errorf("%w (repo %s, branch %q)", ErrBranchWorkspaceExists, in.RepoID, in.Branch)
 	}
-	// The FIRST create on the default branch with no parent adopts the repo folder as the default
-	// workspace; a repeat must fall through to a managed worktree, where git rejects a second checkout.
 	if in.ParentID == "" && in.Branch == in.ParentBranch { //nolint:nestif // adopt-vs-managed create branching; flattening risks the adoption invariant
 		_, adopted, err := u.repoHomeWorkspaceID(ctx, in.RepoID)
 		if err != nil {
@@ -83,8 +66,6 @@ func (u *hierarchyUsecase) CreateChild(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: crowbar home: %w", err)
 	}
-	// Resolve the locked flag BEFORE creating the worktree so a provider hiccup
-	// can't leave an orphaned worktree+branch on disk (it has no on-disk effect).
 	locked, err := u.resolveLocked(ctx, in.RepoPath, in.Branch)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: locked: %w", err)
@@ -110,28 +91,18 @@ func (u *hierarchyUsecase) CreateChild(
 		Provisioning:  domain.WorkspaceProvisioned,
 	}, u.now())
 	if err != nil {
-		// The worktree + branch are on disk but the workspace row never landed.
-		// Clean them up best-effort so a fresh-wsID retry isn't blocked by the
-		// orphaned branch and the worktree dir doesn't dangle forever.
 		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached, added.createdBranch)
 		return domain.Workspace{}, err
 	}
 	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
-		// The row landed but its Node position could not be minted: roll everything back, row included, since
-		// a Workspace must never survive without its own Node row.
 		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached, added.createdBranch)
 		u.discardWorkspaceRow(ctx, ws.ID, "create child")
 		return domain.Workspace{}, nErr
 	}
-	// The worktree took the branch off the repo home, so the home row must stop claiming it. Runs only past
-	// every rollback, so the clear never outlives a detach that is unwound.
 	u.clearDetachedHomeBranch(ctx, detached, in.RepoID, in.Branch)
 	return ws, nil
 }
 
-// addWorktreeFreeingHome adds the worktree, and when git refuses because the repo home holds the branch
-// (its branch is incidental) detaches the home and retries once; a managed holder is left to fail. On
-// failure a detach is undone; detached reports one that stands.
 func (u *hierarchyUsecase) addWorktreeFreeingHome(
 	ctx context.Context,
 	in CreateChildInput,
@@ -157,8 +128,6 @@ func (u *hierarchyUsecase) addWorktreeFreeingHome(
 	return added, true, nil
 }
 
-// clearDetachedHomeBranch blanks the home row's branch after a create detached the home to claim it.
-// Best-effort: the worktree and its row are already committed.
 func (u *hierarchyUsecase) clearDetachedHomeBranch(
 	ctx context.Context,
 	detached bool,
@@ -180,20 +149,17 @@ func (u *hierarchyUsecase) clearDetachedHomeBranch(
 	}
 }
 
-// createDirectRow creates the row with no git work, for a path-less repo or a create that owns no
-// worktree. A failed Node mint rolls the row back; there is no worktree to unwind.
 func (u *hierarchyUsecase) createDirectRow(
 	ctx context.Context,
 	in CreateChildInput,
 ) (domain.Workspace, error) {
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
-		ID:        uuid.NewString(),
-		RepoID:    in.RepoID,
-		ProjectID: in.ProjectID,
-		Branch:    in.Branch,
-		ParentID:  in.ParentID,
-		Protected: in.ForceLocked,
-		// No checkout of its own: nothing may run git in it until one exists.
+		ID:           uuid.NewString(),
+		RepoID:       in.RepoID,
+		ProjectID:    in.ProjectID,
+		Branch:       in.Branch,
+		ParentID:     in.ParentID,
+		Protected:    in.ForceLocked,
 		Provisioning: domain.WorkspacePlaceholder,
 	}, u.now())
 	if err != nil {
@@ -206,9 +172,6 @@ func (u *hierarchyUsecase) createDirectRow(
 	return ws, nil
 }
 
-// cleanupFailedWorktree removes a worktree whose row failed to land, reattaching a detached main folder
-// first and deleting the branch only when this create made it. Best-effort: the original failure is
-// what the caller reports.
 func (u *hierarchyUsecase) cleanupFailedWorktree(
 	ctx context.Context,
 	repoPath string,
@@ -217,8 +180,7 @@ func (u *hierarchyUsecase) cleanupFailedWorktree(
 	detached bool,
 	createdBranch bool,
 ) {
-	ctx = context.WithoutCancel(ctx) // a caller that hung up would leave the worktree and branch for good
-	// Made a moment ago by this very call, the worktree holds nobody's work: force is safe.
+	ctx = context.WithoutCancel(ctx)
 	if rmErr := u.git.WorktreeRemove(ctx, repoPath, path, true); rmErr != nil {
 		slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
 			"worktree", path, "err", rmErr)
@@ -233,9 +195,6 @@ func (u *hierarchyUsecase) cleanupFailedWorktree(
 	}
 }
 
-// resolveInherited fills blank repo fields from the parent's repo and reports the effective
-// OwnWorktree. The lookup runs only when both RepoID and RepoPath are blank, so a caller that knows its
-// own repo is never silently swapped for the parent's.
 func (u *hierarchyUsecase) resolveInherited(
 	ctx context.Context,
 	in CreateChildInput,
@@ -272,9 +231,6 @@ func ownWorktreeOrDefault(
 	return defaultValue
 }
 
-// branchWorkspaceExists reports whether a non-deleted workspace already holds
-// this branch in the repo. A branch can be checked out in at most one worktree,
-// so the repo keeps at most one workspace per branch.
 func (u *hierarchyUsecase) branchWorkspaceExists(
 	ctx context.Context,
 	repoID string,
@@ -285,8 +241,6 @@ func (u *hierarchyUsecase) branchWorkspaceExists(
 		return false, fmt.Errorf("create child: list workspaces: %w", err)
 	}
 	for _, w := range all {
-		// Only managed workspaces count: the default workspace is the user's own repo folder, whose branch
-		// Crowbar does not own.
 		if w.RepoID == repoID &&
 			w.Branch == branch &&
 			!w.IsDefault &&
@@ -297,7 +251,6 @@ func (u *hierarchyUsecase) branchWorkspaceExists(
 	return false, nil
 }
 
-// reattachMain re-checks-out branch in the main folder to undo a detach. Best-effort.
 func (u *hierarchyUsecase) reattachMain(
 	ctx context.Context,
 	detached bool,

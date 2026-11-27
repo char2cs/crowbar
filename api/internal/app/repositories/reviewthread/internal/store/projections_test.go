@@ -37,8 +37,6 @@ func (h *captureHub) count() int {
 	return len(h.rows)
 }
 
-// newProjected builds a real asynx over throwaway DBs with the store projection
-// as its durable subscriber and the hub projection live, the production shape.
 func newProjected(
 	t *testing.T,
 ) (context.Context, asynx.Asynx[domain.ReviewThread], storage, *captureHub) {
@@ -72,7 +70,6 @@ func buildOver(
 	return context.Background(), ax, h
 }
 
-// failFirstSave fails the first Save, then signals every Save that succeeds.
 type failFirstSave struct {
 	storage
 	failed atomic.Bool
@@ -125,7 +122,6 @@ func TestReviewThreadProjection_ForgetDeletesTheRow(t *testing.T) {
 	assert.Nil(t, row)
 }
 
-// fakeAx is a minimal asynx stub that fails Subscribe / OnForget on demand.
 type fakeAx struct {
 	asynx.Asynx[domain.ReviewThread]
 	subscribeErr error
@@ -177,7 +173,6 @@ func TestReviewThreadProjection_ASaveFailureIsRetriedNotDropped(t *testing.T) {
 	assert.Equal(t, "a.go", row.FilePath)
 }
 
-// Upstream can redeliver a Forget marker at startup; the second one finds no row.
 func TestReviewThreadProjection_AForgetDeliveredTwiceIsANoOp(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)

@@ -1,4 +1,3 @@
-// Package handlers serves the /v0/projects/:projectId/home routes.
 package handlers
 
 import (
@@ -15,16 +14,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// HomeWorkspaces is the workspace surface the home handlers need.
 type HomeWorkspaces interface {
 	GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error)
 }
 
-// Files is the files endpoint's own surface: home serves the same operations.
 type Files = filehandlers.Files
 
-// ChatResolver resolves the chat rows a workspace id owns, so GET /home can
-// fill WorkspaceDTO.OwningChatID the same way the workspaces handlers do.
 type ChatResolver interface {
 	ListChatsByWorkspace(
 		ctx context.Context,
@@ -32,18 +27,12 @@ type ChatResolver interface {
 	) ([]domain.Chat, error)
 }
 
-// WorkSignal is whether an agent chat in a workspace is mid-turn. The home
-// workspace's only REST read is here, so it stamps Working itself to agree
-// with the WS frames the repositories Container enriches.
 type WorkSignal interface {
-	// WorkingFor reports whether an agent chat in the workspace is mid-turn.
 	WorkingFor(
 		wsID string,
 	) bool
 }
 
-// OwnerResolver answers the chat that owns a workspace — the chat handlers'
-// OwnerOf.
 type OwnerResolver interface {
 	OwnerOf(
 		ctx context.Context,
@@ -51,7 +40,6 @@ type OwnerResolver interface {
 	) string
 }
 
-// Handlers serves all /home/* routes.
 type Handlers struct {
 	workspaces HomeWorkspaces
 	files      Files
@@ -60,7 +48,6 @@ type Handlers struct {
 	owners     OwnerResolver
 }
 
-// New builds Handlers.
 func New(
 	workspaces HomeWorkspaces,
 	files Files,
@@ -73,9 +60,6 @@ func New(
 	}
 }
 
-// WithChats wires the chat-row resolver Get needs to answer
-// WorkspaceDTO.OwningChatID for the home workspace. A nil chats leaves it
-// unwired, and Get degrades to an empty owningChatId rather than panicking.
 func (h *Handlers) WithChats(
 	chats ChatResolver,
 ) *Handlers {
@@ -85,8 +69,6 @@ func (h *Handlers) WithChats(
 	return h
 }
 
-// WithOwners wires the owner resolver Get answers WorkspaceDTO.OwningChatID
-// through.
 func (h *Handlers) WithOwners(
 	owners OwnerResolver,
 ) *Handlers {
@@ -96,9 +78,6 @@ func (h *Handlers) WithOwners(
 	return h
 }
 
-// resolveHome fetches the project's home workspace. Every project gets its home
-// at creation (project import's createHomeWorkspace), so a missing one is a
-// 404, never provisioned on a read.
 func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	ws, err := h.workspaces.GetHomeForProject(c.Request.Context(), c.Param("projectId"))
 	if err == nil {
@@ -112,9 +91,6 @@ func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	return domain.Workspace{}, false
 }
 
-// RequireHomeWorkspace injects the project's home workspace id as :wsId so
-// handlers reused from the workspace-scoped surface resolve it by id. :repoId
-// stays empty; thread scopes tolerate the empty middle segment ("p//w").
 func (h *Handlers) RequireHomeWorkspace(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
@@ -125,9 +101,6 @@ func (h *Handlers) RequireHomeWorkspace(c *gin.Context) {
 	c.Next()
 }
 
-// RequireHomeTerminalScope shapes a home request for the chat-scoped terminal handlers:
-// the home workspace has no owning chat, so its id rides as :chatId, and the workspace
-// is stashed in reqscope as resolveChatWorktree would, giving the PTY its directory.
 func (h *Handlers) RequireHomeTerminalScope(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {

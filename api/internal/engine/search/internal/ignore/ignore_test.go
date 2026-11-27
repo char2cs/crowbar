@@ -35,7 +35,7 @@ func TestStack_EmptyStack_NothingIgnored(t *testing.T) {
 
 func TestStack_Add_MissingFileIsOK(t *testing.T) {
 	var s ignore.Stack
-	err := s.Add("/repo", "/repo/.gitignore") // doesn't exist
+	err := s.Add("/repo", "/repo/.gitignore")
 	require.NoError(t, err)
 }
 
@@ -85,7 +85,6 @@ func TestStack_CommentAndBlankLines(t *testing.T) {
 
 func TestStack_AnchoredPattern(t *testing.T) {
 	dir := t.TempDir()
-	// Anchored: only matches "build/" at the root of the repo.
 	path := writeGitignore(t, dir, "/build/\n")
 
 	var s ignore.Stack
@@ -101,7 +100,6 @@ func TestStack_ChildOutsideLayerDir(t *testing.T) {
 	var s ignore.Stack
 	require.NoError(t, s.Add(dir, path))
 
-	// Path outside the layer directory should not be ignored.
 	assert.False(t, s.ShouldIgnore("/completely/different/path.log"))
 }
 
@@ -116,7 +114,6 @@ func TestStack_Add_ScanError(t *testing.T) {
 
 func TestStack_EscapedExclamation(t *testing.T) {
 	dir := t.TempDir()
-	// A line starting with \! should be treated as a literal "!" character.
 	path := writeGitignore(t, dir, `\!important.log`+"\n")
 
 	var s ignore.Stack
@@ -127,7 +124,6 @@ func TestStack_EscapedExclamation(t *testing.T) {
 
 func TestStack_AnchoredPatternMatchesFile(t *testing.T) {
 	dir := t.TempDir()
-	// /build matches build/output.o
 	path := writeGitignore(t, dir, "/build\n")
 
 	var s ignore.Stack
@@ -154,7 +150,6 @@ func TestStack_Add_PermissionError(t *testing.T) {
 
 func TestStack_SuffixPatternMatchesRelative(t *testing.T) {
 	dir := t.TempDir()
-	// Pattern "*.go" should match nested files like "sub/main.go"
 	path := writeGitignore(t, dir, "*.go\n")
 
 	var s ignore.Stack
@@ -165,27 +160,21 @@ func TestStack_SuffixPatternMatchesRelative(t *testing.T) {
 
 func TestStack_AllSpacesLineIgnored(t *testing.T) {
 	dir := t.TempDir()
-	// A line that is only spaces should be treated as blank (not a pattern).
 	path := writeGitignore(t, dir, "   \n*.log\n")
 
 	var s ignore.Stack
 	require.NoError(t, s.Add(dir, path))
 
-	// Only *.log should be active.
 	assert.True(t, s.ShouldIgnore(filepath.Join(dir, "app.log")))
 	assert.False(t, s.ShouldIgnore(filepath.Join(dir, "app.go")))
 }
 
 func TestStack_SuffixGlobMatchesDeep(t *testing.T) {
 	dir := t.TempDir()
-	// Non-anchored pattern "sub/*.go" contains a slash → anchored.
-	// But "sub/main" matches "sub/main.go" via anchored+doublestar.
-	// Test the suffix path: non-anchored pattern matching relative path.
 	path := writeGitignore(t, dir, "main.go\n")
 
 	var s ignore.Stack
 	require.NoError(t, s.Add(dir, path))
 
-	// Should match "a/b/main.go" via suffix matching (suffix = "main.go").
 	assert.True(t, s.ShouldIgnore(filepath.Join(dir, "a", "b", "main.go")))
 }

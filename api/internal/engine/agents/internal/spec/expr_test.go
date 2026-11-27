@@ -60,9 +60,6 @@ events:
 	assert.Equal(t, []string{"commandExecution", "fileChange"}, d.Events["tool_pre"].When["item.type"])
 }
 
-// --- 5.0: the `||` glyph is a hard parse error, everywhere an expression can
-// appear, naming the descriptor, event and field it was found in.
-
 func TestEventSpec_MapRejectsRawAlternationGlyph(t *testing.T) {
 	var d spec.Descriptor
 	err := yaml.Unmarshal([]byte(`
@@ -138,8 +135,6 @@ events:
 	assert.Contains(t, err.Error(), "permission")
 }
 
-// first_present: is the map: operator; any_of: is the when: operator. Using the
-// wrong one is a descriptor bug the loader must catch, not silently accept.
 func TestEventSpec_MapRejectsAnyOf(t *testing.T) {
 	var d spec.Descriptor
 	err := yaml.Unmarshal([]byte(`
@@ -282,7 +277,6 @@ events:
 	assert.Contains(t, err.Error(), "tool_target")
 }
 
-// A field some payloads carry as a JSON-encoded string is decoded, then selected.
 func TestJSONTransform_DecodesAStringField(t *testing.T) {
 	var d spec.Descriptor
 	require.NoError(t, yaml.Unmarshal([]byte(`

@@ -49,7 +49,6 @@ func checkType(id string, typing *spec.PromptTypeSpec) error {
 	if typing.Input != spec.InputKeys {
 		return invalid(id, "presentation.prompt_submit.type.input %q is not a known input mode", typing.Input)
 	}
-	// Four bytes: the widest rune, so a chunk can always take one.
 	if typing.ChunkBytes < utf8.UTFMax {
 		return invalid(id, "presentation.prompt_submit.type.chunk_bytes must be at least %d", utf8.UTFMax)
 	}
@@ -114,8 +113,6 @@ func (promptSubmit) checkLeadingSigils(id string, sigils *spec.LeadingSigilsSpec
 	if sigils.Escape == "" {
 		return invalid(id, "presentation.prompt_submit.leading_sigils.escape is required")
 	}
-	// An escape that itself starts with a declared sigil would hand the CLI the
-	// very gesture it is there to prevent.
 	for _, char := range sigils.Chars {
 		if strings.HasPrefix(sigils.Escape, char) {
 			return invalid(id,

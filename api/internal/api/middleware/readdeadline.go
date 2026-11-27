@@ -9,9 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// PreAuthReadDeadline bounds a TLS request's reads until a guard verifies the caller
-// (LiftReadDeadline), so an anonymous peer can't pin a connection by trickling bytes.
-// Plaintext is the local transport, trusted by the OS boundary, and is left alone.
 func PreAuthReadDeadline(
 	timeout time.Duration,
 ) gin.HandlerFunc {
@@ -28,16 +25,12 @@ func PreAuthReadDeadline(
 	}
 }
 
-// LiftReadDeadline clears PreAuthReadDeadline's bound once the caller is
-// authenticated, so a long upload, stream or hijacked WebSocket is not cut.
 func LiftReadDeadline(
 	c *gin.Context,
 ) error {
 	return setReadDeadline(c.Writer, time.Time{})
 }
 
-// setReadDeadline reaches the connection behind w. A writer with none (an
-// in-memory recorder) has nothing to bound, so that is not an error.
 func setReadDeadline(
 	w http.ResponseWriter,
 	deadline time.Time,

@@ -1,0 +1,1 @@
+# Lint suppressions: path<TAB>allow-lint:<lint><TAB>count. Counts only shrink; never add or raise an entry.

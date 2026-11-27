@@ -1,0 +1,408 @@
+# The rig's scripted provider: /usr/local/bin/scripted-agent plays a scenario
+# (agent/scenarios/<name>.json) per prompt and posts each step to the daemon's hook
+# server. Its payloads use Crowbar's canonical field names, so every map is 1:1.
+id: scripted
+display_name: Scripted
+sign_in: scripted-agent login
+icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v3H4zM4 10.5h11v3H4zM4 17h16v3H4z"/></svg>'
+
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+    delivery: http
+    require_payload_fields: [session_id]
+  spawn:
+    cmd: scripted-agent
+
+not_emitted: [terminal_input, subagent_result]
+
+surfaces:
+  chat:     { channel: hooks, start_here: true }
+  terminal: { channel: hooks, start_here: true }
+
+events:
+  session_start:
+    required: [session_id]
+    in: session_start
+    status_map: { clear: cleared }
+    map: { session_id: session_id, model: model, reason: reason }
+
+  user_prompt:
+    required: [session_id]
+    in: user_prompt
+    map: { session_id: session_id, message: message, scope_id: scope_id, turn_id: turn_id }
+
+  turn_stop:
+    required: [session_id]
+    in: turn_stop
+    status_map: { completed: completed, interrupted: interrupted }
+    map: { session_id: session_id, message: message, effort: effort, turn_id: turn_id, turn_status: turn_status }
+
+  turn_failed:
+    required: [session_id, reason]
+    in: turn_failed
+    status_map: { auth_error: auth, rate_limit: limit, overloaded: overloaded }
+    map:
+      session_id:   session_id
+      reason:       reason
+      failure_kind: failure_kind
+      detail:       detail
+      message:      message
+      turn_id:      turn_id
+
+  message_delta:
+    required: [session_id, message_id, text]
+    in: message_delta
+    map:
+      session_id: session_id
+      turn_id:    turn_id
+      message_id: message_id
+      index:      index
+      final:      final
+      text:       text
+
+  message_complete:
+    required: [session_id, message_id, text]
+    in: message_complete
+    map: { session_id: session_id, turn_id: turn_id, message_id: message_id, text: text, phase: phase }
+
+  reasoning_delta:
+    required: [session_id, text]
+    in: reasoning_delta
+    map: { session_id: session_id, turn_id: turn_id, message_id: message_id, index: index, final: final, text: text }
+
+  tool_output_delta:
+    required: [session_id, text]
+    in: tool_output_delta
+    map: { session_id: session_id, turn_id: turn_id, message_id: message_id, index: index, final: final, text: text }
+
+  diff_update:
+    required: [session_id, text]
+    in: diff_update
+    map: { session_id: session_id, turn_id: turn_id, message_id: message_id, text: text }
+
+  tool_pre:
+    required: [session_id, tool_id, tool_name]
+    in: tool_pre
+    map:
+      session_id:      session_id
+      scope_id:        scope_id
+      tool_id:         tool_id
+      tool_name:       tool_name
+      tool_kind:       tool_kind
+      tool_target:     tool_target
+      tool_title:      tool_title
+      tool_input:      tool_input
+      mcp_server:      mcp_server
+      mcp_tool:        mcp_tool
+      edit_before:     edit_before
+      edit_after:      edit_after
+      spawns_scope:    spawns_scope
+      addresses_scope: addresses_scope
+      shell_ref:       shell_ref
+      cwd:             cwd
+    reply:
+      deny: '{"decision":"deny","reason":{reason_json}}'
+
+  tool_post:
+    required: [session_id, tool_id, tool_name]
+    in: tool_post
+    status_map: { ok: ok, completed: completed, failed: failed, declined: declined }
+    shell_kind_map: { shell: shell, monitor: monitor }
+    map:
+      session_id:       session_id
+      scope_id:         scope_id
+      tool_id:          tool_id
+      tool_name:        tool_name
+      tool_kind:        tool_kind
+      tool_target:      tool_target
+      tool_title:       tool_title
+      tool_input:       tool_input
+      tool_result:      tool_result
+      tool_output:      tool_output
+      tool_status:      tool_status
+      duration_ms:      duration_ms
+      exit_code:        exit_code
+      mcp_server:       mcp_server
+      mcp_tool:         mcp_tool
+      spawns_scope:     spawns_scope
+      addresses_scope:  addresses_scope
+      spawns_shell:     spawns_shell
+      stops_shell:      stops_shell
+      shell_kind:       shell_kind
+      shell_persistent: shell_persistent
+      shell_timeout_ms: shell_timeout_ms
+      shell_ref:        shell_ref
+      cwd:              cwd
+    patch: { unified: patch }
+
+  tool_fail:
+    required: [session_id, tool_id, tool_name]
+    in: tool_fail
+    map:
+      session_id:  session_id
+      scope_id:    scope_id
+      tool_id:     tool_id
+      tool_name:   tool_name
+      tool_kind:   tool_kind
+      tool_target: tool_target
+      tool_title:  tool_title
+      tool_input:  tool_input
+      tool_result: tool_result
+      tool_error:  tool_error
+      tool_status: tool_status
+      duration_ms: duration_ms
+      exit_code:   exit_code
+      interrupted: interrupted
+      mcp_server:  mcp_server
+      mcp_tool:    mcp_tool
+      cwd:         cwd
+
+  subagent_pre:
+    required: [session_id, scope_id]
+    in: subagent_pre
+    map: { session_id: session_id, scope_id: scope_id, agent_type: agent_type, title: title }
+
+  subagent_post:
+    required: [session_id, scope_id]
+    in: subagent_post
+    status_map: { completed: done, failed: failed, interrupted: interrupted, abandoned: abandoned }
+    map:
+      session_id:      session_id
+      scope_id:        scope_id
+      agent_type:      agent_type
+      title:           title
+      status:          status
+      result:          result
+      usage.tokens:    tokens
+      usage.tool_uses: tool_uses
+      usage.duration:  duration_ms
+
+  plan_step:
+    in: plan_step
+    status_map: { pending: pending, in_progress: active, completed: done, deleted: removed }
+    map: { session_id: session_id, scope_id: scope_id, step_id: step_id, text: text, detail: detail, status: status }
+
+  plan_update:
+    in: plan_update
+    map: { session_id: session_id, turn_id: turn_id, message: message }
+    steps: { items: steps, text: text, status: status, status_map: { in_progress: active, completed: done } }
+
+  notification:
+    required: [session_id]
+    in: notification
+    map: { session_id: session_id, message: message }
+
+  warning:
+    required: [session_id]
+    in: warning
+    map: { session_id: session_id, message: message }
+
+  idle:
+    required: [session_id]
+    in: idle
+    map: { session_id: session_id }
+
+  compact_pre:
+    required: [session_id]
+    in: compact_pre
+    map: { session_id: session_id, trigger: trigger, turn_id: turn_id }
+
+  compact_post:
+    required: [session_id]
+    in: compact_post
+    map: { session_id: session_id, trigger: trigger, turn_id: turn_id }
+
+  telemetry:
+    required: [session_id]
+    in: telemetry
+    map:
+      session_id:                session_id
+      context.capacity_tokens:   context.capacity_tokens
+      context.used_tokens:       context.used_tokens
+      context.used_percent:      context.used_percent
+      context.remaining_percent: context.remaining_percent
+      cost.total_usd:            cost.total_usd
+      cost.api_duration_ms:      cost.api_duration_ms
+      model.id:                  model.id
+      model.display_name:        model.display_name
+      input_tokens:              input_tokens
+      output_tokens:             output_tokens
+    rate_limits:
+      - { id: five_hour, label: "5-hour", used_percent: rate_limits.five_hour.used_percent, resets_at: rate_limits.five_hour.resets_at }
+      - { id: seven_day, label: "7-day", used_percent: rate_limits.seven_day.used_percent, resets_at: rate_limits.seven_day.resets_at }
+
+  session_end:
+    required: [session_id]
+    in: session_end
+    map: { session_id: session_id, reason: reason }
+
+  permission:
+    required: [session_id, tool_name]
+    ask: permission
+    timeout_seconds: 86340
+    answers_into: answers
+    map:
+      session_id:             session_id
+      prompt_id:              prompt_id
+      message:                message
+      tool_name:              tool_name
+      tool_target:            tool_target
+      tool_input:             tool_input
+      mcp_server:             mcp_server
+      suggestions:            suggestions
+      suggestion_type:        type
+      suggestion_description: mode
+      suggestion_label.setMode.trusted: "Allow edits for the rest of this session"
+      suggestion_label.addRules:        "Add a permanent rule for this"
+      suggestion_label.default:         "A broader permission than this one"
+      questions:              questions
+      question_title:         header
+      question_text:          question
+      question_options:       options
+      question_multi:         multiSelect
+      option_label:           label
+      option_description:     description
+    reply:
+      allow:      '{"decision":"allow","input":{tool_input_json}}'
+      deny:       '{"decision":"deny","reason":{reason_json}}'
+      answer:     '{"decision":"answer","input":{tool_input_json}}'
+      suggestion: '{"decision":"allow","input":{tool_input_json},"grants":{suggestions_json}}'
+
+  elicitation:
+    required: [session_id]
+    ask: elicitation
+    timeout_seconds: 86340
+    map: { session_id: session_id, prompt_id: prompt_id, message: message, mcp_server: mcp_server, mode: mode, schema: schema }
+    reply:
+      accept:  '{"action":"accept","content":{content_json}}'
+      decline: '{"action":"decline"}'
+      cancel:  '{"action":"cancel"}'
+
+  compact_start:
+    out: prompt
+    send: { text: "/compact" }
+
+  shell_stop:
+    out: prompt
+    send: { text: "#shell-stop {shell_id}" }
+
+permission_levels:
+  strategy: restart_tui
+  levels:
+    guarded:
+      apply:
+        - pass_arg: { arg: "--permission-mode", value: "guarded" }
+    trusted:
+      apply:
+        - pass_arg: { arg: "--permission-mode", value: "trusted" }
+    full-auto:
+      apply:
+        - pass_arg: { arg: "--permission-mode", value: "full-auto" }
+
+spawn:
+  cmd: scripted-agent
+  interactive_required: true
+session:
+  resume:  { arg: "--resume {id}" }
+  assign:  { arg: "--session-id {id}" }
+  refused: { exit_code: 3, needles: ["No session found with id"] }
+  persists: turn_start
+presentation:
+  prompt_submit:
+    strategy: restart_tui
+    fresh:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+    resume:
+      - pass_arg: { positional: "--" }
+      - pass_arg: { positional: "{message}" }
+    steer:
+      skip_prefixes: ["/", "!", "#"]
+      frame: "Message from the user, typed while you were working:\n\n{message}"
+      reply: '{"decision":"block","reason":{message_json}}'
+  slash_catalog:
+    completeness: plugin_only
+    timeout_ms: 10000
+    max_stdout_bytes: 1048576
+    max_stderr_bytes: 65536
+    max_items: 200
+    pipeline:
+      adapter: json_inventory_text_detail
+      command: ["plugins", "--json"]
+      rows_path: "[]"
+      enabled_field: "enabled"
+      id_field: "id"
+      source_pattern: '^(?P<source>[^@]+)'
+      detail_command: ["plugin-details", "{id}"]
+      detail_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(\d+\):?[^\S\r\n]+(?P<items>[^\r\n]+?)[^\S\r\n]*$'
+      detail_empty_pattern: '(?m)^[^\S\r\n]*Skills[^\S\r\n]+\(0\)[^\S\r\n]*:?[^\S\r\n]*$'
+      detail_items_group: "items"
+      detail_separator: ","
+      detail_concurrency: 2
+      item:
+        label: "{source}:{name}"
+        description: ""
+        insert_text: "/{source}:{name} "
+        source: "{source}"
+    builtins:
+      - { name: compact, description: "Summarise the conversation so far" }
+      - { name: clear, description: "Start a new session with empty context" }
+      - { name: review, description: "Review the pending changes" }
+      - { name: plan, description: "Plan what follows before doing it" }
+      - { name: status, description: "Show the session's model and usage", terminal: true }
+      - { name: config, description: "Open the agent's settings", terminal: true }
+      - { name: help, description: "Show help and available commands", terminal: true }
+    workspace:
+      - { dir: .scripted/commands, source: project }
+      - { dir: .scripted/skills, entry: SKILL.md, source: project }
+model:
+  discover:
+    command: ["models", "--json"]
+    adapter: json
+    items_path: "models[]"
+    default_when: { field: "default", equals: true }
+    item:
+      id: "{id}"
+      label: "{label}"
+      efforts: "efforts[]"
+      default_effort: "{default_effort}"
+    timeout_ms: 10000
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+effort:
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--effort", value: "{effort}" }
+hooks_injection:
+  - set_env: { name: SCRIPTED_HOOK_URL, value: "{hook_url}" }
+  - write_file: { path: "{tmp}/hook.token", content: "{runner_token}" }
+  - set_env: { name: SCRIPTED_HOOK_TOKEN_FILE, value: "{tmp}/hook.token" }
+mcp_injection:
+  - write_file: { path: "{tmp}/mcp.token", content: "{runner_token}" }
+  - pass_arg:
+      arg: "--mcp-config"
+      value: '{"command":"{crowbar}","args":["mcp","--segment","{segid}","--token-file","{tmp}/mcp.token","--project","{project_id}","--workspace","{workspace_id}","--repo","{repo_id}","--host","{daemon_host}"]}'
+
+# Modals and banners the CLI paints on its PTY (scenarios trust, blocked and usage-limit).
+terminal_prompts:
+  - kind: workspace_trust
+    needle: "Do you trust the files in this folder?"
+    cursor: "❯"
+    down: "\e[B"
+    up: "\e[A"
+    answers:
+      - id: accept
+        label: "Trust workspace"
+        option: "Yes, trust this folder"
+        keys: "\r"
+  # Unkinded: a modal Crowbar cannot answer, only point at.
+  - needle: "Press Enter to continue"
+terminal_notices:
+  - kind: usage_limit
+    anchor: "!!"
+    needle: "Scripted usage limit reached"
+    ends_turn: true

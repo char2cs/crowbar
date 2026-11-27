@@ -9,48 +9,33 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// cup returns an always-explicit CUP sequence (1-based): ansi.CursorPosition compacts
-// default parameters, and the emit contract wants deterministic bytes clients can match.
 func cup(row, col int) string {
 	return "\x1b[" + strconv.Itoa(row) + ";" + strconv.Itoa(col) + "H"
 }
 
-// DiffEmitter turns model changes into minimal incremental ANSI for live clients; an
-// unprimed emitter, a resize, an alt-screen flip or a scrollback shrink demands a keyframe,
-// since reset+redraw beats a worst-case diff. Not goroutine-safe: the session's lock serialises it.
 type DiffEmitter struct {
 	valid bool
 
-	cols, rows    int
-	alt           bool
-	scrollbackLen int
-	// scrollbackTail hashes the last scrollback line at the previous Emit/Prime: once x/vt's
-	// ring saturates its length plateaus, so this anchor recovers the new-line boundary.
+	cols, rows     int
+	alt            bool
+	scrollbackLen  int
 	scrollbackTail uint64
 	lastGrid       [][]uv.Cell
-	// lastWrapped is each grid row's wrap bit as the client holds it.
-	lastWrapped []bool
-	lastCursor  uv.Position
-	chrome      chromeBase
+	lastWrapped    []bool
+	lastCursor     uv.Position
+	chrome         chromeBase
 }
 
-// rotationScanLimit bounds the anchor scan; a bigger gap between emits is rare and a
-// keyframe is the correct, cheap recovery.
 const rotationScanLimit = 256
 
-// NewDiffEmitter returns an unprimed emitter (first Emit demands a keyframe).
 func NewDiffEmitter() *DiffEmitter {
 	return &DiffEmitter{}
 }
 
-// Invalidate discards the diff base; the next Emit demands a keyframe.
 func (e *DiffEmitter) Invalidate() {
 	e.valid = false
 }
 
-// Prime captures the model's current grid/cursor/counters as the diff base.
-// Call immediately after emitting a keyframe serialized from the same locked
-// model state.
 func (e *DiffEmitter) Prime(m TerminalModel) {
 	vm := m.(*vtModel)
 	e.cols, e.rows = vm.emu.Width(), vm.emu.Height()
@@ -71,10 +56,6 @@ func (e *DiffEmitter) Prime(m TerminalModel) {
 	e.valid = true
 }
 
-// Emit returns the ANSI since the last Prime/Emit and re-bases, or needKeyframe on: no base, resize,
-// alt-screen flip, scrollback shrink, DECSTBM/DECOM change, anchor loss, or lines committed under an
-// already-active region/origin mode (the client's CUP+LF trick fails there).
-//
 //nolint:gocyclo // Emit is a linear sequence of independent bail-to-keyframe guards; decomposing them would obscure the documented step order without lowering real complexity.
 func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	vm := m.(*vtModel)
@@ -91,32 +72,20 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 		sh.scrollTop != e.chrome.scrollTop ||
 		sh.scrollBottom != e.chrome.scrollBottom ||
 		sh.modes[6] != e.chrome.origin {
-		// The diff's absolute CUPs assume no scroll region and no origin mode; only a keyframe
-		// reproduces a change to either.
 		return nil, true
 	}
 
-	// Locate the first scrollback line committed since the last emit, tolerant
-	// of x/vt's ring rotation at cap (Finding A: ScrollbackLen() plateaus once
-	// saturated, so a length compare alone would starve the delta path).
 	sbStart, ok := e.scrollbackNewStart(vm, sbLen)
 	if !ok {
-		// The rotation anchor scrolled out of the scan window; resync.
 		return nil, true
 	}
 	newLines := sbLen - sbStart
 
 	if newLines > 0 && !e.alt {
-		// An active region or origin mode set before Prime confines the client's CUP+LF scroll,
-		// so committed lines would never reach client history; a keyframe re-asserts both.
 		if sh.scrollRegionSet || sh.modes[6] {
 			return nil, true
 		}
-		// The client screen scrolls while absorbing the delta; every row's
-		// on-screen identity moves, so rebuild the whole viewport after.
 		for y := range e.lastGrid {
-			// Truncate instead of nilling: the zero-length row still forces a rewrite, and the
-			// backing array survives for snapshotRowInto to refill.
 			e.lastGrid[y] = e.lastGrid[y][:0]
 		}
 	}
@@ -129,8 +98,6 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 
 	e.scrollbackLen = sbLen
 	if newLines > 0 && sbLen > 0 {
-		// The tail moved; re-anchor. Skipped when nothing scrolled so the echo
-		// path stays hash-free (the anchor is still valid).
 		e.scrollbackTail = scrollbackLineHash(vm, sbLen-1)
 	}
 	e.lastCursor = vm.emu.CursorPosition()
@@ -138,24 +105,17 @@ func (e *DiffEmitter) Emit(m TerminalModel) (data []byte, needKeyframe bool) {
 	if b.Len() == 0 {
 		return nil, false
 	}
-	// b.Bytes() aliases the local buffer, which is discarded when Emit returns —
-	// so the frame is handed off with no extra copy (unlike []byte(b.String())).
 	return b.Bytes(), false
 }
 
-// scrollbackNewStart returns the first scrollback index committed since the last emit, scanning
-// back for the anchor only once the ring saturated: below that the old length is exact, and
-// scanning would misanchor on duplicate lines. ok=false means the anchor rotated out: keyframe.
 func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok bool) {
 	if e.alt {
-		return sbLen, true // alt screen has no scrollback
+		return sbLen, true
 	}
 	if e.scrollbackLen == 0 {
 		return 0, true
 	}
 	if sbLen < vm.scrollbackLines {
-		// Never saturated means nothing was evicted, so the old length is the exact boundary;
-		// scanning could only misanchor on duplicate content.
 		return e.scrollbackLen, true
 	}
 	lo := sbLen - 1 - rotationScanLimit
@@ -170,8 +130,6 @@ func (e *DiffEmitter) scrollbackNewStart(vm *vtModel, sbLen int) (start int, ok 
 	return 0, false
 }
 
-// scrollbackLineHash is the FNV-1a anchor hash. In a saturated ring a collision or a duplicate
-// line can misplace the boundary; that self-heals on the next keyframe and is accepted.
 func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	line := vm.emu.ScrollbackLine(idx)
 	h := fnv.New64a()
@@ -179,15 +137,10 @@ func scrollbackLineHash(vm *vtModel, idx int) uint64 {
 	return h.Sum64()
 }
 
-// EmitterGridBytes estimates the emitter's retained diff base (~32B/cell) from the model's
-// dimensions, so the memory-ceiling arithmetic sees a stable size from spawn.
 func EmitterGridBytes(cols, rows int) int64 {
 	return int64(cols) * int64(rows) * 32
 }
 
-// writeScrollbackDelta writes the committed lines as one flow from CUP(1,1), continuations unaddressed
-// so the client's own autowrap sets each wrap bit, then scrolls them out with LFs from the bottom row;
-// the screen diff that follows repaints the viewport.
 func (e *DiffEmitter) writeScrollbackDelta(
 	b *bytes.Buffer,
 	emu emulator,
@@ -211,7 +164,7 @@ func (e *DiffEmitter) writeScrollbackDelta(
 			b.WriteString("\r\n")
 		}
 		if !wrapped {
-			b.WriteString(ansi.EraseLineRight) // at column 0, EL0 also ends the client row's wrap
+			b.WriteString(ansi.EraseLineRight)
 		}
 		next := chainNextOf(top, emu.CellAt(0, 0))
 		if i+1 < sbLen {
@@ -223,7 +176,7 @@ func (e *DiffEmitter) writeScrollbackDelta(
 	if top {
 		row := snapshotRowInto(emu, e.lastGrid[0], cols, 0)
 		b.Write(appendChainRow(b.AvailableBuffer(), row, cols, true, nextBreaks, ""))
-		e.lastGrid[0] = row[:0] // still the forced-rewrite marker Emit set
+		e.lastGrid[0] = row[:0]
 		k = min(sbLen-start, rows-1)
 	}
 	b.WriteString(cup(rows, 1))
@@ -236,9 +189,6 @@ func (e *DiffEmitter) writeScrollbackDelta(
 	e.lastWrapped[0] = top
 }
 
-// writeScreenDiff rewrites every chain of grid rows holding a changed row or
-// wrap bit, from the row flowStart picks to the chain's end (writeChain), and
-// updates the diff base. Returns whether anything was written.
 func (e *DiffEmitter) writeScreenDiff(
 	b *bytes.Buffer,
 	vm *vtModel,
@@ -258,8 +208,6 @@ func (e *DiffEmitter) writeScreenDiff(
 	return dirty
 }
 
-// flowStart returns end+1 for a clean chain, else the row its rewrite starts on: the first changed
-// row when the client holds that row's wrap bit, or the chain's first row, whose flow sets the bit.
 func (e *DiffEmitter) flowStart(
 	emu emulator,
 	y0, end, cols int,
@@ -275,9 +223,6 @@ func (e *DiffEmitter) flowStart(
 	return end + 1
 }
 
-// writeChain writes rows y0..end as one flow from column 1 of y0 (pen reset per row via
-// appendChainRow), so the client's autowrap sets the flag of every row below y0. EL0 at column 0
-// clears a head's flag; a continuation is written without it, keeping the flag the client holds.
 func (e *DiffEmitter) writeChain(
 	b *bytes.Buffer,
 	emu emulator,
@@ -292,13 +237,12 @@ func (e *DiffEmitter) writeChain(
 	if lift {
 		b.WriteString(ansi.SetTopBottomMargins(0, 0))
 	}
-	b.Grow((end - y0 + 1) * cols) // a head writes every column: one growth, not one per row
+	b.Grow((end - y0 + 1) * cols)
 	b.WriteString(cup(y0+1, 1))
 	if !continuation {
 		b.WriteString(ansi.EraseLineRight)
 	}
 	for y := y0; y <= end; y++ {
-		// Snapshot first, then encode the snapshot: one materialisation serves the wire and the base.
 		e.lastGrid[y] = snapshotRowInto(emu, e.lastGrid[y], cols, y)
 		next := chainNextOf(emu.RowWrapped(y+1), emu.CellAt(0, y+1))
 		b.Write(appendChainRow(b.AvailableBuffer(), e.lastGrid[y], cols, emu.RowWrapped(y), next, ""))
@@ -312,8 +256,6 @@ func (e *DiffEmitter) writeChain(
 	}
 }
 
-// writeCursorDelta repositions the client cursor to the model's position when
-// it moved or when screen rewrites displaced it.
 func (e *DiffEmitter) writeCursorDelta(
 	b *bytes.Buffer,
 	vm *vtModel,
@@ -338,8 +280,6 @@ func snapshotRow(emu emulator, cols, y int) []uv.Cell {
 	return snapshotRowInto(emu, nil, cols, y)
 }
 
-// snapshotRowInto fills dst with row y, reusing its array when large enough; a nil dst
-// (the invalidation marker set in Emit) allocates, keeping the force-rewrite meaning.
 func snapshotRowInto(emu emulator, dst []uv.Cell, cols, y int) []uv.Cell {
 	if cap(dst) < cols {
 		dst = make([]uv.Cell, cols)
@@ -356,8 +296,6 @@ func snapshotRowInto(emu emulator, dst []uv.Cell, cols, y int) []uv.Cell {
 	return dst
 }
 
-// rowEqualsGrid compares row y against lastRow without allocating; a nil lastRow (the
-// invalidation marker) is never equal, forcing a rewrite.
 func rowEqualsGrid(emu emulator, lastRow []uv.Cell, cols, y int) bool {
 	if lastRow == nil || len(lastRow) != cols {
 		return false

@@ -50,7 +50,7 @@ func TestGitStream_StreamsStdout(t *testing.T) {
 }
 
 func TestGitStream_WaitReportsNonZeroExit(t *testing.T) {
-	dir := t.TempDir() // not a git repo
+	dir := t.TempDir()
 
 	r, wait, err := exec.GitStream(context.Background(), dir, "log")
 	require.NoError(t, err)
@@ -62,13 +62,6 @@ func TestGitStream_WaitReportsNonZeroExit(t *testing.T) {
 	assert.Contains(t, err.Error(), "log")
 }
 
-// The point of streaming is that a consumer can stop early without the whole
-// output ever being materialised. Closing the reader must not deadlock.
-//
-// The history is sized so `log -p` produces far more than a pipe buffer holds:
-// after the single 64-byte read below, git is parked in write() with a full
-// pipe, which is the state Close has to break out of. A history small enough to
-// fit in the buffer would let git exit on its own and prove nothing.
 func TestGitStream_CloseBeforeEOFDoesNotBlock(t *testing.T) {
 	dir := initRepo(t)
 	for i := range 30 {
@@ -82,13 +75,10 @@ func TestGitStream_CloseBeforeEOFDoesNotBlock(t *testing.T) {
 	buf := make([]byte, 64)
 	_, _ = r.Read(buf)
 	require.NoError(t, r.Close())
-	_ = wait() // may report a signal kill; must return rather than hang
+	_ = wait()
 }
 
-// Closing a stream before EOF ends git with the SIGTERM a cancelled Git gets:
-// one cancel policy, so no streamed command can strand a lock either.
 func TestGitStream_CloseBeforeEOFTerminatesGit(t *testing.T) {
-	// Writes nothing and ignores its stdout, so only a signal can end it.
 	stub := writeStubGit(t, "exec tail -f /dev/null >/dev/null")
 	defer exec.SetGitResolverForTest(func() string { return stub }, func() bool { return false })()
 
@@ -110,9 +100,6 @@ func TestGitStream_ContextCancelStopsProcess(t *testing.T) {
 	_ = wait()
 }
 
-// A stream that finished normally is not a cancellation: closing the reader
-// after EOF must leave wait's verdict untouched, or every fully-consumed stream
-// would report a spurious error.
 func TestGitStream_WaitAfterCloseAtEOFReportsSuccess(t *testing.T) {
 	dir := initRepo(t)
 	writeAndCommit(t, dir, "a.txt", "hello\n")

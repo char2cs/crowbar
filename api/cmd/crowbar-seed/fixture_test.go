@@ -67,8 +67,6 @@ func TestEnsureFixtureWritesEveryTrackedSource(t *testing.T) {
 	}
 }
 
-// The fixture only earns its keep if the review surface has a real defect to
-// render, so the generated pricing source must carry the seeded bugs verbatim.
 func TestFixtureSourceCarriesTheReviewableDefects(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), seedRepoName)
 	if _, _, err := ensureFixture(repoPath); err != nil {
@@ -173,8 +171,6 @@ func TestLineOfResolvesReviewAnchors(t *testing.T) {
 	}
 }
 
-// Every seeded thread must land on a line the review commit actually changed,
-// or the comment renders detached from the code it is about.
 func TestSeedThreadAnchorsAreOnChangedLines(t *testing.T) {
 	for _, thread := range seedThreads() {
 		if strings.Contains(mainPricingSource, thread.anchor) {

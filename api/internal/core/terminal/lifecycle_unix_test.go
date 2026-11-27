@@ -17,8 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// TestKill_SignalsProcessGroup: Kill must take the session's children down with it, as
-// Terminate does — a background child of a command session must not survive it.
 func TestKill_SignalsProcessGroup(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -46,12 +44,10 @@ func TestKill_SignalsProcessGroup(t *testing.T) {
 
 func fmtSscan(s string, pid *int) (int, error) { return fmt.Sscan(strings.TrimSpace(s), pid) }
 
-// processAlive reports whether pid is a running (non-zombie) process. A container's init
-// may never reap an orphan, so a dead child can linger as a zombie; that counts as dead.
 func processAlive(pid int) bool {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
-		return syscall.Kill(pid, 0) == nil // no procfs (darwin): best effort
+		return syscall.Kill(pid, 0) == nil
 	}
 	fields := strings.Fields(string(b))
 	return len(fields) > 2 && fields[2] != "Z"

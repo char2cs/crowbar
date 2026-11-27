@@ -1,4 +1,3 @@
-// Package console mounts the log console route.
 package console
 
 import (
@@ -8,7 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 )
 
-// Register mounts GET /console/logs, a WebSocket of the daemon's log records.
 func Register(
 	rg *gin.RouterGroup,
 	logs logring.Ring,

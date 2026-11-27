@@ -10,9 +10,6 @@ type fsEngineAdapter struct {
 	enginefs.Engine
 }
 
-// newFsEngineAdapter wraps the filesystem engine so its Tree method accepts the
-// file package's FileStatusProvider, satisfying the file.FsEngine surface the
-// file usecase consumes.
 func newFsEngineAdapter(
 	engine enginefs.Engine,
 ) file.FsEngine {

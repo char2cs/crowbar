@@ -16,16 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// POST .../repos/:repoId/chats with an `import` body — spec §4.1's "Create and
-// Import die as two routes; both are POST /chats with a WorktreeSpec".
-//
-// The assertion that matters is not that a chat comes back. It is that the
-// create reached the tree usecase as a WorktreeImport carrying the branch, so
-// it takes the SAME mint→place→attach path fork does rather than the
-// workspace-first import that could leave a branch on disk owned by nothing.
-
-// fakeRepos stands in for the repository store the importing create reads its
-// repo facts from.
 type fakeRepos struct {
 	repo    *domain.Repository
 	err     error
@@ -51,8 +41,6 @@ func importableRepo() *fakeRepos {
 	}}
 }
 
-// newImportingHandlers is newChatHandlersWith plus the repo store an import
-// needs, which is the only extra wiring the import half of Create takes.
 func newImportingHandlers(
 	tree *fakeChatTree,
 	repos handlers.Repos,
@@ -60,8 +48,6 @@ func newImportingHandlers(
 	return newChatHandlersWith(&fakeAgentUsecase{}, tree).WithRepos(repos)
 }
 
-// repoScopedCreate fires a create at the repo-scoped mount — the one that binds
-// :repoId and no :wsId, which is where an import is reachable.
 func repoScopedCreate(
 	t *testing.T,
 	h *handlers.Handlers,
@@ -94,9 +80,6 @@ func TestCreate_ImportBodyProducesAWorktreeImportCreate(
 		"an import mints its own workspace; it never attaches to one named up front")
 }
 
-// The repo facts are the daemon's to fill in, from :repoId — not the caller's
-// to assert. A create that let a caller name the on-disk path would let it
-// point git at any directory on the machine.
 func TestCreate_ImportTakesItsRepoFactsFromThePathsRepo(
 	t *testing.T,
 ) {
@@ -115,8 +98,6 @@ func TestCreate_ImportTakesItsRepoFactsFromThePathsRepo(
 	assert.Equal(t, "git@github.com:acme/acme.git", spec.RemoteURL)
 }
 
-// An explicit remote overrides the repo's own — and "" is a real answer, not an
-// omission: a purely local branch with nothing to fetch it from.
 func TestCreate_ImportRemoteOverridesTheReposOwn(
 	t *testing.T,
 ) {
@@ -149,9 +130,6 @@ func TestCreate_ImportRemoteOverridesTheReposOwn(
 	}
 }
 
-// The chat's PLACEMENT still follows parentId, exactly as every other create's
-// does. It is a different question from the branch's git lineage, and the two
-// have always been independently written fields.
 func TestCreate_ImportStillPlacesTheChatUnderItsParent(
 	t *testing.T,
 ) {
@@ -163,9 +141,6 @@ func TestCreate_ImportStillPlacesTheChatUnderItsParent(
 
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	assert.Equal(t, "parent-chat", tree.gotCreate2.ParentID)
-	// The GIT lineage is left unset: a single create has no open-PR graph to
-	// walk, and inventing a parent would nest the branch under one it was never
-	// based on. Only the BATCH import resolves that.
 	assert.Empty(t, tree.gotWorktree.Import.ParentWorkspaceID)
 	assert.Empty(t, tree.gotWorktree.Import.ParentBranch)
 }
@@ -190,10 +165,6 @@ func TestCreate_ImportWithoutABranchIsRefused(
 	}
 }
 
-// Fork and import are two different answers to the same question. A request
-// carrying both has contradicted itself, and honouring either would hand back a
-// chat on a branch it never asked for — cut fresh when it meant to adopt, or
-// the reverse.
 func TestCreate_ForkAndImportTogetherAreRefused(
 	t *testing.T,
 ) {
@@ -207,9 +178,6 @@ func TestCreate_ForkAndImportTogetherAreRefused(
 	assert.Zero(t, tree.createChatCalls)
 }
 
-// Naming a workspace means the worktree already exists and is not this
-// create's to make. Silently dropping the import — the way ownWorktree is
-// dropped — would answer 201 for a branch that was never adopted.
 func TestCreate_ImportAlongsideAWorkspaceIsRefused(
 	t *testing.T,
 ) {
@@ -263,9 +231,6 @@ func TestCreate_ImportSurfacesARepoLookupFailure(
 	assert.Zero(t, tree.createChatCalls)
 }
 
-// The home mount builds these handlers without a repo store, since it refuses
-// imports on the workspace ground anyway. Unwired, an import is refused rather
-// than guessed at — and, crucially, no other create is affected.
 func TestCreate_WithoutARepoStore(
 	t *testing.T,
 ) {
@@ -290,9 +255,6 @@ func TestCreate_WithoutARepoStore(
 	})
 }
 
-// A create with no import costs no repo lookup: the repo store is read by the
-// import branch alone, so the ordinary create path is untouched by this
-// addition.
 func TestCreate_WithoutAnImportReadsNoRepo(
 	t *testing.T,
 ) {

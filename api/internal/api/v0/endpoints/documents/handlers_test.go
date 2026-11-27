@@ -20,8 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// recordingDocuments answers every call with err (or the target, resolved as
-// the host) and remembers what the handler asked for.
 type recordingDocuments struct {
 	target    domain.DocumentRef
 	transport domain.Transport
@@ -74,7 +72,6 @@ func newRouter(
 	return r
 }
 
-// serveUnix serves r on a unix socket and answers a client dialing it.
 func serveUnix(
 	t *testing.T,
 	r *gin.Engine,
@@ -102,7 +99,6 @@ type envelope struct {
 	Data  json.RawMessage `json:"data"`
 }
 
-// send makes one request through client and answers its status and envelope.
 func send(
 	t *testing.T,
 	client *http.Client,
@@ -121,7 +117,6 @@ func send(
 	return resp.StatusCode, env
 }
 
-// serve answers one request handled in process, with no listener behind it.
 func serve(
 	t *testing.T,
 	r *gin.Engine,
@@ -154,8 +149,6 @@ func TestTransport_UnixSocketIsLocal(t *testing.T) {
 	assert.Equal(t, domain.TransportLocal, docs.transport)
 }
 
-// TestTransport_NoLocalAddressIsRemote pins the fail-closed default: a request
-// that names no listener at all is never treated as the local socket.
 func TestTransport_NoLocalAddressIsRemote(t *testing.T) {
 	docs := &recordingDocuments{transport: domain.TransportLocal}
 
@@ -210,8 +203,6 @@ func TestWrite_PassesTheBodyAndAnswersTheResolvedRef(t *testing.T) {
 	assert.Equal(t, [2]string{"AA==", "base64"}, docs.body)
 }
 
-// TestRefusals_CarryTheirCodes pins the codes a client tells refusals apart by,
-// rather than by message text.
 func TestRefusals_CarryTheirCodes(t *testing.T) {
 	for err, code := range map[error]string{
 		domain.ErrHostDocumentNeedsLocalTransport: "host_document_requires_local_transport",

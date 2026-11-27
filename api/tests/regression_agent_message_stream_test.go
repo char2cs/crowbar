@@ -100,8 +100,6 @@ runtime:
     format: json
 `
 
-// createStubChat creates and starts a chat on stub provider, returning the
-// runner its hooks are posted as.
 func createStubChat(t *testing.T, h *harness, imported importedRepo, provider string) (chatID, runnerID string) {
 	t.Helper()
 	chatID = createChat(t, h, imported, provider)
@@ -110,7 +108,6 @@ func createStubChat(t *testing.T, h *harness, imported importedRepo, provider st
 
 type recordedMessage = kit.Message
 
-// readRecordedMessages is what chatID's feed rows say, as a client shows it.
 func readRecordedMessages(t *testing.T, h *harness, _ importedRepo, chatID string) []recordedMessage {
 	t.Helper()
 	return kit.Said(ledgerRows(t, h, chatID))
@@ -179,13 +176,6 @@ func TestRegression_EveryAssistantMessageOfATurnIsRecorded(t *testing.T) {
 	assert.Less(t, ran, messages[2].Seq, "and before the second")
 }
 
-// What a turn records as the agent's reply, from its stream and its
-// terminating hook: a completed message is readable while the turn runs; a
-// provider with no stream records the hook's copy; the hook's complete copy
-// fills what a lossy stream dropped, yet a shorter hook report never truncates
-// a stream delivered in full (a live report once lost all but the last
-// paragraph); a streamed reply is recorded once, even when its final delta
-// lands after its turn_stop, and the fuller text wins.
 func TestRegression_TheReplyIsReconciledFromTheStreamAndTheTerminatingHook(t *testing.T) {
 	type hook struct{ event, payload string }
 	stop := func(text string) hook {
@@ -254,8 +244,6 @@ func TestRegression_TheReplyIsReconciledFromTheStreamAndTheTerminatingHook(t *te
 	}
 }
 
-// A growing message reaches the chat's feed while its turn runs, though it is
-// not a settled message yet.
 func TestRegression_AGrowingMessageReachesTheFeedBeforeTheTurnEnds(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -272,7 +260,6 @@ func TestRegression_AGrowingMessageReachesTheFeedBeforeTheTurnEnds(t *testing.T)
 	post("message_delta", delta("msg-one", 0, false, "STILL "))
 	post("message_delta", delta("msg-one", 1, false, "GROWING"))
 
-	// A numbered chunk rides the feed as its own row the moment it lands.
 	var said string
 	for said != "STILL GROWING" {
 		f := nextFeedFrame(t, feed)
@@ -304,8 +291,6 @@ func TestRegression_CrowbarDeclaresNoProviderTranscript(t *testing.T) {
 	require.NotEmpty(t, entries)
 
 	for _, entry := range entries {
-		// descriptors-v3 holds an experimental/ subdirectory alongside the shipped
-		// files; the rule applies to the YAML, not the tree.
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
 			continue
 		}

@@ -1,0 +1,219 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+class MockWebSocket {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
+  static instances: MockWebSocket[] = []
+  onmessage: ((e: MessageEvent) => void) | null = null
+  onclose: (() => void) | null = null
+  onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
+  readyState: number = MockWebSocket.OPEN
+  send = vi.fn()
+  close = vi.fn()
+  addEventListener = vi.fn()
+  constructor(public url: string) {
+    MockWebSocket.instances.push(this)
+  }
+  simulateOpen() {
+    this.onopen?.()
+  }
+  simulateClose() {
+    this.readyState = MockWebSocket.CLOSED
+    this.onclose?.()
+  }
+}
+
+vi.stubGlobal('WebSocket', MockWebSocket)
+
+const { createWSManager } = await import('@/lib/ws/create-ws-manager')
+const { hostPorts } = await import('@/features/hosts/lib/ws-host-ports')
+const { useConnectionStore, reportChannelState, reportChannelGone, reportDaemonRefusal } =
+  await import('@/lib/ws/connection-store')
+const { useDaemonHaltStore } = await import('@/features/window/stores/daemon-halt-store')
+
+const status = () => useConnectionStore.getState().status
+const reconnects = () => useConnectionStore.getState().reconnects
+const degraded = () => useConnectionStore.getState().degraded
+
+beforeEach(() => {
+  MockWebSocket.instances = []
+  useConnectionStore.setState(useConnectionStore.getInitialState())
+  useDaemonHaltStore.getState().clear()
+})
+
+describe('connection store', () => {
+  it('starts idle and becomes connected when a channel opens', () => {
+    const mgr = createWSManager(hostPorts)
+    expect(status()).toBe('idle')
+    mgr.subscribe('/v0/ws/git', vi.fn())
+    expect(status()).toBe('idle')
+    MockWebSocket.instances[0].simulateOpen()
+    expect(status()).toBe('connected')
+  })
+
+  it('goes disconnected when every channel is closed, connected when any is open', () => {
+    const mgr = createWSManager(hostPorts)
+    mgr.subscribe('/v0/ws/git', vi.fn())
+    mgr.subscribe('/v0/ws/files', vi.fn())
+    MockWebSocket.instances[0].simulateOpen()
+    MockWebSocket.instances[1].simulateOpen()
+    expect(status()).toBe('connected')
+
+    MockWebSocket.instances[0].simulateClose()
+    expect(status()).toBe('connected')
+
+    MockWebSocket.instances[1].simulateClose()
+    expect(status()).toBe('disconnected')
+  })
+
+  it('returns to connected after a successful reconnect', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager(hostPorts)
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      MockWebSocket.instances[0].simulateClose()
+      expect(status()).toBe('disconnected')
+
+      vi.advanceTimersByTime(1000)
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(status()).toBe('disconnected')
+      MockWebSocket.instances[1].simulateOpen()
+      expect(status()).toBe('connected')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns to idle when the last subscriber leaves', () => {
+    const mgr = createWSManager(hostPorts)
+    const unsub = mgr.subscribe('/v0/ws/git', vi.fn())
+    MockWebSocket.instances[0].simulateOpen()
+    expect(status()).toBe('connected')
+    unsub()
+    expect(status()).toBe('idle')
+  })
+
+  it('a stale socket closing after reconnect does not flag the endpoint as down', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager(hostPorts)
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      MockWebSocket.instances[0].simulateClose()
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[1].simulateOpen()
+      expect(status()).toBe('connected')
+      MockWebSocket.instances[0].simulateClose()
+      expect(status()).toBe('connected')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a daemon_migrating refusal is a state, not a drop', () => {
+    reportChannelState('/a', false, 'local')
+    reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
+
+    expect(status()).toBe('migrating')
+    expect(useConnectionStore.getState().migrating).toEqual({ message: 'Crowbar is starting' })
+  })
+
+  it('a daemon_halted refusal halts the daemon-halt store with its reason', () => {
+    reportChannelState('/a', false, 'local')
+    reportDaemonRefusal({ code: 'daemon_halted', message: 'layout 9 is newer' })
+
+    expect(useDaemonHaltStore.getState().message).toBe('layout 9 is newer')
+    expect(status()).toBe('disconnected')
+  })
+
+  it('an open socket clears the migrating state', () => {
+    reportChannelState('/a', false, 'local')
+    reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
+    reportChannelState('/a', true, 'local')
+
+    expect(status()).toBe('connected')
+    expect(useConnectionStore.getState().migrating).toBeNull()
+    reportChannelState('/a', false, 'local')
+    expect(status()).toBe('disconnected')
+  })
+
+  it('a refusal while a socket is open does not change the status', () => {
+    reportChannelState('/a', true, 'local')
+    reportDaemonRefusal({ code: 'daemon_migrating', message: 'Crowbar is starting' })
+
+    expect(status()).toBe('connected')
+    expect(useConnectionStore.getState().migrating).toBeNull()
+  })
+
+  it('counts a reconnect only when the backend comes back after being lost', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager(hostPorts)
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      expect(reconnects()).toBe(0)
+
+      MockWebSocket.instances[0].simulateClose()
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[1].simulateOpen()
+      expect(reconnects()).toBe(1)
+
+      MockWebSocket.instances[1].simulateClose()
+      vi.advanceTimersByTime(2000)
+      MockWebSocket.instances[2].simulateOpen()
+      expect(reconnects()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a channel dropping while another stays open is degraded, not a lost backend', () => {
+    vi.useFakeTimers()
+    try {
+      const mgr = createWSManager(hostPorts)
+      mgr.subscribe('/v0/ws/git', vi.fn())
+      mgr.subscribe('/v0/ws/files', vi.fn())
+      MockWebSocket.instances[0].simulateOpen()
+      MockWebSocket.instances[1].simulateOpen()
+      expect(degraded()).toBe(false)
+
+      MockWebSocket.instances[0].simulateClose()
+      expect(degraded()).toBe(true)
+      expect(status()).toBe('connected')
+
+      vi.advanceTimersByTime(1000)
+      MockWebSocket.instances[2].simulateOpen()
+      expect(degraded()).toBe(false)
+      expect(reconnects()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('live streams per remote host', () => {
+  const remoteStatus = (hostId: string) => useConnectionStore.getState().hostStreams[hostId]
+
+  it('tracks a remote host’s channels apart from the local backend', () => {
+    reportChannelState('crowbar://h1/v0/projects', true, 'h1')
+    expect(remoteStatus('h1')).toBe('connected')
+    expect(status()).toBe('idle')
+
+    reportChannelState('crowbar://h1/v0/projects', false, 'h1')
+    expect(remoteStatus('h1')).toBe('disconnected')
+    expect(status()).toBe('idle')
+
+    reportChannelGone('crowbar://h1/v0/projects')
+    expect(remoteStatus('h1')).toBeUndefined()
+  })
+
+  it('keeps one host’s channels from speaking for another’s', () => {
+    reportChannelState('crowbar://h1/v0/projects', true, 'h1')
+    reportChannelState('crowbar://h2/v0/projects', false, 'h2')
+    expect(remoteStatus('h1')).toBe('connected')
+    expect(remoteStatus('h2')).toBe('disconnected')
+  })
+})

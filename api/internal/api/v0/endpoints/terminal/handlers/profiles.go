@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ListProfiles handles GET /v0/settings/terminal/profiles.
 func (h *Handlers) ListProfiles(ctx *gin.Context) {
 	profiles, err := h.profileStore.FindAll(ctx.Request.Context())
 	if err != nil {
@@ -23,7 +22,6 @@ func (h *Handlers) ListProfiles(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, profiles)
 }
 
-// GetProfile handles GET /v0/settings/terminal/profiles/:id.
 func (h *Handlers) GetProfile(ctx *gin.Context) {
 	id := ctx.Param("id")
 	p, err := h.profileStore.FindByKey(ctx.Request.Context(), id)
@@ -39,7 +37,6 @@ func (h *Handlers) GetProfile(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, p)
 }
 
-// CreateProfile handles POST /v0/settings/terminal/profiles.
 func (h *Handlers) CreateProfile(ctx *gin.Context) {
 	var p domain.TerminalProfile
 	if err := ctx.ShouldBindJSON(&p); err != nil {
@@ -59,7 +56,6 @@ func (h *Handlers) CreateProfile(ctx *gin.Context) {
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, p)
 }
 
-// UpdateProfile handles PUT /v0/settings/terminal/profiles/:id.
 func (h *Handlers) UpdateProfile(ctx *gin.Context) {
 	id := ctx.Param("id")
 
@@ -88,7 +84,6 @@ func (h *Handlers) UpdateProfile(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, p)
 }
 
-// DeleteProfile handles DELETE /v0/settings/terminal/profiles/:id.
 func (h *Handlers) DeleteProfile(ctx *gin.Context) {
 	id := ctx.Param("id")
 

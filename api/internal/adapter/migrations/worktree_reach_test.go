@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// A home an earlier build narrowed owner-only, the way to its checkouts
-// included, gets traverse back on that way and nothing else, once.
 func TestWorktreeReach_RepairsTheWayToACheckoutAnEarlierBuildNarrowed(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	h := testutil.FixtureHome(t)

@@ -1,0 +1,33 @@
+import {
+  createWindowPaneStore,
+  windowPaneStore,
+  type WindowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
+import { getEditorHost } from '@/features/editor/host/editor-host'
+import { isEditorContent } from '@/features/panes/types/pane-content'
+
+export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPaneStore): void {
+  for (const b of target.getState().buffers) {
+    if (isEditorContent(b) && b.path)
+      getEditorHost()?.documents.release(documentUri(documentRefOf(b)))
+  }
+  const fresh = createWindowPaneStore().getState()
+  target.setState({
+    panes: fresh.panes,
+    views: fresh.views,
+    viewOrder: fresh.viewOrder,
+    stage: fresh.stage,
+    bottomLayout: fresh.bottomLayout,
+    activeViewId: fresh.activeViewId,
+    activePaneId: fresh.activePaneId,
+    fullscreenPaneId: fresh.fullscreenPaneId,
+    mostRecentActivePaneIds: fresh.mostRecentActivePaneIds,
+    activeViewByProject: fresh.activeViewByProject,
+    activeProjectId: fresh.activeProjectId,
+    buffers: fresh.buffers,
+    closedBuffersHistory: fresh.closedBuffersHistory,
+    pendingClose: fresh.pendingClose,
+    maxOpenTabs: fresh.maxOpenTabs,
+  })
+}

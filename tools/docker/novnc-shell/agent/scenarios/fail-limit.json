@@ -1,0 +1,28 @@
+{
+ "description": "The turn fails with failure kind limit.",
+ "steps": [
+  {
+   "do": "telemetry",
+   "rate_limits": {
+    "five_hour": {
+     "used_percent": 100,
+     "resets_at": 1795000000
+    },
+    "seven_day": {
+     "used_percent": 71,
+     "resets_at": 1795400000
+    }
+   }
+  },
+  {
+   "do": "text",
+   "text": "Working on it…"
+  },
+  {
+   "do": "fail",
+   "reason": "Usage limit reached; resets at 18:00.",
+   "kind": "rate_limit",
+   "detail": "rate_limit: Usage limit reached; resets at 18:00."
+  }
+ ]
+}

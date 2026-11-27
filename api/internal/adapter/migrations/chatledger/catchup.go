@@ -11,13 +11,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// errNoCatchUp is a converted chat whose ledger does not end where the legacy
-// files' newer records begin: written to by this build since, or changed in place.
 var errNoCatchUp = errors.New("chatledger: the ledger does not end where the legacy records go on")
 
-// catchUp imports into a converted chat what an older build recorded in the
-// legacy files since the conversion, once per legacy count. A chat it cannot
-// extend without merging two histories is only noted, its legacy files kept.
 func catchUp(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, legacy legacyHome, chatID string, n int64) error {
 	chat, err := legacy.load(ctx, chatID)
 	if err != nil {
@@ -41,9 +36,6 @@ func catchUp(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkp
 	return nil
 }
 
-// extend appends to chat's ledger the rows converting all its legacy records
-// now gives past those the ledger already ends with, keeping their times, and
-// reports how many it appended.
 func extend(ctx context.Context, log *slog.Logger, store ledgerStore, chat LegacyChat) (int64, error) {
 	res, err := convertOver(ctx, log, store, chat)
 	if err != nil {
@@ -77,8 +69,6 @@ func extend(ctx context.Context, log *slog.Logger, store ledgerStore, chat Legac
 	return int64(len(rows)), nil
 }
 
-// after numbers tail on from st and checks the chat is left as the conversion
-// leaves one: each row allowed where it lands, and the whole at rest.
 func after(st ledger.State, tail []ledger.Row) ([]ledger.Row, error) {
 	next := st.Clone()
 	live := map[string]bool{}
@@ -97,9 +87,6 @@ func after(st ledger.State, tail []ledger.Row) ([]ledger.Row, error) {
 	return rows, AtRest(next, live)
 }
 
-// beyond is what conv holds past the longest run of rows held ends with and
-// conv begins with. With no such run, conv is whole only when it comes wholly
-// after held, as legacy files written afresh after their retirement do.
 func beyond(held, conv []ledger.Row) ([]ledger.Row, bool) {
 	for j := min(len(held), len(conv)); j > 0; j-- {
 		if sameRows(held[len(held)-j:], conv[:j]) {
@@ -124,8 +111,6 @@ func beyond(held, conv []ledger.Row) ([]ledger.Row, bool) {
 	return conv, true
 }
 
-// conversational is rows without the runner rows a boot's reconcile adds and
-// a legacy runner table forgets: they say nothing of the conversation.
 func conversational(rows []ledger.Row) []ledger.Row {
 	out := make([]ledger.Row, 0, len(rows))
 	for _, r := range rows {
@@ -136,8 +121,6 @@ func conversational(rows []ledger.Row) []ledger.Row {
 	return out
 }
 
-// sameRows reports whether a and b say the same, row for row, wherever they
-// are numbered.
 func sameRows(a, b []ledger.Row) bool {
 	for i := range a {
 		x, y := a[i], b[i]

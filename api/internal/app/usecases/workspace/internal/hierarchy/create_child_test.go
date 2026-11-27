@@ -44,17 +44,10 @@ func TestCreateChild_RecordsForkPointAndLocked(t *testing.T) {
 	assert.Equal(t, "sha123", created.ForkPointSha)
 	assert.False(t, created.Protected)
 	assert.Equal(t, "w-parent", created.ParentID)
-	// Child decision first: local remote-tracking ref (absent) then the live
-	// remote query (absent) → create local. Only then is the parent start point
-	// resolved (develop → not on remote → fork from the local ref).
 	assert.Equal(t, []string{"RemoteTrackingBranchExists", "RemoteBranchExists", "RemoteBranchExists", "WorktreeAddBranch"}, g.ops())
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[3].args)
 }
 
-// TestCreateChild_CleansUpWorktreeOnCreateFailure proves H17: if the workspace
-// row fails to persist after the worktree + branch were created on disk, both are
-// cleaned up best-effort so a fresh-wsID retry is not blocked by the orphaned
-// branch and the worktree dir does not dangle; even when the caller hung up.
 func TestCreateChild_CleansUpWorktreeOnCreateFailure(t *testing.T) {
 	ctx, hangUp := context.WithCancel(t.Context())
 	g := &fakeGit{addStartSha: "sha"}
@@ -103,9 +96,6 @@ func TestCreateChild_LocksProtectedBranch(t *testing.T) {
 	assert.True(t, created.Protected)
 }
 
-// TestCreateChild_DetachesMainToFreeDefaultBranch proves importing the default
-// branch (held by the unmanaged main folder) detaches the main folder to free
-// the branch, then retries the worktree add — yielding a real managed worktree.
 func TestCreateChild_DetachesMainToFreeDefaultBranch(t *testing.T) {
 	inUse := errors.New("fatal: 'develop' is already used by worktree at '/repo'")
 	g := &fakeGit{
@@ -146,16 +136,13 @@ func TestCreateChild_DetachesMainToFreeDefaultBranch(t *testing.T) {
 	assert.Equal(t, "forksha", created.ForkPointSha)
 }
 
-// TestCreateChild_RollsBackDetachWhenRetryFails proves that if the worktree add
-// still fails after the detach, the main folder is re-attached to its branch so
-// the repo folder is never left stranded on a detached HEAD.
 func TestCreateChild_RollsBackDetachWhenRetryFails(t *testing.T) {
 	inUse := errors.New("fatal: 'develop' is already used by worktree at '/repo'")
 	g := &fakeGit{
 		remoteExists:           true,
 		revParseSha:            "forksha",
 		addConflictUntilDetach: inUse,
-		worktreeAddErr:         errBoom, // even after the detach, the add fails
+		worktreeAddErr:         errBoom,
 		worktrees:              []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
 	}
 	ws := &fakeWorkspace{
@@ -181,9 +168,6 @@ func TestCreateChild_RollsBackDetachWhenRetryFails(t *testing.T) {
 	assert.Contains(t, g.ops(), "CheckoutBranch", "the main folder must be re-attached after the failed retry")
 }
 
-// TestCreateChild_RejectsDuplicateBranch_ChildPath proves a NON-default branch
-// that already has a workspace is rejected cleanly (not a raw git "branch
-// exists" error) before git worktree add runs.
 func TestCreateChild_RejectsDuplicateBranch_ChildPath(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha"}
 	createCalls := 0
@@ -227,11 +211,6 @@ func TestCreateChild_CrowbarHomeError(t *testing.T) {
 	assert.Empty(t, g.calls, "no git work runs when the home path cannot be resolved")
 }
 
-// TestCreateChild_DefaultsOwnWorktreeFromParent proves the taxonomy default
-// rule (model spec §4.1): a create that leaves OwnWorktree unset and RepoPath
-// blank inherits "owns a worktree" from a parent that itself has one — a
-// locked branch — resolving RepoID/ProjectID/RepoPath/RemoteURL/ParentBranch
-// from that parent's own repo rather than requiring the caller to supply them.
 func TestCreateChild_DefaultsOwnWorktreeFromParent(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha"}
 	ws := &fakeWorkspace{
@@ -261,10 +240,6 @@ func TestCreateChild_DefaultsOwnWorktreeFromParent(t *testing.T) {
 	}
 }
 
-// TestCreateChild_BubbleUnderBubbleStaysBubble proves the same default rule's
-// other side: a parent that owns no worktree of its own (WorktreePath == "")
-// defaults its child to no worktree too, even when the child's repo resolves
-// to a real one — "false sets no WorkspaceID and does no git work at all".
 func TestCreateChild_BubbleUnderBubbleStaysBubble(t *testing.T) {
 	g := &fakeGit{}
 	ws := &fakeWorkspace{
@@ -288,10 +263,6 @@ func TestCreateChild_BubbleUnderBubbleStaysBubble(t *testing.T) {
 	assert.Empty(t, g.calls, "no git work runs when the create does not own a worktree")
 }
 
-// TestCreateChild_UsesHolderResolveForDetach proves the detach path goes through
-// the shared holder primitive: on the "already used by worktree" conflict it
-// prunes (holder.Resolve step 1) and lists, sees the main folder holds the
-// branch (held-by-home), detaches, and retries — one unified mechanism (spec §5).
 func TestCreateChild_UsesHolderResolveForDetach(t *testing.T) {
 	inUse := errors.New("fatal: 'develop' is already used by worktree at '/repo'")
 	g := &fakeGit{

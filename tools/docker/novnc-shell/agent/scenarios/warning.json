@@ -1,0 +1,23 @@
+{
+ "description": "A warning the CLI prints in its transcript, and a context warning.",
+ "steps": [
+  {
+   "do": "post",
+   "event": "warning",
+   "body": {
+    "message": "The workspace has uncommitted changes from another session."
+   }
+  },
+  {
+   "do": "post",
+   "event": "warning",
+   "body": {
+    "message": "Context window is 85% full."
+   }
+  },
+  {
+   "do": "text",
+   "text": "Noted the warnings."
+  }
+ ]
+}

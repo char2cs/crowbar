@@ -16,12 +16,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// searchReadBufferBytes is a throughput knob, not a limit: long lines are reassembled across reads,
-// which is why this avoids bufio.Scanner's 64 KB token cap (minified bundles exceed it).
 const searchReadBufferBytes = 64 << 10
 
-// searchPreviewBytes caps one hit's preview: a hit in a single-line minified bundle would otherwise
-// put most of a megabyte into the response.
 const searchPreviewBytes = 200
 
 const searchDevNull = "/dev/null"
@@ -33,9 +29,6 @@ var (
 	searchNewHeader  = []byte("+++ ")
 )
 
-// SearchDiff streams the working-tree diff against ref and reports every hunk-CONTENT match (headers
-// describe the patch, not the code), closing git once Limit fills so memory and time stay bounded.
-// An empty query matches nothing, so a find box does not scan the whole diff on open.
 func SearchDiff(
 	ctx context.Context,
 	repoPath string,
@@ -62,8 +55,6 @@ func SearchDiff(
 	return s.hits, s.truncated, searchExitError(s.truncated, wait)
 }
 
-// searchArgs pins path extraction: --no-prefix leaves only the path on ---/+++ lines regardless of
-// diff.noprefix/mnemonicPrefix, and core.quotePath=false keeps non-ASCII paths openable.
 func searchArgs(
 	ref string,
 ) []string {
@@ -73,9 +64,6 @@ func searchArgs(
 	}
 }
 
-// searchExitError suppresses git's verdict on a truncated search. Closing the
-// reader early kills the subprocess, so wait then describes the kill this
-// search asked for rather than a failure the caller should hear about.
 func searchExitError(
 	truncated bool,
 	wait func() error,
@@ -86,8 +74,6 @@ func searchExitError(
 	return wait()
 }
 
-// searchMatcher compiles the query once. Literal search is a byte compare; everything else, even a
-// case-insensitive literal, goes through RE2 rather than lowercasing every line.
 func searchMatcher(
 	query string,
 	opts gitdomain.SearchOpts,
@@ -110,8 +96,6 @@ func searchMatcher(
 	return re.Match, nil
 }
 
-// diffSearch is the unified-diff state machine. It holds one line at a time and
-// the hits found so far; nothing it keeps grows with the size of the diff.
 type diffSearch struct {
 	match func([]byte) bool
 	limit int
@@ -142,9 +126,6 @@ func (s *diffSearch) scan(
 	return nil
 }
 
-// finish handles the last read, which carries both the final line — a file
-// whose last line has no trailing newline produces one — and the reason the
-// stream ended.
 func (s *diffSearch) finish(
 	line []byte,
 	err error,
@@ -158,8 +139,6 @@ func (s *diffSearch) finish(
 	return err
 }
 
-// consume routes one line. Prefix tests come first safely: hunk-body lines always carry a one-char
-// prefix, so "diff --git " or "@@ " at column zero is patch machinery.
 func (s *diffSearch) consume(
 	line []byte,
 ) {
@@ -185,8 +164,6 @@ func (s *diffSearch) startFile() {
 	s.oldPath = ""
 }
 
-// header reads the file-name lines; a deletion's /dev/null new side falls back to the old path so its
-// hits stay attributable. Other header lines are inert.
 func (s *diffSearch) header(
 	line []byte,
 ) {
@@ -203,9 +180,6 @@ func (s *diffSearch) header(
 	}
 }
 
-// startHunk resets both counters to what the header declares. Restarting from
-// the header on every hunk — rather than counting on from the previous one — is
-// what keeps the numbers right across the gaps a diff skips.
 func (s *diffSearch) startHunk(
 	line []byte,
 ) {
@@ -218,9 +192,6 @@ func (s *diffSearch) startHunk(
 	s.newLine = newStart
 }
 
-// body advances the counters by the line's prefix and matches its content. A
-// "\" line ("\ No newline at end of file") annotates the previous line and
-// advances neither side.
 func (s *diffSearch) body(
 	line []byte,
 ) {
@@ -260,8 +231,6 @@ func (s *diffSearch) record(
 	s.truncated = s.limit > 0 && len(s.hits) >= s.limit
 }
 
-// searchReadLine returns the next line via allocation-free ReadSlice, copying into scratch only for a
-// line spanning several reads.
 func searchReadLine(
 	r *bufio.Reader,
 	scratch []byte,
@@ -285,9 +254,6 @@ func searchTrimEOL(
 	return bytes.TrimSuffix(line, []byte("\r"))
 }
 
-// searchHunkStarts parses the two starts out of `@@ -a,b +c,d @@ context`. A
-// count omitted from either side means one line, and neither count is needed
-// here — the prefixes of the body lines say where the hunk ends.
 func searchHunkStarts(
 	line []byte,
 ) (int, int, bool) {
@@ -314,9 +280,6 @@ func searchRangeStart(
 	return n, true
 }
 
-// searchHeaderPath extracts the path after "--- "/"+++ ": a name with a space is followed by a TAB
-// (the old timestamp column) that must be cut, and a name with quotes/backslashes/controls is
-// C-quoted whole even with core.quotePath=false.
 func searchHeaderPath(
 	field []byte,
 ) string {
@@ -331,8 +294,6 @@ func searchHeaderPath(
 	return name
 }
 
-// searchUnquotePath decodes git's C-quoting with Go's literal syntax (same escapes and octal); an
-// undecodable field passes through, since a mangled path still names the file.
 func searchUnquotePath(
 	quoted string,
 ) string {
@@ -343,8 +304,6 @@ func searchUnquotePath(
 	return unquoted
 }
 
-// searchPreview cuts on a rune boundary: invalid UTF-8 would serialise as replacement characters and
-// read as file corruption.
 func searchPreview(
 	content []byte,
 ) string {

@@ -51,8 +51,6 @@ func TestReviewHandlers_GetOutline(t *testing.T) {
 	assert.True(t, env.Data.Files[1].IsBinary)
 }
 
-// An empty outline must serialise as [] so the client can index it without a
-// null check, exactly as /review/files does.
 func TestReviewHandlers_GetOutline_EmptyIsArrayNotNull(t *testing.T) {
 	uc := stubUsecase{
 		outline: func(_ context.Context, _, _ string) ([]gitdomain.FileOutline, error) { return nil, nil },
@@ -63,9 +61,6 @@ func TestReviewHandlers_GetOutline_EmptyIsArrayNotNull(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"files":[]`)
 }
 
-// The outline of a million-line diff is megabytes of JSON whose field names
-// repeat once per hunk, so the wire cost collapses under gzip. The client must
-// get byte-identical content either way.
 func TestReviewHandlers_GetOutline_GzipsWhenTheClientAcceptsIt(t *testing.T) {
 	plain := getOutline(newRouter(), "")
 	require.Equal(t, http.StatusOK, plain.Code)
@@ -83,7 +78,6 @@ func TestReviewHandlers_GetOutline_GzipsWhenTheClientAcceptsIt(t *testing.T) {
 	assert.JSONEq(t, plain.Body.String(), string(decoded))
 }
 
-// "gzip;q=0" is an explicit refusal, not an offer.
 func TestReviewHandlers_GetOutline_HonoursAZeroQualityRefusal(t *testing.T) {
 	rec := getOutline(newRouter(), "gzip;q=0, identity")
 
@@ -95,7 +89,6 @@ func TestReviewHandlers_GetOutline_HonoursAZeroQualityRefusal(t *testing.T) {
 	assert.True(t, env.Success)
 }
 
-// A weighted offer is still an offer.
 func TestReviewHandlers_GetOutline_AcceptsAWeightedOffer(t *testing.T) {
 	rec := getOutline(newRouter(), "gzip;q=0.5")
 

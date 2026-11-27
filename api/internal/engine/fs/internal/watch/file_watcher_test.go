@@ -14,10 +14,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
-// emitBound fails a test whose change never arrives instead of stalling it.
 const emitBound = 10 * time.Second
 
-// followFile starts a FileWatcher on path and hands back its emits.
 func followFile(
 	t *testing.T,
 	path string,
@@ -116,9 +114,6 @@ func TestFileWatcher_WatchesAPathThatDoesNotExistYet(t *testing.T) {
 	assert.Equal(t, domain.FileChangeCreated, nextChange(t, changes))
 }
 
-// Deleting the file's directory ends an inotify watch held on it; the file is
-// followed again once the directory and the file are made anew. FSEvents may
-// not report the file's removal along with its directory's.
 func TestFileWatcher_FollowsTheFileAcrossItsDirectoryBeingRecreated(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "notes")
 	require.NoError(t, os.Mkdir(dir, 0o700))
@@ -157,8 +152,6 @@ func TestFileWatcher_EmitsNothingAfterStop(t *testing.T) {
 	w.Stop()
 }
 
-// A followed file costs a fixed set of descriptors, and churn beside it neither
-// grows that set nor reaches the emit.
 func TestFileWatcher_SiblingChurnHoldsDescriptorsAndEmitsNothing(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.md")

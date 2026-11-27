@@ -18,22 +18,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// The project icon endpoints, which mirror the repo ones a level up. What the
-// tests below pin is the part that is easy to get wrong twice: an image and an
-// emoji are ONE choice with three states, so setting either must clear the
-// other, and "reset" must clear both — otherwise a project that was given an
-// image over an emoji shows the emoji again the moment the image is removed.
-//
-// There is deliberately no /icon/github here. A project has no origin remote to
-// read an owner avatar from; see icon.go.
-
-// pngBytes is the smallest thing http.DetectContentType calls image/png.
 func pngBytes() []byte {
 	return append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
 }
 
-// iconRouter wires the icon routes against a temp crowbar home, returning the
-// router, the reader the assertions read back through, and that home.
 func iconRouter(t *testing.T) (*gin.Engine, *fakeReader, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -50,8 +38,6 @@ func iconRouter(t *testing.T) (*gin.Engine, *fakeReader, string) {
 	return r, reader, home
 }
 
-// putIconFromPath drives the desktop upload path: a JSON body naming a file the
-// daemon reads itself, because the WKWebView transport cannot carry multipart.
 func putIconFromPath(t *testing.T, r *gin.Engine, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(map[string]string{"path": path})
@@ -98,7 +84,6 @@ func TestPutIconStoresBytesAndClearsEmoji(t *testing.T) {
 	}
 }
 
-// A write the disk refused answers with the refusal, not the wraps above it.
 func TestPutIconAWriteFailureNamesThePath(t *testing.T) {
 	r, _, home := iconRouter(t)
 	stored := filepath.Join(home, "projects", "p1", "icon")
@@ -119,8 +104,6 @@ func TestPutIconAWriteFailureNamesThePath(t *testing.T) {
 }
 
 func TestPutIconRejectsANonImage(t *testing.T) {
-	// Content sniffing, not the extension: a .png name over text must not be
-	// stored, or a JSON path could hand the daemon any file on the host.
 	r, _, home := iconRouter(t)
 	src := filepath.Join(t.TempDir(), "passwd.png")
 	if err := os.WriteFile(src, []byte("root:x:0:0:root:/root:/bin/sh\n"), 0o600); err != nil {
@@ -207,8 +190,6 @@ func TestGetIconServesTheStoredBytes(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	putIconFromPath(t, r, src)
-	// The read path gates on the project's own flag, which the fake reader
-	// answers from `get` rather than from the Update it recorded.
 	reader.get = domain.Project{ID: "p1", Name: "harbour", AvatarHasIcon: true}
 
 	rec := httptest.NewRecorder()
@@ -234,12 +215,6 @@ func TestGetIconIs404WithoutOne(t *testing.T) {
 	}
 }
 
-// The paths that refuse. Each one is a branch that only runs when something has
-// already gone wrong, which is exactly when a silent fallthrough would write an
-// icon nobody can serve.
-
-// brokenHomeRouter wires the icon routes with a crowbar-home resolver that
-// fails, standing in for an install whose state root cannot be resolved.
 func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 	h := projecthandlers.
 		New(reader, &fakeImporter{}, &fakeDeleter{}, nil, unusedHome)
@@ -254,8 +229,6 @@ func brokenHomeRouter(reader *fakeReader) *gin.Engine {
 
 var errNoHome = errors.New("no crowbar home")
 
-// unusedHome is a resolver that always fails: handlers whose test never reaches
-// an icon route get it so reaching one is loud, and brokenHomeRouter relies on it.
 func unusedHome() (string, error) { return "", errNoHome }
 
 func TestIconRoutes404WhenTheProjectIsGone(t *testing.T) {
@@ -275,7 +248,6 @@ func TestIconRoutes404WhenTheProjectIsGone(t *testing.T) {
 }
 
 func TestPutIconFailsClosedWithNoResolvableHome(t *testing.T) {
-	// Better a 500 than an upload that reports success and stores nothing.
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour"}}
 	src := filepath.Join(t.TempDir(), "logo.png")
 	if err := os.WriteFile(src, pngBytes(), 0o600); err != nil {
@@ -300,8 +272,6 @@ func TestPutIconFailsClosedWithNoResolvableHome(t *testing.T) {
 }
 
 func TestDeleteIconStillClearsTheRecordWithNoResolvableHome(t *testing.T) {
-	// The file cannot be removed, but the flags must still clear — otherwise the
-	// project keeps claiming an icon the serve path will 404 on forever.
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour", AvatarHasIcon: true}}
 
 	rec := httptest.NewRecorder()
@@ -330,8 +300,6 @@ func TestIconMutationsSurfaceAFailedWrite(t *testing.T) {
 }
 
 func TestGetIcon404sWhenTheHomeCannotBeResolved(t *testing.T) {
-	// The project claims an icon but the state root is gone: 404 rather than a
-	// half-served response.
 	reader := &fakeReader{get: domain.Project{ID: "p1", Name: "harbour", AvatarHasIcon: true}}
 
 	rec := httptest.NewRecorder()
@@ -343,7 +311,6 @@ func TestGetIcon404sWhenTheHomeCannotBeResolved(t *testing.T) {
 }
 
 func TestIconMutations404OnAnUnknownProject(t *testing.T) {
-	// Every mutation checks the project exists before touching bytes or store.
 	r, reader, _ := iconRouter(t)
 	reader.getErr = problem.ErrNotFound
 
@@ -376,8 +343,6 @@ func TestIconMutations404OnAnUnknownProject(t *testing.T) {
 }
 
 func TestPutIconRefusesAnUnreadableUpload(t *testing.T) {
-	// ReadUpload writes its own 4xx and returns ok=false; the handler must stop
-	// there rather than storing an empty file.
 	r, reader, home := iconRouter(t)
 
 	rec := httptest.NewRecorder()
@@ -397,9 +362,6 @@ func TestPutIconRefusesAnUnreadableUpload(t *testing.T) {
 }
 
 func TestPutIconSurfacesAFailedWriteToDisk(t *testing.T) {
-	// A file where the project's icon DIRECTORY should be: the store cannot
-	// create the parent, and the handler must say so rather than record an icon
-	// that was never written.
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "projects"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)

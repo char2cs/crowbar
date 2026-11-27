@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// Text said before a tool ran is recorded before it, so a client draws the
-// tool below the text that preceded it.
 func TestRegression_AStreamingMessageIsRecordedBeforeTheToolThatFollowsIt(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "streamstub", streamStubProviderDescriptorYAML)

@@ -7,20 +7,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// WorkspacePlacements is a fake project.HomeWorkspaces over a fixed set of
-// workspace rows.
 type WorkspacePlacements struct {
 	Rows []domain.Workspace
 }
 
-// NewWorkspacePlacements returns an empty WorkspacePlacements.
 func NewWorkspacePlacements() *WorkspacePlacements {
 	return &WorkspacePlacements{}
 }
 
-// GetHomeForProject mirrors the real workspace repository's own scan: the
-// one row in Rows whose ProjectID matches and whose Kind is
-// WorkspaceKindHome, or problem.ErrNotFound.
 func (s *WorkspacePlacements) GetHomeForProject(
 	ctx context.Context,
 	projectID string,

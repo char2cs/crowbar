@@ -30,7 +30,6 @@ func encodeOperation(kind stream.EntityKind, v any) (json.RawMessage, error) {
 	return json.Marshal(v)
 }
 
-// sidebar is a fake sidebar read; with gate set it waits there, after telling entered.
 type sidebar struct {
 	entities []appstream.Entity
 	unread   []string
@@ -75,7 +74,6 @@ func TestProjectsSource_SnapshotsEveryKindThenSynced(t *testing.T) {
 	assert.Equal(t, `"chat"`, string(frames[4].Data))
 }
 
-// A broken read is transient like any failed snapshot.
 func TestProjectsSource_AFailedReadClosesTheConnectionWithResync(t *testing.T) {
 	src := appstream.NewProjectsSource(fixedOperations{}, &sidebar{err: problem.ErrUnavailable}, encodeOperation)
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
@@ -107,7 +105,6 @@ func TestProjectsSource_SnapshotsEveryOperationInOrder(t *testing.T) {
 	}
 }
 
-// A failing source is transient: the client reconnects and asks again.
 func TestProjectsSource_AFailedSnapshotClosesTheConnectionWithResync(t *testing.T) {
 	src := appstream.NewProjectsSource(fixedOperations{err: problem.ErrUnavailable}, &sidebar{}, encodeOperation)
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: src}, nil)
@@ -120,7 +117,6 @@ func TestProjectsSource_AFailedSnapshotClosesTheConnectionWithResync(t *testing.
 	assert.Equal(t, stream.CloseResync, conn.closeCode())
 }
 
-// The parts a read could not take ride its synced, so the client keeps them.
 func TestProjectsSource_TheUnreadPartsRideTheSynced(t *testing.T) {
 	side := &sidebar{entities: []appstream.Entity{{Kind: stream.KindRepo, ID: "r1", Data: "repo"}}, unread: []string{"r2"}}
 	hub := newHub(map[stream.ScopeKind]appstream.Source{

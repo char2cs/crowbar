@@ -41,7 +41,6 @@ func owner(t *testing.T) (*snapshot.Snapshots, *[]snapshot.Frame) {
 	return s, &frames
 }
 
-// A chat event reaches the owner with the aggregate it carried, not a re-read.
 func TestFanout_ChatEventBecomesASnapshotFrame(t *testing.T) {
 	s, frames := owner(t)
 	fanout.New(s).ChatWatch()(agentchat.ChatEvent{

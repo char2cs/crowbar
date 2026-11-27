@@ -14,13 +14,10 @@ import (
 )
 
 type fakeWatcherProc struct {
-	started chan struct{}
-	stopped chan struct{}
-	once    sync.Once
-	// startErr, when set, makes Start fail at once (EMFILE while adding watches).
-	startErr error
-	// startTail and stopTail, when set, keep Start (once its ctx ends) or Stop
-	// running until closed: work still in flight when Close runs.
+	started             chan struct{}
+	stopped             chan struct{}
+	once                sync.Once
+	startErr            error
 	startTail, stopTail chan struct{}
 }
 
@@ -52,8 +49,6 @@ func (f *fakeWatcherProc) Stop() {
 	}
 }
 
-// fakeLingerTimer drives linger expiry explicitly (fire / forceFire), never by
-// wall-clock waits.
 type fakeLingerTimer struct {
 	mu      sync.Mutex
 	fn      func()
@@ -71,7 +66,6 @@ func (t *fakeLingerTimer) Stop() bool {
 	return true
 }
 
-// fire runs the expiry callback only if the timer was not already stopped.
 func (t *fakeLingerTimer) fire() {
 	t.mu.Lock()
 	if t.stopped {
@@ -84,8 +78,6 @@ func (t *fakeLingerTimer) fire() {
 	fn()
 }
 
-// forceFire runs the expiry callback unconditionally: the AfterFunc race where a
-// scheduled callback fires even though Stop returned false.
 func (t *fakeLingerTimer) forceFire() {
 	t.mu.Lock()
 	t.fired = true
@@ -128,8 +120,6 @@ func countingFactory(
 	return factory, &calls
 }
 
-// shapedFactory builds procs that shape adjusts before they start: one whose
-// Start fails, or one whose Start or Stop is still running at Close.
 func shapedFactory(
 	procs chan<- *fakeWatcherProc,
 	shape func(*fakeWatcherProc),
@@ -148,8 +138,6 @@ func shapedFactory(
 	return factory, &calls
 }
 
-// newTestManager wires a WatcherManager over the counting factory and the
-// controllable timer, so tests drive linger deterministically.
 func newTestManager(
 	t *testing.T,
 ) (*Watcher, chan *fakeWatcherProc, chan *fakeLingerTimer, *int32) {
@@ -161,7 +149,6 @@ func newTestManager(
 	return m, procs, timers, calls
 }
 
-// assertNotStopped fails if the watcher has already been stopped.
 func assertNotStopped(
 	t *testing.T,
 	p *fakeWatcherProc,
@@ -180,13 +167,13 @@ func TestWatcher_LazyStart_LingersOnStop(t *testing.T) {
 
 	require.NoError(t, m.Start("w1"))
 	p := <-procs
-	<-p.started // first holder STARTS the watcher
+	<-p.started
 
 	m.Stop("w1")
 	assertNotStopped(t, p, "watcher stopped immediately on release instead of lingering")
 
 	ft := <-timers
-	ft.fire() // linger elapses with no re-acquire
+	ft.fire()
 	<-p.stopped
 }
 
@@ -198,9 +185,9 @@ func TestWatcher_ReconnectWithinLingerReusesWatcher(t *testing.T) {
 	<-p.started
 
 	for i := 0; i < 5; i++ {
-		m.Stop("w1") // arms a linger timer
+		m.Stop("w1")
 		ft := <-timers
-		require.NoError(t, m.Start("w1")) // reconnect within the window: reuse, cancel the timer
+		require.NoError(t, m.Start("w1"))
 
 		select {
 		case <-procs:
@@ -219,7 +206,6 @@ func TestWatcher_ReconnectWithinLingerReusesWatcher(t *testing.T) {
 	<-p.stopped
 }
 
-// Once the linger elapses the watcher stops, and a later hold builds anew.
 func TestWatcher_ExpiredLingerRebuildsFresh(t *testing.T) {
 	m, procs, timers, calls := newTestManager(t)
 
@@ -229,10 +215,10 @@ func TestWatcher_ExpiredLingerRebuildsFresh(t *testing.T) {
 
 	m.Stop("w1")
 	ft := <-timers
-	ft.fire() // linger fully elapses
+	ft.fire()
 	<-p1.stopped
 
-	require.NoError(t, m.Start("w1")) // a later hold builds a fresh watcher
+	require.NoError(t, m.Start("w1"))
 	p2 := <-procs
 	<-p2.started
 	assert.EqualValues(t, 2, *calls, "a post-expiry hold must build a fresh watcher")
@@ -243,8 +229,6 @@ func TestWatcher_ExpiredLingerRebuildsFresh(t *testing.T) {
 	<-p2.stopped
 }
 
-// TestWatcher_SupersededLingerExpiryIsIgnored: a linger callback firing
-// after a reconnect superseded it is a no-op, so the reused watcher survives.
 func TestWatcher_SupersededLingerExpiryIsIgnored(t *testing.T) {
 	m, procs, timers, _ := newTestManager(t)
 
@@ -252,11 +236,11 @@ func TestWatcher_SupersededLingerExpiryIsIgnored(t *testing.T) {
 	p := <-procs
 	<-p.started
 
-	m.Stop("w1") // arm linger (generation G)
+	m.Stop("w1")
 	ft := <-timers
-	require.NoError(t, m.Start("w1")) // reconnect: reuse, bump generation, cancel timer
+	require.NoError(t, m.Start("w1"))
 
-	ft.forceFire() // the stale timer fires late anyway (race)
+	ft.forceFire()
 	assertNotStopped(t, p, "a superseded linger expiry stopped a reused watcher")
 
 	m.Stop("w1")
@@ -268,10 +252,9 @@ func TestWatcher_SupersededLingerExpiryIsIgnored(t *testing.T) {
 func TestWatcher_StopUnknownIsNoop(t *testing.T) {
 	m, _, _, _ := newTestManager(t)
 
-	m.Stop("ghost") // must not panic
+	m.Stop("ghost")
 }
 
-// A workspace that cannot be watched is refused, so the client hears why.
 func TestWatcher_AFactoryErrorRefusesTheStartAndRegistersNothing(t *testing.T) {
 	boom := errors.New("boom")
 	factory := func(
@@ -288,9 +271,6 @@ func TestWatcher_AFactoryErrorRefusesTheStartAndRegistersNothing(t *testing.T) {
 	assert.Empty(t, timers, "nothing registered, so nothing lingers")
 }
 
-// A watcher whose Start fails is dead: left in the map, every later Start would
-// refcount the corpse and blind the workspace. The failed start must retire the
-// handle so the next holder builds a fresh watcher.
 func TestWatcher_FailedStartRetiresHandleAndRebuilds(t *testing.T) {
 	procs := make(chan *fakeWatcherProc, 4)
 	timers := make(chan *fakeLingerTimer, 4)
@@ -301,7 +281,7 @@ func TestWatcher_FailedStartRetiresHandleAndRebuilds(t *testing.T) {
 	require.NoError(t, m.Start("w1"))
 	p1 := <-procs
 	<-p1.started
-	<-p1.stopped // retirement stops the dead watcher: the signal that it left the map
+	<-p1.stopped
 
 	m.mu.Lock()
 	_, present := m.handles["w1"]
@@ -315,9 +295,6 @@ func TestWatcher_FailedStartRetiresHandleAndRebuilds(t *testing.T) {
 	assert.EqualValues(t, 2, atomic.LoadInt32(calls), "a failed start must be retried by the next Start")
 }
 
-// The retirement path must not clobber a handle it does not own: a proc whose Start
-// fails LATE, after its handle already expired and a fresh Start rebuilt the
-// watcher, would otherwise tear down the live replacement.
 func TestWatcher_RetireIgnoresSupersededProc(t *testing.T) {
 	m, procs, timers, calls := newTestManager(t)
 
@@ -327,14 +304,14 @@ func TestWatcher_RetireIgnoresSupersededProc(t *testing.T) {
 
 	m.Stop("w1")
 	ft := <-timers
-	ft.fire() // linger elapses: the handle is torn down
+	ft.fire()
 	<-stale.stopped
 
-	require.NoError(t, m.Start("w1")) // a fresh watcher takes the slot
+	require.NoError(t, m.Start("w1"))
 	live := <-procs
 	<-live.started
 
-	m.retire("w1", stale) // the superseded proc reports its failure late
+	m.retire("w1", stale)
 
 	m.mu.Lock()
 	h, present := m.handles["w1"]
@@ -365,18 +342,17 @@ func TestWatcher_CloseStopsLiveWatchers(t *testing.T) {
 	assert.Equal(t, 0, remaining)
 }
 
-// Close tears down a lingering watcher and cancels its pending linger timer.
 func TestWatcher_CloseStopsLingeringWatcher(t *testing.T) {
 	m, procs, timers, _ := newTestManager(t)
 
 	require.NoError(t, m.Start("w1"))
 	p := <-procs
 	<-p.started
-	m.Stop("w1") // lingering
+	m.Stop("w1")
 	ft := <-timers
 
 	m.Close()
-	<-p.stopped // Close stopped the lingering watcher
+	<-p.stopped
 	assert.False(t, ft.Stop(), "Close must cancel the pending linger timer")
 }
 
@@ -389,13 +365,13 @@ func TestWatcher_CloseIdempotentAndEmptyNoop(t *testing.T) {
 
 	m.Close()
 	<-p.stopped
-	require.NotPanics(t, m.Close) // second call is safe
+	require.NotPanics(t, m.Close)
 }
 
 func TestWatcher_CloseOnEmptyIsNoop(t *testing.T) {
 	m, _, _, _ := newTestManager(t)
 
-	require.NotPanics(t, m.Close) // no live watcher: no-op
+	require.NotPanics(t, m.Close)
 }
 
 func TestWatcher_StopAfterCloseIsNoop(t *testing.T) {
@@ -414,7 +390,7 @@ func TestWatcher_StartAfterCloseIsRefused(t *testing.T) {
 	m, procs, _, calls := newTestManager(t)
 
 	m.Close()
-	require.ErrorIs(t, m.Start("w1"), errClosed) // a late hold after shutdown starts nothing
+	require.ErrorIs(t, m.Start("w1"), errClosed)
 
 	assert.EqualValues(t, 0, *calls)
 	m.mu.Lock()

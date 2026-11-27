@@ -1,0 +1,1047 @@
+#!/bin/bash
+# Drives the Tauri app (develop) and the Rust shell (this branch) side by side. See README.md.
+set -euo pipefail
+export DISPLAY=${DISPLAY:-:1}
+RIG_W=${RIG_W:-1280} RIG_H=${RIG_H:-800} RIG_GAP=${RIG_GAP:-20}
+RIG_DIR=$HOME/.rig
+SHOTS=${RIG_SHOTS:-$HOME/shots}
+RIGX=/opt/rig/bin/rigx.py
+PROFILES=/opt/rig/profiles
+HTTP_PORT=${RIG_HTTP_PORT:-8088}
+REMOTE_PORT=${RIG_REMOTE_PORT:-4747}
+KEYRING_PASSWORD=rig
+KEYRINGS=$HOME/.local/share/keyrings
+TAURI_DB=$HOME/.local/share/software.rabbyte.crowbar/localstorage/tauri_localhost_0.localstorage
+# shellcheck source=points.conf
+source /opt/rig/points.conf
+[[ -f $RIG_DIR/points.conf ]] && source "$RIG_DIR/points.conf"
+
+die() { echo "rig: $*" >&2; exit 1; }
+apps_of() {
+  case ${1:-all} in
+    all) echo tauri rust ;;
+    tauri | rust) echo "$1" ;;
+    *) die "unknown app '$1' (tauri, rust or all)" ;;
+  esac
+}
+one_app() { [[ ${1:-} == tauri || ${1:-} == rust ]] || die "name one app: tauri or rust"; }
+cmd_of() {
+  case $1 in
+    tauri) echo /usr/bin/crowbar-desktop ;;
+    rust) echo /opt/crowbar/crowbar ;;
+  esac
+}
+slot_x() { [[ $1 == tauri ]] && echo 0 || echo $((RIG_W + RIG_GAP)); }
+pid_of() {
+  local pid
+  pid=$(cat "$RIG_DIR/$1/pid" 2>/dev/null) || return 1
+  [[ -d /proc/$pid ]] && grep -qF "$(cmd_of "$1")" "/proc/$pid/cmdline" 2>/dev/null && echo "$pid"
+}
+running() { pid_of "$1" >/dev/null; }
+socket() { /opt/crowbar/crowbar-api.real paths | python3 -c 'import json,sys; print(json.load(sys.stdin)["socket"])'; }
+SHARED_SERVE="crowbar-api.real serve --host unix://$(socket)" # the shared daemon's command line
+
+# `rig daemon mode own`: each app supervises its own daemon (the wrapper execs the real one) in its
+# own home, a copy of the shared one; the shared daemon is paused meanwhile.
+own_mode() { [[ -e $RIG_DIR/daemon.own ]]; }
+app_home() { if own_mode; then echo "$HOME/.crowbar-rig-$1"; else echo "$CROWBAR_HOME"; fi; }
+app_socket() { CROWBAR_HOME=$(app_home "$1") socket; }
+own_daemon_pid() { # the app's own daemon: the crowbar-api.real descendant of the app
+  local pid todo
+  todo=$(pid_of "$1") || return 1
+  while [[ -n $todo ]]; do
+    for pid in $todo; do
+      grep -qa "crowbar-api.real" "/proc/$pid/cmdline" 2>/dev/null && { echo "$pid"; return 0; }
+    done
+    todo=$(for pid in $todo; do pgrep -P "$pid"; done)
+  done
+  return 1
+}
+
+winid() { # the app's largest visible window carrying its _NET_WM_PID (both apps set it)
+  local pid w g best="" area=0
+  # return, not die: wait_window polls this before the forked shell has exec'd the app
+  pid=$(pid_of "$1") || { echo "rig: $1 is not running" >&2; return 1; }
+  for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
+    g=$(xdotool getwindowgeometry "$w" 2>/dev/null | awk '/Geometry/ {print $2}')
+    [[ $g == *x* ]] || continue # the window went away since the search
+    ((${g%x*} * ${g#*x} > area)) && area=$((${g%x*} * ${g#*x})) && best=$w
+  done
+  ((area > 0)) || return 1
+  echo "$best"
+}
+
+# min_size <app>: the minimum the app declares in WM_NORMAL_HINTS, else $RIG_MIN (the Rust shell's).
+min_size() {
+  local hint
+  hint=$(xprop -id "$(winid "$1")" WM_NORMAL_HINTS | sed -n 's/.*minimum size: \([0-9]*\) by \([0-9]*\).*/\1x\2/p')
+  if [[ -n $hint && $hint != 0x0 && $hint != 1x1 ]]; then echo "$hint"; return; fi
+  echo "$1 declares no minimum size; using RIG_MIN=${RIG_MIN:-640x480}" >&2
+  echo "${RIG_MIN:-640x480}"
+}
+
+wait_window() {
+  local i pid
+  pid=$(cat "$RIG_DIR/$1/pid")
+  for i in $(seq 600); do
+    winid "$1" 2>/dev/null && return
+    [[ -d /proc/$pid ]] || die "$1 exited during startup; see $RIG_DIR/$1/app.log"
+    sleep 0.1
+  done
+  die "$1 opened no window in 60s; see $RIG_DIR/$1/app.log"
+}
+
+place() { # place <app> <w> <h>
+  local w
+  w=$(winid "$1") || die "$1 has no window"
+  xdotool windowmove "$w" "$(slot_x "$1")" 0 windowsize "$w" "$2" "$3"
+  local i g
+  for i in $(seq 50); do
+    g=$(xdotool getwindowgeometry "$w" | awk '/Geometry/ {print $2}')
+    [[ $g == "$2x$3" ]] && break
+    sleep 0.1
+  done
+  # The client rectangle (inside openbox's border), which `perf startup` samples before a window exists.
+  local X Y WIDTH HEIGHT WINDOW SCREEN
+  eval "$(xdotool getwindowgeometry --shell "$w")"
+  echo "$X,$Y,$WIDTH,$HEIGHT" >"$RIG_DIR/$1/rect"
+  echo "$1 $X,$Y ${WIDTH}x$HEIGHT"
+}
+
+start_app() {
+  local app=$1 cmd
+  running "$app" && { echo "$app is already running (pid $(pid_of "$app"))"; return; }
+  mkdir -p "$RIG_DIR/$app"
+  cmd=$(cmd_of "$app")
+  (
+    cd "$HOME"
+    exec setsid env $(app_env) CROWBAR_HOME="$(app_home "$app")" RIG_APP="$app" "$cmd" >>"$RIG_DIR/$app/app.log" 2>&1 </dev/null
+  ) &
+  echo $! >"$RIG_DIR/$app/pid"
+  if [[ ${RIG_NO_PLACE:-} == 1 ]]; then return; fi
+  wait_window "$app" >/dev/null
+  place "$app" "$RIG_W" "$RIG_H" >/dev/null
+  echo "$app started (pid $(pid_of "$app"))"
+}
+
+# app_env: the env(1) arguments `rig a11y`, `rig ime` and `rig motion` leave in $RIG_DIR/app.env for
+# the next app start ("NAME=value" sets, "-u NAME" unsets).
+app_env() { # env(1) takes its -u options before any assignment
+  [[ -f $RIG_DIR/app.env ]] || return 0
+  { grep '^-u ' "$RIG_DIR/app.env"; grep -v -e '^-u ' -e '^#' "$RIG_DIR/app.env"; } | tr '\n' ' '; true
+}
+env_set() { # env_set <NAME> [value]: no value unsets NAME for the apps
+  local tmp
+  tmp=$(mktemp)
+  grep -v -e "^$1=" -e "^-u $1\$" "$RIG_DIR/app.env" 2>/dev/null >"$tmp" || true
+  if (($# > 1)); then echo "$1=$2" >>"$tmp"; else echo "-u $1" >>"$tmp"; fi
+  mv "$tmp" "$RIG_DIR/app.env"
+}
+env_clear() { [[ -f $RIG_DIR/app.env ]] && sed -i -e "/^$1=/d" -e "/^-u $1\$/d" "$RIG_DIR/app.env"; true; }
+
+stop_app() {
+  local app=$1 pid i
+  pid=$(pid_of "$app") || { echo "$app is not running"; return; }
+  kill -TERM "$pid" 2>/dev/null || true
+  for i in $(seq 100); do [[ -d /proc/$pid ]] || break; sleep 0.1; done
+  kill -KILL -- "-$pid" 2>/dev/null || true
+  rm -f "$RIG_DIR/$app/pid"
+  echo "$app stopped"
+}
+
+# bus_up: the session bus (file-chooser portal, ibus, AT-SPI), started once; the apps get its address.
+bus_up() {
+  if [[ -f $RIG_DIR/bus.env ]] && kill -0 "$(sed -n 's/^PID=//p' "$RIG_DIR/bus.env")" 2>/dev/null; then return; fi
+  local out
+  out=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+  { echo "ADDR=$(sed -n 1p <<<"$out")"; echo "PID=$(sed -n 2p <<<"$out")"; } >"$RIG_DIR/bus.env"
+  env_set DBUS_SESSION_BUS_ADDRESS "$(sed -n 1p <<<"$out")"
+  keyring_down
+  keyring_up
+}
+
+# keyring_up: gnome-keyring's Secret Service on the session bus, its login keyring created (first
+# start) or unlocked with the rig's fixed password: both apps keep host tokens there. Not after
+# `rig keyring off`, which stands for a desktop with no Secret Service.
+keyring_up() {
+  [[ -e $RIG_DIR/keyring.off ]] && return
+  printf %s "$KEYRING_PASSWORD" | DBUS_SESSION_BUS_ADDRESS=$(sed -n 's/^ADDR=//p' "$RIG_DIR/bus.env") \
+    setsid gnome-keyring-daemon --daemonize --unlock --components=secrets >>"$RIG_DIR/keyring.log" 2>&1
+}
+keyring_down() {
+  pkill -x gnome-keyring-d || true # comm is cut to 15 characters
+  while pgrep -x gnome-keyring-d >/dev/null; do sleep 0.1; done
+}
+keyring_reset() { # every saved token gone: a new, empty login keyring
+  keyring_down
+  rm -rf "$KEYRINGS"
+  keyring_up
+}
+
+# with_stopped <apps> -- <command...>: stop the running ones, run the command, restart them.
+with_stopped() {
+  local apps=() was=() app
+  while [[ $1 != -- ]]; do apps+=("$1"); shift; done
+  shift
+  for app in "${apps[@]}"; do running "$app" && was+=("$app") && stop_app "$app" >/dev/null; done
+  "$@"
+  for app in "${was[@]}"; do start_app "$app"; done
+}
+
+# WebKit discards a localStorage database it did not create itself, so let Tauri create it once.
+tauri_db_ready() {
+  [[ -f $TAURI_DB ]] && return
+  start_app tauri >/dev/null
+  for _ in $(seq 300); do [[ -f $TAURI_DB ]] && break; sleep 0.1; done
+  sleep 2
+  stop_app tauri >/dev/null
+  [[ -f $TAURI_DB ]] || die "Tauri did not create its localStorage at $TAURI_DB"
+}
+
+set_setting() { # set_setting <key> <value> <apps...>
+  local key=$1 value=$2 app
+  shift 2
+  for app; do
+    case $app in
+      tauri) tauri_db_ready && python3 "$RIGX" tauri-set "$TAURI_DB" "$key" "$value" ;;
+      rust) python3 "$RIGX" rust-set "$(app_home rust)/shell/settings.json" "$key" "$value" ;;
+    esac
+    echo "$app: $key = $value"
+  done
+}
+
+shot() { # shot <app> <file>
+  local w
+  w=$(winid "$1") || die "$1 has no window"
+  xdotool windowraise "$w"
+  python3 "$RIGX" shot "$w" "$2" >/dev/null
+  echo "$2"
+}
+
+activate() {
+  local w
+  w=$(winid "$1") || die "$1 has no window"
+  # Leave an active window alone: activating it again moves X focus off an embedded page and ends an input method composition.
+  if [[ $(xdotool getactivewindow 2>/dev/null) != "$w" ]]; then
+    xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  fi
+  echo "$w"
+}
+
+point() { # point <app> <name>  -> "x,y" from points.conf
+  local var="${1}_$2"
+  [[ -n ${!var:-} ]] || die "no point '$2' for $1: set ${var}=x,y in $RIG_DIR/points.conf"
+  echo "${!var}"
+}
+
+click_point() { # click_point <app> <name>: click a points.conf point in the app's window
+  local w xy
+  w=$(activate "$1")
+  xy=$(point "$1" "$2")
+  xdotool mousemove --window "$w" "${xy%,*}" "${xy#*,}" click 1
+}
+
+# init: the state every comparison starts from — same theme and sidebar side in both apps, both
+# seeded chats open as tabs with "Perf fixture" active (both apps restore their tabs on restart).
+initial_settings() {
+  set_setting themeMode "${RIG_THEME:-dark}" tauri rust
+  set_setting sidebarPosition left tauri rust
+}
+init() {
+  local app
+  with_stopped tauri rust -- initial_settings
+  for app in tauri rust; do running "$app" || start_app "$app"; done
+  # points.conf names the baseline's sidebar rows (noproviders and extras share them); the other
+  # profiles start on what each app restores.
+  if [[ $(profile) == baseline || $(profile) == noproviders || $(profile) == extras ]]; then
+    for app in tauri rust; do
+      click_point "$app" perf_chat; sleep 3
+      click_point "$app" untitled_chat; sleep 3
+      click_point "$app" switch_a; sleep 1
+    done
+  fi
+  touch "$RIG_DIR/initialised"
+}
+
+profile() { cat "$RIG_DIR/profile" 2>/dev/null || echo "${RIG_PROFILE:-baseline}"; }
+
+# extract_profile <name>: that profile's daemon home, scripted-agent state and ~/fixtures, as built.
+extract_profile() {
+  [[ -f $PROFILES/$1.tar ]] || die "no profile '$1' (have: $(cd "$PROFILES" && ls *.tar | sed 's/\.tar$//' | xargs))"
+  chmod -R u+rwX "$CROWBAR_HOME" "$HOME/fixtures" 2>/dev/null || true
+  rm -rf "$CROWBAR_HOME" "$HOME/.scripted-agent" "$HOME/fixtures" "$HOME/.rig-unreadable"
+  tar -S -xf "$PROFILES/$1.tar" -C "$HOME"
+  [[ -f $HOME/.rig-unreadable ]] && (cd "$HOME" && xargs -r -d '\n' chmod 000 <"$HOME/.rig-unreadable")
+  echo "$1" >"$RIG_DIR/profile"
+}
+
+# seed_profile <name>: both apps stopped, the daemon paused, the profile restored, both apps'
+# own storage wiped, then `init`. `rig reset` is this with the current profile.
+seed_profile() {
+  stop_app tauri
+  stop_app rust
+  rm -f "$RIG_DIR/daemon.own" "$RIG_DIR"/*/daemon.crashloop
+  chmod -R u+rwX "$HOME"/.crowbar-rig-* 2>/dev/null || true
+  rm -rf "$HOME"/.crowbar-rig-*
+  daemon_stop >/dev/null
+  for n in 1 2; do remote_select "$n"; remote_wipe; done
+  rm -rf "$RIG_DIR/missing"
+  chmod -R u+rwX "$HOME/.local/share/software.rabbyte.crowbar" 2>/dev/null || true
+  rm -rf "$HOME/.local/share/software.rabbyte.crowbar" "$HOME/.cache/software.rabbyte.crowbar" "$RIG_DIR/initialised"
+  keyring_reset
+  extract_profile "$1"
+  daemon_start >/dev/null
+  "$0" _wait-daemon
+  init
+}
+reset_state() { seed_profile "$(profile)"; }
+feature_worktree() { # the baseline's feature/pricing-rounding checkout
+  git -C "$CROWBAR_HOME/seed/checkout" worktree list --porcelain |
+    awk '/^worktree /{w=$2} /^branch refs\/heads\/feature\/pricing-rounding$/{print w}'
+}
+case_cmd() { # case_cmd <name> on|off|status [args]
+  local name=${1:-} verb=${2:-status} tauri_idb=$HOME/.local/share/software.rabbyte.crowbar/databases/indexeddb
+  local rust_layout=$CROWBAR_HOME/shell/layout.json
+  case $name:$verb in
+    restore-fails:on)
+      # Tauri's pane layout lives in IndexedDB: an unreadable store makes its hydrate reject. The Rust
+      # shell's lives in layout.json: a truncated file fails to parse.
+      stop_app tauri; stop_app rust
+      [[ -d $tauri_idb ]] && chmod 000 "$tauri_idb"
+      [[ -f $rust_layout.rig ]] || cp "$rust_layout" "$rust_layout.rig"
+      head -c 40 "$rust_layout.rig" >"$rust_layout"
+      start_app tauri; start_app rust
+      echo "restore-fails on: Tauri's IndexedDB unreadable, the Rust shell's layout.json truncated"
+      ;;
+    restore-fails:off)
+      stop_app tauri; stop_app rust
+      [[ -d $tauri_idb ]] && chmod 755 "$tauri_idb"
+      [[ -f $rust_layout.rig ]] && mv "$rust_layout.rig" "$rust_layout"
+      start_app tauri; start_app rust
+      echo "restore-fails off"
+      ;;
+    restore-fails:status)
+      if [[ -f $rust_layout.rig ]]; then echo "restore-fails on"; else echo "restore-fails off"; fi
+      ;;
+    missing-file:on)
+      # A tab restored on a file that is gone: moved aside while the apps are down, so both restore it.
+      local wt file=${3:-README.md}
+      wt=$(feature_worktree)
+      [[ -e $wt/$file ]] || die "case missing-file: no $file in $wt"
+      stop_app tauri; stop_app rust
+      mkdir -p "$RIG_DIR/missing"
+      mv "$wt/$file" "$RIG_DIR/missing/" && echo "$wt/$file" >"$RIG_DIR/missing/from"
+      start_app tauri; start_app rust
+      echo "missing-file on: $wt/$file moved to ~/.rig/missing"
+      ;;
+    missing-file:off)
+      [[ -f $RIG_DIR/missing/from ]] || { echo "missing-file off"; return; }
+      local from
+      from=$(cat "$RIG_DIR/missing/from")
+      mv "$RIG_DIR/missing/$(basename "$from")" "$from"
+      rm -rf "$RIG_DIR/missing"
+      echo "missing-file off: $from back"
+      ;;
+    missing-file:status)
+      if [[ -f $RIG_DIR/missing/from ]]; then echo "missing-file on: $(cat "$RIG_DIR/missing/from")"; else echo "missing-file off"; fi
+      ;;
+    *) die "case restore-fails on|off|status | missing-file on [path in feature/pricing-rounding]|off|status" ;;
+  esac
+}
+
+# The paired-host daemons (`rig remote`, `rig remote2`): each its own home and an inner TLS
+# listener, fronted on the public port by rig-proxy.py with the daemon's own TLS key (so remote
+# faults can be injected); no supervisor loop, so a stop is a host that is down until started.
+remote_select() { # remote_select 1|2: R_HOME, R_PORT (public), R_INNER (the daemon's), R_FAULTS, R_NAME
+  local n=$1
+  R_N=$n
+  R_HOME=$HOME/.crowbar-remote$([[ $n == 1 ]] || echo "$n")
+  R_PORT=$((REMOTE_PORT + 10 * (n - 1)))
+  R_INNER=$((R_PORT + 1))
+  R_FAULTS=$RIG_DIR/faults-remote$([[ $n == 1 ]] || echo "$n")
+  R_NAME=$([[ $n == 1 ]] && echo "Remote Project" || echo "Second Remote Project")
+  R_ROOT=$HOME/remote-host$([[ $n == 1 ]] || echo "$n")/remote-app$([[ $n == 1 ]] || echo "-$n")
+}
+remote() { CROWBAR_HOME=$R_HOME "$@"; }
+remote_addresses() { # every address the remote host answers on
+  local a=(127.0.0.1:$R_PORT localhost:$R_PORT) ip
+  for ip in $(hostname -I 2>/dev/null); do a+=("$ip:$R_PORT"); done
+  echo "${a[*]}"
+}
+remote_pid() { pgrep -f "crowbar-api.real serve --host tcp://:$R_INNER"; }
+remote_proxy_pid() { pgrep -f "rig-proxy.py tcp::$R_PORT "; }
+remote_start() {
+  remote_pid >/dev/null && remote_proxy_pid >/dev/null && return
+  local fresh=
+  [[ -d $R_HOME/state ]] || fresh=1
+  if ! remote_pid >/dev/null; then
+    (cd "$HOME" && CROWBAR_HOME=$R_HOME exec setsid /opt/crowbar/crowbar-api.real serve --host "tcp://:$R_INNER" \
+      >>"$RIG_DIR/remote$R_N.log" 2>&1 </dev/null) &
+    remote python3 -c 'import sys; sys.path.insert(0, "/opt/rig/bin"); import rigapi; rigapi.Api().healthy(30)'
+  fi
+  (exec setsid python3 /opt/rig/bin/rig-proxy.py "tcp::$R_PORT" "tcp:127.0.0.1:$R_INNER" --faults "$R_FAULTS" \
+    --tls "$R_HOME/tls/cert.pem" "$R_HOME/tls/key.pem" >>"$RIG_DIR/remote$R_N-proxy.log" 2>&1 </dev/null) &
+  for _ in $(seq 50); do (exec 3<>"/dev/tcp/127.0.0.1/$R_PORT") 2>/dev/null && break; sleep 0.1; done
+  [[ -z $fresh ]] || remote python3 /opt/rig/seed/remote.py "$R_NAME" "$R_ROOT"
+}
+remote_stop() {
+  pkill -f "rig-proxy.py tcp::$R_PORT " || true
+  pkill -f "crowbar-api.real serve --host tcp://:$R_INNER" || true
+  while remote_pid >/dev/null || remote_proxy_pid >/dev/null; do sleep 0.2; done
+}
+remote_wipe() { remote_stop; rm -rf "$R_HOME" "$(dirname "$R_ROOT")" "$R_FAULTS"; }
+remote_cmd() { # remote_cmd <1|2> <subcommand...>
+  remote_select "$1"
+  shift
+  case ${1:-status} in
+    start) remote_start; echo "remote host $R_N up: $(remote_addresses)" ;;
+    stop) remote_stop; echo "remote host $R_N down" ;;
+    restart) remote_stop; remote_start; echo "remote host $R_N up" ;;
+    code) # a one-time pairing code and the fingerprint to enter in the app
+      remote_pid >/dev/null || remote_start
+      remote /opt/crowbar/crowbar-api.real pair
+      echo "Address         $(remote_addresses)"
+      ;;
+    clients) remote python3 /opt/rig/bin/rigapi.py GET /v0/clients ;;
+    revoke) # every paired client: the app's next call gets 401
+      remote python3 - <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+for c in api.get("/v0/clients") or []:
+    api.delete(f"/v0/clients/{c['id']}")
+    print("revoked", c["id"])
+PY
+      ;;
+    rekey) # a new TLS key and certificate: the pinned fingerprint no longer matches
+      remote_stop; rm -rf "$R_HOME/tls"; remote_start
+      echo "remote host $R_N re-keyed: $(remote /opt/crowbar/crowbar-api.real pair | sed -n 's/^Fingerprint *//p')"
+      ;;
+    providers)
+      case ${2:-} in
+        off | on) remote python3 - "$2" <<'PY'
+import sys; sys.path.insert(0, "/opt/rig/bin")
+import rigapi
+api = rigapi.Api()
+cur = api.get("/v0/settings/chat/providers")
+api.put("/v0/settings/chat/providers", {"providers": [
+    {"id": p["id"], "disabled": sys.argv[1] == "off", "mcpDisabled": not p["mcpEnabled"]} for p in cur]})
+print("remote providers", sys.argv[1])
+PY
+          ;;
+        *) die "remote providers on|off" ;;
+      esac
+      ;;
+    fault) shift; fault_cmd "$R_FAULTS" "$@" ;;
+    api) shift; remote python3 /opt/rig/bin/rigapi.py "$@" ;;
+    wipe) remote_wipe; echo "remote host $R_N wiped (next start seeds it)" ;;
+    status) remote_pid >/dev/null && echo "remote host $R_N up: $(remote_addresses)" || echo "remote host $R_N down" ;;
+    *) die "remote start|stop|restart|code|clients|revoke|rekey|providers on|off|fault ...|api ...|wipe|status" ;;
+  esac
+}
+
+daemon_stop() {
+  touch "$RIG_DIR/daemon.paused"
+  pkill -CONT -f "$SHARED_SERVE" || true
+  pkill -f "$SHARED_SERVE" || true
+  while pgrep -f "$SHARED_SERVE" >/dev/null; do sleep 0.2; done
+  echo "daemon stopped (the apps see it gone; \`rig daemon start\` brings it back)"
+}
+daemon_start() {
+  rm -f "$RIG_DIR/daemon.paused" "$RIG_DIR/daemon.crashloop"
+  echo "daemon starting"
+}
+# own_on / own_off: switch between the shared daemon behind the proxy and app-supervised daemons.
+own_on() {
+  local app
+  stop_app tauri >/dev/null; stop_app rust >/dev/null
+  daemon_stop >/dev/null
+  for app in tauri rust; do
+    chmod -R u+rwX "$HOME/.crowbar-rig-$app" 2>/dev/null || true
+    rm -rf "$HOME/.crowbar-rig-$app" "$RIG_DIR/$app/daemon.crashloop"
+    cp -a "$CROWBAR_HOME" "$HOME/.crowbar-rig-$app" 2>/dev/null || true # mode-000 fixtures are skipped
+  done
+  touch "$RIG_DIR/daemon.own"
+  for app in tauri rust; do start_app "$app"; done
+}
+own_off() {
+  own_mode || return 0
+  local app
+  stop_app tauri >/dev/null; stop_app rust >/dev/null
+  rm -f "$RIG_DIR/daemon.own"
+  for app in tauri rust; do
+    chmod -R u+rwX "$HOME/.crowbar-rig-$app" 2>/dev/null || true
+    rm -rf "$HOME/.crowbar-rig-$app" "$RIG_DIR/$app/daemon.crashloop"
+  done
+  daemon_start >/dev/null
+  "$0" _wait-daemon
+}
+# own_daemon <verb> [app]: status|kill|wedge|unwedge|crashloop on|off on each app's own daemon.
+own_daemon() {
+  local verb=$1 arg=${2:-} app pid
+  [[ $verb == crashloop ]] && arg=${3:-all}
+  for app in $(apps_of "${arg:-all}"); do
+    pid=$(own_daemon_pid "$app") || pid=""
+    case $verb in
+      status) printf '%-6s %s %s\n' "$app" "${pid:-no daemon}" "$(python3 "$RIGX" health "$(app_socket "$app")" 2>&1)" ;;
+      kill) [[ -n $pid ]] && kill -KILL "$pid"; echo "$app: daemon killed (the app's supervisor sees it exit)" ;;
+      wedge) [[ -n $pid ]] && kill -STOP "$pid"; echo "$app: daemon wedged (\`rig daemon unwedge $app\` resumes it)" ;;
+      unwedge) [[ -n $pid ]] && kill -CONT "$pid"; echo "$app: daemon resumed" ;;
+      crashloop)
+        case ${2:-on} in
+          on) touch "$RIG_DIR/$app/daemon.crashloop"; [[ -n $pid ]] && kill -KILL "$pid"; echo "$app: every daemon the app starts is SIGKILLed after about 2 s" ;;
+          off) rm -f "$RIG_DIR/$app/daemon.crashloop"; echo "$app: crash loop off (the next start stays up)" ;;
+          *) die "daemon crashloop on|off [app]" ;;
+        esac
+        ;;
+    esac
+  done
+}
+
+# daemon_path: the shared daemon's PATH; `rig daemon nogit` drops the one directory holding git
+# (the image keeps git only there, so the daemon's fallback to /usr/bin finds none either).
+daemon_path() {
+  if [[ -e $RIG_DIR/daemon.nogit ]]; then tr : '\n' <<<"$PATH" | grep -vx /opt/rig/git-bin | paste -sd:; else echo "$PATH"; fi
+}
+
+# chooser <app>: the open file-chooser window, the GTK dialog the app opens itself — the largest
+# visible window of the app's process other than its own window.
+chooser() {
+  local pid main w g best="" area=0
+  pid=$(pid_of "$1") || return 1
+  main=$(winid "$1")
+  for w in $(xdotool search --onlyvisible --pid "$pid" 2>/dev/null); do
+    [[ $w == "$main" ]] && continue
+    g=$(xdotool getwindowgeometry "$w" 2>/dev/null | awk '/Geometry/ {print $2}')
+    [[ $g == *x* ]] || continue # the window went away since the search
+    ((${g%x*} * ${g#*x} > area)) && area=$((${g%x*} * ${g#*x})) && best=$w
+  done
+  ((area > 0)) && echo "$best"
+}
+
+# pick <app> <path>: types the path into the open chooser's location bar and confirms it. The
+# chooser opens on "Recent", where Enter on a typed path does nothing: alt+Home leaves it first. A
+# folder chooser may only enter the folder on the first Enter; the second one selects it.
+pick() {
+  local w="" i
+  for i in $(seq 100); do w=$(chooser "$1") && break; sleep 0.1; done
+  [[ -n $w ]] || die "no file chooser is open for $1"
+  xdotool windowactivate --sync "$w" 2>/dev/null || xdotool windowfocus --sync "$w"
+  xdotool key --clearmodifiers alt+Home
+  sleep 0.3
+  xdotool key --clearmodifiers ctrl+l
+  sleep 0.3
+  xdotool key --clearmodifiers ctrl+a
+  xdotool type --delay 20 "$2"
+  sleep 0.3
+  for i in 1 2 3; do
+    xdotool windowfocus --sync "$w" 2>/dev/null || break
+    xdotool key --clearmodifiers Return
+    for _ in $(seq 20); do xdotool getwindowname "$w" >/dev/null 2>&1 && chooser "$1" >/dev/null || break 2; sleep 0.1; done
+  done
+  chooser "$1" >/dev/null && die "the chooser is still open: $2 was not accepted (rig shot cannot see it; check noVNC)"
+  echo "$1: picked $2"
+}
+
+# fault rules for rig-proxy.py: one JSON object per line in a faults file (the apps' proxies read
+# $RIG_DIR/faults, a remote host's its own), reloaded on SIGUSR1.
+fault_signal() { pkill -USR1 -f /opt/rig/bin/rig-proxy.py || true; }
+fault_cmd() { # fault_cmd <faults file> list|clear|<method> <path-regex> <action> [ms]
+  local file=$1
+  shift
+  case ${1:-list} in
+    clear) rm -f "$file"; fault_signal; echo "faults cleared" ;;
+    list) [[ -s $file ]] && cat "$file" || echo "no faults" ;;
+    *) fault_add "$file" "$1" "${2:?fault <method> <path-regex> <status|drop|delay ms|refuse>}" "${3:-}" "${4:-}"; cat "$file" ;;
+  esac
+}
+fault_add() { # fault_add <file> <method> <path-regex> <status|drop|delay|refuse> [ms]
+  local file=$1 method=${2^^} action=$4 value=null
+  shift
+  case $3 in
+    drop) ;;
+    delay) value=${4:?fault <method> <path-regex> delay <ms>}; [[ $value =~ ^[0-9]+$ ]] || die "delay takes milliseconds" ;;
+    refuse) [[ $method == WS || $method == WS-SEND ]] || die "refuse is for WS and WS-SEND rules" ;;
+    [1-5][0-9][0-9]) [[ $method != WS* ]] || die "WS rules take drop, delay <ms> or refuse"; action=status value=$3 ;;
+    *) die "fault <method> <path-regex> <status|drop|delay ms|refuse>" ;;
+  esac
+  python3 -c 'import json, re, sys
+m, path, action, value = sys.argv[1:]
+re.compile(path)
+print(json.dumps({"method": "*" if m in ("*", "ANY") else m, "path": path, "action": action, "value": json.loads(value)}))' \
+    "$method" "$2" "$action" "$value" >>"$file" || die "bad fault rule"
+  fault_signal
+}
+
+# perf_one <metric> <app> [extra rigx args]: the other app is stopped while one is measured.
+perf_one() {
+  local metric=$1 app=$2 other
+  shift 2
+  other=$([[ $app == tauri ]] && echo rust || echo tauri)
+  local other_was=0
+  if [[ ${RIG_KEEP_OTHER:-0} != 1 ]] && running "$other"; then other_was=1; stop_app "$other" >/dev/null; fi
+  case $metric in
+    startup)
+      stop_app "$app" >/dev/null
+      rect=$(cat "$RIG_DIR/$app/rect" 2>/dev/null || echo "$(slot_x "$app"),0,$RIG_W,$RIG_H")
+      python3 "$RIGX" startup "$app" --slot "$rect" "$@"
+      ;;
+    input)
+      running "$app" || start_app "$app" >/dev/null
+      click_point "$app" switch_a
+      python3 "$RIGX" input "$app" --focus "$(point "$app" composer)" "$@"
+      ;;
+    switch)
+      running "$app" || start_app "$app" >/dev/null
+      activate "$app" >/dev/null
+      python3 "$RIGX" switch "$app" --a "$(point "$app" switch_a)" --b "$(point "$app" switch_b)" "$@"
+      ;;
+    scroll)
+      running "$app" || start_app "$app" >/dev/null
+      click_point "$app" switch_a
+      python3 "$RIGX" scroll "$app" --at "$(point "$app" scroll)" "$@"
+      ;;
+    idle)
+      running "$app" || start_app "$app" >/dev/null
+      python3 "$RIGX" idle "$app" --pid "$(pid_of "$app")" "$@"
+      ;;
+    memory)
+      stop_app "$app" >/dev/null
+      start_app "$app" >/dev/null
+      activate "$app" >/dev/null
+      python3 "$RIGX" memory "$app" --pid "$(pid_of "$app")" --focus "$(point "$app" switch_a)" "$@"
+      # Both apps persist the tabs it opened and a terminal swallows mod+w: put the seeded state back.
+      [[ ${RIG_NO_RESET:-0} == 1 ]] || reset_state >/dev/null
+      ;;
+    *) die "unknown metric '$metric'" ;;
+  esac
+  ((other_was)) && start_app "$other" >/dev/null
+  return 0
+}
+
+usage() {
+  echo "usage: rig <command>; the commands are the cases of $0"
+}
+
+sub=${1:-help}
+shift || true
+case $sub in
+  status)
+    for app in tauri rust; do
+      if running "$app"; then
+        w=$(winid "$app" 2>/dev/null || echo none)
+        printf '%-6s running pid %s window %s %s\n' "$app" "$(pid_of "$app")" "$w" \
+          "$([[ $w != none ]] && xdotool getwindowgeometry "$w" | awk '/Position|Geometry/ {printf "%s ", $2}')"
+      else
+        printf '%-6s stopped\n' "$app"
+      fi
+    done
+    if own_mode; then own_daemon status | sed 's/^/daemon /'; else printf 'daemon %s\n' "$(python3 "$RIGX" health "$(socket)" 2>&1)"; fi
+    ;;
+  start) for app in $(apps_of "${1:-all}"); do start_app "$app"; done ;;
+  case) case_cmd "$@" ;;
+  stop) for app in $(apps_of "${1:-all}"); do stop_app "$app"; done ;;
+  restart) for app in $(apps_of "${1:-all}"); do stop_app "$app"; start_app "$app"; done ;;
+  init) init ;;
+  winid) one_app "${1:-}"; winid "$1" ;;
+  size)
+    for app in $(apps_of "${1:-all}"); do
+      case ${2:-standard} in
+        standard) place "$app" "$RIG_W" "$RIG_H" ;;
+        default) [[ $app == tauri ]] && place "$app" 1200 800 || place "$app" 1280 800 ;;
+        min) m=$(min_size "$app") && place "$app" "${m%x*}" "${m#*x}" ;;
+        *x*) place "$app" "${2%x*}" "${2#*x}" ;;
+        *) die "size: standard, default, min or WxH" ;;
+      esac
+    done
+    ;;
+  theme)
+    [[ ${1:-} == light || ${1:-} == dark || ${1:-} == system ]] || die "theme light|dark|system [app|all]"
+    read -ra targets <<<"$(apps_of "${2:-all}")"
+    with_stopped "${targets[@]}" -- set_setting themeMode "$1" "${targets[@]}"
+    ;;
+  sidebar)
+    [[ ${1:-} == left || ${1:-} == right ]] || die "sidebar left|right [app|all]"
+    read -ra targets <<<"$(apps_of "${2:-all}")"
+    with_stopped "${targets[@]}" -- set_setting sidebarPosition "$1" "${targets[@]}"
+    ;;
+  key)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    shift
+    # XTest to the focused window: WebKit ignores synthetic (XSendEvent) key events.
+    xdotool key --clearmodifiers "$@"
+    ;;
+  type)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    xdotool type --delay 30 "$2"
+    ;;
+  click)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    xdotool mousemove --window "$w" "$2" "$3" click "${4:-1}"
+    ;;
+  scroll)
+    one_app "${1:-}"
+    w=$(activate "$1")
+    [[ ${4:-down} == up ]] && b=4 || b=5
+    xdotool mousemove --window "$w" "$2" "$3" click --repeat "${5:-5}" --delay 50 "$b"
+    ;;
+  shot)
+    one_app "${1:-}"
+    mkdir -p "$SHOTS"
+    shot "$1" "${2:-$SHOTS/$1-$(date +%H%M%S).png}"
+    ;;
+  pair)
+    row=${1:?pair <row-id>}
+    mkdir -p "$SHOTS/$row"
+    shot tauri "$SHOTS/$row/tauri.png" >/dev/null
+    shot rust "$SHOTS/$row/rust.png" >/dev/null
+    python3 "$RIGX" compose "$SHOTS/$row/tauri.png" "$SHOTS/$row/rust.png" \
+      "Tauri (develop)" "Rust shell (branch)" "$SHOTS/$row/side-by-side.png" >/dev/null
+    ls "$SHOTS/$row"/*.png
+    ;;
+  perf)
+    metric=${1:?perf <startup|input|switch|scroll|idle|memory|all> <app|all> [options]}
+    shift
+    targets=$(apps_of "${1:-all}")
+    shift || true
+    [[ $metric == all ]] && metrics="startup input switch scroll idle memory" || metrics=$metric
+    for m in $metrics; do for app in $targets; do perf_one "$m" "$app" "$@"; done; done
+    ;;
+  daemon)
+    case ${1:-status} in
+      mode)
+        case ${2:-} in
+          own) own_mode && { echo "daemon mode: already own"; exit 0; }; own_on; echo "daemon mode: own (each app supervises its own daemon)" ;;
+          shared) own_off; init >/dev/null; echo "daemon mode: shared (one daemon behind the rig proxy)" ;;
+          "") own_mode && echo "own" || echo "shared" ;;
+          *) die "daemon mode [own|shared]" ;;
+        esac
+        exit 0
+        ;;
+    esac
+    if own_mode; then
+      case ${1:-status} in
+        status | kill | wedge | unwedge | crashloop) own_daemon "${1:-status}" "${@:2}"; exit 0 ;;
+        *) die "in own mode: daemon status|kill|wedge|unwedge [app], crashloop on|off [app], mode shared" ;;
+      esac
+    fi
+    case ${1:-status} in
+      status) python3 "$RIGX" health "$(socket)" ;;
+      stop) daemon_stop ;;
+      start) daemon_start; "$0" _wait-daemon && echo "daemon up" ;;
+      restart) rm -f "$RIG_DIR/daemon.paused"; pkill -f "$SHARED_SERVE" || true; echo "daemon restarting" ;;
+      kill) pkill -KILL -f "$SHARED_SERVE" || true; echo "daemon killed (the loop respawns it)" ;;
+      wedge) # alive with its socket open, answering nothing (SIGSTOP)
+        pkill -STOP -f "$SHARED_SERVE"; echo "daemon wedged (\`rig daemon unwedge\` resumes it)" ;;
+      unwedge) pkill -CONT -f "$SHARED_SERVE"; echo "daemon resumed" ;;
+      nogit)
+        case ${2:-on} in
+          on) touch "$RIG_DIR/daemon.nogit" ;;
+          off) rm -f "$RIG_DIR/daemon.nogit" ;;
+          *) die "daemon nogit on|off" ;;
+        esac
+        old=$(pgrep -f "$SHARED_SERVE" || true)
+        pkill -f "$SHARED_SERVE" || true
+        for p in $old; do while kill -0 "$p" 2>/dev/null; do sleep 0.1; done; done
+        "$0" _wait-daemon && echo "daemon restarted $([[ ${2:-on} == on ]] && echo without || echo with) git"
+        ;;
+      crashloop)
+        case ${2:-on} in
+          on) touch "$RIG_DIR/daemon.crashloop"; pkill -KILL -f "$SHARED_SERVE" || true; echo "daemon crash-looping" ;;
+          off) rm -f "$RIG_DIR/daemon.crashloop"; echo "daemon crash loop off (the next start stays up)" ;;
+          *) die "daemon crashloop on|off" ;;
+        esac
+        ;;
+      *) die "daemon status|stop|start|restart|kill|wedge|unwedge|crashloop on|off|nogit on|off|mode own|shared" ;;
+    esac
+    ;;
+  seed)
+    case ${1:-} in
+      "" | list)
+        echo "current: $(profile)"
+        for t in "$PROFILES"/*.tar; do printf '  %-12s %s\n' "$(basename "$t" .tar)" "$(numfmt --to=iec "$(stat -c %s "$t")")"; done
+        ;;
+      *) seed_profile "$1" ;;
+    esac
+    ;;
+  drag)
+    # drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms] [--mods M] [--frames N] [--every ms]:
+    # press, move in steps, hold, release, all from one X client (rigx.py), which also captures the
+    # frames: one mid-path, N-1 held at the end (every ms apart), one after the drop.
+    one_app "${1:-}"
+    app=$1 w=$(activate "$1")
+    shift
+    pos=() flags=()
+    while (($#)); do if [[ $1 == --* ]]; then flags+=("$1" "${2:?$1 takes a value}"); shift 2; else pos+=("$1"); shift; fi; done
+    ((${#pos[@]} >= 4)) || die "drag <app> <x1> <y1> <x2> <y2> [steps] [button] [hold-ms] [--mods M] [--frames N] [--every ms]"
+    mkdir -p "$SHOTS/drag" && rm -f "$SHOTS/drag/$app-"*.png
+    python3 "$RIGX" drag "$app" "$w" "${pos[@]:0:4}" --steps "${pos[4]:-20}" --button "${pos[5]:-1}" \
+      --hold "${pos[6]:-150}" --out "$SHOTS/drag" "${flags[@]}"
+    ;;
+  dragfile)
+    # dragfile <app> <x> <y> <file>...: an OS file drag (XDND) from a GTK drag source window below
+    # the app onto the app's point (x, y), as from a file manager.
+    one_app "${1:-}"
+    app=$1 x=${2:?dragfile <app> <x> <y> <file>...} y=${3:?dragfile <app> <x> <y> <file>...}
+    shift 3
+    (($#)) || die "dragfile <app> <x> <y> <file>..."
+    w=$(activate "$app")
+    pkill -f "/opt/rig/bin/dragsource.py" || true
+    log=$RIG_DIR/dragsource.log
+    : >"$log"
+    setsid python3 /opt/rig/bin/dragsource.py "$@" >>"$log" 2>&1 </dev/null &
+    src=""
+    for _ in $(seq 100); do src=$(xdotool search --onlyvisible --name '^rig drag source$' 2>/dev/null | head -1) && [[ -n $src ]] && break; sleep 0.1; done
+    [[ -n $src ]] || die "the drag source did not open; see $log"
+    xdotool windowmove "$src" $(($(slot_x "$app") + 40)) $((RIG_H + 20))
+    sleep 0.5
+    eval "$(xdotool getwindowgeometry --shell "$src")"
+    python3 "$RIGX" drag "$app" "$w" 0 0 "$x" "$y" --src-x $((X + WIDTH / 2)) --src-y $((Y + HEIGHT / 2)) \
+      --steps 30 --step-ms 30 --hold 300
+    for _ in $(seq 30); do grep -q "drag ended" "$log" && break; sleep 0.1; done
+    grep -q "drag ended" "$log" && echo "$app: dropped $* at $x,$y" || echo "$app: the drag did not end (no drop target answered?)"
+    pkill -f "/opt/rig/bin/dragsource.py" || true
+    ;;
+  clip)
+    # The CLIPBOARD selection, served by xclip until something else owns it.
+    case ${1:-get} in
+      set) printf '%s' "${2:?clip set <text>}" | xclip -selection clipboard -i ;;
+      file)
+        mime=${3:-$(python3 -c 'import mimetypes, sys; print(mimetypes.guess_type(sys.argv[1])[0] or "text/plain")' "${2:?clip file <path> [mime]}")}
+        xclip -selection clipboard -t "$mime" -i "$2"
+        ;;
+      copy-file) # a file "copied" in a file manager: GNOME's target and a uri-list
+        f=$(realpath "${2:?clip copy-file <path>}")
+        printf 'copy\nfile://%s' "$f" | xclip -selection clipboard -t x-special/gnome-copied-files -i
+        ;;
+      uri) printf 'file://%s\r\n' "$(realpath "${2:?clip uri <path>}")" | xclip -selection clipboard -t text/uri-list -i ;;
+      lines) xclip -selection clipboard -i "$HOME/fixtures/clipboard/lines.txt" ;;
+      image) xclip -selection clipboard -t image/png -i "$HOME/fixtures/clipboard/image.png" ;;
+      get) xclip -selection clipboard -o ${2:+-t "$2"} ;;
+      targets) xclip -selection clipboard -o -t TARGETS ;;
+      clear) printf '' | xclip -selection clipboard -i ;;
+      deny | hang) # an owner that refuses every read (deny) or never answers one (hang)
+        pkill -f "clipowner.py" || true
+        setsid python3 /opt/rig/bin/clipowner.py "$1" >>"$RIG_DIR/clipowner.log" 2>&1 </dev/null &
+        for _ in $(seq 50); do grep -q "owned, $1" "$RIG_DIR/clipowner.log" 2>/dev/null && break; sleep 0.1; done
+        : >"$RIG_DIR/clipowner.log"
+        if [[ $1 == deny ]]; then echo "CLIPBOARD: every read refused"; else echo "CLIPBOARD: every read left unanswered"; fi
+        ;;
+      *) die "clip set <text>|file <path> [mime]|copy-file <path>|uri <path>|lines|image|get [target]|targets|clear|deny|hang" ;;
+    esac
+    ;;
+  http)
+    case ${1:-status} in
+      start)
+        pgrep -f "fixture-http.py $HTTP_PORT" >/dev/null && { echo "http://127.0.0.1:$HTTP_PORT/ (already running)"; exit 0; }
+        setsid python3 /opt/rig/bin/fixture-http.py "$HTTP_PORT" >>"$RIG_DIR/http.log" 2>&1 </dev/null &
+        for _ in $(seq 50); do python3 -c "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=1)" \
+          "http://127.0.0.1:$HTTP_PORT/" 2>/dev/null && break; sleep 0.1; done
+        echo "http://127.0.0.1:$HTTP_PORT/"
+        ;;
+      stop) pkill -f "fixture-http.py $HTTP_PORT" || true; echo "http fixture stopped" ;;
+      status) pgrep -f "fixture-http.py $HTTP_PORT" >/dev/null && echo "http://127.0.0.1:$HTTP_PORT/ running" || echo "http fixture stopped" ;;
+      url) echo "http://127.0.0.1:$HTTP_PORT/${2:-}" ;;
+      *) die "http start|stop|status|url [path]" ;;
+    esac
+    ;;
+  motion)
+    # GTK's animation switch: WebKitGTK maps it to prefers-reduced-motion (Tauri, and the panes'
+    # webview in the Rust shell). GPUI reads no OS motion setting on Linux. Apps restart to pick it up.
+    case ${1:-} in
+      reduced) v=false ;;
+      full) v=true ;;
+      *) die "motion reduced|full [app]" ;;
+    esac
+    ini=$HOME/.config/gtk-3.0/settings.ini
+    read -ra targets <<<"$(apps_of "${2:-all}")"
+    set_motion() { grep -v '^gtk-enable-animations=' "$ini" >"$ini.tmp"; echo "gtk-enable-animations=$v" >>"$ini.tmp"; mv "$ini.tmp" "$ini"; }
+    with_stopped "${targets[@]}" -- set_motion
+    echo "gtk-enable-animations=$v"
+    ;;
+  ime)
+    # An input method on the session bus: fcitx5 (default) or ibus, each with pinyin. Webviews (Tauri,
+    # the Rust shell's panes) reach it through its GTK 3 module; GPUI's X11 backend speaks only XIM,
+    # which both servers also serve (fcitx5 on-the-spot, so GPUI gets the preedit inline). Webviews
+    # are not offered GTK's xim module: Tauri's webview renders blank with it.
+    server=$(cat "$RIG_DIR/ime.server" 2>/dev/null || echo fcitx)
+    ime_up() { pgrep -x fcitx5 >/dev/null || pgrep -r R,S,D -x ibus-daemon >/dev/null; }
+    ime_engine() { # ime_engine [name]: set it, then print the current one
+      if [[ $server == fcitx ]]; then
+        [[ -z ${1:-} ]] || env $(app_env) fcitx5-remote -s "$1"
+        env $(app_env) fcitx5-remote -n 2>/dev/null
+      else
+        [[ -z ${1:-} ]] || env $(app_env) ibus engine "$1" 2>/dev/null || true
+        env $(app_env) ibus engine 2>/dev/null
+      fi
+    }
+    ime_kill() { pkill -x fcitx5 || true; pkill -x ibus-daemon || true; while pgrep -x fcitx5 >/dev/null || pgrep -x ibus-daemon >/dev/null; do sleep 0.1; done; }
+    case ${1:-status} in
+      on)
+        case ${2:-fcitx} in fcitx | ibus) server=${2:-fcitx} ;; *) die "ime on [fcitx|ibus] [engine]" ;; esac
+        engine=${3:-$([[ $server == fcitx ]] && echo pinyin || echo libpinyin)}
+        bus_up
+        ime_kill
+        echo "$server" >"$RIG_DIR/ime.server"
+        if [[ $server == fcitx ]]; then
+          (setsid env $(app_env) fcitx5 -d --disable=wayland,notificationitem >>"$RIG_DIR/fcitx5.log" 2>&1 </dev/null)
+        else
+          (setsid env $(app_env) ibus-daemon --xim --daemonize --replace >>"$RIG_DIR/ibus.log" 2>&1 </dev/null)
+        fi
+        # The engine loads lazily: setting it can fail until the server is up.
+        for _ in $(seq 60); do [[ $(ime_engine "$engine") == "$engine" ]] && break; sleep 0.25; done
+        env_set GTK_IM_MODULE "$server"; env_set XMODIFIERS "@im=$server"; env_set QT_IM_MODULE "$server"
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "$server on, engine $(ime_engine)"
+        ;;
+      engine) ime_up || die "ime is off"; echo "engine $(ime_engine "${2:?ime engine <name>}")" ;;
+      engines)
+        if [[ $server == fcitx ]]; then echo "pinyin keyboard-us"; else env $(app_env) ibus list-engine | grep -E 'pinyin|xkb:us'; fi
+        ;;
+      off)
+        ime_kill
+        env_clear GTK_IM_MODULE; env_clear XMODIFIERS; env_clear QT_IM_MODULE
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "ime off"
+        ;;
+      status)
+        if ime_up; then
+          echo "$server on, engine $(ime_engine), webviews GTK_IM_MODULE=$(sed -n 's/^GTK_IM_MODULE=//p' "$RIG_DIR/app.env"), GPUI XMODIFIERS=$(sed -n 's/^XMODIFIERS=//p' "$RIG_DIR/app.env")"
+        else
+          echo "ime off"
+        fi
+        ;;
+      *) die "ime on [fcitx|ibus] [engine]|engine <name>|engines|off|status" ;;
+    esac
+    ;;
+  keys)
+    # X keyboard layouts: a Compose key (Right Alt) and a layout with dead keys (us intl).
+    case ${1:-} in
+      compose) setxkbmap -layout us -option '' -option compose:ralt; echo "us, Compose on Right Alt" ;;
+      deadkeys) setxkbmap -layout us -variant intl -option '' -option compose:ralt; echo "us intl (dead keys), Compose on Right Alt" ;;
+      reset) setxkbmap -layout us -variant '' -option ''; echo "us" ;;
+      show) setxkbmap -query ;;
+      *) die "keys compose|deadkeys|reset|show" ;;
+    esac
+    ;;
+  a11y)
+    # AT-SPI: a session bus and the registry, and the apps restarted with their bridge on.
+    case ${1:-status} in
+      on)
+        bus_up
+        if ! pgrep -r R,S,D -f at-spi-bus-launcher >/dev/null; then
+          (setsid env $(app_env) /usr/libexec/at-spi-bus-launcher --launch-immediately >>"$RIG_DIR/atspi.log" 2>&1 </dev/null &)
+          sleep 1
+        fi
+        env_set NO_AT_BRIDGE; env_set GTK_A11Y atspi
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "AT-SPI on"
+        ;;
+      off)
+        env_clear GTK_A11Y; env_clear NO_AT_BRIDGE
+        read -ra targets <<<"$(apps_of all)"; with_stopped "${targets[@]}" -- true
+        echo "AT-SPI off"
+        ;;
+      dump)
+        one_app "${2:-}"
+        env $(app_env) python3 /opt/rig/bin/a11y-dump.py --pid "$(pid_of "$2")" "${@:3}"
+        ;;
+      apps) env $(app_env) python3 -c 'import pyatspi; [print(a.name, a.get_process_id()) for a in pyatspi.Registry.getDesktop(0) if a]' ;;
+      status) grep -q '^-u NO_AT_BRIDGE$' "$RIG_DIR/app.env" 2>/dev/null && echo "AT-SPI on" || echo "AT-SPI off" ;;
+      *) die "a11y on|off|dump <app> [--depth N]|apps|status" ;;
+    esac
+    ;;
+  keyring)
+    # The Secret Service the apps keep host tokens in (gnome-keyring, started with the session bus).
+    case ${1:-status} in
+      status)
+        if [[ -e $RIG_DIR/keyring.off ]]; then echo "keyring off: no Secret Service"; exit 0; fi
+        env $(app_env) python3 /opt/rig/bin/keyring-dump.py
+        ;;
+      off) touch "$RIG_DIR/keyring.off"; keyring_down; echo "keyring off: no Secret Service" ;;
+      on) rm -f "$RIG_DIR/keyring.off"; keyring_down; keyring_up; echo "keyring on: login keyring unlocked" ;;
+      reset)
+        read -ra targets <<<"$(apps_of all)"
+        with_stopped "${targets[@]}" -- keyring_reset
+        echo "keyring reset: empty login keyring, unlocked"
+        ;;
+      *) die "keyring status|on|off|reset" ;;
+    esac
+    ;;
+  remote) remote_cmd 1 "$@" ;;   # a second daemon on this container as a paired remote host (TLS, paired clients only)
+  remote2) remote_cmd 2 "$@" ;;  # another one, on the next port pair: two paired hosts
+  forge)
+    # The forge CLI stand-ins (forge/forge as glab and gh): signed in or out, and what they report.
+    case ${2:-all} in
+      all) clis="glab gh" ;;
+      glab | gh) clis=$2 ;;
+      *) die "forge signed-in|signed-out|status [glab|gh|all]" ;;
+    esac
+    mkdir -p "$HOME/fixtures/forge"
+    for cli in $clis; do
+      case ${1:-status} in
+        signed-in) rm -f "$HOME/fixtures/forge/$cli.signed-out"; echo "$cli: signed in" ;;
+        signed-out) touch "$HOME/fixtures/forge/$cli.signed-out"; echo "$cli: signed out" ;;
+        status)
+          "$cli" auth status 2>&1 || true
+          if [[ $cli == glab ]]; then glab mr list --state all --output json; else gh pr list --state all --json number,state,headRefName,baseRefName,url,title; fi |
+            python3 -m json.tool 2>/dev/null || true
+          ;;
+        *) die "forge signed-in|signed-out|status [glab|gh|all]" ;;
+      esac
+    done
+    ;;
+  pick) one_app "${1:-}"; pick "$1" "${2:?pick <app> <path>}" ;;
+  fault) fault_cmd "$RIG_DIR/faults" "$@" ;;
+  api) python3 /opt/rig/bin/rigapi.py "$@" ;;
+  ledger) python3 /opt/rig/bin/rigapi.py ledger "${1:?ledger <chat-id>}" ;;
+  agent) python3 /opt/rig/bin/rigops.py "$@" ;;
+  provider)
+    case ${1:-list} in
+      list) python3 /opt/rig/bin/rigapi.py GET /v0/settings/chat/providers |
+        python3 -c 'import json,sys; [print("%-14s enabled=%-5s connected=%s" % (p["id"], p["enabled"], p["connected"])) for p in json.load(sys.stdin)]' ;;
+      enable | disable)
+        python3 - "$1" "${2:?provider enable|disable <id>}" <<'PY'
+import json, subprocess, sys
+verb, target = sys.argv[1], sys.argv[2]
+cur = json.loads(subprocess.run(["python3", "/opt/rig/bin/rigapi.py", "GET", "/v0/settings/chat/providers"], capture_output=True, text=True, check=True).stdout)
+prefs = [{"id": p["id"], "disabled": (verb == "disable") if p["id"] == target else not p["enabled"], "mcpDisabled": not p["mcpEnabled"]} for p in cur]
+subprocess.run(["python3", "/opt/rig/bin/rigapi.py", "PUT", "/v0/settings/chat/providers", json.dumps({"providers": prefs})], check=True, capture_output=True)
+print(f"{target} {verb}d")
+PY
+        ;;
+      *) die "provider list|enable <id>|disable <id>" ;;
+    esac
+    ;;
+  _daemon-loop)
+    sock=$(socket)
+    while true; do
+      while [[ -e $RIG_DIR/daemon.paused ]]; do sleep 0.5; done
+      if [[ -e $RIG_DIR/daemon.crashloop ]]; then
+        # `rig daemon crashloop`: up for about 2 s, then SIGKILL, over and over.
+        PATH=$(daemon_path) /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 &
+        sleep 2
+        kill -KILL $! 2>/dev/null || true
+        wait $! 2>/dev/null || true
+      else
+        PATH=$(daemon_path) /opt/crowbar/crowbar-api.real serve --host "unix://$sock" >>"$RIG_DIR/daemon.log" 2>&1 || true
+      fi
+      sleep 1
+    done
+    ;;
+  _session) # at boot: a fresh session bus for the apps (the file-chooser portal is D-Bus activated)
+    rm -f "$RIG_DIR/bus.env"
+    bus_up
+    ;;
+  _wait-daemon)
+    for _ in $(seq 300); do python3 "$RIGX" health "$(socket)" >/dev/null 2>&1 && exit 0; sleep 0.2; done
+    die "the daemon did not become healthy"
+    ;;
+  reset) reset_state ;;
+  _extract-profile) extract_profile "${1:-$(profile)}" ;;
+  help | -h | --help) usage ;;
+  *) usage; die "unknown command '$sub'" ;;
+esac

@@ -8,13 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// maxBranchNameAttempts bounds generateBranchName's tries: generous headroom against an
-// adversarial ref list, since a collision needs two random UUID prefixes to match.
 const maxBranchNameAttempts = 20
 
-// generateBranchName mints a provisional branch name when CreateChild gets a blank
-// Branch, checked against every local and remote ref: refs a client cannot see, which
-// is why it happens server-side.
 func (u *hierarchyUsecase) generateBranchName(
 	ctx context.Context,
 	repoPath string,
@@ -36,17 +31,12 @@ func (u *hierarchyUsecase) generateBranchName(
 	return "", fmt.Errorf("generate branch name: no free name after %d attempts", maxBranchNameAttempts)
 }
 
-// branchNameCandidate draws a fixed prefix plus a short random suffix, safe as one path
-// segment since the branch names its workspace root's leaf directory. It is a var so
-// export_test.go can pin the candidates.
 var branchNameCandidate = provisionalBranchName
 
 func provisionalBranchName() string {
 	return "chat-" + strings.SplitN(uuid.NewString(), "-", 2)[0]
 }
 
-// collides reports whether candidate matches a local or remote ref. Remote refs list
-// as "<remote>/<name>", so an exact match alone would miss "origin/<candidate>".
 func collides(
 	taken map[string]bool,
 	candidate string,

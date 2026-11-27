@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// stopsRecorded is the chat of each stopped divider chat-1's ledger holds.
 func stopsRecorded(t *testing.T, rs *Runners) []string {
 	t.Helper()
 	rows, err := rs.ledger.Read(t.Context(), "chat-1", 0, 0)
@@ -35,11 +34,8 @@ func stopsRecorded(t *testing.T, rs *Runners) []string {
 	return out
 }
 
-// interruptRunner is runner-1, live on chat-1 over interrupt-test.
 var interruptRunner = engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "interrupt-test", CurrentChatID: "chat-1"}
 
-// retiring puts runner-1 live on chat-1 and fills in what its exit is
-// recorded through.
 func retiring(t *testing.T, rs *Runners) *Runners {
 	t.Helper()
 	rs.live = liveWith(t, interruptRunner)
@@ -55,8 +51,6 @@ func retiring(t *testing.T, rs *Runners) *Runners {
 	return rs
 }
 
-// runnerStarted records runner-1 started on chat-1, running a turn when
-// running is set.
 func runnerStarted(t *testing.T, rs *Runners, running bool) {
 	t.Helper()
 	rows := []ledger.Row{}
@@ -72,8 +66,6 @@ func runnerStarted(t *testing.T, rs *Runners, running bool) {
 	require.NoError(t, err)
 }
 
-// retiredAs is the reason chat-1's ledger records runner-1's exit with; ""
-// while none is recorded.
 func retiredAs(t *testing.T, rs *Runners) string {
 	t.Helper()
 	exit, ok := chatState(t, rs.ledger).LastExit()
@@ -84,8 +76,6 @@ func retiredAs(t *testing.T, rs *Runners) string {
 	return exit.Reason
 }
 
-// interruptServer is an api connection whose provider answers turn/interrupt
-// only once release closes, as codex does once the turn truly ends.
 func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{}) *apiconn {
 	t.Helper()
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
@@ -113,7 +103,6 @@ func interruptServer(t *testing.T, asked chan<- struct{}, release <-chan struct{
 
 func (noopTurns) LiveDiff(string, string) string { return "" }
 
-// diffTurns is a hook side holding a streamed diff no row holds.
 type diffTurns struct {
 	noopTurns
 	diff string
@@ -121,8 +110,6 @@ type diffTurns struct {
 
 func (d diffTurns) LiveDiff(string, string) string { return d.diff }
 
-// Stop ends the turn in the ledger with the diff it streamed, records its divider,
-// then asks the provider to interrupt and returns without waiting for its answer.
 func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 	asked, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
@@ -154,8 +141,6 @@ func TestStopChat_EndsTheTurnThenInterruptsWithoutWaiting(t *testing.T) {
 	assert.Empty(t, retiredAs(t, rs), "an interruptible provider keeps its CLI")
 }
 
-// TestRegression_StopChatOnAnIdleChatActuallyRetires: there is nothing to
-// interrupt on an idle chat, so Stop retires its runner.
 func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	asked := make(chan struct{})
 	rs := retiring(t, &Runners{
@@ -182,8 +167,6 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	assert.Empty(t, stopsRecorded(t, rs), "closing an idle chat interrupts nothing")
 }
 
-// A force-kill ends the chat's session, even mid-turn on a provider that
-// could interrupt in place: only Stop interrupts in place.
 func TestRegression_KillChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt(t *testing.T) {
 	asked := make(chan struct{})
 	rs := retiring(t, &Runners{
@@ -205,8 +188,6 @@ func TestRegression_KillChatRetiresARunnerMidTurnEvenWhenTheProviderCanInterrupt
 	assert.False(t, chatState(t, rs.ledger).Busy())
 }
 
-// A kill whose HTTP request is abandoned (the app quit, the socket dropped)
-// must still retire the runner: nothing re-sends it.
 func TestRegression_KillChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
@@ -225,13 +206,10 @@ func TestRegression_KillChatRetiresEvenWhenTheRequestIsAbandoned(t *testing.T) {
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs), "an abandoned kill request must not leave the runner live")
 }
 
-// quittingTerm is a PTY that takes its quit signal and exits later, on its own.
 type quittingTerm struct{ fakeTermForAttach }
 
 func (*quittingTerm) TerminateGraceful(context.Context, string) error { return nil }
 
-// Stop on a provider that cannot interrupt tells its CLI to quit and returns
-// without waiting: the CLI's own exit records the end.
 func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
@@ -259,13 +237,10 @@ func TestStopChat_RetiresWithoutWaitingForTheCLIToExit(t *testing.T) {
 	assert.Equal(t, []string{"chat-1"}, stopsRecorded(t, rs))
 	assert.Empty(t, retiredAs(t, rs), "the CLI's exit is its own to record")
 
-	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
+	rs.reconcileRunnerExit(t.Context(), "runner-1")
 	assert.Equal(t, domain.AgentExitStopped, retiredAs(t, rs))
 }
 
-// A Stop's divider must not anchor to state a hook mid-record is about to
-// supersede. Stop records under the chat's lock, so its divider follows the
-// hook's row.
 func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 	asked, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
@@ -278,7 +253,7 @@ func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 	})
 	runnerStarted(t, rs, true)
 	rs.apiConns.set("runner-1", interruptServer(t, asked, release))
-	unlock, err := rs.chatLock.Lock(t.Context(), "chat-1") // a hook mid-record
+	unlock, err := rs.chatLock.Lock(t.Context(), "chat-1")
 	require.NoError(t, err)
 
 	stopped := make(chan error, 1)
@@ -300,8 +275,6 @@ func TestRegression_StopChatRecordsAfterAHookHoldingTheChat(t *testing.T) {
 	assert.Contains(t, kinds[:len(kinds)-1], ledger.KindAssistantText, "the hook's row precedes it")
 }
 
-// A Stop that retires the runner records its end once, as "stopped": an
-// intermediate "displaced" exit painted a second, different banner first.
 func TestRegression_StopChatRecordsOnlyTheStoppedReason(t *testing.T) {
 	rs := retiring(t, &Runners{
 		apiConns: newAPIConnRegistry(),
@@ -327,8 +300,6 @@ func TestRegression_StopChatRecordsOnlyTheStoppedReason(t *testing.T) {
 	assert.Equal(t, []string{domain.AgentExitStopped}, reasons)
 }
 
-// A chat the ledger folds working whose runner is gone (daemon restart, OOM kill)
-// has no CLI to stop; Stop must still end the turn or the spinner never clears.
 func TestStopChat_ClearsAWorkingChatWhoseRunnerIsGone(t *testing.T) {
 	rs := retiring(t, &Runners{chatLock: newTestLock(), parks: newParks(), turns: noopTurns{}})
 	rs.live = liveWith(t)
@@ -340,7 +311,6 @@ func TestStopChat_ClearsAWorkingChatWhoseRunnerIsGone(t *testing.T) {
 	assert.False(t, chatState(t, rs.ledger).Busy())
 }
 
-// Resume and switch refuse a working chat; one with no runner is not working.
 func TestSettleStaleWork_LetsAResumeThroughAChatWhoseRunnerIsGone(t *testing.T) {
 	rs := retiring(t, &Runners{chatLock: newTestLock(), parks: newParks(), turns: noopTurns{}})
 	rs.live = liveWith(t)
@@ -352,7 +322,6 @@ func TestSettleStaleWork_LetsAResumeThroughAChatWhoseRunnerIsGone(t *testing.T) 
 	require.NoError(t, rs.requireNotBusy(t.Context(), "chat-1"))
 }
 
-// A live runner's turn is its own to end: settleStaleWork leaves it running.
 func TestSettleStaleWork_LeavesALiveRunnersTurnRunning(t *testing.T) {
 	rs := retiring(t, &Runners{chatLock: newTestLock(), parks: newParks(), turns: noopTurns{}})
 	runnerStarted(t, rs, true)

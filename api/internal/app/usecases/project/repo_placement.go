@@ -10,9 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// RepoUpdate is a partial repository update: a nil field is left as it is.
-// ProjectID may only name the repo's own project (see refuseProjectMove);
-// FolderID/Order re-file the repo among its home siblings.
 type RepoUpdate struct {
 	Name      *string
 	ProjectID *string
@@ -20,9 +17,6 @@ type RepoUpdate struct {
 	FolderID  *string
 }
 
-// UpdateRepo applies a partial repository update in one load-mutate-save. A rename refreshes the
-// generated avatar. The row is saved whole so PathSlug, the on-disk identity every worktree lives
-// under, travels untouched: changing it would split the repo's tree across two names.
 func (u *projectUsecase) UpdateRepo(
 	ctx context.Context,
 	repoID string,
@@ -58,8 +52,6 @@ func (u *projectUsecase) UpdateRepo(
 	if _, err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, in.Order); err != nil {
 		return err
 	}
-	// A move leaves a gap in the folder the repo left; a same-container reorder is
-	// already covered by the densify above.
 	if originFolder != targetFolder {
 		if _, err := u.densifyHomeLevel(ctx, repo.ProjectID, originFolder, repoID); err != nil {
 			return err
@@ -68,9 +60,6 @@ func (u *projectUsecase) UpdateRepo(
 	return nil
 }
 
-// getRepoNode reads repoID's own Node row. Every repo mints one at import
-// (importOneRepo), so a missing row is an error, never a zero-value to mint
-// on the first drag — all data is on the Node model.
 func (u *projectUsecase) getRepoNode(
 	ctx context.Context,
 	repoID string,
@@ -82,9 +71,6 @@ func (u *projectUsecase) getRepoNode(
 	return n, nil
 }
 
-// resolveTargetFolder validates and resolves the repo's target folder from
-// the RepoUpdate: originFolder unchanged when in.FolderID is nil (nothing
-// asked to move it), else the validated new value.
 func (u *projectUsecase) resolveTargetFolder(
 	ctx context.Context,
 	in RepoUpdate,
@@ -99,9 +85,6 @@ func (u *projectUsecase) resolveTargetFolder(
 	return *in.FolderID, nil
 }
 
-// applyRepoPlacement picks the pass an update needs: an explicit order (a drag) needs the
-// cross-aggregate placement, since densifyRepos alone clamps it wrong beside home chats/folders;
-// a move with no order only re-sorts the repo rows by their current (order, id).
 func (u *projectUsecase) applyRepoPlacement(
 	ctx context.Context,
 	repo domain.Repository,
@@ -115,9 +98,6 @@ func (u *projectUsecase) applyRepoPlacement(
 	return u.densifyRepos(ctx, repo.ProjectID, targetFolder, &subject)
 }
 
-// validateRepoFolder accepts "" (project home root) or a tree.Folder with no repo scope; a
-// repo-internal folder is refused, as a repo cannot contain itself. It does not check the folder
-// belongs to this project: the home tree has no project anchor yet.
 func (u *projectUsecase) validateRepoFolder(
 	ctx context.Context,
 	folderID string,
@@ -137,9 +117,6 @@ func (u *projectUsecase) validateRepoFolder(
 	return nil
 }
 
-// refuseProjectMove answers ErrConflict for an update naming another project. A repo's project is
-// fixed at import: its worktrees, storage and entity dirs are keyed by it and live agents run there,
-// so moving rows would move none of that. Remove and re-import instead.
 func refuseProjectMove(
 	repo domain.Repository,
 	projectID *string,
@@ -153,8 +130,6 @@ func refuseProjectMove(
 	)
 }
 
-// repoIDSet answers the repo ids of projectID: tree.Node carries no project id, so membership comes
-// from Repository.ProjectID intersected with what Node.ListByParent returns.
 func (u *projectUsecase) repoIDSet(
 	ctx context.Context,
 	projectID string,
@@ -170,9 +145,6 @@ func (u *projectUsecase) repoIDSet(
 	return ids, nil
 }
 
-// densifyRepos renumbers folderID's repo siblings in projectID to 0..n-1, writing only moved rows.
-// subject is included authoritatively, since Node's read model may not have folded its reparent
-// yet; its write is SetPlacement when its old parent differs, every other row's is SetOrder.
 func (u *projectUsecase) densifyRepos(
 	ctx context.Context,
 	projectID string,
@@ -217,8 +189,6 @@ func (u *projectUsecase) densifyRepos(
 	return decided, nil
 }
 
-// densifyRows lists densifyRepos' candidates: projectID's nodes in folderID's sibling space, with
-// subject's stale copy replaced by the authoritative one.
 func densifyRows(
 	memberIDs map[string]bool,
 	nodes []tree.Node,
@@ -230,7 +200,7 @@ func densifyRows(
 			continue
 		}
 		if subject != nil && n.ID == subject.ID {
-			continue // superseded by subject below, which is authoritative
+			continue
 		}
 		rows = append(rows, n)
 	}
@@ -240,8 +210,6 @@ func densifyRows(
 	return rows
 }
 
-// writeNode issues the one write a densify or placement owes a Node row: SetPlacement when it
-// reparents, SetOrder otherwise.
 func (u *projectUsecase) writeNode(
 	ctx context.Context,
 	id string,
@@ -261,8 +229,6 @@ func (u *projectUsecase) writeNode(
 	return nil
 }
 
-// mintNode creates the Node row for a repo that has none yet (no backfill ships), at the resolved
-// (folderID, order): SetOrder/SetPlacement rightly refuse a row that was never Created.
 func (u *projectUsecase) mintNode(
 	ctx context.Context,
 	id string,
@@ -276,8 +242,6 @@ func (u *projectUsecase) mintNode(
 	return nil
 }
 
-// ensureSubjectWritten lands a reparenting subject in its new container even when place() saw no
-// order change to make. slots is the original (pre-sort) slot list.
 func (u *projectUsecase) ensureSubjectWritten(
 	ctx context.Context,
 	slots []slot,
@@ -292,7 +256,7 @@ func (u *projectUsecase) ensureSubjectWritten(
 	}
 	i := finalIndexOf(slots, subjectID, target)
 	if !reparented || i < 0 {
-		return nil, nil // place() correctly found no write needed
+		return nil, nil
 	}
 	if err := u.nodes.SetPlacement(ctx, subjectID, folderID, i); err != nil {
 		return nil, fmt.Errorf("project: reorder repos: place %s: %w", subjectID, err)

@@ -15,10 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
-// captureDispatcher records every callback. File-change waits block on a pulse
-// (see fakeDispatcher); git/sync results are read after the recompute barrier
-// in capturingWatcher.recomputeNow, which is itself a real signal from the loop
-// goroutine — so nothing here needs a poll interval.
 type captureDispatcher struct {
 	mu        sync.Mutex
 	gitCalls  int
@@ -70,7 +66,6 @@ func (c *captureDispatcher) OnSyncWorkingTreeState(
 	c.syncCalls = append(c.syncCalls, input)
 }
 
-// waitForFileChange blocks until a dispatched event satisfies match.
 func (c *captureDispatcher) waitForFileChange(
 	match func(domain.FileChangeEvent) bool,
 ) domain.FileChangeEvent {
@@ -99,12 +94,6 @@ func (c *captureDispatcher) gitStatusCalls() int {
 	return c.gitCalls
 }
 
-// capturingWatcher is a started Watcher whose trailing git-recompute debounce is
-// fired by the test, plus the loop's own "recompute complete" signal. Together
-// they turn every fanOutGit assertion below into a statement about a recompute
-// that provably ran and provably finished — including the ones asserting that
-// *no* sync was dispatched, which previously could only hope that nothing would
-// show up inside a 400ms window.
 type capturingWatcher struct {
 	w          *watch.Watcher
 	d          *captureDispatcher
@@ -139,23 +128,11 @@ func newCapturingWatcher(
 	return &capturingWatcher{w: w, d: d, timer: timer, recomputed: recomputed}
 }
 
-// recomputeNow releases the debounce and blocks until the loop goroutine reports
-// that the git recompute has completed. On return, every effect that recompute
-// was going to have (OnGitStatus, OnSyncWorkingTreeState — or the deliberate
-// absence of them) has already been dispatched.
 func (c *capturingWatcher) recomputeNow() {
 	c.timer.Fire()
 	<-c.recomputed
 }
 
-// ---------------------------------------------------------------------------
-// maybeHandleGitRef and shouldIgnore
-// ---------------------------------------------------------------------------
-// These paths are exercised in watcher_internal_test.go and
-// watcher_gitrefs_internal_test.go via direct method calls.
-
-// scriptedGit answers each provider call from a per-call script; call numbers
-// are 1-based. A nil script answers with the zero value.
 type scriptedGit struct {
 	mu                    sync.Mutex
 	status                func(call int) (gitdomain.GitStatus, error)
@@ -214,9 +191,6 @@ func (g *scriptedGit) calls() (status, base, stat int) {
 	return g.statusN, g.baseN, g.statN
 }
 
-// secondCallOnward answers the given diff stat from the second call on and zero
-// before: the first recompute matches the watcher's zero-value previous state,
-// so only the second can dispatch a change.
 func secondCallOnward(
 	added, deleted int,
 ) func(int) (int, int, error) {
@@ -228,8 +202,6 @@ func secondCallOnward(
 	}
 }
 
-// hungStatus is a `git status` that never returns on its own, as a hung git
-// process would: it ends only when its ctx is cancelled.
 type hungStatus struct {
 	scriptedGit
 	entered, returned chan struct{}
@@ -245,8 +217,6 @@ func (g *hungStatus) ComputeStatus(
 	return gitdomain.GitStatus{}, ctx.Err()
 }
 
-// Stop cancels a git recompute in flight and returns only once the loop running
-// it has exited, so no git process outlives the watcher.
 func TestWatcher_Stop_CancelsAndJoinsAGitRecomputeInFlight(t *testing.T) {
 	g := &hungStatus{entered: make(chan struct{}), returned: make(chan struct{})}
 	c := newCapturingWatcher(t, t.TempDir(), g)
@@ -261,21 +231,14 @@ func TestWatcher_Stop_CancelsAndJoinsAGitRecomputeInFlight(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fanOutGit — OnSyncWorkingTreeState fires when summary changes
-// ---------------------------------------------------------------------------
-
 func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 	dir := t.TempDir()
 	git := &scriptedGit{stat: secondCallOnward(1, 0)}
 	cw := newCapturingWatcher(t, dir, git)
 
-	// Recompute #1 returns 0,0,false,false — identical to the zero-value prev
-	// state, so no sync is dispatched.
 	cw.recomputeNow()
 	assert.Empty(t, cw.d.syncs(), "an unchanged summary must not dispatch a sync")
 
-	// Recompute #2: changingGit now returns 1,0,false,false → sync.
 	cw.recomputeNow()
 
 	syncs := cw.d.syncs()
@@ -283,10 +246,6 @@ func TestWatcher_FanOutGit_SyncCalledWhenSummaryChanges(t *testing.T) {
 	assert.Equal(t, 1, syncs[0].Added)
 	assert.Equal(t, "ws-cap", syncs[0].WsID)
 }
-
-// ---------------------------------------------------------------------------
-// fanOutGit — MERGE_HEAD suppresses OnSyncWorkingTreeState
-// ---------------------------------------------------------------------------
 
 func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 	dir := t.TempDir()
@@ -302,8 +261,6 @@ func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 
 	cw := newCapturingWatcher(t, dir, git)
 
-	// Two recomputes that both provably ran and completed: the rewrite guard must
-	// short-circuit each one before it ever reaches git.
 	cw.recomputeNow()
 	cw.recomputeNow()
 
@@ -312,10 +269,6 @@ func TestWatcher_FanOutGit_MergeHeadSuppressesSync(t *testing.T) {
 	assert.Zero(t, status+base+stat, "a mid-merge recompute must not even shell out to git")
 	assert.Zero(t, cw.d.gitStatusCalls(), "a mid-merge recompute must not broadcast git status")
 }
-
-// ---------------------------------------------------------------------------
-// relPath — normal path returns relative value
-// ---------------------------------------------------------------------------
 
 func TestWatcher_RelPath_NormalPathIsRelative(t *testing.T) {
 	dir := t.TempDir()
@@ -327,10 +280,6 @@ func TestWatcher_RelPath_NormalPathIsRelative(t *testing.T) {
 	evt := cw.d.waitForFileChange(pathIs("rel_test.txt"))
 	assert.Equal(t, "rel_test.txt", evt.Path)
 }
-
-// ---------------------------------------------------------------------------
-// classifyChange — Rename op
-// ---------------------------------------------------------------------------
 
 func TestWatcher_ClassifyChange_Rename(t *testing.T) {
 	dir := t.TempDir()
@@ -348,10 +297,6 @@ func TestWatcher_ClassifyChange_Rename(t *testing.T) {
 	assert.Equal(t, domain.FileChangeRenamed, evt.Type)
 }
 
-// ---------------------------------------------------------------------------
-// classifyChange — Modify op
-// ---------------------------------------------------------------------------
-
 func TestWatcher_ClassifyChange_Modify(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mod.txt")
@@ -367,10 +312,6 @@ func TestWatcher_ClassifyChange_Modify(t *testing.T) {
 	assert.Equal(t, domain.FileChangeModified, evt.Type)
 }
 
-// ---------------------------------------------------------------------------
-// fanOutGit — hasConflicts toggling
-// ---------------------------------------------------------------------------
-
 func TestWatcher_FanOutGit_HasConflictsChange(t *testing.T) {
 	dir := t.TempDir()
 	cw := newCapturingWatcher(t, dir, &scriptedGit{
@@ -384,33 +325,25 @@ func TestWatcher_FanOutGit_HasConflictsChange(t *testing.T) {
 		},
 	})
 
-	cw.recomputeNow() // prime: no conflicts yet
-	cw.recomputeNow() // status now reports an unmerged file
+	cw.recomputeNow()
+	cw.recomputeNow()
 
 	syncs := cw.d.syncs()
 	require.Len(t, syncs, 1)
 	assert.True(t, syncs[0].HasConflicts)
 }
 
-// ---------------------------------------------------------------------------
-// fanOutGit — deleted count change
-// ---------------------------------------------------------------------------
-
 func TestWatcher_FanOutGit_DeletedCountChange(t *testing.T) {
 	dir := t.TempDir()
 	cw := newCapturingWatcher(t, dir, &scriptedGit{stat: secondCallOnward(0, 3)})
 
-	cw.recomputeNow() // prime: no change yet
-	cw.recomputeNow() // deleted count 0 → 3
+	cw.recomputeNow()
+	cw.recomputeNow()
 
 	syncs := cw.d.syncs()
 	require.Len(t, syncs, 1)
 	assert.Equal(t, 3, syncs[0].Deleted)
 }
-
-// ---------------------------------------------------------------------------
-// fanOutGit — DiffStat error path (no sync dispatched)
-// ---------------------------------------------------------------------------
 
 func TestWatcher_FanOutGit_SummaryErrorNoSync(t *testing.T) {
 	dir := t.TempDir()
@@ -424,10 +357,6 @@ func TestWatcher_FanOutGit_SummaryErrorNoSync(t *testing.T) {
 	assert.Empty(t, cw.d.syncs(), "a failed summary must not dispatch a sync")
 }
 
-// ---------------------------------------------------------------------------
-// fanOutGit — ComputeStatus error path (no git/sync dispatched at all)
-// ---------------------------------------------------------------------------
-
 func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 	dir := t.TempDir()
 	git := &scriptedGit{
@@ -437,18 +366,12 @@ func TestWatcher_FanOutGit_StatusErrorNoGitCall(t *testing.T) {
 
 	cw.recomputeNow()
 
-	// The recompute provably ran (ComputeStatus was attempted) and provably
-	// finished, so the absence of a broadcast is an assertion, not a guess.
 	status, base, stat := git.calls()
 	assert.Equal(t, 1, status, "the recompute must attempt ComputeStatus")
 	assert.Zero(t, base+stat, "a failed status must not reach the diff base or stat")
 	assert.Zero(t, cw.d.gitStatusCalls(), "OnGitStatus must not be called when ComputeStatus fails")
 	assert.Empty(t, cw.d.syncs(), "a failed status must not dispatch a sync")
 }
-
-// ---------------------------------------------------------------------------
-// isRewriteInProgress — rebase-merge and rebase-apply also suppress sync
-// ---------------------------------------------------------------------------
 
 func TestWatcher_FanOutGit_RebaseMergeSuppressesSync(t *testing.T) {
 	dir := t.TempDir()

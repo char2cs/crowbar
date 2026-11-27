@@ -1,5 +1,3 @@
-// Package runner (file spawnrecord.go) commits a spawned CLI to the durable
-// record: the runner_started row naming the process that was just started.
 package runner
 
 import (
@@ -16,8 +14,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// recordRunner commits forked r as the chat's runner; Launch* is what it was actually
-// launched with. A process that died first has its exit recorded after, and is refused.
 func (rs *Runners) recordRunner(
 	ctx context.Context, r engineagents.Runner, resumeID string, staged *domain.ChatSelection,
 ) error {
@@ -43,7 +39,7 @@ func (rs *Runners) recordRunner(
 	exitedEarly := rs.live.markStarted(r.ID)
 	slog.InfoContext(ctx, "agent: runner launched", "component", "runner", "chat", chatID)
 	if rs.termWait != nil {
-		rs.termWait.Wake() // the sweep parks while no runner is live
+		rs.termWait.Wake()
 	}
 	rs.recordChatProvider(ctx, chatID, r.ProviderID)
 	rs.commitCarriedSelection(ctx, chatID, staged)
@@ -54,8 +50,6 @@ func (rs *Runners) recordRunner(
 	return nil
 }
 
-// startupExit is what a spawn whose CLI died in startup answers, given the
-// reason its exit recorded.
 func startupExit(reason string) error {
 	if reason == domain.AgentExitResumeFailed {
 		return errRefusedInStartup{}
@@ -63,18 +57,12 @@ func startupExit(reason string) error {
 	return ErrProviderExitedDuringStartup
 }
 
-// recordSpawnFailure frees the chat of a spawn that put no CLI on it and, for an
-// existing chat, records spawn_failed, or resume_failed for a refused session;
-// a CLI that died in startup, or a preempted spawn, is recorded elsewhere.
 func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID string, err *error) {
 	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) {
 		return
 	}
-	// Claimed first, in turn order, so no hook opens a turn on it after. An exit
-	// another recorder claimed leaves the zero entry, which loses nothing.
 	claimed, _ := rs.claimEnd(runnerID)
 	rs.live.remove(runnerID)
-	// A refusal settles what the runner carried; the spawn's error names the end.
 	rs.loseRefusedSession(ctx, runnerID, claimed.exit)
 	if errors.Is(*err, context.Canceled) {
 		return
@@ -96,9 +84,6 @@ func (rs *Runners) recordSpawnFailure(ctx context.Context, chatID, runnerID stri
 	rs.touch(ctx, chatID)
 }
 
-// recordChatProvider moves the chat's own durable vendor to the CLI just started
-// on it, after runner_started commits, and records the switch where it moved: a
-// failed spawn claims nothing. ErrValidation is a same-provider respawn.
 func (rs *Runners) recordChatProvider(
 	ctx context.Context,
 	chatID, providerID string,
@@ -119,8 +104,6 @@ func (rs *Runners) recordChatProvider(
 	rs.divide(ctx, chatID, ledger.MarkerProviderSwitched, providerID)
 }
 
-// commitCarriedSelection makes the pick a launch carried the chat's own, with
-// its dividers, once its runner_started committed; nil means it carried none.
 func (rs *Runners) commitCarriedSelection(ctx context.Context, chatID string, staged *domain.ChatSelection) {
 	if staged == nil || rs.holdsSelection(ctx, chatID, *staged) {
 		return
@@ -138,7 +121,6 @@ func (rs *Runners) mintRunnerToken(runnerID string) string {
 	return rs.minter.Mint(runnerID)
 }
 
-// mintRelayToken is relayID's credential, "" for a spawn with no relay.
 func (rs *Runners) mintRelayToken(relayID string) string {
 	if rs.minter == nil || relayID == "" {
 		return ""

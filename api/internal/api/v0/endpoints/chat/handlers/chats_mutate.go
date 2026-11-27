@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// Rename handles POST .../chats/:id/rename. `?source=agent` yields to a user-locked title; the default
-// (a human rename) sets the title unconditionally and locks it.
 func (h *Handlers) Rename(
 	ctx *gin.Context,
 ) {
@@ -36,8 +34,6 @@ func (h *Handlers) Rename(
 	libs.WriteNoContent(ctx)
 }
 
-// SetSelection handles PATCH .../chats/:id/selection with the WHOLE model+effort pair (empty clears to
-// the provider default): valid efforts depend on the model, so a partial write could store an invalid pair.
 func (h *Handlers) SetSelection(
 	ctx *gin.Context,
 ) {
@@ -64,9 +60,6 @@ func (h *Handlers) SetSelection(
 	libs.WriteNoContent(ctx)
 }
 
-// Delete handles DELETE .../chats/:id: hard-deletes the chat and every thread below it. Unlike a
-// folder delete, threads are not promoted: a thread continues its parent's turns and would be left
-// without a premise. Only the tree usecase knows which chats those are.
 func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {
@@ -89,7 +82,6 @@ func (h *Handlers) Delete(
 	libs.WriteQueryOK(ctx, chatDeleted{TakenChatIDs: taken})
 }
 
-// chatDeleted names the chats a delete's git cascade took beyond the selection.
 type chatDeleted struct {
 	TakenChatIDs []string `json:"takenChatIds"`
 }

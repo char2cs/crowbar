@@ -1,0 +1,24 @@
+import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
+import type { DaemonEvent } from './types'
+
+type EventOf<T extends DaemonEvent['type']> = Extract<DaemonEvent, { type: T }>
+
+export function connectDaemonEvents(): () => void {
+  const unlisteners: Array<() => void> = []
+
+  unlisteners.push(
+    window.__CROWBAR__.on<EventOf<'git:changed'>>('git:changed', (p) => {
+      markGitStatusChanged(p.workspaceId)
+    }),
+  )
+
+  unlisteners.push(
+    window.__CROWBAR__.on<EventOf<'file:changed'>>('file:changed', (p) => {
+      window.dispatchEvent(
+        new CustomEvent('file-external-change', { detail: { event_type: 'modify', path: p.path } }),
+      )
+    }),
+  )
+
+  return () => unlisteners.forEach((u) => u())
+}

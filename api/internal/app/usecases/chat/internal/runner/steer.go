@@ -10,13 +10,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// errNoTurnToSteer is a steered prompt whose carrier is running no turn by
-// the time it is recorded: the ordinary path delivers it instead.
 var errNoTurnToSteer = errors.New("agent: steer: no turn is running on the carrier")
 
-// submitPromptSteered delivers text into live's RUNNING turn when the descriptor
-// declares steering: the turn's end hook carries it into the same process.
-// handled=false leaves the ordinary path to decide.
 func (rs *Runners) submitPromptSteered(
 	ctx context.Context,
 	chat domain.Chat,
@@ -47,8 +42,6 @@ func (rs *Runners) submitPromptSteered(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
 	}
-	// The dispatch text rides on the row: the turn's end hook hands the CLI
-	// what the ledger holds, so a failed commit leaves nothing behind.
 	_, err = rs.recordPrompt(ctx, chat.ID, clientRequestID, text, dispatchText, ledger.DeliverySteer, live.ID,
 		requireTurnOn(live.ID))
 	if errors.Is(err, errNoTurnToSteer) {
@@ -61,9 +54,6 @@ func (rs *Runners) submitPromptSteered(
 	return submission, true, err
 }
 
-// requireTurnOn admits a steered prompt only while runnerID runs the chat's
-// turn: decided in the same commit as the turn's end, so either that end
-// delivers the prompt or the prompt is never recorded as steered.
 func requireTurnOn(runnerID string) func(ledger.State) error {
 	return func(st ledger.State) error {
 		if turn, ok := st.RunningTurn(); ok && turn.RunnerID == runnerID {

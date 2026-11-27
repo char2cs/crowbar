@@ -1,4 +1,3 @@
-// Package conflicts internal tests exercise unexported helpers directly.
 package conflicts
 
 import (
@@ -9,10 +8,6 @@ import (
 
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
-
-// ---------------------------------------------------------------------------
-// extractConflictBlocks
-// ---------------------------------------------------------------------------
 
 func TestExtractConflictBlocks_NoMarkers(
 	t *testing.T,
@@ -34,7 +29,6 @@ func TestExtractConflictBlocks_StandardMerge(
 	assert.Empty(t, blocks[0].baseRaw)
 }
 
-// TestExtractConflictBlocks_Diff3 exercises the ||||||| base-section branch.
 func TestExtractConflictBlocks_Diff3(
 	t *testing.T,
 ) {
@@ -47,7 +41,6 @@ func TestExtractConflictBlocks_Diff3(
 	assert.Equal(t, "theirs", blocks[0].theirsRaw)
 }
 
-// TestExtractConflictBlocks_MultipleHunks verifies two conflict hunks are parsed.
 func TestExtractConflictBlocks_MultipleHunks(
 	t *testing.T,
 ) {
@@ -57,8 +50,6 @@ func TestExtractConflictBlocks_MultipleHunks(
 	assert.Len(t, blocks, 2)
 }
 
-// TestExtractConflictBlocks_UnclosedMarker exercises the error path when a
-// <<<<<<< has no matching >>>>>>>.
 func TestExtractConflictBlocks_UnclosedMarker(
 	t *testing.T,
 ) {
@@ -67,10 +58,6 @@ func TestExtractConflictBlocks_UnclosedMarker(
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unclosed conflict marker")
 }
-
-// ---------------------------------------------------------------------------
-// resolvedText
-// ---------------------------------------------------------------------------
 
 func TestResolvedText_Ours(
 	t *testing.T,
@@ -112,15 +99,10 @@ func TestResolvedText_Default(
 	t *testing.T,
 ) {
 	b := &conflictBlock{oursRaw: "ours"}
-	// Unknown resolution now returns an error.
 	_, err := resolvedText(b, gitdomain.ConflictResolution("unknown"), "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown resolution")
 }
-
-// ---------------------------------------------------------------------------
-// replaceBlock
-// ---------------------------------------------------------------------------
 
 func TestReplaceBlock_Normal(
 	t *testing.T,
@@ -132,30 +114,24 @@ func TestReplaceBlock_Normal(
 	assert.NotContains(t, result, "<<<<<<<")
 }
 
-// TestReplaceBlock_StartNegative exercises the start < 0 branch.
 func TestReplaceBlock_StartNegative(
 	t *testing.T,
 ) {
 	content := "line1\nline2"
-	b := &conflictBlock{startLine: 0, endLine: 1} // startLine=0 → start=-1
+	b := &conflictBlock{startLine: 0, endLine: 1}
 	result := replaceBlock(content, b, "x")
 	assert.NotEmpty(t, result)
 }
 
-// TestReplaceBlock_EndBeyondLength exercises the end > len(lines) branch.
 func TestReplaceBlock_EndBeyondLength(
 	t *testing.T,
 ) {
 	content := "line1\nline2"
 	lines := []string{"line1", "line2"}
-	b := &conflictBlock{startLine: 1, endLine: len(lines) + 10} // end > len
+	b := &conflictBlock{startLine: 1, endLine: len(lines) + 10}
 	result := replaceBlock(content, b, "replaced")
 	assert.Equal(t, "replaced", result)
 }
-
-// ---------------------------------------------------------------------------
-// hasMarkers
-// ---------------------------------------------------------------------------
 
 func TestHasMarkers_True(
 	t *testing.T,
@@ -171,13 +147,6 @@ func TestHasMarkers_False(
 	assert.False(t, hasMarkers(content))
 }
 
-// ---------------------------------------------------------------------------
-// conflictHunkID
-// ---------------------------------------------------------------------------
-
-// TestConflictHunkID_StableAcrossLineShift verifies that the content-based ID
-// does not change when the line number changes (unlike the old position-based
-// hunkID).
 func TestConflictHunkID_StableAcrossLineShift(
 	t *testing.T,
 ) {

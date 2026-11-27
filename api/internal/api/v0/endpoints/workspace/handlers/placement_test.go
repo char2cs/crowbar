@@ -25,8 +25,6 @@ func TestMain(
 	m.Run()
 }
 
-// fakePlacer fakes tree.Usecase's PlaceWorkspace surface (handlers.Placer),
-// recording the call it received and returning a canned result.
 type fakePlacer struct {
 	wsID    string
 	in      agentusecase.PlaceInput
@@ -56,7 +54,6 @@ func newRouter(
 	return r
 }
 
-// place PATCHes body to the workspace's placement route.
 func place(
 	r *gin.Engine,
 	body any,
@@ -74,9 +71,6 @@ func place(
 
 const base = "/v0/projects/p1/repos/r1/workspaces/branch-1/placement"
 
-// A placement request addresses the workspace by the :wsId path param alone
-// — never a body field, and never resolved through any owning chat — and
-// forwards parentId/order straight through as PlaceInput.
 func TestPlaceWorkspace_ForwardsWorkspaceIDAndBody(t *testing.T) {
 	placer := &fakePlacer{placed: domain.Chat{ID: "branch-1", ParentID: "folder-a", Order: 2}}
 	r := newRouter(placer)
@@ -90,8 +84,6 @@ func TestPlaceWorkspace_ForwardsWorkspaceIDAndBody(t *testing.T) {
 	require.NotNil(t, placer.in.Order)
 	assert.Equal(t, 2, *placer.in.Order)
 
-	// The uniform v0 envelope (libs.Envelope): the actual payload rides under
-	// "data", not at the response's top level.
 	var body struct {
 		Data struct {
 			Workspace struct {
@@ -109,9 +101,6 @@ func TestPlaceWorkspace_ForwardsWorkspaceIDAndBody(t *testing.T) {
 	assert.Empty(t, body.Data.Shifted)
 }
 
-// A field the caller omits is left nil, so a reorder-only or a reparent-only
-// request are the same endpoint — the identical partial-update contract
-// placeChatRequest already carries.
 func TestPlaceWorkspace_OmittedFieldsStayNil(t *testing.T) {
 	placer := &fakePlacer{}
 	r := newRouter(placer)
@@ -124,7 +113,6 @@ func TestPlaceWorkspace_OmittedFieldsStayNil(t *testing.T) {
 	assert.Equal(t, 0, *placer.in.Order)
 }
 
-// A malformed body never reaches the usecase.
 func TestPlaceWorkspace_RejectsMalformedBody(t *testing.T) {
 	placer := &fakePlacer{}
 	r := newRouter(placer)
@@ -138,9 +126,6 @@ func TestPlaceWorkspace_RejectsMalformedBody(t *testing.T) {
 	assert.Empty(t, placer.wsID, "the usecase must never be called for a malformed body")
 }
 
-// A PlaceWorkspace ErrNotFound refusal (a workspaceID with no real repo
-// scope — see its own doc) maps to 404, the same status libs.Fail
-// already gives the identical refusal on the chat placement route.
 func TestPlaceWorkspace_NotFoundMapsTo404(t *testing.T) {
 	placer := &fakePlacer{err: problem.ErrNotFound}
 	r := newRouter(placer)
@@ -150,9 +135,6 @@ func TestPlaceWorkspace_NotFoundMapsTo404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// A shifted LOCKED-BRANCH sibling (its workspace-anchor Node row, reported
-// by persist as the branch row it draws as) is answered the same way a folder
-// sibling is.
 func TestRegression_PlaceWorkspace_AnswersShiftedAnchorSiblingsToo(t *testing.T) {
 	placer := &fakePlacer{
 		placed:  domain.Chat{ID: "branch-1", Order: 0},

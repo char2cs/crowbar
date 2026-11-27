@@ -1,0 +1,222 @@
+.agent-chat {
+  --emph: var(--primary);
+  --warn-text: var(--warning-foreground);
+  --danger-text: var(--destructive-foreground);
+  --ok-text: var(--success-foreground);
+}
+.dark .agent-chat {
+  --emph: color-mix(in oklab, var(--primary) 55%, var(--foreground));
+  --warn-text: var(--warning);
+  --danger-text: var(--destructive);
+  --ok-text: var(--success);
+}
+
+.agent-chat .dock {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 1;
+  flex: none;
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 0 24px 8px;
+  pointer-events: none;
+}
+.agent-chat .dock > * {
+  pointer-events: auto;
+}
+.agent-chat-pane[data-touch] .agent-chat .dock {
+  padding-inline: 12px;
+}
+.agent-chat-pane[data-touch] .markdown-image {
+  max-height: 128px;
+}
+.agent-chat-pane[data-touch] .attachment-controls {
+  top: 6px;
+  gap: 12px;
+  opacity: 1;
+}
+.agent-chat-pane[data-touch] .attachment-controls button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+}
+.agent-chat-pane[data-touch] .attachment-controls button::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+.agent-chat .composer-note {
+  text-align: center;
+}
+.agent-chat .dock > .composer-note:not(:last-child) {
+  padding-bottom: 8px;
+}
+.agent-chat .dock .underbar {
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+.agent-chat .dock[data-arriving] .underbar {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+.agent-chat .dissolve {
+  --dissolve-h: calc(var(--agent-dock-h, 92px) + 24px);
+  --overlay-scrollbar-floor: 10px;
+  position: absolute;
+  left: 0;
+  right: max(var(--agent-scrollbar-w, 0px), var(--overlay-scrollbar-floor));
+  bottom: 0;
+  height: var(--dissolve-h);
+  z-index: 1;
+  pointer-events: none;
+  contain: paint;
+}
+.agent-chat .dissolve-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.agent-chat .dissolve-layer:nth-child(1) {
+  --top: 0px;
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.6 - 1px));
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0 - var(--top)),
+    black calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(2) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.1 - 1px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.5 - 1px));
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.1 - var(--top)),
+    black calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.5 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(3) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.15 - 2px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.4 - 2px));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.15 - var(--top)),
+    black calc(var(--dissolve-h) * 0.3 - var(--top)),
+    black calc(var(--dissolve-h) * 0.5 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(4) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.2 - 5px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.3 - 5px));
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.2 - var(--top)),
+    black calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(5) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.4 - 10px));
+  top: var(--top);
+  bottom: max(0px, calc(var(--dissolve-h) * 0.1 - 10px));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.4 - var(--top)),
+    black calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top)),
+    transparent calc(var(--dissolve-h) * 0.9 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(6) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.6 - 19px));
+  top: var(--top);
+  bottom: 0px;
+  backdrop-filter: blur(19px);
+  -webkit-backdrop-filter: blur(19px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.6 - var(--top)),
+    black calc(var(--dissolve-h) * 0.8 - var(--top))
+  );
+}
+.agent-chat .dissolve-layer:nth-child(7) {
+  --top: max(0px, calc(var(--dissolve-h) * 0.7 - 38px));
+  top: var(--top);
+  bottom: 0px;
+  backdrop-filter: blur(38px);
+  -webkit-backdrop-filter: blur(38px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--dissolve-h) * 0.7 - var(--top)),
+    black calc(var(--dissolve-h) * 1 - var(--top))
+  );
+}

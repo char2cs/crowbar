@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// resizeStep resizes the model and its client, sends the keyframe a resize demands and asserts the
-// client rebuilt the model: grid, scrollback, wrap bits and cells.
 func resizeStep(
 	t *testing.T,
 	m TerminalModel,
@@ -34,8 +32,6 @@ func resizeStep(
 	assertSameCells(t, m, sim.m)
 }
 
-// assertSound checks what every resize must leave: no escaped panic, and no scrollback line wider
-// than the screen.
 func assertSound(
 	t *testing.T,
 	m TerminalModel,
@@ -49,7 +45,6 @@ func assertSound(
 	}
 }
 
-// logicalLines joins the scrollback and the grid into the lines their wrap bits make, trimmed.
 func logicalLines(
 	t *testing.T,
 	m TerminalModel,
@@ -76,7 +71,6 @@ func logicalLines(
 	return lines
 }
 
-// padText renders a stored scrollback line padded to cols, as the row it was on the screen.
 func padText(
 	line []uv.Cell,
 	cols int,
@@ -84,7 +78,6 @@ func padText(
 	return plainText(padToCols(line, cols))
 }
 
-// resizeChains holds a 3-row chain, short lines and two more chains, and ends on a fresh line.
 var resizeChains = "see " + wrapTestURL + "\r\nab\r\n" + strings.Repeat("a", 45) + "\r\nshort\r\n" +
 	strings.Repeat("b", 30) + "\r\n"
 
@@ -174,8 +167,6 @@ func TestConformance_RandomizedResizeWalk(t *testing.T) {
 	t.Logf("%d steps, %d wrap-bit comparisons with a wrapped line", steps, wrappedChecks)
 }
 
-// The web resize tests replay this fixture through xterm.js: a client fed before and resized must
-// equal one fed after. After an intended change: go test -tags noEmbed . -run XtermResizeFixture -update
 const xtermResizeFixturePath = "testdata/xterm-resize-reflow.json"
 
 type xtermResizeScenario struct {
@@ -188,8 +179,8 @@ type xtermResizeScenario struct {
 	Raw         string `json:"raw"`
 	Before      string `json:"before"`
 	After       string `json:"after"`
-	Saturated   bool   `json:"saturated"`   // the cap trimmed the oldest line, whose wrap bit no keyframe carries
-	PendingWrap bool   `json:"pendingWrap"` // the cursor sat at a pending wrap, which a keyframe's CUP cannot carry
+	Saturated   bool   `json:"saturated"`
+	PendingWrap bool   `json:"pendingWrap"`
 }
 
 func TestConformance_XtermResizeFixture(t *testing.T) {
@@ -212,8 +203,6 @@ func TestConformance_XtermResizeFixture(t *testing.T) {
 		{Name: "altScreen", ToCols: 13, ToRows: 6, Raw: alt},
 		{Name: "saturated", ToCols: 13, ToRows: 6, Raw: history.String(), Saturated: true},
 		{Name: "pendingWrap", ToCols: 33, ToRows: 6, Raw: "\r\n" + strings.Repeat("p", 20), PendingWrap: true},
-		// Known divergence (UPSTREAM.md D2): x/vt cannot tell the printed spaces ending this chain
-		// from erased cells, so the daemon counts 20 cells where xterm counts 23.
 		{Name: "printedSpacesKnownDivergence", ToCols: 10, ToRows: 6, Raw: strings.Repeat("x", 20) + "   \r\nnext"},
 	}
 	for i := range scenarios {

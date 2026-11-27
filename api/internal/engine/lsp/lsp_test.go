@@ -18,29 +18,23 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
-// fakeServer records the methods it was asked to Request/Notify and returns a
-// canned result for the next Request.
 type fakeServer struct {
-	mu       sync.Mutex
-	result   json.RawMessage
-	reqErr   error
-	notErr   error
-	reqCalls []call
-	notCalls []call
-	diagFn   func(domlsp.DiagnosticsEvent)
-	exitFn   func()
-	closedN  int
-	replayN  int
-	docs     *server.OpenDocs
-	// byMethod answers a Request for that method instead of result.
-	byMethod map[string]json.RawMessage
-	// errByMethod fails a Request for that method.
+	mu          sync.Mutex
+	result      json.RawMessage
+	reqErr      error
+	notErr      error
+	reqCalls    []call
+	notCalls    []call
+	diagFn      func(domlsp.DiagnosticsEvent)
+	exitFn      func()
+	closedN     int
+	replayN     int
+	docs        *server.OpenDocs
+	byMethod    map[string]json.RawMessage
 	errByMethod map[string]error
 	semTok      semtok.Support
-	// commands are the commands CanExecute accepts.
-	commands map[string]bool
-	// cmdEdits are the applyEdit requests ExecuteCommand reports.
-	cmdEdits []json.RawMessage
+	commands    map[string]bool
+	cmdEdits    []json.RawMessage
 }
 
 type call struct {
@@ -173,10 +167,6 @@ func (f *fakeServer) closeCount() int {
 	return f.closedN
 }
 
-// buildEngine returns an Engine over a real manager whose spawn always yields
-// the given fake server, plus an accessor for the spawned fake. A nil fake
-// means the registry has no spec for the file (graceful-absence path) — set up
-// by using an extension absent from the registry in the test.
 func buildEngine(
 	t *testing.T,
 	fake *fakeServer,
@@ -193,10 +183,6 @@ func buildEngine(
 	return newWithManager(reg, manager.New(reg, spawn, foundLookPath()))
 }
 
-// spawnCounter counts how many times the manager asked to spawn a fresh server
-// process. Combined with the fake's closeCount it makes server teardown
-// observable: a balanced session has spawns == closes and a pool that drains
-// back to empty (the manager fires OnReleaseEmpty, evicting the snapshot).
 type spawnCounter struct {
 	mu sync.Mutex
 	n  int
@@ -208,9 +194,6 @@ func (s *spawnCounter) count() int {
 	return s.n
 }
 
-// buildCountingEngine returns an engine whose spawn always yields fake while
-// counting spawns. fake.closeCount() reports teardowns, so ref-balance tests can
-// assert spawn/teardown symmetry without reaching into manager internals.
 func buildCountingEngine(
 	t *testing.T,
 	fake *fakeServer,
@@ -231,8 +214,6 @@ func buildCountingEngine(
 	return newWithManager(reg, manager.New(reg, spawn, foundLookPath())), sc
 }
 
-// foundLookPath reports every server binary as installed so engine tests
-// exercise the spawn path without depending on real binaries on PATH.
 func foundLookPath() manager.Option {
 	return manager.WithLookPath(func(command string) (string, error) {
 		return "/usr/bin/" + command, nil
@@ -309,9 +290,6 @@ func TestGracefulAbsence_FeaturesReturnEmptyNilError(t *testing.T) {
 	assert.Empty(t, fake.requests(), "no server should have been spawned")
 }
 
-// buildAbsentBinaryEngine returns an engine whose registry has a spec for .go
-// but whose LookPath reports the binary missing, so ServerForFile returns
-// ErrNoServer (binary-not-installed graceful absence, 10 §5).
 func buildAbsentBinaryEngine(
 	t *testing.T,
 ) *engine {
@@ -362,8 +340,6 @@ func TestRelease_ClosesServerHeldByOpenDoc(t *testing.T) {
 	e := buildEngine(t, fake)
 	ctx := context.Background()
 
-	// DidOpen holds a ref; the explicit Release drops it and tears the server
-	// down. (Release is the public seam the WS layer uses on subscription drop.)
 	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
 	assert.Equal(t, 0, fake.closeCount(), "open document must keep the server warm")
 
@@ -378,15 +354,11 @@ func TestRelease_NoSpecIsNoOp(t *testing.T) {
 	assert.Equal(t, 0, fake.closeCount())
 }
 
-// TestShutdown_ClosesEverySpawnedServer proves R8: engine.Shutdown (called by
-// engine.Container.Close on daemon shutdown) tears down every running language
-// server regardless of refcount, so no gopls/tsserver survives the daemon.
 func TestShutdown_ClosesEverySpawnedServer(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
 	ctx := context.Background()
 
-	// Open a document so a server is spawned and held warm (refcount > 0).
 	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "package main"))
 	require.Equal(t, 0, fake.closeCount(), "open document keeps the server warm")
 
@@ -394,9 +366,6 @@ func TestShutdown_ClosesEverySpawnedServer(t *testing.T) {
 	assert.Equal(t, 1, fake.closeCount(), "Shutdown closes the live server despite its held ref")
 }
 
-// TestReleaseWorkspace_ReleasesAllServerRefs proves R11's engine side: releasing
-// a workspace tears down every server it holds regardless of refcount and evicts
-// the diagnostics snapshot, even though no per-document DidClose ran.
 func TestReleaseWorkspace_ReleasesAllServerRefs(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
@@ -408,7 +377,6 @@ func TestReleaseWorkspace_ReleasesAllServerRefs(t *testing.T) {
 	cb(domlsp.DiagnosticsEvent{WsID: ws, Diagnostics: []domlsp.Diagnostic{{Message: "boom"}}})
 	require.Len(t, e.DiagnosticsSnapshot(ws), 1)
 
-	// WS drop without DidClose: the open-doc ref is still held.
 	require.Equal(t, 0, fake.closeCount())
 
 	e.ReleaseWorkspace(ctx, ws)
@@ -416,8 +384,6 @@ func TestReleaseWorkspace_ReleasesAllServerRefs(t *testing.T) {
 	assert.Empty(t, e.DiagnosticsSnapshot(ws), "OnReleaseEmpty evicts the snapshot")
 }
 
-// TestReleaseWorkspace_UnknownWorkspaceIsNoOp verifies releasing a workspace
-// with no running servers does not panic and tears nothing down.
 func TestReleaseWorkspace_UnknownWorkspaceIsNoOp(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
@@ -450,8 +416,6 @@ func TestSpawnProcess_BadCommandErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "lsp: spawn")
 }
 
-// blockingServer is a server.Server whose Request never answers on its own; it
-// returns only when the passed ctx is cancelled, modelling a wedged gopls.
 type blockingServer struct {
 	*fakeServer
 }
@@ -482,8 +446,6 @@ func TestNew_WithOverrides(t *testing.T) {
 	assert.NotNil(t, got)
 }
 
-// as is a checked type assertion: it fails the test, naming the dynamic type, instead of
-// panicking when v is not a T.
 func as[T any](t *testing.T, v any) T {
 	t.Helper()
 	got, ok := v.(T)

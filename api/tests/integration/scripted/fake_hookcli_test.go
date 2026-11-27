@@ -13,24 +13,16 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// hookCLI is a vendor TUI that reports over hook commands: claude always,
-// codex in a terminal. The two differ only in how hooks are configured, where
-// sessions live and when the session is announced.
 type hookCLI struct {
-	name    string
-	hooks   map[string][]hook
-	cwd     string
-	session string
-	// sessionFile is where this vendor keeps a session's transcript.
+	name        string
+	hooks       map[string][]hook
+	cwd         string
+	session     string
 	sessionFile func(id string) string
-	// lazySession announces the session on the first turn, not at boot
-	// (codex 0.156 fires SessionStart lazily).
 	lazySession bool
 	announced   bool
 }
 
-// runHookCLI boots the TUI: refuse or accept the resume, announce, run the
-// launch prompt, then take every line typed into the PTY as a prompt.
 func runHookCLI(c *hookCLI, resumeID, prompt string) int {
 	record(c.name, "start", map[string]any{"argv": os.Args[1:], "resume": resumeID, "prompt": prompt})
 	if c.session == "" {
@@ -73,7 +65,6 @@ func (c *hookCLI) base(event string) map[string]any {
 	}
 }
 
-// fire runs every command wired to event and returns the last one's stdout.
 func (c *hookCLI) fire(event string, fields map[string]any) string {
 	payload := c.base(event)
 	for k, v := range fields {
@@ -94,7 +85,6 @@ func (c *hookCLI) turn(prompt string) {
 	record(c.name, "prompt", map[string]any{"text": prompt, "session": c.session})
 	writeSessionFile(c.sessionFile(c.session))
 	if strings.TrimSpace(prompt) == "/compact" {
-		// A built-in: the CLI compacts and answers nothing.
 		c.fire("PreCompact", map[string]any{"trigger": "manual"})
 		c.fire("PostCompact", map[string]any{"trigger": "manual"})
 		return
@@ -106,8 +96,6 @@ func (c *hookCLI) turn(prompt string) {
 	c.stop(s.reply())
 }
 
-// stop fires Stop; a block reply is a message steered into the turn, which the
-// CLI takes as its next prompt and stops again.
 func (c *hookCLI) stop(reply string) {
 	out := c.fire("Stop", map[string]any{"last_assistant_message": reply, "background_tasks": []any{}})
 	var verdict struct {
@@ -156,9 +144,6 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// runClaude is claude's TUI: hooks from --settings, the session named by
-// --session-id or resumed by --resume, the prompt after "--", transcripts
-// under CLAUDE_CONFIG_DIR/projects.
 func runClaude(args []string) int {
 	switch {
 	case hasArg(args, "--version"):
@@ -180,7 +165,6 @@ func runClaude(args []string) int {
 	return runHookCLI(c, argAfter(args, "--resume"), positionalsAfterDashes(args))
 }
 
-// claudeHooks reads --settings hooks, command or http as the daemon wires them.
 func claudeHooks(settingsPath string) map[string][]hook {
 	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
@@ -205,7 +189,6 @@ func claudeHooks(settingsPath string) map[string][]hook {
 
 var codexHookRE = regexp.MustCompile(`^hooks\.([A-Za-z]+)=.*command="([^"]*)"`)
 
-// codexHooks reads codex's `-c hooks.<Event>=[{hooks=[{command="…"}]}]` wiring.
 func codexHooks(args []string) map[string][]hook {
 	out := map[string][]hook{}
 	for i := 0; i+1 < len(args); i++ {

@@ -9,20 +9,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// apiTransport checks how each delivery kind reaches its server: stdio opens
-// serve's pipes before the fork, websocket and http dial what connect prints.
 type apiTransport struct{}
 
 func (apiTransport) Name() string { return "api_transport" }
 
 var (
-	envNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-	nameRE       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	pathRE       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\[\]]*$`)
-	headerNameRE = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
-	placeholder  = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)\}`)
-	// Values Crowbar itself supplies to a request body or path; text and ask_id are
-	// the prompt's and the asked event's own; call_id is a fresh id minted per call.
+	envNameRE     = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	nameRE        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	pathRE        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\[\]]*$`)
+	headerNameRE  = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+	placeholder   = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)\}`)
 	requestInputs = []string{"prompt", "message", "text", "session_id", "cwd", "model", "effort", "ask_id", "call_id"}
 )
 
@@ -70,7 +66,6 @@ func checkEndpoint(d *spec.Descriptor, format string) error {
 	return checkConnect(d)
 }
 
-// checkConnect validates how the endpoint is named: connect argv or a static URL.
 func checkConnect(d *spec.Descriptor) error {
 	api := d.Runtime.API
 	if len(api.Connect) == 0 && api.StaticURL == "" {
@@ -139,7 +134,6 @@ func checkHTTP(d *spec.Descriptor) error {
 		replies[e.ReplyRequest] = true
 	}
 	for name, r := range api.Requests {
-		// A reply request is filled from the rendered decision's own members.
 		if err := checkRequest(d, name, r, captured, replies[name]); err != nil {
 			return err
 		}
@@ -216,7 +210,6 @@ func checkPlaceholders(d *spec.Descriptor, where, s string, captured map[string]
 	return nil
 }
 
-// checkRequestRefs makes every event step and reply_request name a declared request.
 func checkRequestRefs(d *spec.Descriptor) error {
 	reqs := d.Runtime.API.Requests
 	for name, e := range d.Events {
@@ -239,8 +232,6 @@ func checkRequestRefs(d *spec.Descriptor) error {
 	return nil
 }
 
-// checkRemember makes every remember entry pick a frame and name the values a later
-// event's map reads as captured.NAME.
 func checkRemember(d *spec.Descriptor) error {
 	for i, r := range d.Runtime.API.Remember {
 		if r.In.Empty() {

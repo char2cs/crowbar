@@ -21,9 +21,6 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// RepoImport is one repository to add under an existing project. ID is the
-// caller's (an operation names the repo before it exists); "" mints one, for
-// bulk discovery, which has no caller.
 type RepoImport struct {
 	ID        string
 	ProjectID string
@@ -31,8 +28,6 @@ type RepoImport struct {
 	Path      string
 }
 
-// RepoProgress hears how each protected branch's workspace came out: id names
-// the workspace, err is why it could not be set up.
 type RepoProgress interface {
 	Workspace(id, branch string, err error)
 }
@@ -43,13 +38,10 @@ func (u *projectImport) importOneRepo(
 	in RepoImport,
 	progress RepoProgress,
 ) (domain.Repository, error) {
-	// Re-adding a folder this project already has returns that repo: a second row
-	// would get a branchless home whose protected worktrees all fail.
 	existing, found, err := u.existingRepo(ctx, project.ID, in.Path)
 	if err != nil || found {
 		return existing, err
 	}
-	// The same folder under a DIFFERENT project is a refusal, not a dedup.
 	if err := u.CheckRepoImportable(ctx, project.ID, in.Path); err != nil {
 		return domain.Repository{}, err
 	}
@@ -57,8 +49,6 @@ func (u *projectImport) importOneRepo(
 	if err := u.saveRepoWithHome(ctx, repo); err != nil {
 		return domain.Repository{}, err
 	}
-	// Each protected branch gets its own Crowbar-managed worktree; one that
-	// fails is reported and the repo, which has its home, is kept.
 	u.provisionProtectedWorktrees(ctx, repo, u.protectedBranches(ctx, repo), progress)
 	return repo, nil
 }
@@ -68,7 +58,6 @@ func (u *projectImport) newRepo(
 	projectID string,
 	in RepoImport,
 ) domain.Repository {
-	// The add-repo form's name wins; bulk discovery passes "" and gets the folder's.
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		name = filepath.Base(in.Path)
@@ -79,11 +68,10 @@ func (u *projectImport) newRepo(
 	}
 	remoteURL := gitRemoteURL(ctx, in.Path)
 	return domain.Repository{
-		ID:        id,
-		ProjectID: projectID,
-		Name:      name,
-		Path:      in.Path,
-		// Seeded once from the path, never from the renameable display name.
+		ID:            id,
+		ProjectID:     projectID,
+		Name:          name,
+		Path:          in.Path,
 		PathSlug:      worktreepath.SeedPathSlug(remoteURL, in.Path),
 		DefaultBranch: defaultbranch.Resolve(u.deps.RefRunner(in.Path), defaultBranchCandidates),
 		AvatarLabel:   avatar.Label(name),
@@ -93,9 +81,6 @@ func (u *projectImport) newRepo(
 	}
 }
 
-// saveRepoWithHome saves the repo row, mints its Node row and adopts its home.
-// A repo with no home is unnavigable, so a failure before the home exists
-// takes the rows back out; a retry mints fresh ones.
 func (u *projectImport) saveRepoWithHome(
 	ctx context.Context,
 	repo domain.Repository,
@@ -114,8 +99,6 @@ func (u *projectImport) placeRepoAndAdoptHome(
 	ctx context.Context,
 	repo domain.Repository,
 ) error {
-	// Every repo gets its position row at creation, so UpdateRepo never reads a
-	// row that was never born; it starts at the end of the project-home root.
 	if u.deps.Nodes == nil {
 		return ErrNoNodesWired
 	}
@@ -146,9 +129,6 @@ func (u *projectImport) rollBackRepo(
 	}
 }
 
-// protectedBranches is what gets a locked managed worktree. A provider failure
-// imports the home alone, since the base branch cannot be asserted; an empty
-// answer still locks the default branch (the "Base branch (locked)" contract).
 func (u *projectImport) protectedBranches(
 	ctx context.Context,
 	repo domain.Repository,
@@ -165,8 +145,6 @@ func (u *projectImport) protectedBranches(
 	return protected
 }
 
-// writeRepoIcon writes the repo icon (local icon first, then a best-effort owner-avatar download) to
-// <home>/projects/<P>/<R>/icon and reports whether it did. Failures fall back to a generated avatar.
 func (u *projectImport) writeRepoIcon(
 	ctx context.Context,
 	projectID string,
@@ -193,9 +171,6 @@ func (u *projectImport) writeRepoIcon(
 	return true
 }
 
-// resolveIconBytes returns the icon bytes for a repo: the local repo icon if
-// one is on disk, otherwise the best-effort GitHub owner avatar. Returns nil
-// when neither is available.
 func (u *projectImport) resolveIconBytes(
 	ctx context.Context,
 	repoPath string,
@@ -212,9 +187,6 @@ func (u *projectImport) resolveIconBytes(
 	return data
 }
 
-// adoptRepoHome adopts repo.Path as the default workspace in place, on its current branch, never running
-// git there. A held protected branch becomes a placeholder (provisionProtectedWorktrees), freed only by a
-// consented Detach; the home is essential, so its failure rolls the repo back.
 func (u *projectImport) adoptRepoHome(
 	ctx context.Context,
 	repo domain.Repository,
@@ -231,8 +203,6 @@ func (u *projectImport) adoptRepoHome(
 		WorktreePath: repo.Path,
 		IsDefault:    true,
 		Provisioning: domain.WorkspaceShared,
-		// ForkPointSha stays empty and Protected stays false: the home is the base
-		// the branch tree hangs off, and Crowbar does not operate on it.
 	}
 	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("project import: adopt repo home: %w", err)
@@ -240,9 +210,6 @@ func (u *projectImport) adoptRepoHome(
 	return nil
 }
 
-// CheckRepoImportable refuses repoPath when a DIFFERENT project already imported it (symlink-resolved):
-// git checks a branch out once, so a second project could manage nothing. The error names the owning
-// project; a failed read is returned rather than guessed importable.
 func (u *projectImport) CheckRepoImportable(
 	ctx context.Context,
 	projectID string,
@@ -265,9 +232,6 @@ func (u *projectImport) CheckRepoImportable(
 	return nil
 }
 
-// projectName resolves a project's display name for the already-imported
-// message, returning "" when it cannot be read — the refusal still stands, it
-// just loses the pointer to where the folder already lives.
 func (u *projectImport) projectName(
 	ctx context.Context,
 	projectID string,
@@ -279,8 +243,6 @@ func (u *projectImport) projectName(
 	return p.Name
 }
 
-// existingRepo returns an already-imported repository at repoPath under projectID
-// (symlink-resolving path compare), so a re-add/re-import is a no-op.
 func (u *projectImport) existingRepo(
 	ctx context.Context,
 	projectID string,
@@ -298,8 +260,6 @@ func (u *projectImport) existingRepo(
 	return domain.Repository{}, false, nil
 }
 
-// mainWorktreeBranch returns the branch checked out in the repo's main worktree
-// (the entry whose path is repo.Path), or "" when it is detached or absent.
 func mainWorktreeBranch(
 	worktrees []gitengine.WorktreeEntry,
 	repoPath string,
@@ -312,8 +272,6 @@ func mainWorktreeBranch(
 	return ""
 }
 
-// gitRemoteURL returns the origin remote URL for the repo at path, or ""
-// on any failure so callers can fall back gracefully.
 func gitRemoteURL(ctx context.Context, repoPath string) string {
 	out, err := exec.CommandContext(ctx, binpath.Git(), "-C", repoPath, "remote", "get-url", "origin").Output() //nolint:gosec // G204: fixed git subcommand; only the repo dir is variable, passed as -C <path> (no shell)
 	if err != nil {

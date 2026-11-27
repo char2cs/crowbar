@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// feeds is a fake chat usecase whose feed sends frames and ends.
 type feeds struct {
 	frames []agentusecase.FeedFrame
 	err    error
@@ -40,7 +39,6 @@ func (f *feeds) OpenFeed(_ context.Context, chatID string, since, windowBytes in
 	return out, nil
 }
 
-// telemetries is a fake report reader: a chat it holds has a report to show.
 type telemetries map[string]string
 
 func (t telemetries) TelemetryOf(_ context.Context, chatID string) (any, bool) {
@@ -48,7 +46,6 @@ func (t telemetries) TelemetryOf(_ context.Context, chatID string) (any, bool) {
 	return report, ok
 }
 
-// The gauge paints from the scope itself: no GET races the feed.
 func TestChatSource_EmitsTheChatsTelemetryBeforeItsRows(t *testing.T) {
 	row := ledger.Row{ChatID: "c1", Seq: 1}
 	src := &feeds{frames: []agentusecase.FeedFrame{{Type: "row", Row: &row}, {Type: agentusecase.FeedReady, Seq: 1}}}
@@ -63,7 +60,6 @@ func TestChatSource_EmitsTheChatsTelemetryBeforeItsRows(t *testing.T) {
 	assert.Equal(t, stream.FrameRow, got[1].T)
 }
 
-// openFeeds is a fake whose feed stays open until the test ends.
 type openFeeds struct{ done <-chan struct{} }
 
 func (f openFeeds) OpenFeed(context.Context, string, int64, int64) (<-chan agentusecase.FeedFrame, error) {
@@ -75,7 +71,6 @@ func (f openFeeds) OpenFeed(context.Context, string, int64, int64) (<-chan agent
 	return out, nil
 }
 
-// A live report published while the feed is held wins over the one read at attach.
 func TestChatSource_ALiveReportOutranksTheAttachedOne(t *testing.T) {
 	feed := openFeeds{done: t.Context().Done()}
 	hub := newHub(map[stream.ScopeKind]appstream.Source{
@@ -136,8 +131,6 @@ func TestChatSource_AnUnknownChatIsRefused(t *testing.T) {
 		"the client is told what happened, not the daemon's error chain")
 }
 
-// A chat whose ledger cannot be read is refused on its own: asking again at
-// once would fail the same way, and the connection's other scopes go on.
 func TestChatSource_AFailedFeedRefusesItsScopeOnly(t *testing.T) {
 	for name, src := range map[string]*feeds{
 		"a failed read": {frames: []agentusecase.FeedFrame{{Type: agentusecase.FeedFailed}}},

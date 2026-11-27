@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// revHub keeps each workspace's row as the stream hub does: a row at a lower
-// rev than the one it holds is dropped. A held publish waits for release.
 type revHub struct {
 	mu      sync.Mutex
 	rows    map[string]dto.WorkspaceDTO
@@ -60,8 +58,6 @@ func (h *revHub) row(id string) dto.WorkspaceDTO {
 	return h.rows[id]
 }
 
-// A republish whose read the owning chat's move overtook is dropped: the row a
-// client keeps is drawn where the chat moved to.
 func TestRepublishOwnedBy_AnOvertakenReadDoesNotWin(t *testing.T) {
 	ctx := context.Background()
 	hub := newRevHub()
@@ -92,8 +88,6 @@ func TestRepublishOwnedBy_AnOvertakenReadDoesNotWin(t *testing.T) {
 	assert.Equal(t, 2, hub.row("w1").Order)
 }
 
-// A thread made a branch keeps its row: the workspace it now owns is drawn at the
-// thread's Tree node, the place a reload reads.
 func TestOwnerMoved_ABranchedThreadsWorkspaceIsDrawnWhereTheThreadWas(t *testing.T) {
 	ctx := context.Background()
 	hub := &captureHub{}

@@ -34,15 +34,10 @@ func newApp(t *testing.T) testContainers {
 	t.Cleanup(func() { _ = adapters.Close() })
 	a, err := app.New(ctx, eng, adapters, migratetest.NoPostOpen(), v0.EncodeEntity, v0.NewSidebar)
 	require.NoError(t, err)
-	// app.Close stops the asynx pools; t.Context's cancel stops the sweeps.
 	t.Cleanup(a.Close)
 	return testContainers{app: a, eng: eng}
 }
 
-// seedRepo creates a real repository row under project p1 so the repo scope guard
-// (scopeRepoToPath) admits a request to /projects/p1/repos/:repoId/...; a :repoId
-// that resolves to no row, or to a different project, is now 404'd before the
-// handler. Save is an upsert, so seeding the same repo twice is harmless.
 func seedRepoIn(t *testing.T, tc testContainers, projectID, repoID string) {
 	t.Helper()
 	require.NoError(t, tc.app.GORM.Repositories.Save(
@@ -56,10 +51,6 @@ func seedRepo(t *testing.T, tc testContainers, repoID string) {
 	seedRepoIn(t, tc, "p1", repoID)
 }
 
-// seedWorkspace creates a real workspace row under p1/r1 (plus its repo) so both
-// scope guards (scopeRepoToPath, scopeWorkspaceToPath) admit a request/WS upgrade
-// to /workspaces/:id/...; a :repoId/:wsId that resolves to no row, or to a
-// different scope, is now 404'd before the handler.
 func seedWorkspace(t *testing.T, tc testContainers, id string) {
 	t.Helper()
 	seedRepo(t, tc, "r1")

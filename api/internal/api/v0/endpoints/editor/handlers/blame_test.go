@@ -50,8 +50,6 @@ func TestBlame_EmptyArrayNotNull(t *testing.T) {
 	assert.Equal(t, "[]", string(env.Data))
 }
 
-// A file git has never committed (new, untracked, or just saved from an
-// untitled buffer) is simply unblamed, not a daemon failure.
 func TestBlame_NoHistory_EmptyArray(t *testing.T) {
 	err := fmt.Errorf("blame: file: %w", gitdomain.ErrNoHistory)
 	r := newRouter(&fakeLSP{}, &fakeGit{err: err})
@@ -75,10 +73,6 @@ func TestBlame_MissingPath_400(t *testing.T) {
 	assert.Equal(t, "path is required", env.Error)
 }
 
-// TestBlame_NoResolvedWorkspace_500 is the wiring-bug guard: a route mounted
-// outside chatScoped's resolveChatWorktree middleware finds no workspace on
-// reqscope and reports a 500 rather than silently acting on the empty string
-// (Handlers.workspace).
 func TestBlame_NoResolvedWorkspace_500(t *testing.T) {
 	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 

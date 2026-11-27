@@ -33,8 +33,6 @@ type healthBody struct {
 	Data    healthData `json:"data"`
 }
 
-// healthData.Status is asserted by its wire spelling: the desktop parses those
-// exact strings, and reads one it does not know as ready.
 type healthData struct {
 	Status  string `json:"status"`
 	Version string `json:"version"`
@@ -60,7 +58,6 @@ func halted() bootgate.Report {
 	return bootgate.Report{State: bootgate.StateHalted, Message: haltedMessage}
 }
 
-// bare is a gate middleware that adds nothing.
 func bare(
 	next http.Handler,
 ) http.Handler {
@@ -217,8 +214,6 @@ func TestGate_HaltedUsesItsOwnCode(
 	assertRefused(t, send(g, http.MethodGet, projectsPath), "daemon_halted", haltedMessage)
 }
 
-// The page is all a person sees while Crowbar cannot start; in a dark desktop it must not flash
-// a white sheet, so it asks the browser for its dark canvas too.
 func TestGate_BrowserPageFollowsTheSystemColorScheme(
 	t *testing.T,
 ) {
@@ -300,7 +295,6 @@ func TestNew_RejectsNilMiddleware(
 	assert.Panics(t, func() { bootgate.New(testVersion, migrating, nil) })
 }
 
-// An encode failure must not leave a 200 behind with half a body.
 func TestGate_AnUnencodableReportAnswers500(
 	t *testing.T,
 ) {
@@ -318,8 +312,6 @@ func TestGate_AnUnencodableReportAnswers500(
 	assert.Equal(t, "daemon_report_unencodable", body.Code)
 }
 
-// The gate's own answers carry what the real API adds to its answers (CORS, so
-// the webview can read them); once open, the real API adds its own.
 func TestGate_AnswersThroughItsMiddlewareUntilOpen(
 	t *testing.T,
 ) {
@@ -346,8 +338,6 @@ func TestGate_AnswersThroughItsMiddlewareUntilOpen(
 	assert.Empty(t, opened.Header().Get("X-Through"))
 }
 
-// pinned fixes the two values that differ per run, so a body can be compared with
-// its fixture byte for byte.
 func pinned(
 	body string,
 ) string {
@@ -355,8 +345,6 @@ func pinned(
 	return strings.Replace(body, `"version":"`+testVersion+`"`, `"version":"0.1.0"`, 1)
 }
 
-// testdata/health-*.json are what the desktop shell's tests parse, so the states
-// it must recognise are pinned here, in Go, where their spelling is decided.
 func TestGate_HealthMatchesTheDesktopFixtures(
 	t *testing.T,
 ) {

@@ -41,7 +41,6 @@ func TestDo_OutsideARead_EveryCallReads(t *testing.T) {
 	assert.Equal(t, 2, reads)
 }
 
-// Work the read started in the background outlives it, and must read afresh.
 func TestDo_AfterTheReadEnds_EveryCallReads(t *testing.T) {
 	ctx, end := readonce.Begin(context.Background())
 	reads := 0

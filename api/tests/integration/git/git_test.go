@@ -11,17 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestMain is the integration test harness entry point.
 func TestMain(
 	m *testing.M,
 ) {
 	kit.Main(m)
 }
 
-// GitSuite tests the git read and write usecase surface against a real git repo.
-// All writes target a writable child workspace (the adopted main worktree is
-// locked, being a protected branch). The child's on-disk worktree is used for
-// direct git fixture operations.
 type GitSuite struct {
 	suite.Suite
 	Env      *kit.Env
@@ -31,7 +26,6 @@ type GitSuite struct {
 	worktree string
 }
 
-// SetupTest imports a repo and creates a writable child workspace for each test.
 func (s *GitSuite) SetupTest() {
 	s.Env = kit.BuildEnv(s.T())
 	s.imported = s.Env.ImportRepo(s.T(), "git", "")
@@ -41,12 +35,10 @@ func (s *GitSuite) SetupTest() {
 	s.worktree = s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.wsID)
 }
 
-// base returns the chat-scoped route prefix.
 func (s *GitSuite) base() string {
 	return "/v0/chats/" + s.chatID
 }
 
-// TestGitSuite runs the git integration suite.
 func TestGitSuite(t *testing.T) {
 	suite.Run(
 		t,
@@ -54,7 +46,6 @@ func TestGitSuite(t *testing.T) {
 	)
 }
 
-// gitStatus calls GET .../git/status and returns the decoded response.
 func (s *GitSuite) gitStatus() map[string]any {
 	resp := s.Env.GET(s.T(), s.base()+"/git/status")
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
@@ -63,21 +54,18 @@ func (s *GitSuite) gitStatus() map[string]any {
 	return r
 }
 
-// stageFile calls POST .../git/stage for the given path.
 func (s *GitSuite) stageFile(path string) {
 	resp := s.Env.POST(s.T(), s.base()+"/git/stage", map[string]any{"paths": []string{path}})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 }
 
-// commit calls POST .../git/commit with the given message.
 func (s *GitSuite) commit(msg string) {
 	resp := s.Env.POST(s.T(), s.base()+"/git/commit", map[string]any{"subject": msg, "author": "Test <t@t.com>"})
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
 	resp.Body.Close()
 }
 
-// statusFilePaths extracts the list of file paths from a gitStatus response.
 func statusFilePaths(status map[string]any) []string {
 	raw, _ := status["files"].([]any)
 	paths := make([]string, 0, len(raw))
@@ -91,7 +79,6 @@ func statusFilePaths(status map[string]any) []string {
 	return paths
 }
 
-// statusFiles returns the files slice from a gitStatus response.
 func statusFiles(status map[string]any) []map[string]any {
 	raw, _ := status["files"].([]any)
 	result := make([]map[string]any, 0, len(raw))
@@ -103,7 +90,6 @@ func statusFiles(status map[string]any) []map[string]any {
 	return result
 }
 
-// TestGit_statusReflectsUntrackedFile verifies git status detects new files.
 func (s *GitSuite) TestGit_statusReflectsUntrackedFile() {
 	t := s.T()
 
@@ -114,7 +100,6 @@ func (s *GitSuite) TestGit_statusReflectsUntrackedFile() {
 	s.Assert().Contains(statusFilePaths(status), "untracked.txt")
 }
 
-// TestGit_stageFile moves a file from untracked to staged.
 func (s *GitSuite) TestGit_stageFile() {
 	t := s.T()
 
@@ -126,7 +111,6 @@ func (s *GitSuite) TestGit_stageFile() {
 	s.Assert().True(files[0]["staged"].(bool), "file must be staged after StageFile")
 }
 
-// TestGit_unstageFile moves a staged file back to unstaged.
 func (s *GitSuite) TestGit_unstageFile() {
 	t := s.T()
 
@@ -142,7 +126,6 @@ func (s *GitSuite) TestGit_unstageFile() {
 	s.Assert().False(files[0]["staged"].(bool), "file must be unstaged after UnstageFile")
 }
 
-// TestGit_commitClearsStatus verifies stage + commit produces a clean tree.
 func (s *GitSuite) TestGit_commitClearsStatus() {
 	t := s.T()
 
@@ -153,7 +136,6 @@ func (s *GitSuite) TestGit_commitClearsStatus() {
 	s.Assert().Empty(statusFiles(s.gitStatus()), "working tree must be clean after commit")
 }
 
-// TestGit_diffShowsUnstagedChanges verifies diff returns hunk data for modified files.
 func (s *GitSuite) TestGit_diffShowsUnstagedChanges() {
 	t := s.T()
 
@@ -171,7 +153,6 @@ func (s *GitSuite) TestGit_diffShowsUnstagedChanges() {
 	s.Assert().NotEmpty(hunks)
 }
 
-// TestGit_logShowsCommit verifies log returns the committed history.
 func (s *GitSuite) TestGit_logShowsCommit() {
 	t := s.T()
 
@@ -186,7 +167,6 @@ func (s *GitSuite) TestGit_logShowsCommit() {
 	s.Assert().Equal("log test commit", commits[0]["message"].(string))
 }
 
-// TestGit_stashPushAndPop verifies stash round-trips.
 func (s *GitSuite) TestGit_stashPushAndPop() {
 	t := s.T()
 
@@ -214,7 +194,6 @@ func (s *GitSuite) TestGit_stashPushAndPop() {
 	s.Assert().Empty(stashesAfter, "stash list must be empty after pop")
 }
 
-// TestGit_stashDrop removes a stash entry without applying it.
 func (s *GitSuite) TestGit_stashDrop() {
 	t := s.T()
 
@@ -241,7 +220,6 @@ func (s *GitSuite) TestGit_stashDrop() {
 	s.Assert().Empty(stashesAfter)
 }
 
-// TestGit_branchesListsCurrent verifies Branches returns the current branch.
 func (s *GitSuite) TestGit_branchesListsCurrent() {
 	t := s.T()
 
@@ -257,7 +235,6 @@ func (s *GitSuite) TestGit_branchesListsCurrent() {
 		"current branch %q must appear in Branches with IsCurrent=true", currentBranch)
 }
 
-// TestGit_blameAnnotatesLines verifies the editor's blame route returns one entry per line.
 func (s *GitSuite) TestGit_blameAnnotatesLines() {
 	t := s.T()
 
@@ -272,7 +249,6 @@ func (s *GitSuite) TestGit_blameAnnotatesLines() {
 	s.Assert().Equal(float64(1), entries[0]["lineNumber"])
 }
 
-// TestGit_hunkStageAndUnstage verifies hunk-level staging round-trips.
 func (s *GitSuite) TestGit_hunkStageAndUnstage() {
 	t := s.T()
 
@@ -316,7 +292,6 @@ func (s *GitSuite) TestGit_hunkStageAndUnstage() {
 	s.Assert().Empty(stagedAfter, "staged diff must be empty after hunk unstage")
 }
 
-// branchIsCurrent reports whether name appears in branches with IsCurrent==true.
 func branchIsCurrent(
 	branches []map[string]any,
 	name string,
@@ -331,7 +306,6 @@ func branchIsCurrent(
 	return false
 }
 
-// TestGit_resetRestoresCleanTree verifies hard reset clears uncommitted changes.
 func (s *GitSuite) TestGit_resetRestoresCleanTree() {
 	t := s.T()
 

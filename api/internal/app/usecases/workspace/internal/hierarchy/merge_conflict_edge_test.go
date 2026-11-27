@@ -19,10 +19,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestMergeIntoParent_Conflict_AbortFailure_ParentFlagAlsoFails proves that
-// when BOTH the post-conflict abort AND the follow-up attempt to flag the
-// stuck parent fail, the merge is still reported as pending conflicts (never a
-// hard failure) and the CHILD is still flagged regardless.
 func TestMergeIntoParent_Conflict_AbortFailure_ParentFlagAlsoFails(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -51,10 +47,6 @@ func TestMergeIntoParent_Conflict_AbortFailure_ParentFlagAlsoFails(t *testing.T)
 	assert.True(t, childFlagged, "the child must still be flagged even though flagging the stuck parent failed")
 }
 
-// TestMergeIntoParent_ResyncSummary_SyncWriteFails_IsBestEffort proves the
-// resync's own aggregate-WRITE failure (distinct from a WorkingTreeSummary
-// READ failure, covered elsewhere) is best-effort: the merge itself already
-// committed durably, so the merge result must still report success.
 func TestMergeIntoParent_ResyncSummary_SyncWriteFails_IsBestEffort(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -73,8 +65,6 @@ func TestMergeIntoParent_ResyncSummary_SyncWriteFails_IsBestEffort(t *testing.T)
 	assert.Equal(t, "ptip", res.ParentTipSha)
 }
 
-// TestRegression_MergeStrategyMakesAMergeCommit: "Create a merge commit"
-// fast-forwarded the parent whenever the child was simply ahead of it.
 func TestRegression_MergeStrategyMakesAMergeCommit(t *testing.T) {
 	h := newRealUsecase(t)
 	child := h.createChild(t, "feature/x", h.parentID, h.baseBranch)
@@ -89,8 +79,6 @@ func TestRegression_MergeStrategyMakesAMergeCommit(t *testing.T) {
 	assert.Equal(t, parentTip+" "+childTip, parents, "the parent's new tip merges both lines")
 }
 
-// A squash refused over the parent's staged work reaches the caller as a 409
-// that tells the user what to do.
 func TestMergeIntoParent_SquashOverStagedParentWorkIsAPlainWorded409(t *testing.T) {
 	h := newRealUsecase(t)
 	child := h.createChild(t, "feature/x", h.parentID, h.baseBranch)

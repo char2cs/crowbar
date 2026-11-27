@@ -2,8 +2,6 @@ package diff
 
 import "sync"
 
-// summaryCacheEntries caps the cache. Keys are exact, so no TTL is needed; the cap only
-// bounds a long session, and 32 covers the (workspace, base ref) pairs one cycles through.
 const summaryCacheEntries = 32
 
 type summaryKey struct {
@@ -12,18 +10,12 @@ type summaryKey struct {
 	headSHA  string
 }
 
-// summaryCache memoises the committed half of the file-summary counts (`git diff
-// --numstat <ref> <headSHA>`), the costliest step of a review tick. Both sides are
-// immutable trees, so only a new commit, base ref or repo changes the key.
 type summaryCache struct {
 	mu      sync.Mutex
 	entries map[summaryKey]map[string]numCount
 	order   []summaryKey
 }
 
-// get returns key's counts, loading each uncached key once; the shared map is read-only.
-// load runs outside the mutex so one slow repo never serialises the daemon; concurrent
-// misses on one key both compute, costing a duplicate diff, never a wrong answer.
 func (c *summaryCache) get(
 	key summaryKey,
 	load func() (map[string]numCount, error),

@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SchemaVersion is domain.Chat's event schema. Version 1 history patches
-// placement (the Tree's now) and turn state (the ledger's now).
 const SchemaVersion = 2
 
 var (
@@ -21,15 +19,10 @@ var (
 	turnStatePaths = []string{"/working", "/currentTurnStarted", "/lastActivityAt", "/asyncWork", "/ledgerCursor"}
 )
 
-// RetiredFields stamps new events with SchemaVersion and drops the patches of
-// older ones against fields the chat no longer has: jsonpatch fails replacing
-// a field the document does not hold.
 func RetiredFields(b *asynx.Builder[domain.Chat]) {
 	b.WithSchemaVersion(SchemaVersion).WithUpcaster(1, dropPatches(slices.Concat(placementPaths, turnStatePaths)))
 }
 
-// KeepPlacement is RetiredFields for a reader of the placement schema 1
-// patched (the placement-tree migration): only the turn state is dropped.
 func KeepPlacement[T any](b *asynx.Builder[T]) {
 	b.WithSchemaVersion(SchemaVersion).WithUpcaster(1, dropPatches(turnStatePaths))
 }

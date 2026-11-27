@@ -30,16 +30,13 @@ type AnswerDecision struct {
 
 	Content []byte
 
-	// Picked are the option ids a suggestion decision grants.
 	Picked []string
 }
 
 const suggestionPrefix = "suggestion-"
 
-// SuggestionOptionID is the option id of a permission's i-th suggestion.
 func SuggestionOptionID(i int) string { return suggestionPrefix + strconv.Itoa(i) }
 
-// SuggestionIndex is the suggestion an option id names.
 func SuggestionIndex(optionID string) (int, bool) {
 	n, ok := strings.CutPrefix(optionID, suggestionPrefix)
 	if !ok {

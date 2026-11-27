@@ -1,4 +1,3 @@
-// Package branches provides git branch operations for a repository.
 package branches
 
 import (
@@ -14,11 +13,8 @@ import (
 
 const recordSep = "---RECORD---"
 
-// gitRunner is the function used to run git commands. It is set to exec.Git by
-// default and can be overridden in tests via export_test.go.
 var gitRunner = exec.Git
 
-// List returns all branches (local and remote) for the repository at repoPath.
 func List(
 	ctx context.Context,
 	repoPath string,
@@ -31,8 +27,6 @@ func List(
 	return parseList(r.Stdout), nil
 }
 
-// Create creates a new branch. If switchTo is true the branch is checked out
-// immediately. source is the starting point; empty means HEAD.
 func Create(
 	ctx context.Context,
 	repoPath string,
@@ -41,8 +35,6 @@ func Create(
 	switchTo bool,
 ) error {
 	if switchTo {
-		// `git checkout -b` takes no `--` before the new branch name, so the usecase boundary's
-		// leading-dash rejection is the guard for name and source.
 		args := []string{"checkout", "-b", name}
 		if source != "" {
 			args = append(args, source)
@@ -50,7 +42,6 @@ func Create(
 		r := gitRunner(ctx, repoPath, args...)
 		return exec.RequireSuccess("branches: create", r)
 	}
-	// `--` end-of-options separator so name/source can never be read as options.
 	args := []string{"branch", "--", name}
 	if source != "" {
 		args = append(args, source)
@@ -59,7 +50,6 @@ func Create(
 	return exec.RequireSuccess("branches: create", r)
 }
 
-// Rename renames a branch from oldName to newName.
 func Rename(
 	ctx context.Context,
 	repoPath string,
@@ -70,8 +60,6 @@ func Rename(
 	return exec.RequireSuccess("branches: rename", r)
 }
 
-// Delete deletes a branch using a safe delete (-d). The branch must be
-// fully merged before deletion.
 func Delete(
 	ctx context.Context,
 	repoPath string,
@@ -81,8 +69,6 @@ func Delete(
 	return exec.RequireSuccess("branches: delete", r)
 }
 
-// ForceDelete deletes a branch using a force delete (-D) regardless of merge
-// status. Used by workspace teardown.
 func ForceDelete(
 	ctx context.Context,
 	repoPath string,
@@ -92,8 +78,6 @@ func ForceDelete(
 	return exec.RequireSuccess("branches: force-delete", r)
 }
 
-// Switch checks out an existing branch by name. `git checkout` takes no `--` before a
-// branch, so the usecase boundary's leading-dash rejection guards name.
 func Switch(
 	ctx context.Context,
 	repoPath string,

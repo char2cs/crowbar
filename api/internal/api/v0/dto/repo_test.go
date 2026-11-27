@@ -43,9 +43,6 @@ func TestRepoDTOFrom_ProxyURLHierarchical(
 	assert.Empty(t, got.AvatarEmoji)
 }
 
-// TestRepoDTOFrom_ProxyURLCarriesAvatarVersion pins the cache-busting query
-// param: uploads change the icon bytes behind a stable path, so the version
-// must be part of the URL for clients to refetch the image.
 func TestRepoDTOFrom_ProxyURLCarriesAvatarVersion(
 	t *testing.T,
 ) {
@@ -81,9 +78,6 @@ func TestRepoDTOFrom_NoIconEmptyAvatarURL(
 	assert.Empty(t, got.AvatarEmoji)
 }
 
-// TestRepoDTOFrom_PlacementPopulatesOrderAndFolderID pins that Order/FolderID
-// now come from the repo's own Node-sourced placement, not the domain.Repository
-// row itself — see RepoPlacement.
 func TestRepoDTOFrom_PlacementPopulatesOrderAndFolderID(
 	t *testing.T,
 ) {
@@ -115,9 +109,6 @@ func TestRepoDTOList(
 	assert.Equal(t, "r2", got[1].ID)
 }
 
-// The list is ordered by the converter itself, which is what makes the REST list
-// and the WS snapshot — the two callers — incapable of disagreeing about the
-// sidebar order.
 func TestRepoDTOList_OrdersByIndexThenID(
 	t *testing.T,
 ) {

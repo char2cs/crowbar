@@ -1,6 +1,3 @@
-// Package tree is the sidebar's placement model: one Tree per project holds where and in what order
-// every row hangs. Position rows, folder identities and chat placements stay apart because one id
-// can carry a position row and a placement that disagree; a "" parent is its scope's root.
 package tree
 
 import (
@@ -12,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Kind is which entity a position row stands in for.
 type Kind string
 
 const (
@@ -22,7 +18,6 @@ const (
 	KindChat      Kind = "chat"
 )
 
-// KindOf parses a stored kind; an unknown one is refused, never guessed.
 func KindOf(legacy string) (Kind, error) {
 	switch k := Kind(legacy); k {
 	case KindFolder, KindRepo, KindWorkspace, KindChat:
@@ -32,9 +27,6 @@ func KindOf(legacy string) (Kind, error) {
 	}
 }
 
-// Node is one row's position: the node it hangs off ("" for the project root)
-// and its dense index among that parent's children. ID is the entity's own id;
-// Name is a folder's.
 type Node struct {
 	ID       string `json:"id"`
 	Kind     Kind   `json:"kind"`
@@ -43,8 +35,6 @@ type Node struct {
 	Name     string `json:"name,omitempty"`
 }
 
-// Folder is a folder's identity. RepoID == "" is a project-home folder, and
-// HomeID is then the home workspace it belongs to.
 type Folder struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -52,18 +42,15 @@ type Folder struct {
 	HomeID string `json:"homeId,omitempty"`
 }
 
-// InHome reports whether f is homeID's own home folder.
 func (f Folder) InHome(homeID string) bool {
 	return f.RepoID == "" && f.HomeID == homeID
 }
 
-// Placement is a chat's own record of where it hangs.
 type Placement struct {
 	ParentID string `json:"parentId,omitempty"`
 	Order    int    `json:"order"`
 }
 
-// Tree is one project's placement aggregate.
 type Tree struct {
 	ProjectID string               `json:"projectId"`
 	Nodes     map[string]Node      `json:"nodes"`
@@ -71,15 +58,10 @@ type Tree struct {
 	Chats     map[string]Placement `json:"chats"`
 }
 
-// Unplaced holds the placements of rows no project can be named for yet: a chat
-// placed before it has a workspace, under no parent. It is not a project id.
 const Unplaced = "unplaced"
 
-// ErrUnknownNode is a write against a row the tree does not hold.
 var ErrUnknownNode = problem.New(problem.NotFound, "tree: no such node")
 
-// OrUnplaced is a position read's answer with a row not written yet read as
-// the root's first slot, where every reader shows it; any other failure stays.
 func OrUnplaced(n Node, err error) (Node, error) {
 	if err != nil && problem.CodeOf(err) == problem.NotFound {
 		return Node{}, nil
@@ -87,7 +69,6 @@ func OrUnplaced(n Node, err error) (Node, error) {
 	return n, err
 }
 
-// Empty is projectID's tree before anything was placed in it.
 func Empty(projectID string) Tree {
 	return Tree{
 		ProjectID: projectID,
@@ -97,8 +78,6 @@ func Empty(projectID string) Tree {
 	}
 }
 
-// Clone is a deep copy: a command builds its next state without touching the
-// state it was handed.
 func (t Tree) Clone() Tree {
 	out := Empty(t.ProjectID)
 	maps.Copy(out.Nodes, t.Nodes)
@@ -107,7 +86,6 @@ func (t Tree) Clone() Tree {
 	return out
 }
 
-// Holds reports whether any of t's records names id.
 func (t Tree) Holds(id string) bool {
 	_, n := t.Nodes[id]
 	_, f := t.Folders[id]
@@ -115,7 +93,6 @@ func (t Tree) Holds(id string) bool {
 	return n || f || c
 }
 
-// Merge adds every record of o that t lacks and keeps every record t has.
 func (t Tree) Merge(o Tree) Tree {
 	out := t.Clone()
 	for id, n := range o.Nodes {
@@ -136,7 +113,6 @@ func (t Tree) Merge(o Tree) Tree {
 	return out
 }
 
-// Without is t less every record of id, and the records it removed.
 func (t Tree) Without(id string) (rest, taken Tree) {
 	rest, taken = t.Clone(), Empty(t.ProjectID)
 	if n, ok := rest.Nodes[id]; ok {
@@ -154,12 +130,10 @@ func (t Tree) Without(id string) (rest, taken Tree) {
 	return rest, taken
 }
 
-// Children is parentID's children by Order, then ID.
 func (t Tree) Children(parentID string) []Node {
 	return t.byParent()[parentID]
 }
 
-// Subtree is id, then its descendants depth-first in order.
 func (t Tree) Subtree(id string) []string {
 	kids := t.byParent()
 	out := []string{}
@@ -174,7 +148,6 @@ func (t Tree) Subtree(id string) []string {
 	return out
 }
 
-// byParent is every node under its parent, each level by Order, then ID.
 func (t Tree) byParent() map[string][]Node {
 	out := map[string][]Node{}
 	for _, n := range t.Nodes {

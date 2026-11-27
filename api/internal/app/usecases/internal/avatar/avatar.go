@@ -1,5 +1,3 @@
-// Package avatar generates deterministic avatar labels and colors for repos from
-// their names. Pure functions — no state.
 package avatar
 
 import (
@@ -19,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
-// paletteSize is the number of entries in palette(); must equal len(palette()).
 const paletteSize = 8
 
 func palette() []string {
@@ -35,8 +32,6 @@ func palette() []string {
 	}
 }
 
-// Label returns the single-char avatar badge: first alphanumeric char of name,
-// uppercased; "?" when none.
 func Label(
 	name string,
 ) string {
@@ -48,20 +43,17 @@ func Label(
 	return "?"
 }
 
-// Color returns a stable palette token hashed from name.
 func Color(
 	name string,
 ) string {
 	p := palette()
 	h := fnv.New32a()
 	if _, err := h.Write([]byte(name)); err != nil {
-		return p[0] // unreachable: a hash write never fails
+		return p[0]
 	}
 	return p[h.Sum32()%paletteSize]
 }
 
-// iconCandidates is the ordered list of relative paths checked when scanning
-// a repo root for an icon file. First match wins.
 var iconCandidates = []string{
 	"favicon.svg",
 	"favicon.ico",
@@ -77,8 +69,6 @@ var iconCandidates = []string{
 	"src/assets/logo.png",
 }
 
-// ScanRepoIcon walks iconCandidates relative to repoPath and returns the
-// absolute path of the first file found, or "" when none match.
 func ScanRepoIcon(repoPath string) string {
 	for _, rel := range iconCandidates {
 		abs := filepath.Join(repoPath, rel)
@@ -89,17 +79,10 @@ func ScanRepoIcon(repoPath string) string {
 	return ""
 }
 
-// avatarFetchTimeout bounds the GitHub owner-avatar download so a slow or
-// unreachable host never stalls the import path.
 const avatarFetchTimeout = 10 * time.Second
 
-// maxAvatarBytes caps the owner-avatar download (matching the repo-icon cap): the
-// timeout alone is no size bound, and a hostile host could stream enough to OOM the daemon.
 const maxAvatarBytes = 2 << 20
 
-// FetchOwnerAvatarBytes downloads the repo owner's avatar (via the gh CLI) and returns
-// its bytes and content-type. It is best-effort: no origin, no gh auth or a failed
-// download yields (nil, "", nil) so the caller falls back to a generated avatar.
 func FetchOwnerAvatarBytes(
 	ctx context.Context,
 	repoPath string,
@@ -111,8 +94,6 @@ func FetchOwnerAvatarBytes(
 	return downloadBytes(ctx, url)
 }
 
-// ownerAvatarURL shells out to git + gh to resolve the owner avatar URL for the
-// repo at repoPath, returning "" on any soft failure.
 func ownerAvatarURL(
 	ctx context.Context,
 	repoPath string,
@@ -126,8 +107,6 @@ func ownerAvatarURL(
 	if err != nil {
 		return ""
 	}
-	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal PATH,
-	// which misses Homebrew's /opt/homebrew/bin where gh usually lives.
 	//nolint:gosec // G204: fixed gh subcommand; "gh" is resolved to a trusted install path and slug is the parsed owner/repo, not shell input.
 	out, err := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
 	if err != nil {
@@ -136,8 +115,6 @@ func ownerAvatarURL(
 	return strings.TrimSpace(string(out))
 }
 
-// downloadBytes fetches url and returns its body bytes + content-type, or
-// (nil, "", nil) on any transport failure (best-effort).
 func downloadBytes(
 	ctx context.Context,
 	url string,
@@ -160,9 +137,6 @@ func downloadBytes(
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}
-	// LimitReader(+1) lets us DETECT (not silently truncate) an oversize body; a
-	// body at/over the cap is treated as a soft failure so the caller falls back to
-	// a generated avatar rather than storing a giant/partial image.
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAvatarBytes+1))
 	if err != nil {
 		return nil, "", nil
@@ -177,7 +151,6 @@ func downloadBytes(
 	return data, ct, nil
 }
 
-// githubSlug extracts "owner/repo" from a GitHub remote URL (SSH or HTTPS).
 func githubSlug(
 	rawURL string,
 ) (string, error) {

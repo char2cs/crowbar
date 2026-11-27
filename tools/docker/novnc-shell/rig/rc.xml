@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- No decorations on either app, so both client areas are exactly the size the rig sets. -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus><focusNew>yes</focusNew><followMouse>no</followMouse></focus>
+  <applications>
+    <application class="*"><decor>no</decor><maximized>no</maximized></application>
+  </applications>
+</openbox_config>

@@ -47,10 +47,6 @@ func newRouter() *gin.Engine {
 	return newRouterWith(stubEngine{})
 }
 
-// newRouterWith wires the search handlers onto the flat chat-scoped group the
-// way router.go does, with a stand-in for chatScoped's resolveChatWorktree
-// middleware: the resolved workspace's id is the :chatId path param, which is
-// all these happy-path tests need from it.
 func newRouterWith(eng handlers.SearchEngine) *gin.Engine {
 	router := gin.New()
 	h := handlers.New(eng)
@@ -69,9 +65,6 @@ func newRouterWith(eng handlers.SearchEngine) *gin.Engine {
 	return router
 }
 
-// newUnscopedRouterWith mounts the same routes WITHOUT the workspace-stashing
-// middleware, so resolveWorkspace's "nothing in reqscope" branch can be
-// exercised.
 func newUnscopedRouterWith(eng handlers.SearchEngine) *gin.Engine {
 	router := gin.New()
 	h := handlers.New(eng)
@@ -119,9 +112,6 @@ func TestSearchHandlers_MissingQuery(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// doRaw posts a raw, possibly-malformed body — unlike do (which json.Marshals
-// a Go value, so it can never produce actually-invalid JSON), this is how the
-// ShouldBindJSON decode-failure branch gets exercised.
 func doRaw(
 	r *gin.Engine,
 	method, path, rawBody string,

@@ -1,0 +1,11 @@
+use serde::Deserialize;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(super) struct SummaryFile {
+    pub(super) path: String,
+    pub(super) status: String,
+    pub(super) old_path: Option<String>,
+    pub(super) additions: i64,
+    pub(super) deletions: i64,
+}

@@ -17,10 +17,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// stubChatsForSelection answers only GetChat — the one call
-// validateSelectionForProvider makes on its way to resolving the chat's
-// worktree, same panic-on-anything-else pattern as this package's other
-// narrow stubs.
 type stubChatsForSelection struct {
 	agentchat.EventStore
 	chat domain.Chat
@@ -55,8 +51,6 @@ func TestValidateSelectionForProvider_RejectsAModelAResolvedCatalogueOmits(t *te
 	require.Error(t, err)
 }
 
-// The required property: an empty/unresolved discovery must never reject a
-// non-empty model.
 func TestValidateSelectionForProvider_AnUnresolvedDiscoveryAcceptsAnyModel(t *testing.T) {
 	rs := runnersForSelectionTest(t, fakeSelectionAgent{discovered: true})
 
@@ -73,8 +67,6 @@ func TestValidateSelectionForProvider_AStaticEmptyCatalogueStillRejects(t *testi
 	require.Error(t, err, "no catalogue at all (not discovery-backed) must keep rejecting, same as before")
 }
 
-// stagedConversations is reviveConversations holding the chat's pick and
-// keeping the picks a send commits.
 type stagedConversations struct {
 	reviveConversations
 	committed *[]string
@@ -90,8 +82,6 @@ func (c stagedConversations) SetChatSelection(_ context.Context, _, model, effor
 	return nil
 }
 
-// A pick staged with a switch rides the switch's launch, and is the chat's,
-// dividers and all, once that launch runs: a failed one leaves the chat as it was.
 func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testing.T) {
 	for name, runs := range map[string]bool{"the launch runs": true, "the launch fails": false} {
 		t.Run(name, func(t *testing.T) {
@@ -129,15 +119,12 @@ func TestSubmitPromptWithSwitch_AStagedPickIsTheChatsOnceItsLaunchRuns(t *testin
 	}
 }
 
-// providerlessConversations is the record of a chat no CLI ever ran on: it
-// names no provider, as an owning chat is minted.
 type providerlessConversations struct{ stagedConversations }
 
 func (providerlessConversations) ChatProviderID(context.Context, string) (string, error) {
 	return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w", problem.ErrUnprocessable)
 }
 
-// The first send of a chat no CLI ever ran on launches the provider staged with it.
 func TestSubmitPromptWithSwitch_AProviderlessChatLaunchesTheStagedProvider(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	installDescriptor(t, h.home, selectionCarrierDescriptor)
@@ -154,8 +141,6 @@ func TestSubmitPromptWithSwitch_AProviderlessChatLaunchesTheStagedProvider(t *te
 	assert.Equal(t, []string{"deep/"}, committed)
 }
 
-// A revive whose pick is the chat's own writes nothing: the composer re-posts
-// its pick with every send.
 func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	installDescriptor(t, h.home, selectionCarrierDescriptor)
@@ -175,8 +160,6 @@ func TestSubmitPromptWithSwitch_ARevivesUnchangedPickCommitsNothing(t *testing.T
 	assert.Empty(t, dividers(t, h.rs.ledger, h.chatID))
 }
 
-// A selection's dividers land after the hook holding its chat: the change
-// waits for the chat's lock, so they never cut into that hook's record.
 func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T) {
 	locks, asked := ingress.NewLocks(), make(chan string, 1)
 	var committed []string
@@ -184,7 +167,7 @@ func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T
 		chatLock: askedLock{Locks: locks, asked: asked}, parks: newParks(), ledger: newTestLedger(t),
 		conversations: stagedConversations{committed: &committed, held: engineagents.Selection{Model: "deep"}},
 	}
-	unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
+	unlock, err := locks.Lock(t.Context(), "chat-1")
 	require.NoError(t, err)
 
 	done := make(chan error, 1)
@@ -208,8 +191,6 @@ func TestSetChatSelection_ItsDividersLandAfterTheHookHoldingTheChat(t *testing.T
 	assert.Equal(t, ledger.KindMarker, rows[1].Kind, "the divider follows the hook's row")
 }
 
-// An effort the chat never set runs as the one its last turn reported: a pick
-// naming that effort changes the model only.
 func TestSetChatSelection_AnUnsetEffortIsTheOneTheLastTurnReported(t *testing.T) {
 	for pick, want := range map[string][]string{
 		"medium": {"model_changed:haiku"},

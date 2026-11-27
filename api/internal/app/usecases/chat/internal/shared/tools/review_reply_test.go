@@ -12,10 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The trigger this key exists for: the relay's writeLine fails on a broken pipe
-// AFTER the daemon committed the reply, so the client never sees a result and
-// retries — on a NEW ToolSet, which is why the dedup map is a daemon-lived
-// dependency rather than ToolSet state.
 func TestReplyToReviewThread_IdempotencyKeyCollapsesARetry(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 	args := replyArgs("t1", "Bounded the loop.", "answered-t1")
@@ -33,8 +29,6 @@ func TestReplyToReviewThread_IdempotencyKeyCollapsesARetry(t *testing.T) {
 		"a retry that wrote nothing must not tell every client to re-render")
 }
 
-// Different keys are different writes. Without this the collapse test above would
-// still pass against an implementation that deduped on the thread id alone.
 func TestReplyToReviewThread_DifferentKeysBothLand(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 
@@ -47,8 +41,6 @@ func TestReplyToReviewThread_DifferentKeysBothLand(t *testing.T) {
 	require.Len(t, f.broadcast.frames, 2)
 }
 
-// No key means no dedup, which is what every call made before this task did and
-// what an agent that never passes one still gets.
 func TestReplyToReviewThread_WithoutAKeyEveryCallWrites(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 	args := `{"threadId":"t1","body":"Bounded the loop."}`
@@ -62,10 +54,6 @@ func TestReplyToReviewThread_WithoutAKeyEveryCallWrites(t *testing.T) {
 	require.Len(t, f.broadcast.frames, 2)
 }
 
-// The key is scoped by WORKSPACE, so two agents reviewing two branches cannot
-// collide on the same obvious key and have the second answer silently swallowed.
-// ws-a and ws-a1 are different callers that can BOTH see the thread on ws-a1, so
-// the only thing separating their keys is the scoping.
 func TestReplyToReviewThread_SameKeyInTwoWorkspacesDoesNotCollide(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t2", WsID: "ws-a1"})
 	args := replyArgs("t2", "Acknowledged.", "acknowledged")
@@ -80,10 +68,6 @@ func TestReplyToReviewThread_SameKeyInTwoWorkspacesDoesNotCollide(t *testing.T) 
 	require.Len(t, f.broadcast.frames, 2)
 }
 
-// A retry that reuses a key against a DIFFERENT thread wrote nothing, so it must
-// be told which thread the reply is actually on. Echoing its own argument would
-// name a thread that never received the reply — the same trap post_review_comment
-// avoids by reporting the stored anchor.
 func TestReplyToReviewThread_ARetryReportsTheThreadItLandedOn(t *testing.T) {
 	f := replyOn(t, "ws-a",
 		domain.ReviewThread{ID: "t1", WsID: "ws-a"},
@@ -100,8 +84,6 @@ func TestReplyToReviewThread_ARetryReportsTheThreadItLandedOn(t *testing.T) {
 	require.Equal(t, []string{"t1"}, f.store.repliedIDs())
 }
 
-// A failed write must not be remembered as done, or the retry the key exists for
-// would be answered with success having stored nothing.
 func TestReplyToReviewThread_AFailedWriteIsNotRemembered(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 	args := replyArgs("t1", "Bounded the loop.", "k")
@@ -118,9 +100,6 @@ func TestReplyToReviewThread_AFailedWriteIsNotRemembered(t *testing.T) {
 	require.Len(t, f.broadcast.frames, 1)
 }
 
-// The scope check runs BEFORE the dedup, on every call. A rejected reply must also
-// leave no trace in the map, or the key it carried would answer the caller's next
-// legitimate reply with a write that never happened.
 func TestReplyToReviewThread_ARejectedReplyDoesNotClaimTheKey(t *testing.T) {
 	f := replyOn(t, "ws-a",
 		domain.ReviewThread{ID: "t9", WsID: "ws-b"},
@@ -136,10 +115,6 @@ func TestReplyToReviewThread_ARejectedReplyDoesNotClaimTheKey(t *testing.T) {
 	require.Equal(t, []string{"t1"}, f.store.repliedIDs())
 }
 
-// A key the daemon cannot honour is refused rather than quietly ignored: a caller
-// that supplied one is retrying, and writing it unguarded is precisely the
-// duplicate the key was passed to prevent. An UNKEYED reply on the same miswired
-// daemon still works — it never asked for dedup.
 func TestReplyToReviewThread_AKeyedReplyIsRefusedWithoutADedupMap(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 	broken := f.withoutDedupMap(t, "ws-a")
@@ -154,9 +129,6 @@ func TestReplyToReviewThread_AKeyedReplyIsRefusedWithoutADedupMap(t *testing.T) 
 	require.Equal(t, []string{"t1"}, f.store.repliedIDs())
 }
 
-// The dedup map is shared with post_review_comment, so the two verbs must not
-// share a key NAMESPACE: a model naming a finding once when it posts and again
-// when it replies is naming the same finding, not the same write.
 func TestReplyToReviewThread_DoesNotShareAKeyspaceWithPostReviewComment(t *testing.T) {
 	f := replyOn(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 
@@ -188,9 +160,6 @@ func TestReplyToReviewThread_AppendsAsAgent(t *testing.T) {
 	require.Equal(t, []string{"t1"}, spy.repliedIDs())
 }
 
-// A blank body is rejected before the thread is ever looked up, mirroring
-// post_review_comment's own blank-body case: an empty reply is not a finding a
-// user should ever see land in their review pane.
 func TestReplyToReviewThread_RejectsABlankBody(t *testing.T) {
 	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
 	ts := reviewToolsOn(t, spy)
@@ -201,8 +170,6 @@ func TestReplyToReviewThread_RejectsABlankBody(t *testing.T) {
 	require.Empty(t, spy.replied, "a blank reply must never reach the store")
 }
 
-// The scope hole to close: a thread id names a thread in SOME workspace, so the
-// id itself is not an authorization. ws-b is a sibling the caller cannot see.
 func TestReplyToReviewThread_RejectsAThreadOutsideTheCallersScope(t *testing.T) {
 	spy := &spyThreads{thread: domain.ReviewThread{ID: "t9", WsID: "ws-b"}}
 	ts := reviewToolsOn(t, spy)
@@ -213,7 +180,6 @@ func TestReplyToReviewThread_RejectsAThreadOutsideTheCallersScope(t *testing.T) 
 	require.Empty(t, spy.replied, "an out-of-scope reply must never reach the store")
 }
 
-// An ANCESTOR is out of scope too — visibility is downward only.
 func TestReplyToReviewThread_RejectsAThreadOnAnAncestorWorkspace(t *testing.T) {
 	spy := &spyThreads{thread: domain.ReviewThread{ID: "t0", WsID: "repo-default"}}
 	ts := reviewToolsOn(t, spy)
@@ -224,7 +190,6 @@ func TestReplyToReviewThread_RejectsAThreadOnAnAncestorWorkspace(t *testing.T) {
 	require.Empty(t, spy.replied)
 }
 
-// A DESCENDANT is in scope.
 func TestReplyToReviewThread_AllowsAThreadOnADescendantWorkspace(t *testing.T) {
 	spy := &spyThreads{thread: domain.ReviewThread{ID: "t2", WsID: "ws-a1"}}
 	ts := reviewToolsOn(t, spy)
@@ -235,11 +200,6 @@ func TestReplyToReviewThread_AllowsAThreadOnADescendantWorkspace(t *testing.T) {
 	require.Equal(t, []string{"t2"}, spy.repliedIDs())
 }
 
-// TestReplyToReviewThread_BroadcastsSoAnOpenReviewPaneSeesIt models
-// TestPostReviewComment_BroadcastsSoAnOpenReviewPaneSeesIt: the review-thread
-// store does not fan out on its own, and an agent's reply bypasses the HTTP
-// handler that normally pushes a frame, so without an explicit broadcast the
-// reply is stored and invisible until the user remounts the pane.
 func TestReplyToReviewThread_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
 	f := newReplyResolveFixture(t, "ws-a", domain.ReviewThread{ID: "t1", WsID: "ws-a"})
 
@@ -254,13 +214,6 @@ func TestReplyToReviewThread_BroadcastsSoAnOpenReviewPaneSeesIt(t *testing.T) {
 	require.Equal(t, "R", frame.repoID)
 }
 
-// TestReplyToReviewThread_BroadcastsUnderTheThreadsOwnWorkspace is the case
-// TestPostReviewComment's fixtures cannot exercise: post_review_comment only ever
-// writes to the caller's OWN workspace, so its ids and the written thread's ids
-// always coincide. reply/resolve can write to any workspace CanSee allows, and a
-// caller at "home" sees other-repo-ws — a DIFFERENT repo from its own (home has
-// no repo at all). Broadcasting under the caller's own (empty) repo would
-// deliver the frame to nobody's /threads stream.
 func TestReplyToReviewThread_BroadcastsUnderTheThreadsOwnWorkspace(t *testing.T) {
 	f := newReplyResolveFixture(t, "home", domain.ReviewThread{ID: "t9", WsID: "other-repo-ws"})
 
@@ -282,9 +235,6 @@ func TestReplyToReviewThread_RejectedCallBroadcastsNothing(t *testing.T) {
 	require.Empty(t, f.broadcast.frames, "an out-of-scope reply must not announce a thread the caller cannot see")
 }
 
-// TestReplyToReviewThread_CarriesTheCallersProviderAndChat is the same property
-// for the reply path, which is where two agents in one thread actually become
-// indistinguishable without it.
 func TestReplyToReviewThread_CarriesTheCallersProviderAndChat(t *testing.T) {
 	spy := &spyThreads{thread: domain.ReviewThread{ID: "t1", WsID: "ws-a"}}
 	ts := attributedReviewToolsOn(t, spy, "codex", "chat-9")
@@ -300,9 +250,6 @@ func TestReplyToReviewThread_CarriesTheCallersProviderAndChat(t *testing.T) {
 	require.NotEmpty(t, spy.replied[0].MessageID)
 }
 
-// TestReplyToReviewThread_AttributesTheWriterNotTheThreadsWorkspace pins the case
-// a caller can reach a DESCENDANT's thread: the attribution describes who wrote
-// the reply, which is the caller, and is unaffected by where the thread lives.
 func TestReplyToReviewThread_AttributesTheWriterNotTheThreadsWorkspace(t *testing.T) {
 	spy := &spyThreads{thread: domain.ReviewThread{ID: "t2", WsID: "ws-a1"}}
 	ts := attributedReviewToolsOn(t, spy, "codex", "chat-9")

@@ -17,13 +17,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// The production terminal engine renders screens, which is what decides whether a
-// daemon has a detector at all. Asserting it here means a change to the engine's
-// surface fails at compile time rather than by silently switching the sweep off.
 var _ termwait.Screens = engineterminal.Engine(nil)
 
-// plainCommander is a PTY seam that cannot render a screen — the shape a headless
-// or stubbed terminal has.
 type plainCommander struct{}
 
 func (plainCommander) CreateCommand(
@@ -38,16 +33,12 @@ func (plainCommander) Write(context.Context, string, []byte) error { return nil 
 
 func (plainCommander) SessionLive(context.Context, string) bool { return false }
 
-// screenReadingCommander is the same seam WITH a screen, which is what the
-// production terminal engine has.
 type screenReadingCommander struct{ plainCommander }
 
 func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 	return "", 0, false
 }
 
-// stubTurns satisfies the hook-ingress port with the cheapest possible answers.
-// Nothing here is exercised; SetTurns only has to be able to bind it.
 type stubTurns struct{}
 
 func (stubTurns) Hook(context.Context, string, string, string, []byte) ([]byte, string, error) {
@@ -78,8 +69,6 @@ func (stubTurns) MatchTerminalNotice(
 func (stubTurns) FailTurnOnNotice(context.Context, engineagents.Runner, engineagents.TerminalNotice) {
 }
 
-// A terminal that cannot render a screen leaves the daemon with NO detector, and
-// every chat must then report the zero verdict rather than panicking on it.
 func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	t.Parallel()
 
@@ -88,12 +77,9 @@ func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 
 	assert.False(t, rs.TerminalWait("any-chat").Waiting)
 
-	// And the sweep is a no-op rather than a nil dereference.
 	rs.StartTerminalWaitSweep(t.Context())
 }
 
-// A terminal that CAN render a screen gets a detector, built by SetTurns because
-// half the detector's ports belong to the hook ingress.
 func TestTerminalWait_ReadsThroughTheDetector(t *testing.T) {
 	t.Parallel()
 
@@ -103,8 +89,6 @@ func TestTerminalWait_ReadsThroughTheDetector(t *testing.T) {
 	assert.Equal(t, domain.AgentTerminalWait{}, rs.TerminalWait("chat-1"),
 		"a chat the sweep has never visited is not waiting")
 }
-
-// ─── from termwait_live_test.go (real PTY) ────────────────────
 
 const liveTrustScreen = `╭─────────────────────────────────────────────╮
 │ Do you trust the files in this folder?      │

@@ -31,17 +31,13 @@ func TestMain(m *testing.M) {
 }
 
 type fakeReader struct {
-	list       []domain.Project
-	listErr    error
-	get        domain.Project
-	getErr     error
-	reordered  domain.Project
-	reorderErr error
-	// reorderTo records the index the last Reorder call asked for, so a test can
-	// assert the handler passed the body's order through untouched.
-	reorderTo int
-	// updated is what Update answers with, and updatedWith records the partial it
-	// was handed — what a rename or an icon change is asserted through.
+	list        []domain.Project
+	listErr     error
+	get         domain.Project
+	getErr      error
+	reordered   domain.Project
+	reorderErr  error
+	reorderTo   int
 	updated     domain.Project
 	updateErr   error
 	updatedWith *project.Update
@@ -85,7 +81,7 @@ type fakeDeleter struct {
 	err      error
 	beginErr error
 	gotID    string
-	hold     chan struct{} // when set, Delete waits for it
+	hold     chan struct{}
 }
 
 func (f *fakeDeleter) BeginDelete(_ context.Context, id string, _ domain.DeleteConsent) (domain.Project, error) {
@@ -109,8 +105,6 @@ func (f *fakeDeleter) Delete(ctx context.Context, id string, _ domain.DeleteCons
 	return f.err
 }
 
-// recordedOps is the real operation service over an in-memory store, with
-// every saved row on frames.
 type recordedOps struct {
 	*operation.Service
 	frames chan domain.Operation
@@ -126,8 +120,6 @@ func newRecordedOps(t *testing.T) *recordedOps {
 	return &recordedOps{Service: operation.New(opStore, func(op domain.Operation) { frames <- op }, time.Now), frames: frames}
 }
 
-// settled decodes the operation a 202 answered with and reads frames until it
-// has settled.
 func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	t.Helper()
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
@@ -150,7 +142,6 @@ func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) doma
 	}
 }
 
-// statOK is a stat seam that always reports the path exists.
 func statOK(_ string) (os.FileInfo, error) {
 	return nil, nil
 }
@@ -250,8 +241,6 @@ func TestDetailError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// The create answers with its operation, naming the project under the id it
-// minted; the work creates it under that id.
 func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
 	ops := newRecordedOps(t)
@@ -284,8 +273,6 @@ func TestImportMissingPath(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestImportProject_PathMissing_4xx pins that a non-existent path fails
-// synchronously with a 4xx before any background work is scheduled.
 func TestImportProject_PathMissing_4xx(t *testing.T) {
 	r := gin.New()
 	h := projecthandlers.New(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, nil, unusedHome).
@@ -298,7 +285,6 @@ func TestImportProject_PathMissing_4xx(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// A create that fails says why on its operation.
 func TestCreate_AFailureIsTheOperations(t *testing.T) {
 	importer := &fakeImporter{err: errors.New("boom")}
 	ops := newRecordedOps(t)
@@ -311,8 +297,6 @@ func TestCreate_AFailureIsTheOperations(t *testing.T) {
 	assert.Equal(t, domain.OpFailed, op.Items[0].State)
 }
 
-// A retry under the same key is the same request: it answers with the first
-// operation and imports nothing again.
 func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
 	importer := &fakeImporter{project: domain.Project{ID: "new-id", Name: "gamma", Path: "/g"}}
 	ops := newRecordedOps(t)
@@ -328,8 +312,6 @@ func TestCreate_ARetryAnswersWithTheFirstOperation(t *testing.T) {
 	assert.Empty(t, importer.gotID, "the retry imported nothing")
 }
 
-// A retry of a delete that already finished answers with that operation, not
-// the 404 a fresh lookup of the gone project would give.
 func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	ops := newRecordedOps(t)
 	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops)
@@ -342,8 +324,6 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	assert.Contains(t, retry.Body.String(), first.ID)
 }
 
-// A key is one request: reusing a delete's key for another project is a
-// conflict, not an answer with the first project's operation.
 func TestDelete_AKeyReusedForAnotherProjectIsAConflict(t *testing.T) {
 	ops := newRecordedOps(t)
 	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{}, ops)
@@ -356,8 +336,6 @@ func TestDelete_AKeyReusedForAnotherProjectIsAConflict(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "operation_id_conflict")
 }
 
-// One teardown runs per project: a second delete under another key, while the
-// first runs, is refused.
 func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
 	deleter := &fakeDeleter{hold: make(chan struct{})}
 	ops := newRecordedOps(t)
@@ -396,7 +374,6 @@ func TestDeleteNotFound(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"success":false`)
 }
 
-// A delete that stops fails its operation with the reason.
 func TestDelete_AFailureIsTheOperations(t *testing.T) {
 	ops := newRecordedOps(t)
 	r := newRouterWithOps(&fakeReader{}, &fakeImporter{}, &fakeDeleter{err: errors.New("boom")}, ops)
@@ -407,7 +384,6 @@ func TestDelete_AFailureIsTheOperations(t *testing.T) {
 	assert.Contains(t, op.Items[0].Error.Message, "boom")
 }
 
-// The reorder passes the body's index to the store and answers 204.
 func TestPatch_ReordersTheProject(t *testing.T) {
 	reader := &fakeReader{reordered: domain.Project{ID: "p2", Order: 1}}
 	r := newRouter(reader, &fakeImporter{})
@@ -444,9 +420,6 @@ func TestPatch_UnknownProjectIs404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// The sidebar's inline rename, which PATCH grew alongside the reorder it used to
-// be the only reason for. Both are single store writes, so both answer 204 and
-// deliver the change on the WS stream rather than in the response body.
 func TestPatchRenamesAProject(t *testing.T) {
 	reader := &fakeReader{updated: domain.Project{ID: "p1", Name: "harbour"}}
 	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil)
@@ -459,8 +432,6 @@ func TestPatchRenamesAProject(t *testing.T) {
 	if reader.updatedWith == nil || reader.updatedWith.Name == nil {
 		t.Fatal("the handler never passed a name through")
 	}
-	// Trimmed at the edge, so the store never holds a name with the whitespace
-	// an inline editor makes it far too easy to leave behind.
 	if *reader.updatedWith.Name != "harbour" {
 		t.Errorf("name = %q, want %q", *reader.updatedWith.Name, "harbour")
 	}
@@ -488,8 +459,6 @@ func TestPatchStillRequiresSomethingToDo(t *testing.T) {
 }
 
 func TestPatchSurfacesAFailedRename(t *testing.T) {
-	// The store refused. Without propagating, the caller gets a 204 and the
-	// sidebar shows the new name until the next WS frame puts the old one back.
 	reader := &fakeReader{updateErr: problem.ErrNotFound}
 	r := newRouterWithOps(reader, &fakeImporter{}, &fakeDeleter{}, nil)
 
@@ -501,8 +470,6 @@ func TestPatchSurfacesAFailedRename(t *testing.T) {
 }
 
 func TestPatchRenamesAndReordersInOneRequest(t *testing.T) {
-	// A drag reorders and the inline editor renames, but the endpoint accepts
-	// both at once and applies each.
 	reader := &fakeReader{
 		updated: domain.Project{ID: "p1", Name: "harbour"},
 		list:    []domain.Project{{ID: "p1", Name: "harbour"}},

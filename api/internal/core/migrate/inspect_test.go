@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// planning is a Plan func that returns p.
 func planning(
 	p Plan,
 ) func(context.Context, Env) (Plan, error) {
@@ -35,7 +34,6 @@ func planStep(
 	return s
 }
 
-// inspect runs Inspect over the bench's home with its injected machine.
 func (b *bench) inspect() (Report, error) {
 	b.tb.Helper()
 	return Inspect(context.Background(), b.home, b.cat, b.implemented, Options{FreeBytes: b.free, HaveGit: b.haveGit, Explain: b.explain})
@@ -192,9 +190,6 @@ func TestInspect_RefusesAHomeBeginRefuses(t *testing.T) {
 	}
 }
 
-// The boot halts on a pending step this build has no implementation for, so the
-// preview halts on it too, as the boot would: before the plans for a pre-open
-// step, and after them for a post-open one.
 func TestInspect_AStepThisBuildCannotRunIsTheHaltTheBootGives(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -230,8 +225,6 @@ func TestInspect_AStepThisBuildCannotRunIsTheHaltTheBootGives(t *testing.T) {
 	}
 }
 
-// A plan that fails for a cause the session can name is named so in the
-// preview's halt, as in the boot's.
 func TestInspect_AnExplainedPlanFailureIsTheHaltTheBootGives(t *testing.T) {
 	damaged := errors.New("file is not a database (26)")
 	step := newStep(1, "a", PreOpen, 0, 0)
@@ -275,7 +268,6 @@ func TestInspect_ACancelledContextIsNotAHalt(t *testing.T) {
 	assert.NotErrorAs(t, err, &h)
 }
 
-// bootBackups is how many state backups a real boot of the bench takes.
 func (b *bench) bootBackups(
 	impls Impls,
 ) int {
@@ -349,7 +341,6 @@ func TestInspect_BackupLine(t *testing.T) {
 	})
 }
 
-// After a boot fails, --plan is how a person sees what the retry will do.
 func TestInspect_KeepsTheBackupAnEarlierAttemptTook(t *testing.T) {
 	rewrites := Plan{Actions: []Action{{Kind: Convert, Subject: "state/x", Count: Unknown}}, RewritesState: true}
 	failedBoot := func(t *testing.T) (*bench, string) {
@@ -399,9 +390,6 @@ func TestInspect_KeepsTheBackupAnEarlierAttemptTook(t *testing.T) {
 	})
 }
 
-// Begin ends a run a crash left open before the preflight looks at backups, and
-// a run it ends as completed retires its backup. The preview must read the
-// ledger as the boot will have left it.
 func TestInspect_ReadsTheLedgerAsBeginLeavesIt(t *testing.T) {
 	rewrites := Plan{Actions: []Action{{Kind: Convert, Subject: "state/x", Count: Unknown}}, RewritesState: true}
 	crashed := func(t *testing.T, started []int) *bench {

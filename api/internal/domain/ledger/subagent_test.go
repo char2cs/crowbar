@@ -14,8 +14,6 @@ func subagent(t *testing.T, scope, phase string) ledger.Row {
 	return scoped(t, ledger.KindSubagent, "T1", scope, ledger.SubagentBody{Phase: phase, Type: "explorer"})
 }
 
-// spawned is the subagent row of a spawning call: starting under toolID, or
-// bound to scope when one is named.
 func spawned(t *testing.T, scope, phase, toolID string) ledger.Row {
 	t.Helper()
 	return scoped(t, ledger.KindSubagent, "T1", scope, ledger.SubagentBody{Phase: phase, SpawnToolID: toolID})
@@ -25,8 +23,7 @@ func TestSubagentStatus_Next(t *testing.T) {
 	allowed := map[ledger.SubagentStatus][]ledger.SubagentStatus{
 		ledger.SubagentStarting: {ledger.SubagentRunning, ledger.SubagentFailed, ledger.SubagentAbandoned, ledger.SubagentInterrupted},
 		ledger.SubagentRunning:  {ledger.SubagentDone, ledger.SubagentFailed, ledger.SubagentInterrupted},
-		// A follow-up runs an ended subagent again.
-		ledger.SubagentDone: {ledger.SubagentRunning}, ledger.SubagentFailed: {ledger.SubagentRunning},
+		ledger.SubagentDone:     {ledger.SubagentRunning}, ledger.SubagentFailed: {ledger.SubagentRunning},
 		ledger.SubagentInterrupted: {ledger.SubagentRunning},
 	}
 	all := []ledger.SubagentStatus{
@@ -75,8 +72,6 @@ func TestFold_ASubagentOutlivesItsParentTurnAndKeepsTheChatBusy(t *testing.T) {
 	assert.Equal(t, ledger.SubagentUsage{Tokens: 9, ToolUses: 2}, a.Usage)
 }
 
-// forgottenAgent is a chat whose subagent A, spawned in T1, still runs after
-// T1's keys were pushed out by two later turns.
 func forgottenAgent(t *testing.T) ledger.State {
 	t.Helper()
 	st := ledger.Fold("c1", sequenced(t,
@@ -100,8 +95,6 @@ func endOf(t *testing.T, phase, status, result string) ledger.Row {
 	return scoped(t, ledger.KindSubagent, "T1", "A", ledger.SubagentBody{Phase: phase, Status: status, Result: result})
 }
 
-// A subagent of a forgotten turn goes once nothing more can reach it: its
-// result is recorded, or it failed or was interrupted.
 func TestFold_ASubagentOfAForgottenTurnGoesOnceSettled(t *testing.T) {
 	for name, end := range map[string]ledger.Row{
 		"stopped with its result": endOf(t, ledger.SubagentStop, "", "found it"),
@@ -119,7 +112,6 @@ func TestFold_ASubagentOfAForgottenTurnGoesOnceSettled(t *testing.T) {
 	}
 }
 
-// A spawn its turn abandoned goes with that turn's keys.
 func TestFold_AnAbandonedSpawnGoesWithItsTurn(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"), spawned(t, "", ledger.SubagentStart, "tool-1"),
@@ -130,8 +122,6 @@ func TestFold_AnAbandonedSpawnGoesWithItsTurn(t *testing.T) {
 	assert.False(t, kept)
 }
 
-// A background subagent that stops before it hands its result back is kept
-// for the hand-back, so the result lands in it rather than in a ghost.
 func TestFold_AForgottenTurnsSubagentWaitsForItsHandBack(t *testing.T) {
 	st := forgottenAgent(t)
 
@@ -197,8 +187,6 @@ func TestFold_ARunnersExitInterruptsItsSubagents(t *testing.T) {
 	assert.True(t, st.ScopeOpen("A"), "its late reports still reach it")
 }
 
-// A start that names its scope (a subagent announcing itself) runs at once;
-// the call that spawned it binds to it later, and the record keeps the call.
 func TestFold_ASubagentThatAnnouncesItselfFirstTakesItsCallOnTheBind(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		turnStart(t, "T1"),
@@ -215,7 +203,6 @@ func TestFold_ASubagentThatAnnouncesItselfFirstTakesItsCallOnTheBind(t *testing.
 	}, stripped(all[0]))
 }
 
-// stripped is a with only its exported fields, for comparison.
 func stripped(a ledger.Subagent) ledger.Subagent {
 	return ledger.Subagent{
 		Scope: a.Scope, SpawnToolID: a.SpawnToolID, Type: a.Type, Title: a.Title, Result: a.Result, Status: a.Status,

@@ -18,8 +18,6 @@ func benchAppend(b *testing.B, s models.Store, version int64) {
 	}
 }
 
-// BenchmarkEventStore_AppendOnDisk measures an append against a real file, where
-// the synchronous pragma decides whether every commit pays an fsync.
 func BenchmarkEventStore_AppendOnDisk(b *testing.B) {
 	s, err := NewEventStore(filepath.Join(b.TempDir(), "events.db"))
 	if err != nil {

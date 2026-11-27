@@ -8,7 +8,7 @@ func (selectionApply) Name() string { return "selection_apply" }
 
 func (selectionApply) Check(d *spec.Descriptor) error {
 	if dialed(d) {
-		return nil // nothing is forked: selectionAPICarrier checks the session call carries it
+		return nil
 	}
 	if d.Model != nil && len(d.Model.Apply) == 0 {
 		return invalid(d.ID, "model.apply is empty")

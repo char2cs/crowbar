@@ -12,11 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestThreadDTOFrom asserts the converter maps the ReviewThread anchor
-// (file/line/side), the root message (body/author/createdAt), the resolution
-// flag, and the trailing messages into Replies, stamping the hierarchical
-// project/repo scope passed by the caller (the ReviewThread aggregate carries
-// only its WsID).
 func TestThreadDTOFrom(t *testing.T) {
 	created := time.Date(2026, 6, 19, 10, 0, 0, 0, time.UTC)
 	replied := created.Add(time.Minute)
@@ -45,8 +40,6 @@ func TestThreadDTOFrom(t *testing.T) {
 	assert.Equal(t, "right", got.Side)
 	assert.Equal(t, "root comment", got.Body)
 	assert.Equal(t, "alice", got.Author)
-	// The root message's real id is surfaced so the client can edit the root by
-	// the same /messages/:messageId route that addresses replies.
 	assert.Equal(t, "m1", got.MessageID)
 	assert.True(t, got.Resolved)
 	assert.False(t, got.Deleted)
@@ -60,8 +53,6 @@ func TestThreadDTOFrom(t *testing.T) {
 	assert.Equal(t, replied, got.Replies[0].CreatedAt)
 }
 
-// TestThreadDTOFrom_NoMessages asserts a thread with no messages yields empty
-// root fields and a non-nil empty Replies slice so the envelope serialises [].
 func TestThreadDTOFrom_NoMessages(t *testing.T) {
 	rt := domain.ReviewThread{ID: "t2", WsID: "w1", FilePath: "x.go", Side: domain.ReviewSideLeft}
 
@@ -73,7 +64,6 @@ func TestThreadDTOFrom_NoMessages(t *testing.T) {
 	assert.Empty(t, got.Replies)
 }
 
-// TestThreadDTOFrom_Unresolved asserts an open thread maps Resolved=false.
 func TestThreadDTOFrom_Unresolved(t *testing.T) {
 	rt := domain.ReviewThread{
 		ID:     "t3",
@@ -90,8 +80,6 @@ func TestThreadDTOFrom_Unresolved(t *testing.T) {
 	assert.Empty(t, got.Replies)
 }
 
-// TestThreadDTOList asserts the list converter maps each thread and returns a
-// non-nil empty slice for empty input.
 func TestThreadDTOList(t *testing.T) {
 	threads := []domain.ReviewThread{
 		{ID: "t1", WsID: "w1", Messages: []domain.ReviewMessage{{ID: "m1", Body: "a"}}},
@@ -110,16 +98,6 @@ func TestThreadDTOList(t *testing.T) {
 	assert.Empty(t, empty)
 }
 
-// TestThreadDTOFrom_CarriesAgentAttributionAtBothLevels is the wire half of Task
-// D. The root message is FLATTENED onto ThreadDTO rather than appearing in
-// Replies, so root attribution and reply attribution are two separate mappings —
-// getting one right and the other wrong would render an agent-opened thread
-// attributed on its answers and anonymous on the finding itself.
-//
-// The fixture is deliberately mixed: an agent root, a second agent's reply, and a
-// human reply. Two different providers prove the ids are carried per MESSAGE, and
-// the human reply proves an unattributed message stays unattributed rather than
-// inheriting the root's.
 func TestThreadDTOFrom_CarriesAgentAttributionAtBothLevels(t *testing.T) {
 	created := time.Date(2026, 6, 19, 10, 0, 0, 0, time.UTC)
 	rt := domain.ReviewThread{
@@ -156,10 +134,6 @@ func TestThreadDTOFrom_CarriesAgentAttributionAtBothLevels(t *testing.T) {
 	assert.Empty(t, got.Replies[1].ChatID, "a human reply names no chat")
 }
 
-// TestThreadDTOFrom_PreAttributionThreadOmitsTheFields is the degradation guard
-// on the wire: a thread whose messages predate attribution — the common case
-// forever — must serialise exactly as it did before, with neither key present, so
-// a client cannot mistake an empty string for a provider it should resolve.
 func TestThreadDTOFrom_PreAttributionThreadOmitsTheFields(t *testing.T) {
 	rt := domain.ReviewThread{
 		ID:   "t1",
@@ -180,7 +154,5 @@ func TestThreadDTOFrom_PreAttributionThreadOmitsTheFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(out), "providerId")
 	assert.NotContains(t, string(out), "chatId")
-	// The agent flag is untouched: an old agent message is still an agent message,
-	// it just has nothing to attribute it to.
 	assert.True(t, got.IsAgent)
 }

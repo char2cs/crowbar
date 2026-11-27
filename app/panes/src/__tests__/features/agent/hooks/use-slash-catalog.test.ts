@@ -1,0 +1,107 @@
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/errors/api-error'
+import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
+
+const getSlashCatalog = vi.fn()
+
+vi.mock('@/features/agent/api/agent-chat-reads', () => ({
+  getSlashCatalog: (...args: unknown[]) => getSlashCatalog(...args),
+}))
+
+const catalog = { providerId: 'claude', completeness: 'partial', items: [] }
+
+type Props = { active: boolean; providerId?: string }
+
+function mount(initialProps: Props) {
+  return renderHook(
+    ({ active, providerId = 'claude' }: Props) =>
+      useSlashCatalog({ wsId: 'ws1', chatId: 'c1', providerId, active }),
+    { initialProps },
+  )
+}
+
+beforeEach(() => {
+  getSlashCatalog.mockReset()
+  getSlashCatalog.mockImplementation((_ws: string, _chat: string, _signal: AbortSignal) =>
+    Promise.resolve(catalog),
+  )
+})
+
+describe('useSlashCatalog presaving', () => {
+  it('probes nothing while the chat is not active', () => {
+    mount({ active: false })
+
+    expect(getSlashCatalog).not.toHaveBeenCalled()
+  })
+
+  it('probes once when first shown and keeps the catalogue across hide and show', async () => {
+    const { result, rerender } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('ready'))
+
+    rerender({ active: false })
+    rerender({ active: true })
+    await act(async () => {})
+
+    expect(getSlashCatalog).toHaveBeenCalledTimes(1)
+    expect(result.current.state.state).toBe('ready')
+  })
+
+  it('asks again after a provider switch, since those are another CLI skills', async () => {
+    const { result, rerender } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('ready'))
+    getSlashCatalog.mockResolvedValue({ ...catalog, providerId: 'codex' })
+
+    rerender({ active: true, providerId: 'codex' })
+
+    await waitFor(() => expect(getSlashCatalog).toHaveBeenCalledTimes(2))
+  })
+
+  it('retries a failed probe the next time the chat is shown', async () => {
+    getSlashCatalog.mockRejectedValueOnce(new Error('probe failed'))
+    const { result, rerender } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('error'))
+
+    rerender({ active: false })
+    rerender({ active: true })
+
+    await waitFor(() => expect(result.current.state.state).toBe('ready'))
+    expect(getSlashCatalog).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not re-ask a provider the daemon declared has no catalogue', async () => {
+    getSlashCatalog.mockRejectedValue(new ApiError('unavailable', 422))
+    const { result, rerender } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('error'))
+
+    rerender({ active: false })
+    rerender({ active: true })
+    await act(async () => {})
+
+    expect(getSlashCatalog).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useSlashCatalog filtering', () => {
+  const item = (name: string, description = '') => ({
+    id: name,
+    kind: 'builtin',
+    label: `/${name}`,
+    description,
+    insertText: `/${name} `,
+    source: '',
+  })
+
+  it('ranks the commands whose name starts with the query above a description match', async () => {
+    getSlashCatalog.mockResolvedValue({
+      ...catalog,
+      items: [item('clear', 'Start over'), item('resume', 'Pick a conversation'), item('config')],
+    })
+    const { result } = mount({ active: true })
+    await waitFor(() => expect(result.current.state.state).toBe('ready'))
+
+    act(() => result.current.noteQuery('con'))
+
+    expect(result.current.items.map((i) => i.label)).toEqual(['/config', '/resume'])
+  })
+})

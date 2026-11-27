@@ -5,19 +5,16 @@ import (
 	"slices"
 )
 
-// How a plan row changes the plan.
 const (
-	PlanReplace = "replace" // Items is the whole plan
-	PlanUpsert  = "upsert"  // Items are changed or added by id
+	PlanReplace = "replace"
+	PlanUpsert  = "upsert"
 )
 
-// Plan is the body of a plan row: the agent's running to-do list.
 type Plan struct {
 	Op    string     `json:"op"`
 	Items []PlanItem `json:"items"`
 }
 
-// PlanItem is one step of a plan.
 type PlanItem struct {
 	ID     string `json:"id,omitempty"`
 	Text   string `json:"text"`
@@ -25,11 +22,8 @@ type PlanItem struct {
 	Status string `json:"status,omitempty"`
 }
 
-// PlanStepRemoved is the status of an upserted step that leaves the plan.
 const PlanStepRemoved = "removed"
 
-// FoldPlan is items after p: a replace is the whole plan; an upsert changes
-// each step it names by id, keeping what it leaves out, and adds the rest.
 func FoldPlan(items []PlanItem, p Plan) []PlanItem {
 	if p.Op != PlanUpsert {
 		return slices.Clone(p.Items)
@@ -57,6 +51,4 @@ func (s *State) applyPlan(r Row) {
 	}
 }
 
-// Plan is the main agent's plan as its plan rows left it: a task list it keeps
-// across turns, unless a restatement replaces it whole.
 func (s State) Plan() []PlanItem { return slices.Clone(s.plan) }

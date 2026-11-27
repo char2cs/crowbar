@@ -1,4 +1,3 @@
-// export_test.go exposes internals for white-box unit tests.
 package conflicts
 
 import (
@@ -15,7 +14,6 @@ func errRunner(
 	return exec.Result{ExitCode: 1, Stderr: "injected runner error"}
 }
 
-// SetErrorRunner replaces gitRunner with a failing stub for the duration of a test.
 func SetErrorRunner(
 	cleanup func(func()),
 ) {

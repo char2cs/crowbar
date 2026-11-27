@@ -13,17 +13,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// Reconnect is how a dialed driver recovers a dropped transport: up to Max
-// consecutive redials, waiting Backoff*attempt before each. Sleep is the wait
-// (nil: a real timer), so a test can run on its own clock.
 type Reconnect struct {
 	Max     int
 	Backoff time.Duration
 	Sleep   func(ctx context.Context, d time.Duration) error
 }
 
-// StartDial is Start over a transport dial opens, which it calls again, per rc,
-// after the transport drops.
 func StartDial(
 	ctx context.Context, d *spec.Descriptor, dial func(context.Context) (jsonrpc.Transport, error),
 	rc Reconnect, origin SessionOrigin,
@@ -35,8 +30,6 @@ func StartDial(
 	return newDriver(ctx, d, jsonrpc.NewTransport(t), dial, rc, origin)
 }
 
-// CallOnce dials, handshakes, makes the one call and closes, so a catalogue read
-// leaves no session behind.
 func CallOnce(
 	ctx context.Context, d *spec.Descriptor, dial func(context.Context) (jsonrpc.Transport, error),
 	method string, params map[string]any,
@@ -67,8 +60,6 @@ func (drv *Driver) setInflight(v bool) {
 	drv.mu.Unlock()
 }
 
-// reconnect replaces a dropped conn. A turn in flight is failed visibly first
-// and never replayed; false ends the driver (no dial, Close, or retries spent).
 func (drv *Driver) reconnect(dead wire) (wire, bool) {
 	if drv.dial == nil || dead.Overflowed() || drv.ctx.Err() != nil {
 		return nil, false
@@ -110,8 +101,6 @@ func (drv *Driver) sleep(d time.Duration) error {
 	return drv.ctx.Err()
 }
 
-// redial dials, handshakes and installs a new conn, then re-enters the session
-// the dead one had. A conn that cannot be fully set up is closed again.
 func (drv *Driver) redial(sessionID, lastEvent string) (wire, error) {
 	t, err := drv.dial(drv.ctx)
 	if err != nil {
@@ -146,7 +135,6 @@ func (drv *Driver) resumeSession(sessionID, lastEvent string) error {
 	return err
 }
 
-// emit delivers ev unless the driver closes first.
 func (drv *Driver) emit(ev Event) bool {
 	select {
 	case drv.out <- ev:
@@ -156,8 +144,6 @@ func (drv *Driver) emit(ev Event) bool {
 	}
 }
 
-// failure is the turn_failed the dropped turn is reported as. Its payload is
-// laid out along the descriptor's own map paths, so the ordinary mapping reads it.
 func (drv *Driver) failure(sessionID string) Event {
 	values := map[string]string{"reason": "connection lost before the turn finished", "session_id": sessionID}
 	doc := map[string]any{}
@@ -178,8 +164,6 @@ func (drv *Driver) failure(sessionID string) Event {
 	return Event{Canonical: spec.HookTurnFailed, Raw: raw}
 }
 
-// setPath writes v at a plain dotted path; a path using selector syntax, or a
-// blank value, is left out.
 func setPath(doc map[string]any, path, v string) {
 	if path == "" || v == "" || strings.ContainsAny(path, "[]{}()<>=*|:@#") {
 		return

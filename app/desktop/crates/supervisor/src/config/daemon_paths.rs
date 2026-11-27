@@ -1,0 +1,128 @@
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
+
+use serde_json::Value;
+use tokio::process::Command;
+
+use crate::error::Error;
+
+const PATHS_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonPaths {
+    pub socket: PathBuf,
+    pub log: PathBuf,
+}
+
+fn absolute(
+    report: &Value,
+    key: &str,
+) -> Result<PathBuf, Error> {
+    let text = report
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::Paths(format!("paths output has no {key}")))?;
+    let path = PathBuf::from(text);
+    if path.is_absolute() {
+        return Ok(path);
+    }
+    Err(Error::Paths(format!(
+        "paths output: {key} is not absolute: {text:?}"
+    )))
+}
+
+impl DaemonPaths {
+    pub fn parse(stdout: &[u8]) -> Result<Self, Error> {
+        let report: Value = serde_json::from_slice(stdout)
+            .map_err(|e| Error::Paths(format!("paths output is not JSON: {e}")))?;
+        Ok(Self {
+            socket: absolute(&report, "socket")?,
+            log: absolute(&report, "log")?,
+        })
+    }
+
+    pub async fn resolve(
+        binary: &Path,
+        home: Option<&Path>,
+    ) -> Result<Self, Error> {
+        Self::resolve_within(binary, home, PATHS_TIMEOUT).await
+    }
+
+    async fn resolve_within(
+        binary: &Path,
+        home: Option<&Path>,
+        limit: Duration,
+    ) -> Result<Self, Error> {
+        let mut command = Command::new(binary);
+        command.arg("paths").stdin(Stdio::null()).kill_on_drop(true);
+        if let Some(home) = home {
+            command.env("CROWBAR_HOME", home);
+        }
+        let finished = tokio::time::timeout(limit, command.output())
+            .await
+            .map_err(Error::PathsTimeout)?
+            .map_err(|source| Error::Spawn {
+                path: binary.to_path_buf(),
+                source,
+            })?;
+        if !finished.status.success() {
+            let stderr = String::from_utf8_lossy(&finished.stderr);
+            return Err(Error::Paths(stderr.trim().to_owned()));
+        }
+        Self::parse(&finished.stdout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_reads_socket_and_log() {
+        let out = br#"{"home":"/Users/a/.crowbar","socket":"/tmp/crowbar-1f.sock","log":"/Users/a/.crowbar/logs/daemon.log"}"#;
+        let paths = DaemonPaths::parse(out).unwrap();
+        assert_eq!(paths.socket, PathBuf::from("/tmp/crowbar-1f.sock"));
+        assert_eq!(
+            paths.log,
+            PathBuf::from("/Users/a/.crowbar/logs/daemon.log")
+        );
+    }
+
+    #[test]
+    fn parse_rejects_relative_or_missing_fields() {
+        let cases = [
+            r#"{"home":"/h","socket":"crowbar.sock","log":"/l"}"#,
+            r#"{"home":"/h","socket":"/s.sock","log":"daemon.log"}"#,
+            r#"{"home":"/h","log":"/l"}"#,
+            r#"{"home":"/h","socket":"/s.sock"}"#,
+            r#"{"home":"/h","socket":"/s.sock","log":""}"#,
+            r#"{"home":"/h","socket":7,"log":"/l"}"#,
+            "starting daemon...",
+            "",
+        ];
+        for out in cases {
+            assert!(DaemonPaths::parse(out.as_bytes()).is_err(), "{out}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_binary_that_cannot_run_is_a_spawn_error() {
+        let err = DaemonPaths::resolve(Path::new("/definitely/not/crowbar-api"), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Spawn { .. }), "{err}");
+    }
+
+    #[tokio::test]
+    #[ignore = "real-infra: runs a real script that never answers to prove the timeout"]
+    async fn a_binary_that_never_answers_is_given_up_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("hang.sh");
+        crate::test_support::script::write_script(&script, "#!/bin/sh\nexec sleep 60\n").unwrap();
+        let err = DaemonPaths::resolve_within(&script, None, Duration::from_millis(200))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::PathsTimeout(_)), "{err}");
+    }
+}

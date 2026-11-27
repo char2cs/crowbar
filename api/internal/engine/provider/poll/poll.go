@@ -1,5 +1,3 @@
-// Package poll provides on-view polling and background sweep scheduling
-// for the provider engine. It is agnostic to the specific provider (GitHub/GitLab).
 package poll
 
 import (
@@ -10,27 +8,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// GlobalCronInterval is the cadence of the daemon-wide background sweep that
-// polls every workspace with a live PR, even ones nobody is watching.
 const GlobalCronInterval = 5 * time.Minute
 
-// PerConnectionInterval is the cadence of the forge poll the stream runs for a
-// workspace while a client holds its forge: scope.
 const PerConnectionInterval = 1 * time.Minute
 
-// perTargetTimeout bounds one target's pollFn (network subprocesses), so one hung remote
-// cannot stall the serial sweep. The sweep ctx still cancels every target on shutdown.
 const perTargetTimeout = 30 * time.Second
 
-// SweepTarget is the minimal info the sweep needs per workspace.
 type SweepTarget struct {
 	WSID      string
 	RepoPath  string
 	Branch    string
-	HasOpenPR bool // only sweep if true
+	HasOpenPR bool
 }
 
-// PRInfoSnapshot mirrors types.PRInfo without creating an import cycle.
 type PRInfoSnapshot struct {
 	Number       int
 	Status       string
@@ -39,14 +29,11 @@ type PRInfoSnapshot struct {
 	TargetBranch string
 }
 
-// ProviderStateSnapshot mirrors types.ProviderState for the sweep layer.
 type ProviderStateSnapshot struct {
 	Protected bool
 	PR        *PRInfoSnapshot
 }
 
-// PollFn is the function the Sweeper calls per workspace target.
-// It is provided by the engine layer to avoid import cycles.
 type PollFn func(
 	ctx context.Context,
 	wsID string,
@@ -54,14 +41,11 @@ type PollFn func(
 	branch string,
 ) (ProviderStateSnapshot, error)
 
-// OnStateChangeFn is the callback invoked when provider state changes.
-// Wave 3 will wire this to SyncProviderState on the Workspace aggregate.
 type OnStateChangeFn func(
 	wsID string,
 	state ProviderStateSnapshot,
 )
 
-// sweeper holds the sweep scheduler state.
 type sweeper struct {
 	pollFn        PollFn
 	onStateChange OnStateChangeFn
@@ -71,18 +55,13 @@ type sweeper struct {
 	lastState     map[string]ProviderStateSnapshot
 }
 
-// Sweeper schedules background provider polls.
 type Sweeper interface {
-	// Start launches the background sweep goroutine. It runs until ctx is done.
-	// workspacesFn is called each tick to get the current workspace list.
 	Start(
 		ctx context.Context,
 		workspacesFn func() []SweepTarget,
 	)
 }
 
-// NewSweeper creates a Sweeper with the default 5-minute global cron interval.
-// newSweeperWithInterval stays the test seam for a short interval.
 func NewSweeper(
 	pollFn PollFn,
 	onStateChange OnStateChangeFn,
@@ -90,8 +69,6 @@ func NewSweeper(
 	return newSweeperWithInterval(pollFn, onStateChange, GlobalCronInterval)
 }
 
-// newSweeperWithInterval creates a Sweeper with a configurable interval.
-// Used in tests to avoid waiting 60 seconds.
 func newSweeperWithInterval(
 	pollFn PollFn,
 	onStateChange OnStateChangeFn,
@@ -106,7 +83,6 @@ func newSweeperWithInterval(
 	}
 }
 
-// Start launches the background sweep goroutine.
 func (s *sweeper) Start(
 	ctx context.Context,
 	workspacesFn func() []SweepTarget,
@@ -114,7 +90,6 @@ func (s *sweeper) Start(
 	go s.run(ctx, workspacesFn)
 }
 
-// run is the main sweep loop.
 func (s *sweeper) run(
 	ctx context.Context,
 	workspacesFn func() []SweepTarget,
@@ -133,7 +108,6 @@ func (s *sweeper) run(
 	}
 }
 
-// sweepOnce polls each target that has an open PR.
 func (s *sweeper) sweepOnce(
 	ctx context.Context,
 	targets []SweepTarget,
@@ -144,8 +118,6 @@ func (s *sweeper) sweepOnce(
 	s.pruneLastState(targets)
 }
 
-// pruneLastState drops lastState entries whose workspace left the sweep targets, which
-// are recomputed each tick, so deleted workspaces do not leak a snapshot forever.
 func (s *sweeper) pruneLastState(targets []SweepTarget) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -163,7 +135,6 @@ func (s *sweeper) pruneLastState(targets []SweepTarget) {
 	}
 }
 
-// sweepTarget polls a single workspace target and notifies only on state change.
 func (s *sweeper) sweepTarget(
 	ctx context.Context,
 	t SweepTarget,
@@ -196,7 +167,6 @@ func (s *sweeper) sweepTarget(
 	}
 }
 
-// statesEqual reports whether two ProviderStateSnapshot values are identical.
 func statesEqual(
 	a ProviderStateSnapshot,
 	b ProviderStateSnapshot,

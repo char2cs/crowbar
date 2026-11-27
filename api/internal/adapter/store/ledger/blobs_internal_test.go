@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// While a payload is being named, from its Put until its row commits, no
-// collection can start: a row about to name a payload keeps it.
 func TestBlobs_NamingHoldsCollectionOff(t *testing.T) {
 	s, err := OpenBlobs(t.TempDir())
 	require.NoError(t, err)

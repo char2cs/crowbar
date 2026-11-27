@@ -134,8 +134,6 @@ func parseHunkHeader(
 	return oldStart, newStart
 }
 
-// hunkStart reads one side's start line; one that does not parse is 1, as a
-// side the header leaves out is.
 func hunkStart(
 	field string,
 ) int {
@@ -162,9 +160,6 @@ func buildHunks(
 			currentStart = i
 			continue
 		}
-		// Start a new hunk when HunkID changes or when we first see a
-		// non-header line after a @@ header (currentStart >= 0 means we
-		// just passed a header and haven't started a hunk yet).
 		if line.HunkID != "" && (line.HunkID != currentHunkID || currentHunkID == "") {
 			currentHunkID = line.HunkID
 			hunks = append(hunks, gitdomain.Hunk{

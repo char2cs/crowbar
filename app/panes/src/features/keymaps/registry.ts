@@ -1,0 +1,200 @@
+import type { Command, CommandCategory } from './types'
+
+export const PANE_NAVIGATE_LEFT = 'panes.navigateLeft'
+export const PANE_NAVIGATE_RIGHT = 'panes.navigateRight'
+export const PANE_NAVIGATE_UP = 'panes.navigateUp'
+export const PANE_NAVIGATE_DOWN = 'panes.navigateDown'
+export const TAB_NEW = 'tabs.new'
+export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
+export const TAB_NEW_FILE = 'tabs.newFile'
+export const TAB_OPEN_FILE = 'tabs.openFile'
+export const AGENT_NEW_CHAT = 'agent.newChat'
+export const AGENT_NEW_CHAT_TERMINAL = 'agent.newChatTerminal'
+export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
+export const AGENT_TOGGLE_VIEW_MODE = 'agent.toggleViewMode'
+export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
+export const TAB_CLOSE = 'tabs.closeActive'
+export const BROWSER_TOGGLE_PICK = 'browser.togglePick'
+
+export const AGENT_ZOOM_IN = 'agent.zoomIn'
+export const AGENT_ZOOM_OUT = 'agent.zoomOut'
+export const AGENT_ZOOM_RESET = 'agent.zoomReset'
+
+const EDITOR_SAVE = 'editor.save'
+const EDITOR_SAVE_ALL = 'editor.saveAll'
+
+export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
+export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
+export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
+
+export const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Chats', 'Editor']
+
+export const COMMANDS: Command[] = [
+  {
+    id: PANE_NAVIGATE_LEFT,
+    label: 'Focus pane left',
+    category: 'Panes',
+    defaultChord: 'mod+alt+arrowleft',
+    liveEditable: true,
+  },
+  {
+    id: PANE_NAVIGATE_RIGHT,
+    label: 'Focus pane right',
+    category: 'Panes',
+    defaultChord: 'mod+alt+arrowright',
+    liveEditable: true,
+  },
+  {
+    id: PANE_NAVIGATE_UP,
+    label: 'Focus pane up',
+    category: 'Panes',
+    defaultChord: 'mod+alt+arrowup',
+    liveEditable: true,
+  },
+  {
+    id: PANE_NAVIGATE_DOWN,
+    label: 'Focus pane down',
+    category: 'Panes',
+    defaultChord: 'mod+alt+arrowdown',
+    liveEditable: true,
+  },
+  {
+    id: TAB_NEW,
+    label: 'New tab',
+    category: 'Tabs',
+    defaultChord: 'mod+t',
+    liveEditable: true,
+  },
+  {
+    id: TAB_NEW_TERMINAL,
+    label: 'New terminal tab',
+    category: 'Tabs',
+    defaultChord: 'mod+j',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_NEW_CHAT,
+    label: 'New chat',
+    category: 'Tabs',
+    defaultChord: 'mod+n',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_NEW_CHAT_TERMINAL,
+    label: 'New chat (Terminal)',
+    category: 'Tabs',
+    defaultChord: 'mod+alt+n',
+    liveEditable: true,
+  },
+  {
+    id: TAB_NEW_FILE,
+    label: 'New file',
+    category: 'Tabs',
+    defaultChord: 'mod+shift+n',
+    liveEditable: true,
+  },
+  {
+    id: TAB_OPEN_FILE,
+    label: 'Open file…',
+    category: 'Tabs',
+    defaultChord: 'mod+o',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_TOGGLE_VIEW_MODE,
+    label: 'Toggle chat / terminal view',
+    category: 'Chats',
+    defaultChord: 'mod+/',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_CYCLE_PROVIDER,
+    label: 'Cycle chat provider',
+    category: 'Chats',
+    defaultChord: '',
+    liveEditable: true,
+  },
+  {
+    id: TAB_REOPEN_CLOSED,
+    label: 'Reopen last closed tab',
+    category: 'Tabs',
+    defaultChord: 'mod+shift+t',
+    liveEditable: true,
+  },
+  {
+    id: TAB_CLOSE,
+    label: 'Close active tab',
+    category: 'Tabs',
+    defaultChord: 'mod+w',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_ZOOM_IN,
+    label: 'Zoom chat in',
+    category: 'Chats',
+    defaultChord: 'mod+=',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_ZOOM_OUT,
+    label: 'Zoom chat out',
+    category: 'Chats',
+    defaultChord: 'mod+-',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_ZOOM_RESET,
+    label: 'Reset chat zoom',
+    category: 'Chats',
+    defaultChord: 'mod+0',
+    liveEditable: true,
+  },
+  {
+    id: EDITOR_SAVE,
+    label: 'Save',
+    category: 'Editor',
+    defaultChord: 'mod+s',
+    liveEditable: false,
+  },
+  {
+    id: EDITOR_SAVE_ALL,
+    label: 'Save all',
+    category: 'Editor',
+    defaultChord: 'mod+shift+s',
+    liveEditable: false,
+  },
+  {
+    id: BROWSER_TOGGLE_PICK,
+    label: 'Pick element in browser tab',
+    category: 'Tabs',
+    defaultChord: 'mod+shift+e',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_CHATS,
+    label: 'Sidebar: Chats',
+    category: 'Navigation',
+    defaultChord: 'mod+1',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_FILES,
+    label: 'Sidebar: Files',
+    category: 'Navigation',
+    defaultChord: 'mod+2',
+    liveEditable: true,
+  },
+  {
+    id: SIDEBAR_TAB_GIT,
+    label: 'Sidebar: Git',
+    category: 'Navigation',
+    defaultChord: 'mod+3',
+    liveEditable: true,
+  },
+]
+
+const COMMAND_BY_ID = new Map(COMMANDS.map((c) => [c.id, c]))
+
+export function getCommand(id: string): Command | undefined {
+  return COMMAND_BY_ID.get(id)
+}

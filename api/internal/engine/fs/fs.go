@@ -1,5 +1,3 @@
-// Package fs is the filesystem engine (05). Stateless per call; the watcher
-// is the one stateful per-workspace resource.
 package fs
 
 import (
@@ -12,24 +10,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
-// Engine is the full filesystem operation surface (05).
 type Engine interface {
-	// Tree returns one level of the file tree rooted at dirPath.
-	// dirPath is relative to repoPath; empty string = root.
 	Tree(
 		repoPath string,
 		dirPath string,
 		provider tree.StatusProvider,
 	) ([]domain.FileNode, error)
 
-	// ReadContent returns the content of a file.
 	ReadContent(
 		repoPath string,
 		filePath string,
 	) (domain.FileContent, error)
 
-	// WriteContent writes content to a file. encoding is "base64" for a
-	// byte-faithful binary payload or "" / "utf8" for raw UTF-8.
 	WriteContent(
 		repoPath string,
 		filePath string,
@@ -37,54 +29,43 @@ type Engine interface {
 		encoding string,
 	) error
 
-	// ReadHostContent reads a file by absolute, clean host path. The caller
-	// decides the path may be served; the engine only enforces the cap.
 	ReadHostContent(
 		absPath string,
 	) (domain.FileContent, error)
 
-	// WriteHostContent writes a file by absolute, clean host path.
 	WriteHostContent(
 		absPath string,
 		content string,
 		encoding string,
 	) error
 
-	// CreateFile creates an empty file.
 	CreateFile(
 		repoPath string,
 		filePath string,
 	) error
 
-	// CreateDir creates a directory.
 	CreateDir(
 		repoPath string,
 		dirPath string,
 	) error
 
-	// Copy duplicates a file or directory byte-faithfully. Directories
-	// copy recursively; the destination must not already exist.
 	Copy(
 		repoPath string,
 		sourcePath string,
 		destPath string,
 	) error
 
-	// Rename renames or moves a file or directory.
 	Rename(
 		repoPath string,
 		oldPath string,
 		newPath string,
 	) error
 
-	// Delete removes a file or directory.
 	Delete(
 		repoPath string,
 		filePath string,
 	) error
 
-	// NewWatcher builds a file watcher for a workspace. The caller owns Start
-	// and Stop.
 	NewWatcher(
 		ctx context.Context,
 		wsID string,
@@ -94,8 +75,6 @@ type Engine interface {
 		dispatcher watch.Dispatcher,
 	) *watch.Watcher
 
-	// NewFileWatcher builds a watcher on one file, which need not exist yet;
-	// the caller owns Start and Stop.
 	NewFileWatcher(
 		path string,
 		emit func(change domain.FileChangeType),
@@ -104,7 +83,6 @@ type Engine interface {
 
 type fsEngine struct{}
 
-// New returns a new Engine.
 func New() Engine {
 	return &fsEngine{}
 }

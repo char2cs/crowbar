@@ -158,8 +158,6 @@ func TestAgent_CanTypeIsFalseForSkippedOrUnsafeMessages(t *testing.T) {
 	assert.False(t, get(t, "codex").CanType("hello"))
 }
 
-// composerRecording is a screen recorded from the real CLI through our emulator
-// with the cursor and faint cells it left; a recording without a .faint sidecar has none.
 func composerRecording(t *testing.T, state string) agents.ComposerScreen {
 	t.Helper()
 	base := "testdata/claude-composer-" + state + "-2.1.325"
@@ -182,7 +180,6 @@ func composerRecording(t *testing.T, state string) agents.ComposerScreen {
 	return screen
 }
 
-// faintRow is a mask row as the sidecar writes it: 'f' a faint cell, '.' any other.
 func faintRow(mask string) []bool {
 	row := make([]bool, len(mask))
 	for i := range mask {
@@ -191,8 +188,6 @@ func faintRow(mask string) []bool {
 	return row
 }
 
-// typistWith is the typist descriptor with its composer row prefix swapped and
-// ghost, when not empty, declared.
 func typistWith(t *testing.T, prefix, ghost string) agents.Agent {
 	t.Helper()
 	home := t.TempDir()
@@ -217,11 +212,9 @@ func TestComposerEmpty_ClaudeReadsEachRecordedScreen(t *testing.T) {
 		{"idle-fresh-120x40", true},
 		{"idle-ghost-80x24", true},
 		{"idle-ghost-120x40", true},
-		// The composer reads empty mid-turn too: the ledger is what guards it.
 		{"midturn-80x24", true},
 		{"draft-80x24", false},
 		{"draft-120x40", false},
-		// Home pressed on a draft: the cursor is back at the prefix, the draft after it is not faint.
 		{"draft-home-80x24", false},
 		{"draft-home-120x40", false},
 		{"ghost-draft-home-80x24", false},

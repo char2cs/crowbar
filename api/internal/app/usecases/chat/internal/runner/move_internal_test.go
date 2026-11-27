@@ -48,8 +48,6 @@ func TestExecuteMove_AnIdleChatMovesAtOnceAndItsNextPromptCarriesTheNote(t *test
 	assert.Empty(t, p.Dispatch, "the note is the launch's, not the person's prompt")
 }
 
-// The CLI echoes the note with the prompt; the echo is the person's words, never
-// a second turn showing Crowbar's note as typed by them.
 func TestSpawnRunner_TheMoveNotesEchoIsCrowbarsNotAPrompt(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	note := "<system-reminder>moved</system-reminder>\n\n"
@@ -115,8 +113,6 @@ func TestCancelMove_ClosesThePendingMove(t *testing.T) {
 	assert.False(t, ran)
 }
 
-// The agent asking twice in a turn asks once; a thread that already owns its branch is refused,
-// so an agent cannot branch again and again.
 func TestRequestBranchOut_ARepeatIsTheSameAskAndAnOwnerIsRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	_, err := h.rs.RequestBranchOut(t.Context(), "chat-1", "ws-1", "fix-login", "agent")
@@ -138,8 +134,6 @@ func TestRequestBranchOut_ARepeatIsTheSameAskAndAnOwnerIsRefused(t *testing.T) {
 	assert.False(t, pending)
 }
 
-// A level whose sandbox the chat's old folder is inside cannot keep the chat out
-// of it: once the chat has left a folder, it launches as its narrower values.
 func TestSpawnRunner_AChatThatLeftAFolderLaunchesItsLevelsValuesAfterLeave(t *testing.T) {
 	for name, tc := range map[string]struct {
 		moved  bool

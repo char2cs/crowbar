@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// deadlineRecorder is a response writer over a connection: it records every
-// read deadline set on it, the way http.ResponseController reaches a conn.
 type deadlineRecorder struct {
 	*httptest.ResponseRecorder
 	deadlines []time.Time
@@ -41,8 +39,6 @@ func serveWithDeadlines(
 	return rec
 }
 
-// TestPreAuthReadDeadline_BoundsATLSRequest proves a request arriving over TLS
-// gets a read deadline before any handler runs, timeout from now.
 func TestPreAuthReadDeadline_BoundsATLSRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const timeout = 10 * time.Second
@@ -58,8 +54,6 @@ func TestPreAuthReadDeadline_BoundsATLSRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestPreAuthReadDeadline_LeavesPlaintextUnbounded proves the local transport
-// (unix socket, loopback dev bind) is never bounded: its trust is the OS's.
 func TestPreAuthReadDeadline_LeavesPlaintextUnbounded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -72,8 +66,6 @@ func TestPreAuthReadDeadline_LeavesPlaintextUnbounded(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestLiftReadDeadline_ClearsTheBound proves an authenticated request's read
-// deadline is cleared, so a long upload or stream is not cut.
 func TestLiftReadDeadline_ClearsTheBound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -93,8 +85,6 @@ func TestLiftReadDeadline_ClearsTheBound(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestPreAuthReadDeadline_WriterWithoutAConnectionIsServed proves a writer with
-// no connection behind it (nothing to bound) does not fail the request.
 func TestPreAuthReadDeadline_WriterWithoutAConnectionIsServed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -1,8 +1,5 @@
 //go:build integration
 
-// This file holds the spawn helper the MCP titling tests share. Titling is the
-// set_chat_title MCP tool (agent_mcp_test.go); a title derived from the first
-// prompt is pinned in-process (TestRecorder_APromptOpensATurnAndTitlesTheChat).
 package agent_test
 
 import (
@@ -14,12 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// mustSpawnChat creates a project + repo + managed child workspace and spawns
-// a real <provider> chat in it (via the same importRepoAndWorkspace +
-// spawnChat sequence every other test in this package repeats), registering
-// the spawned PTY's teardown so callers don't have to. Returns the workspace's
-// project/repo/workspace ids along with the new chat's id and the id of
-// the RUNNER started on it, which every hook is posted as.
 func mustSpawnChat(
 	t *testing.T,
 	h *harness,

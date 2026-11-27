@@ -137,7 +137,6 @@ func TestCreateWorkspace_EmitEvent_UsesProvidedStrategy(t *testing.T) {
 }
 
 func TestSyncProvider_ProtectedSetsLocked_PrStatusOtherwise(t *testing.T) {
-	// Protected wins (D4 precedence): Status=locked even with an open PR; PR fields still recorded.
 	curProtected := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusNew}
 	cmd := SyncProviderState{
 		ID:             "w1",
@@ -154,24 +153,20 @@ func TestSyncProvider_ProtectedSetsLocked_PrStatusOtherwise(t *testing.T) {
 	assert.Equal(t, "https://x/pr/1", ws.PRUrl)
 	assert.Equal(t, "main", ws.PRTargetBranch)
 
-	// Not protected: PR status maps to pr-*.
 	curOpen := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusNew}
 	wsOpen := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curOpen)
 	assert.Equal(t, domain.WorkspaceStatusPROpen, wsOpen.Status)
 }
 
 func TestSyncProvider_Precedence_DoesNotClobberLocked(t *testing.T) {
-	// pr-* must not overwrite an existing locked status.
 	curLocked := &domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusLocked}
 	ws := SyncProviderState{ID: "w1", Protected: false, HasPR: true, PRStatus: "open"}.EmitEvent(curLocked)
 	assert.Equal(t, domain.WorkspaceStatusLocked, ws.Status)
 
-	// pr-* must not overwrite an existing pr-conflicts status.
 	curConflicts := &domain.Workspace{ID: "w2", Status: domain.WorkspaceStatusPRConflicts}
 	wsc := SyncProviderState{ID: "w2", Protected: false, HasPR: true, PRStatus: "merged"}.EmitEvent(curConflicts)
 	assert.Equal(t, domain.WorkspaceStatusPRConflicts, wsc.Status)
 
-	// deleted is highest precedence.
 	curDeleted := &domain.Workspace{ID: "w3", Status: domain.WorkspaceStatusDeleted}
 	wsd := SyncProviderState{ID: "w3", Protected: true, HasPR: true, PRStatus: "open"}.EmitEvent(curDeleted)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, wsd.Status)
@@ -267,7 +262,6 @@ func TestReparent_SetsParentAndForkPoint(t *testing.T) {
 	assert.Equal(t, now, ws.LastActivity)
 }
 
-// No parent is the top of a lineage, which has no fork point to require.
 func TestReparent_Validate_AcceptsTheTopOfALineage(t *testing.T) {
 	assert.NoError(t, Reparent{ID: "w1"}.Validate(&domain.Workspace{ID: "w1", ParentID: "gone"}))
 }
@@ -311,12 +305,11 @@ func TestUpdateForkPoint_Validate_AcceptsValid(t *testing.T) {
 
 func TestCreateWorkspace_EmitEvent_KindDefault(t *testing.T) {
 	cmd := CreateWorkspace{
-		ID:        "ws-1",
-		RepoID:    "repo-1",
-		ProjectID: "proj-1",
-		Branch:    "main",
-		Now:       time.Now(),
-		// Kind not set → should default to git
+		ID:           "ws-1",
+		RepoID:       "repo-1",
+		ProjectID:    "proj-1",
+		Branch:       "main",
+		Now:          time.Now(),
 		Provisioning: domain.WorkspacePlaceholder,
 	}
 	ws := cmd.EmitEvent(nil)

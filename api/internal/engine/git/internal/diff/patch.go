@@ -12,17 +12,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// patchReadBufferBytes is a throughput knob only: ReadString grows past it for an
-// oversized line, unlike bufio.Scanner's 64 KB token cap that minified bundles exceed.
 const patchReadBufferBytes = 64 << 10
 
-// ErrEmptyPatchPath guards a trapdoor: ":(top,literal)" with nothing appended matches the
-// whole tree, turning the O(one file) query into a read of the entire branch diff.
 var ErrEmptyPatchPath = errors.New("diff: file patch: path is required")
 
-// FilePatch streams one file's patch (by NEW name, literal top-anchored pathspec) from git
-// straight into w; renames read as additions, so pairing comes from the outline. A positive
-// maxLines cuts inside the last hunk and rewrites its @@ header, so capped files are never empty.
 func FilePatch(
 	ctx context.Context,
 	repoPath string,
@@ -48,8 +41,6 @@ func FilePatch(
 	return c.written, c.truncated, patchError(c.truncated, copyErr, closeErr, wait())
 }
 
-// patchError picks a copy's verdict: closing early kills git, so on a truncated copy the
-// close and wait errors describe the requested kill, not a failure.
 func patchError(
 	truncated bool,
 	copyErr error,
@@ -109,8 +100,6 @@ func (c *patchCopier) observe(
 	c.done = true
 }
 
-// accept routes one raw line to the writer or the pending hunk; uncapped copies never
-// buffer, since there is no cut to place and a hunk can be huge.
 func (c *patchCopier) accept(
 	line string,
 ) {
@@ -146,13 +135,8 @@ func (c *patchCopier) buffer(
 	c.truncated = true
 }
 
-// hunkHeaderPattern matches a unified-diff hunk header, capturing the old and
-// new starts, their optional counts, and the trailing section heading. Only the
-// counts are rewritten; a start line and a heading survive a cut unchanged.
 var hunkHeaderPattern = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$`)
 
-// cutHunk trims a buffered hunk to room lines and recounts its @@ header; any body prefix
-// is valid, so only the counts need fixing. room < 2 or an unparseable header yields nothing.
 func cutHunk(
 	hunk []string,
 	room int,
@@ -178,16 +162,11 @@ func cutHunk(
 			oldCount++
 			changes++
 		case strings.HasPrefix(line, `\`):
-			// "\ No newline at end of file" annotates the previous line and
-			// occupies no line on either side.
 		default:
-			// Context, including the bare newline git emits for a blank line.
 			oldCount++
 			newCount++
 		}
 	}
-	// A cut inside leading context leaves a hunk that changes nothing, which git rejects
-	// as corrupt; drop it.
 	if changes == 0 {
 		return nil
 	}

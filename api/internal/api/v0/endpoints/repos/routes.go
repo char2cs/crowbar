@@ -1,4 +1,3 @@
-// Package repos mounts the v0 repository REST routes.
 package repos
 
 import (
@@ -8,8 +7,6 @@ import (
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 )
 
-// Register mounts the repo list and detail routes on the supplied router group,
-// backed by the repository GORM store, which publishes every row it writes.
 func Register(
 	rg *gin.RouterGroup,
 	store repohandlers.Store,

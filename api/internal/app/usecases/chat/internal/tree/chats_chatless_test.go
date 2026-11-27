@@ -11,10 +11,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The frontend sends a chatless workspace's OWN id as parentId (its row id):
-// with a Node row the tree accepts it (workspaceAnchorType) and files the new
-// chat under it; without one (a workspace created before Node minting, no
-// backfill) the create mints that anchor row first and then proceeds.
 func TestCreateChat_ThreadUnderAChatlessWorkspaceNode_IsPlacedUnderTheWorkspaceId(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	nodes.Rows = append(nodes.Rows, dtree.Node{ID: workspaceID, Kind: dtree.KindWorkspace})
@@ -54,7 +50,6 @@ func TestRegression_CreateChat_UnderAChatlessWorkspaceWithNoNodeRow_MintsTheAnch
 	assert.Equal(t, workspaceID, chats.SpawnedOwnWorktree[0].ParentAtStart)
 }
 
-// createChat is CreateChat with a daemon-minted id, answered as its two ids.
 func createChat(
 	ctx context.Context,
 	uc tree.Usecase,

@@ -33,29 +33,20 @@ func newTestContext(
 	return ctx, rec
 }
 
-// fakeAgentUsecase is a configurable double for all five agent ports: each method records
-// its call so tests can assert forwarding, and each returns a canned
-// error/value so tests can exercise the handlers' error branches.
 type fakeAgentUsecase struct {
-	// hookReply is the stdout the daemon wants a hook to print and hookAsk the
-	// ask it held; validToken is the one runner token VerifyRunnerToken accepts.
 	hookReply   string
 	hookAsk     string
 	validToken  string
 	verifyCalls [][2]string
 
-	ingestCalls []ingestCall
-	ingestErr   error
-	// descriptorReports / descriptorErr answer DescriptorReports.
+	ingestCalls       []ingestCall
+	ingestErr         error
 	descriptorReports []descriptorcheck.Report
 	descriptorErr     error
 	installRaw        []byte
 	installReport     descriptorcheck.Report
 	installErr        error
-	// terminalWait is the standing "is this chat's CLI parked on a modal we
-	// cannot answer" verdict. Zero — not waiting — for every test that does not
-	// set it, which is the state a chat is in unless something says otherwise.
-	terminalWait domain.AgentTerminalWait
+	terminalWait      domain.AgentTerminalWait
 
 	switchCalls    []switchCall
 	switchNewSegID string
@@ -88,8 +79,7 @@ type fakeAgentUsecase struct {
 	selectionCalls []selectionCall
 	selectionErr   error
 
-	dispatchMCPCalls []dispatchMCPCall
-	// dispatchRelayCalls are the relay route's calls; runnerID holds the relay id.
+	dispatchMCPCalls   []dispatchMCPCall
 	dispatchRelayCalls []dispatchMCPCall
 	dispatchMCPOut     []byte
 	dispatchMCPSend    bool
@@ -115,10 +105,6 @@ type fakeAgentUsecase struct {
 	setManifestFetchCalls   []bool
 	setManifestFetchErr     error
 
-	// getChat/getChatErr configure GetChat, the call every
-	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
-	// first. The zero value (an empty domain.Chat, WorkspaceID "") makes
-	// the scope check pass by default for callers that leave :wsId unset too.
 	getChat    domain.Chat
 	getChatErr error
 
@@ -137,14 +123,12 @@ type fakeAgentUsecase struct {
 	setChatPermissionLevelCalls []setChatPermissionLevelCall
 	setChatPermissionLevelErr   error
 
-	pendingAwait bool
-	awaitAnswer  agentusecase.HookAnswer
-	awaitErr     error
-	awaitCalls   []string
-	telemetry    engineagents.Telemetry
-	telemetryOK  bool
-	// telemetryOffSurface makes TelemetryOnChatSurface answer false — the
-	// chat is on a surface whose channel carries no usage report.
+	pendingAwait        bool
+	awaitAnswer         agentusecase.HookAnswer
+	awaitErr            error
+	awaitCalls          []string
+	telemetry           engineagents.Telemetry
+	telemetryOK         bool
 	telemetryOffSurface bool
 
 	promptResult domain.AgentPromptSubmission
@@ -266,9 +250,6 @@ func (f *fakeAgentUsecase) SlashCatalog(
 	return f.catalog, f.catalogErr
 }
 
-// ConversationsForChat backs the chat DTOs' derived facts, which only the List/Get
-// read handlers compose; this double answers "no history" for the mutation
-// handlers it serves.
 func (f *fakeAgentUsecase) ConversationsForChat(context.Context, string) ([]engineagents.ChatConversation, error) {
 	return nil, nil
 }
@@ -503,17 +484,11 @@ func (f *fakeAgentUsecase) SetChatPermissionLevel(
 	return f.setChatPermissionLevelErr
 }
 
-// setChatPermissionLevelCall records one SetChatPermissionLevel forwarding, so
-// a test can assert the id and level a client sent are what reached the
-// usecase unchanged.
 type setChatPermissionLevelCall struct {
 	chatID string
 	level  string
 }
 
-// answerCall records one AnswerChoice, so a handler test can assert that what a
-// client sent is what the usecase was told — the option ids especially, since
-// they are the only thing that decides which provider template gets rendered.
 type answerCall struct {
 	chatID    string
 	choiceID  string
@@ -529,10 +504,6 @@ func (f *fakeAgentUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 func (f *fakeAgentUsecase) TelemetryOnChatSurface(context.Context, string) bool {
 	return !f.telemetryOffSurface
 }
-
-// ---------------------------------------------------------------------------
-// HTTPHook — the hook ingress
-// ---------------------------------------------------------------------------
 
 func newHTTPHookContext(
 	t *testing.T,

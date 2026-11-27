@@ -12,12 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBodyLimit_RejectsOversizeBody proves R17: a body larger than the cap fails
-// the read (http.MaxBytesReader), so the daemon never buffers an unbounded upload.
 func TestBodyLimit_RejectsOversizeBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(BodyLimit(8)) // 8-byte cap
+	r.Use(BodyLimit(8))
 	r.POST("/x", func(c *gin.Context) {
 		if _, err := io.ReadAll(c.Request.Body); err != nil {
 			c.Status(http.StatusRequestEntityTooLarge)
@@ -27,14 +25,13 @@ func TestBodyLimit_RejectsOversizeBody(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/x", strings.NewReader("0123456789")) // 10 bytes > 8
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/x", strings.NewReader("0123456789"))
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code,
 		"a body past the cap must fail the read, not be buffered")
 }
 
-// TestBodyLimit_AllowsUnderCap proves a body at/under the cap reads through intact.
 func TestBodyLimit_AllowsUnderCap(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

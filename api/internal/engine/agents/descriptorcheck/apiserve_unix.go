@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// apiServe starts runtime.api.serve and runs the handshake the runner runs:
-// serve is ready only once it answers over its own stdio.
 func (l *live) apiServe(ctx context.Context) Step {
 	if l.d.Runtime.Transport != string(spec.ChannelAPI) {
 		return skip("api_serve", "not an api-transport provider")
@@ -49,8 +47,6 @@ func (l *live) apiServe(ctx context.Context) Step {
 	return pass("api_serve", l.d.Runtime.API.Handshake.Call+" answered over the stdio of "+strings.Join(argv, " "))
 }
 
-// apiDial runs runtime.api.connect and the handshake of a websocket descriptor. An
-// http one opens nothing before its first request, so there is nothing to answer.
 func (l *live) apiDial(ctx context.Context) Step {
 	if l.d.Runtime.API.Delivery == spec.APIDeliveryHTTP {
 		return skip("api_serve", "http delivery opens no connection before its first request")
@@ -67,8 +63,6 @@ func (l *live) apiDial(ctx context.Context) Step {
 	return pass("api_serve", l.d.Runtime.API.Handshake.Call+" answered over the endpoint runtime.api.connect names")
 }
 
-// endServe kills serve's process group and reaps it. Nobody awaits this, so a
-// failure is logged; serve dying of the kill is the expected exit status.
 func endServe(cmd *exec.Cmd) {
 	if err := killGroup(cmd); err != nil {
 		slog.Warn("descriptorcheck: kill serve", "err", err)

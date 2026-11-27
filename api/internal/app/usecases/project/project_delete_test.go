@@ -131,8 +131,6 @@ func (f *fakeDeleteWorkspaces) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-// fakeRepoCascade stands in for hierarchy.DeleteRepoWorkspaces, recording the
-// repos it was handed (and the order, against the record deletes).
 type fakeRepoCascade struct {
 	repos    []domain.Repository
 	log      *[]string
@@ -214,11 +212,6 @@ func TestProjectDelete_NotFound(t *testing.T) {
 	assert.ErrorIs(t, f.uc.Delete(context.Background(), "missing", domain.KeepWorkAtRisk), problem.ErrNotFound)
 }
 
-// Every repo's workspaces go through the repo cascade — the one lifecycle path
-// that never deletes a branch Crowbar did not create and never forces a locked
-// worktree — handed the WHOLE repo, default branch included. The project's own
-// home row, which no repo cascade takes, is tombstoned directly. Records go
-// only once their workspaces are retired, and every Node row goes with them.
 func TestProjectDelete_RetiresWorkspacesThroughTheRepoCascade(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -239,8 +232,6 @@ func TestProjectDelete_RetiresWorkspacesThroughTheRepoCascade(t *testing.T) {
 	assert.Equal(t, []string{"p1"}, f.projects.deleted)
 }
 
-// A failed cascade leaves every record in place: nothing is deleted before
-// its workspaces are durably retired.
 func TestProjectDelete_CascadeFailure_KeepsTheRecords(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -251,8 +242,6 @@ func TestProjectDelete_CascadeFailure_KeepsTheRecords(t *testing.T) {
 	assert.Empty(t, f.projects.deleted)
 }
 
-// A delete that stops is never silent (D5): the rows keep their durable intent,
-// the error is the caller's, and boot finishes what PendingDeletes lists.
 func TestPendingDeletes_ListsDeletesARestartInterrupted(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -276,7 +265,6 @@ func TestPendingDeletes_ListsDeletesARestartInterrupted(t *testing.T) {
 	assert.Equal(t, []string{"r1"}, f.repos.deleted)
 }
 
-// A lone repo delete that stopped is listed on its own; live rows are not.
 func TestPendingDeletes_ListsALoneRepoDelete(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -329,10 +317,6 @@ func TestProjectDelete_ListReposError_Aborts(t *testing.T) {
 	assert.Empty(t, f.projects.deleted)
 }
 
-// A repo delete retires its workspaces BEFORE its row goes: deleting the row
-// first let a crash strand workspaces whose repo no longer resolves, and ran
-// their teardown without the default branch (spec §3 P0-1). Its Node row and
-// its entity directory go with it.
 func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
 	f := newDeleteFixture(t)
 	repoDir := filepath.Join(f.home, "projects", "p1", "r1")
@@ -346,9 +330,6 @@ func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
 	assert.NoDirExists(t, repoDir)
 }
 
-// A row the caller already marked (the HTTP handler records the intent before
-// its 202) is not saved again; a row not marked, as one a failure left behind
-// before it was marked, records the intent first.
 func TestDeleteRepo_AStoppedDeleteIsMarkedAgain(t *testing.T) {
 	f := newDeleteFixture(t)
 	require.NoError(t, f.uc.DeleteRepo(context.Background(),
@@ -361,8 +342,6 @@ func TestDeleteRepo_AStoppedDeleteIsMarkedAgain(t *testing.T) {
 	assert.Equal(t, 1, g.repos.saves, "an unmarked row is marked before it is torn down")
 }
 
-// A failed cascade keeps the row and returns why; nothing is written back to
-// the row, since the caller's operation records the reason.
 func TestDeleteRepo_AFailureIsReturnedNotSaved(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.cascade.err = errors.New("boom")
@@ -374,8 +353,6 @@ func TestDeleteRepo_AFailureIsReturnedNotSaved(t *testing.T) {
 	assert.Empty(t, f.nodes.forgot)
 }
 
-// Without consent, work at risk refuses a repo or project delete before its
-// intent is recorded — nothing is marked, so boot has nothing to resume.
 func TestBeginDelete_WithoutConsentRefusesOverWorkAtRiskBeforeRecordingIntent(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -397,7 +374,6 @@ func TestBeginDelete_WithoutConsentRefusesOverWorkAtRiskBeforeRecordingIntent(t 
 	assert.True(t, marked.Deleting)
 }
 
-// The consent a delete was given reaches the cascade; a resumed delete has none.
 func TestDeleteRepo_HandsItsConsentToTheCascadeAndAResumedDeleteHasNone(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()

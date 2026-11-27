@@ -37,8 +37,6 @@ func descriptorFor(t *testing.T, provider string) engineagents.Agent {
 	return agent
 }
 
-// showingRunners answers only ShowingNativeView: surfaceGated is all that is
-// under test here.
 type showingRunners struct {
 	RecorderRunners
 	showing bool
@@ -46,8 +44,6 @@ type showingRunners struct {
 
 func (r showingRunners) ShowingNativeView(string) bool { return r.showing }
 
-// An event that declares no surfaces is on every one, without ever asking
-// which surface is showing.
 func TestSurfaceGated_AnEventWithNoDeclaredSurfacesIsNeverGated(t *testing.T) {
 	t.Parallel()
 	r := &Recorder{runners: showingRunners{showing: true}}
@@ -55,7 +51,6 @@ func TestSurfaceGated_AnEventWithNoDeclaredSurfacesIsNeverGated(t *testing.T) {
 	assert.False(t, r.surfaceGated("runner-1", descriptorFor(t, "codex"), "turn_stop"))
 }
 
-// A chat-only event is not listened to while the provider's own view shows.
 func TestSurfaceGated_AChatOnlyEventIsGatedOffWhileTheNativeViewIsShowing(t *testing.T) {
 	t.Parallel()
 	r := &Recorder{runners: showingRunners{showing: true}}
@@ -152,8 +147,6 @@ func (f *feedSpy) Telemetry(string, string, engineagents.Telemetry) {
 	f.telemetry++
 }
 
-// recorderFixture is a Recorder over a real ledger and the shipped descriptor
-// of provider, recording for runner run-1, the chat's live runner.
 type recorderFixture struct {
 	r       *Recorder
 	ledger  *ledgerstore.Store
@@ -218,7 +211,6 @@ func (f *recorderFixture) state(t *testing.T) ledger.State {
 	return st
 }
 
-// said is what rows say the agent said, message by message.
 func said(rows []ledger.Row) []string {
 	var fold ledger.MessageFold
 	for _, r := range rows {
@@ -243,8 +235,6 @@ func TestRecorder_APromptOpensATurnAndTitlesTheChat(t *testing.T) {
 	assert.Equal(t, []string{"fix the build"}, f.titles.titles, "a title the chat's words derive, best-effort")
 }
 
-// Crowbar's own injected context is nobody's words: its echo opens the turn and
-// says nothing.
 func TestRecorder_AnInjectedEchoSaysNothing(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	f.agents.RecordInjection("run-1", "handoff blob")
@@ -290,8 +280,6 @@ func TestRecorder_SessionEventsAreTheRunnersNotTheLedgers(t *testing.T) {
 	require.ErrorIs(t, err, seam.ErrHookNotRecorded)
 }
 
-// An event of a session the chat is not bound to is foreign, unless it is a
-// nested conversation the chat's agent opened.
 func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	bound, err := ledger.Announce(f.state(t), "claude", "main", "", "")
@@ -322,8 +310,6 @@ func TestRecorder_AnotherSessionsEventIsForeignUnlessNested(t *testing.T) {
 	assert.Equal(t, "child", rows[len(rows)-1].Scope)
 }
 
-// A runner past its exit still says what it said, in its own turn; it moves
-// the chat onto no session.
 func TestRecorder_AnExitedRunnersLastWordsAreItsTurns(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -358,8 +344,6 @@ func TestRecorder_AHeldAskIsParkedOnTheDesk(t *testing.T) {
 	assert.True(t, held)
 }
 
-// An api ask too big for the desk is refused to its CLI at once, so it is
-// recorded refused, never left a card nobody can answer; its input is kept cut.
 func TestRegression_AnOversizeAPIAskIsRecordedRefusedNotLeftPending(t *testing.T) {
 	f := newRecorderFixture(t, "codex")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -384,8 +368,6 @@ func TestRegression_AnOversizeAPIAskIsRecordedRefusedNotLeftPending(t *testing.T
 	assert.True(t, bodyOf[ledger.Ask](t, rows[len(rows)-2]).ToolInputTruncated, "its input is cut, not dropped")
 }
 
-// A turn's end on a runner whose own end is under way is recorded unheld: it
-// hands no steer over.
 func TestRecorder_AnEndOnAnEndingRunnerIsRecordedUnheld(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -434,8 +416,6 @@ func TestDeriveTitle_IsThePromptsFirstLine(t *testing.T) {
 	assert.Equal(t, "a very long first line that runs well past the sixty charact…", deriveTitle(long))
 }
 
-// Every event of the hook vocabulary is one Map decides rows for, or one the
-// dispatcher handles without the mapper; none falls between the two.
 func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
 	notMapped := []string{engineagents.HookSessionStart, engineagents.HookSessionEnd, engineagents.HookTelemetry}
 	vocabulary := hookVocabulary(t)
@@ -449,8 +429,6 @@ func TestRecords_EveryHookEventIsMappedOrHandledElsewhere(t *testing.T) {
 	}
 }
 
-// hookVocabulary reads the Hook constants from their declaring file: Go has no
-// runtime list of a package's constants, and a copied list would not grow with them.
 func hookVocabulary(t *testing.T) []string {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), "../../../../../engine/agents/internal/spec/hooks.go", nil, 0)
@@ -472,7 +450,6 @@ func hookVocabulary(t *testing.T) []string {
 	return out
 }
 
-// noLedger takes every outcome the desk writes back and keeps none.
 type noLedger struct{}
 
 func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }

@@ -16,23 +16,18 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// ThreadsSuite exercises the first-class workspace-scoped review-thread endpoint:
-// open/reply/resolve each return the scoped DTO synchronously (201/200) AND
-// publish the same DTO as a review_thread entity on the workspace's ws: scope.
 type ThreadsSuite struct {
 	kit.IntegrationSuite
 	imported kit.ImportedRepo
 	wsID     string
 }
 
-// SetupTest imports a repo and creates the workspace used by every test.
 func (s *ThreadsSuite) SetupTest() {
 	s.IntegrationSuite.SetupTest()
 	s.imported = s.Env.ImportRepo(s.T(), "threads", "")
 	s.wsID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/threads-test")
 }
 
-// base returns the workspace-scoped threads route prefix.
 func (s *ThreadsSuite) threadsBase() string {
 	return "/v0/projects/" + s.imported.ProjectID +
 		"/repos/" + s.imported.RepoID +
@@ -43,7 +38,6 @@ func TestThreadsSuite(t *testing.T) {
 	suite.Run(t, new(ThreadsSuite))
 }
 
-// readThread reads review_thread entity frames until match accepts one's DTO.
 func readThread(t *testing.T, w *kit.WSWatcher, match func(m map[string]any) bool) map[string]any {
 	t.Helper()
 	var dto map[string]any
@@ -58,7 +52,6 @@ func readThread(t *testing.T, w *kit.WSWatcher, match func(m map[string]any) boo
 	return dto
 }
 
-// openThread opens a thread and returns its decoded DTO.
 func (s *ThreadsSuite) openThread(filePath string, line int, body string) map[string]any {
 	s.T().Helper()
 	resp := s.Env.POST(s.T(), s.threadsBase(), map[string]any{
@@ -73,8 +66,6 @@ func (s *ThreadsSuite) openThread(filePath string, line int, body string) map[st
 	return thread
 }
 
-// TestThreads_Open_Broadcasts verifies POST .../threads opens a thread (201 +
-// scoped DTO) and publishes the same ThreadDTO on the ws: scope.
 func (s *ThreadsSuite) TestThreads_Open_Broadcasts() {
 	t := s.T()
 
@@ -99,8 +90,6 @@ func (s *ThreadsSuite) TestThreads_Open_Broadcasts() {
 	s.Assert().Equal(s.wsID, msg["workspaceId"])
 }
 
-// TestThreads_Reply_Broadcasts verifies POST .../threads/:id/replies appends a
-// reply (200 + scoped DTO) and broadcasts the updated ThreadDTO.
 func (s *ThreadsSuite) TestThreads_Reply_Broadcasts() {
 	t := s.T()
 
@@ -129,9 +118,6 @@ func (s *ThreadsSuite) TestThreads_Reply_Broadcasts() {
 	s.Assert().Equal(threadID, msg["id"])
 }
 
-// TestThreads_EditMessage_Broadcasts verifies PATCH .../threads/:id/messages/:mid
-// rewrites the root comment body (by its surfaced messageId) and broadcasts the
-// updated ThreadDTO.
 func (s *ThreadsSuite) TestThreads_EditMessage_Broadcasts() {
 	t := s.T()
 
@@ -156,8 +142,6 @@ func (s *ThreadsSuite) TestThreads_EditMessage_Broadcasts() {
 	})
 }
 
-// TestThreads_DeleteMessage_Broadcasts verifies DELETE .../messages/:mid removes
-// a reply (200 + updated DTO) and rejects deleting the root comment with a 422.
 func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	t := s.T()
 
@@ -173,7 +157,6 @@ func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	s.Require().Len(replies, 1)
 	replyID := replies[0].(map[string]any)["id"].(string)
 
-	// Deleting the root via the message route is a command validation failure — use DELETE thread.
 	rejectResp := s.Env.DELETE(t, s.threadsBase()+"/"+threadID+"/messages/"+rootMessageID)
 	kit.RequireStatus(t, rejectResp, http.StatusUnprocessableEntity)
 
@@ -195,9 +178,6 @@ func (s *ThreadsSuite) TestThreads_DeleteMessage_Broadcasts() {
 	})
 }
 
-// TestThreads_DeleteThread_BroadcastsTombstone verifies DELETE .../threads/:id
-// forgets the thread (it disappears from the list), answers a tombstone, and
-// publishes the entity gone so subscribed clients drop it.
 func (s *ThreadsSuite) TestThreads_DeleteThread_BroadcastsTombstone() {
 	t := s.T()
 
@@ -216,7 +196,6 @@ func (s *ThreadsSuite) TestThreads_DeleteThread_BroadcastsTombstone() {
 		return f["t"] == "entity" && f["kind"] == "review_thread" && f["id"] == threadID && f["gone"] == true
 	})
 
-	// The thread is gone from the workspace list.
 	listResp := s.Env.GET(t, s.threadsBase())
 	kit.RequireStatus(t, listResp, http.StatusOK)
 	var list []map[string]any
@@ -226,8 +205,6 @@ func (s *ThreadsSuite) TestThreads_DeleteThread_BroadcastsTombstone() {
 	}
 }
 
-// TestThreads_Resolve_Broadcasts verifies PATCH .../threads/:id toggles resolved
-// (200 + scoped DTO) and broadcasts the updated ThreadDTO both ways.
 func (s *ThreadsSuite) TestThreads_Resolve_Broadcasts() {
 	t := s.T()
 

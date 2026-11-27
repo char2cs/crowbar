@@ -16,13 +16,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// childChat is the chat these tests address, resolving to the workspace named
-// "child" throughout.
 func childChat() *fakeWorktrees {
 	return &fakeWorktrees{ws: domain.Workspace{ID: "child", ProjectID: "p1", Branch: "feature/child", ParentID: "parent"}}
 }
 
-// family is the workspace list the labels name the parent from.
 func family() *fakeReader {
 	return &fakeReader{list: []domain.Workspace{
 		{ID: "parent", Branch: "main"},
@@ -31,7 +28,6 @@ func family() *fakeReader {
 	}}
 }
 
-// A valid merge-into-parent answers 202 with its operation, which runs the merge.
 func TestMergeIntoParent_AnswersItsOperation(
 	t *testing.T,
 ) {
@@ -49,7 +45,6 @@ func TestMergeIntoParent_AnswersItsOperation(
 	assert.Equal(t, gitdomain.MergeStrategySquash, hierarchy.gotStrategy)
 }
 
-// A parent that cannot be named leaves the label at the verb and branch.
 func TestMergeIntoParent_AnUnknownParentIsLeftOutOfTheLabel(t *testing.T) {
 	r, ops := newChatRouter(&fakeReader{}, &fakeHierarchy{}, childChat())
 	rec := do(r, http.MethodPost, chatBase+"/merge-into-parent", `{"strategy":"squash"}`)
@@ -73,8 +68,6 @@ func TestMergeIntoParentMissingStrategy(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// A merge for a chat holding no worktree is refused on the request path, and
-// starts no operation.
 func TestMergeIntoParentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
@@ -86,7 +79,6 @@ func TestMergeIntoParentMissingWorkspace_4xx(
 	assert.Empty(t, ops.frames, "no operation starts for a workspace that does not exist")
 }
 
-// A merge that fails after its 202 fails its operation with the reason.
 func TestMergeIntoParent_AFailureFailsTheOperation(
 	t *testing.T,
 ) {
@@ -100,7 +92,6 @@ func TestMergeIntoParent_AFailureFailsTheOperation(
 	assert.Equal(t, workspace.ErrParentLocked.Error(), op.Error.Message)
 }
 
-// A valid reparent answers 202 with its operation, which runs the reparent.
 func TestReparent_AnswersItsOperation(
 	t *testing.T,
 ) {
@@ -132,7 +123,6 @@ func TestReparentMissingNewParent(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// A reparent for a chat holding no worktree is refused on the request path.
 func TestReparentMissingWorkspace_4xx(
 	t *testing.T,
 ) {
@@ -144,7 +134,6 @@ func TestReparentMissingWorkspace_4xx(
 	assert.Empty(t, ops.frames, "no operation starts for a workspace that does not exist")
 }
 
-// A refused reparent fails its operation with the refusal's code.
 func TestReparent_ARefusalFailsTheOperation(
 	t *testing.T,
 ) {
@@ -190,14 +179,10 @@ func mergeInto(
 	return do(r, http.MethodPost, chatBase+"/merge-into-parent", body)
 }
 
-// A clean merge with deleteSource removes the child once it is a LEAF, because
-// at that point its work lives in the parent and nothing else descends from it.
 func TestMergeIntoParent_DeleteSourceFoldsMergedLeaf(
 	t *testing.T,
 ) {
 	reader := &fakeReader{
-		// Siblings under the same parent do not make "child" a non-leaf: only a
-		// workspace whose ParentID IS "child" would.
 		list: []domain.Workspace{
 			{ID: "child", ParentID: "parent"},
 			{ID: "sibling", ParentID: "parent"},
@@ -212,8 +197,6 @@ func TestMergeIntoParent_DeleteSourceFoldsMergedLeaf(
 	assert.Equal(t, "child", hierarchy.gotDeleteID, "a merged leaf is folded away")
 }
 
-// A merged child that still has descendants is KEPT, because DeleteCascade
-// would take its children's unmerged work with it.
 func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
 	t *testing.T,
 ) {
@@ -232,7 +215,6 @@ func TestMergeIntoParent_DeleteSourceKeepsNonLeaf(
 	assert.Equal(t, domain.OpSucceeded, op.State, "keeping a non-leaf is a no-op, not a failure")
 }
 
-// A conflicted merge keeps the child regardless of deleteSource.
 func TestMergeIntoParent_DeleteSourceKeepsConflictedChild(
 	t *testing.T,
 ) {
@@ -244,7 +226,6 @@ func TestMergeIntoParent_DeleteSourceKeepsConflictedChild(
 	assert.Empty(t, hierarchy.gotDeleteID, "a conflicted merge leaves the child to resolve")
 }
 
-// The fold is opt-in: a clean merge without deleteSource leaves the child alone.
 func TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild(
 	t *testing.T,
 ) {
@@ -256,8 +237,6 @@ func TestMergeIntoParent_DeleteSourceWithoutFlagKeepsChild(
 	assert.Empty(t, hierarchy.gotDeleteID)
 }
 
-// A post-merge cleanup failure is reported as such: the MERGE already
-// succeeded, so the message must not read as a failed merge.
 func TestMergeIntoParent_FoldLeafLookupFailureFailsTheOperation(
 	t *testing.T,
 ) {
@@ -272,7 +251,6 @@ func TestMergeIntoParent_FoldLeafLookupFailureFailsTheOperation(
 	assert.Contains(t, op.Error.Message, "merge succeeded but post-merge cleanup failed")
 }
 
-// The same for the delete itself failing after a successful merge.
 func TestMergeIntoParent_FoldDeleteFailureFailsTheOperation(
 	t *testing.T,
 ) {
@@ -289,7 +267,6 @@ func TestMergeIntoParent_FoldDeleteFailureFailsTheOperation(
 	assert.Contains(t, op.Error.Message, "merge succeeded but removing the workspace failed")
 }
 
-// The user-initiated "finish the move" answers 202 with its operation.
 func TestRebaseOntoParent_AnswersItsOperation(
 	t *testing.T,
 ) {
@@ -305,7 +282,6 @@ func TestRebaseOntoParent_AnswersItsOperation(
 	assert.Equal(t, "child", hierarchy.gotRebaseID)
 }
 
-// A chat holding no worktree starts no rebase.
 func TestRebaseOntoParentMissingWorkspace_4xx(
 	t *testing.T,
 ) {

@@ -10,17 +10,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 )
 
-// firstPresentOperator/anyOfOperator are the ONLY spellings of alternation:
-// first_present: for map:, any_of: for when:. A `||` glyph anywhere is a hard
-// parse error (AlternationGlyphError).
 const (
 	firstPresentOperator = "first_present"
 	anyOfOperator        = "any_of"
 )
 
-// AlternationGlyphError is a descriptor spelling alternation with `||` in any map:,
-// when: or wire ref. Field and Value are set where the glyph is found; Event is
-// filled in later by EventTable.UnmarshalYAML, the first point that knows it.
 type AlternationGlyphError struct {
 	Event string
 	Field string
@@ -39,8 +33,6 @@ func (e *AlternationGlyphError) Error() string {
 	)
 }
 
-// EventTable is Descriptor.Events' concrete type. It decodes event by event so a
-// bad field's error can name its EVENT, a map key field decoders never see.
 type EventTable map[string]EventSpec
 
 func (t *EventTable) UnmarshalYAML(node *yaml.Node) error {
@@ -65,9 +57,6 @@ func (t *EventTable) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// FieldMap is an event's map: block: canonical field name to its alternative branches, the
-// first one PRESENT in the payload winning. A branch is a path or a transform
-// (`{from: p, pattern: re}`, `{join: [a, b]}`, `{json: p, path: q}`); `{first_present: [...]}` lists several.
 type FieldMap map[string]mapping.Expr
 
 func (m *FieldMap) UnmarshalYAML(node *yaml.Node) error {
@@ -79,9 +68,6 @@ func (m *FieldMap) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// WhenMap is an event's when: block: discriminator path to the value(s) it must
-// equal. A plain scalar value is a one-value list; `{any_of: [a, b]}` spells more
-// than one.
 type WhenMap map[string][]string
 
 func (m *WhenMap) UnmarshalYAML(node *yaml.Node) error {
@@ -93,7 +79,6 @@ func (m *WhenMap) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// decodeTable decodes a mapping of field name to expression; a bad field's error names it.
 func decodeTable[V any](node *yaml.Node, decode func(*yaml.Node, string) (V, error)) (map[string]V, error) {
 	if node.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("want a mapping, got %v", node.Kind)
@@ -114,9 +99,6 @@ func decodeTable[V any](node *yaml.Node, decode func(*yaml.Node, string) (V, err
 	return out, nil
 }
 
-// decodeValues accepts a plain value scalar or the one any_of mapping. Anything else is
-// a descriptor bug and fails the load; a scalar spelling `||` gets its own named error
-// because it would otherwise silently map to a value that never matches.
 func decodeValues(node *yaml.Node, field string) ([]string, error) {
 	switch node.Kind { //nolint:exhaustive // default rejects every other node kind with the same error.
 	case yaml.ScalarNode:
@@ -140,7 +122,6 @@ func decodeValues(node *yaml.Node, field string) ([]string, error) {
 	}
 }
 
-// decodeBranches accepts a plain path, one transform, or the first_present list of either.
 func decodeBranches(node *yaml.Node, field string) (mapping.Expr, error) {
 	switch node.Kind { //nolint:exhaustive // default rejects every other node kind with the same error.
 	case yaml.ScalarNode:
@@ -178,7 +159,6 @@ func decodeBranchList(list *yaml.Node, field string) (mapping.Expr, error) {
 	return out, nil
 }
 
-// decodeBranch reads one alternative: a path scalar or a transform mapping.
 func decodeBranch(node *yaml.Node, field string) (mapping.Branch, error) {
 	if node.Kind == yaml.ScalarNode {
 		path, err := decodeScalar(node, field)
@@ -202,7 +182,6 @@ func decodeScalar(node *yaml.Node, field string) (string, error) {
 	return s, nil
 }
 
-// operatorList checks node is a mapping of exactly the one operator and returns its list.
 func operatorList(node *yaml.Node, operator string) (*yaml.Node, error) {
 	if len(node.Content) != 2 {
 		return nil, fmt.Errorf("an operator mapping needs exactly one key, got %d", len(node.Content)/2)
@@ -222,8 +201,6 @@ func rejectGlyph(paths []string, field string) error {
 	return nil
 }
 
-// decodeTransform reads the spellings that compute a value instead of naming a
-// path; ok is false for any other mapping.
 func decodeTransform(node *yaml.Node, field string) (branch mapping.Branch, ok bool, err error) {
 	keys := make(map[string]*yaml.Node, len(node.Content)/2)
 	for i := 0; i+1 < len(node.Content); i += 2 {

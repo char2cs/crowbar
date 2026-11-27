@@ -9,56 +9,44 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// How an ask was closed.
 const (
-	ResolutionAnswered  = "answered"  // a person answered it through Crowbar
-	ResolutionProceeded = "proceeded" // the CLI went on without Crowbar's answer
-	ResolutionRefused   = "refused"   // nobody answered in time, so the CLI was sent a refusal
-	ResolutionAbandoned = "abandoned" // nothing will answer it any more
+	ResolutionAnswered  = "answered"
+	ResolutionProceeded = "proceeded"
+	ResolutionRefused   = "refused"
+	ResolutionAbandoned = "abandoned"
 )
 
-// Ask is the body of an ask row: a question the CLI is blocked on.
 type Ask struct {
-	AskID     string          `json:"askId"`
-	Event     string          `json:"event"` // the hook that raised it
-	Kind      string          `json:"kind,omitempty"`
-	PromptID  string          `json:"promptId,omitempty"`
-	ToolID    string          `json:"toolId,omitempty"`
-	ToolName  string          `json:"toolName,omitempty"`
-	Title     string          `json:"title,omitempty"`
-	Question  string          `json:"question,omitempty"`
-	Mode      string          `json:"mode,omitempty"`
-	Multi     bool            `json:"multi,omitempty"`
-	Options   json.RawMessage `json:"options,omitempty"`
-	Questions json.RawMessage `json:"questions,omitempty"`
-	Schema    json.RawMessage `json:"schema,omitempty"`
-	Detail    string          `json:"detail,omitempty"`
-	// ToolTarget, ToolInput and MCPServer say what the call it asks about does.
-	// An input too big to keep is its leading text, as a string, and Truncated.
+	AskID              string          `json:"askId"`
+	Event              string          `json:"event"`
+	Kind               string          `json:"kind,omitempty"`
+	PromptID           string          `json:"promptId,omitempty"`
+	ToolID             string          `json:"toolId,omitempty"`
+	ToolName           string          `json:"toolName,omitempty"`
+	Title              string          `json:"title,omitempty"`
+	Question           string          `json:"question,omitempty"`
+	Mode               string          `json:"mode,omitempty"`
+	Multi              bool            `json:"multi,omitempty"`
+	Options            json.RawMessage `json:"options,omitempty"`
+	Questions          json.RawMessage `json:"questions,omitempty"`
+	Schema             json.RawMessage `json:"schema,omitempty"`
+	Detail             string          `json:"detail,omitempty"`
 	ToolTarget         string          `json:"toolTarget,omitempty"`
 	ToolInput          json.RawMessage `json:"toolInput,omitempty"`
 	ToolInputTruncated bool            `json:"toolInputTruncated,omitempty"`
 	MCPServer          string          `json:"mcpServer,omitempty"`
-	// InputKey keys the call's whole input, kept or cut: an ask of another
-	// input never repeats this one.
-	InputKey string `json:"inputKey,omitempty"`
-	// Answerable: Crowbar holds the CLI's reply, so an answer given here reaches it.
-	Answerable bool `json:"answerable"`
+	InputKey           string          `json:"inputKey,omitempty"`
+	Answerable         bool            `json:"answerable"`
 }
 
-// OutlivesEnd reports whether the ask stays open past its turn's end: while a
-// subagent runs past that end, a held ask is left to it, the only thing that
-// can hold the CLI on it once its turn is over.
 func (a Ask) OutlivesEnd(subagentRunning bool) bool { return subagentRunning && a.Answerable }
 
-// AskResolved is the body of an ask_resolved row.
 type AskResolved struct {
 	AskID      string   `json:"askId"`
 	Resolution string   `json:"resolution"`
 	OptionIDs  []string `json:"optionIds,omitempty"`
 }
 
-// PendingAsk is an ask nothing has closed.
 type PendingAsk struct {
 	Ask
 	TurnID, Scope string
@@ -66,7 +54,6 @@ type PendingAsk struct {
 	At            time.Time
 }
 
-// PendingAsks are the chat's open asks, oldest first.
 func (s State) PendingAsks() []PendingAsk {
 	out := make([]PendingAsk, 0, len(s.keys.asks))
 	for _, a := range s.keys.asks {
@@ -76,8 +63,6 @@ func (s State) PendingAsks() []PendingAsk {
 	return out
 }
 
-// OpenAsks are the open asks that offer a choice, oldest first, as the choices
-// an answer, the answer desk and the terminal-wait check read.
 func (s State) OpenAsks() []domain.ActivityChoice {
 	var out []domain.ActivityChoice
 	for _, p := range s.PendingAsks() {
@@ -100,8 +85,6 @@ func (s State) OpenAsks() []domain.ActivityChoice {
 	return out
 }
 
-// decoded is raw as T. The mapper wrote it from these same shapes; one that
-// does not decode shows the question without it.
 func decoded[T any](raw json.RawMessage) T {
 	var v T
 	if err := json.Unmarshal(raw, &v); err != nil {
@@ -111,9 +94,6 @@ func decoded[T any](raw json.RawMessage) T {
 	return v
 }
 
-// SameAsk is the open ask a's delivery repeats: raised by the same event in
-// the same scope, of no other input, on the same tool call; without one, under
-// the same prompt id, tool and question. A prompt id alone names a whole turn.
 func (s State) SameAsk(scope string, a Ask) (string, bool) {
 	for _, p := range s.PendingAsks() {
 		if p.Scope != scope || p.Event != a.Event || otherInput(a, p.Ask) {
@@ -136,7 +116,6 @@ func otherInput(a, b Ask) bool {
 	return a.InputKey != "" && b.InputKey != "" && a.InputKey != b.InputKey
 }
 
-// AsksOfTool are the open asks bound to the tool call toolID of scope.
 func (s State) AsksOfTool(scope, toolID string) []string {
 	var ids []string
 	for _, p := range s.PendingAsks() {
@@ -147,7 +126,6 @@ func (s State) AsksOfTool(scope, toolID string) []string {
 	return ids
 }
 
-// ResolveAsk is the ask_resolved row closing askID; none once it is closed.
 func ResolveAsk(st State, askID, resolution string, optionIDs []string) ([]Row, error) {
 	p, ok := st.keys.asks[askID]
 	if !ok {
@@ -173,7 +151,6 @@ func (s *State) applyAskResolved(r Row) {
 	}
 }
 
-// abandonAsks drops the open asks which says: nothing will answer them.
 func (s *State) abandonAsks(which func(PendingAsk) bool) {
 	for id, a := range s.keys.asks {
 		if which(a) {

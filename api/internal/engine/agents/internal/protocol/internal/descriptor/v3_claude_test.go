@@ -38,8 +38,6 @@ func TestClaudeDescriptor_MapsBashDescriptionAsTitle(t *testing.T) {
 	}
 }
 
-// bashFailure is the claude 2.1.302 PostToolUseFailure capture, scrubbed only; it cannot join the
-// replay because no recorded subagent failure resolves scope_id.
 const bashFailure = `{
   "session_id": "6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
   "transcript_path": "/h/.claude/projects/-ws/6f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d.jsonl",
@@ -91,8 +89,6 @@ func TestClaudeDescriptor_PermissionNamesItsCallFromTheRecordedAsk(t *testing.T)
 	}
 }
 
-// A subagent's hand-back is its result, never the user's prompt; its prompt
-// id names the parent's turn that answers it.
 func TestInjectedSubagentResultIsNotAUserPrompt(t *testing.T) {
 	d := loadDescriptor(t, "claude")
 	raw, err := os.ReadFile(fixtureRoot + "/claude/UserPromptSubmit.AgentMessage.json")
@@ -117,7 +113,6 @@ func TestClaudeDescriptor_ABackgroundAgentCallNamesTheScopeItSpawned(t *testing.
 	expectEq(t, "spawns", spawn.SpawnsScope, "a3edc502687d15840")
 }
 
-// A TaskUpdate's completion is one plan step changed alone.
 func TestClaudeDescriptor_ATaskUpdateIsAPlanStep(t *testing.T) {
 	d := loadDescriptor(t, "claude")
 	ev, err := inbound.Parse(d, spec.HookPlanStep, []byte(`{"session_id":"s","transcript_path":"/t",
@@ -143,8 +138,6 @@ func TestClaudeDescriptor_ATaskUpdateIsAPlanStep(t *testing.T) {
 	expectEq(t, "a rename says no status", *renamed.Step, models.PlanStepEvent{StepID: "1", Text: "renamed"})
 }
 
-// UNVERIFIED shapes: no claude login was available to record a background call, so these
-// follow the documented tool_response fields (backgroundTaskId, taskId, task_id).
 const backgroundBash = `{"session_id":"s","hook_event_name":"PostToolUse","tool_name":"Bash",
 	"tool_input":{"command":"npm run dev","description":"Dev server","run_in_background":true},
 	"tool_response":{"stdout":"","stderr":"","interrupted":false,"backgroundTaskId":"bg1a2b3c4"},
@@ -224,7 +217,6 @@ func TestClaudeDescriptor_ATaskNotificationNamesTheShellItEnds(t *testing.T) {
 	expectEq(t, "a typed prompt ends none", len(typed.Shells), 0)
 }
 
-// A failed turn is classified by the descriptor, so nothing downstream reads the provider's words.
 func TestClaudeDescriptor_ATurnFailureCarriesItsNeutralKind(t *testing.T) {
 	d := loadDescriptor(t, "claude")
 	for stopped, want := range map[string]string{

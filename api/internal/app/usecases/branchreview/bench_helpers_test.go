@@ -8,10 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The git helpers below are intentionally small duplicates of the ones in the
-// worktree package's bench test. They are copied (not shared) so branchreview
-// stays an independent package with no test-time dependency on worktree.
-
 func benchInitRepo(
 	b *testing.B,
 ) string {

@@ -21,8 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// fakeHomeCreator refuses a home whose id is taken, as the workspace create
-// command does for any row under that id, tombstones included.
 type fakeHomeCreator struct {
 	taken   map[string]bool
 	created []string
@@ -37,7 +35,6 @@ func (f *fakeHomeCreator) CreateHome(_ context.Context, p domain.Project) (domai
 	return domain.Workspace{}, f.err
 }
 
-// fakeCheckpoints records what a step marked, by key.
 type fakeCheckpoints map[string]migrate.Counts
 
 func (f fakeCheckpoints) Done(key string) bool {
@@ -50,8 +47,6 @@ func (f fakeCheckpoints) Mark(key string, n migrate.Counts) error {
 	return nil
 }
 
-// migrate --plan previews a boot with Implemented: a step the catalog holds and
-// it does not name would preview as a halt the boot never gives.
 func TestImplemented_NamesEveryStepTheBootRuns(t *testing.T) {
 	cat, err := migrations.Catalog()
 	require.NoError(t, err)
@@ -70,9 +65,6 @@ func TestImplemented_NamesEveryStepTheBootRuns(t *testing.T) {
 	assert.False(t, Implemented(migrations.StepWorktreeReach+1), "no step past the catalog")
 }
 
-// Only a live project with no live home gets one, each checkpointed as it
-// lands. A home tombstone still holds the home's id until its purge runs, so
-// that project's home is not missing and cannot be created again.
 func TestReconcileProjectHomes_CreatesOnlyTheMissingHomes(t *testing.T) {
 	tombstone := workspace.ProjectHomeID("tombstoned")
 	c, cp := &fakeHomeCreator{taken: map[string]bool{tombstone: true}}, fakeCheckpoints{}
@@ -98,8 +90,6 @@ func TestReconcileProjectHomes_AHomeThatCannotBeCreatedFailsTheStep(t *testing.T
 	assert.Empty(t, cp)
 }
 
-// An older daemon finished every step and left its markers: each step is
-// adopted, and none of the work behind it runs.
 func TestLegacyImpls_AdoptedStepRunsNothing(t *testing.T) {
 	h, err := runLegacy(t, untouchable(),
 		"project-homes", "workspace-paths-table", "chat-types", "chat-providers-from-history", "hook-deliveries")
@@ -115,8 +105,6 @@ func TestLegacyImpls_AdoptedStepRunsNothing(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(h.State(), "upgrades"))
 }
 
-// The old closures' false meant "some rows could not be replayed": those rows
-// are counted and the step completes, as the pre-engine boot did.
 func TestLegacyImpls_SkippedRowsCompleteTheStep(t *testing.T) {
 	f := upToDate()
 	f.backfillChatTypes = func(context.Context) (int, error) { return 2, nil }
@@ -130,8 +118,6 @@ func TestLegacyImpls_SkippedRowsCompleteTheStep(t *testing.T) {
 	assert.Equal(t, []migrate.Counts{{"skipped_rows": 1}}, applied[migrations.StepChatProviders])
 }
 
-// The other half of the old false, a list that could not be read, is no row
-// to skip: the step fails and halts the boot.
 func TestLegacyImpls_AFailedListFailsTheStep(t *testing.T) {
 	f := upToDate()
 	f.backfillChatTypes = func(context.Context) (int, error) { return 0, errors.New("list chats: disk gone") }
@@ -143,8 +129,6 @@ func TestLegacyImpls_AFailedListFailsTheStep(t *testing.T) {
 	assert.Contains(t, halt.Message, "disk gone")
 }
 
-// A retired hook journal that cannot be deleted is logged and counted, not
-// fatal: the step completes, and its check excuses the journal it kept.
 func TestLegacyImpls_AnUndeletableHookJournalIsSkippedNotFatal(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	h := testutil.FixtureHome(t)
@@ -166,8 +150,6 @@ func TestLegacyImpls_AnUndeletableHookJournalIsSkippedNotFatal(t *testing.T) {
 	assert.Equal(t, []migrate.Counts{{"skipped_rows": 1, "dirs_removed": 1}}, applied[migrations.StepHookDeliveries])
 }
 
-// A halt names the first rows a check found, not all of them: the message is
-// kept in the ledger and served to the user.
 func TestLegacyImpls_AHaltNamesTheFirstTenRowsLeft(t *testing.T) {
 	f := upToDate()
 	f.missingHomes = func(context.Context) ([]string, error) {
@@ -186,15 +168,12 @@ func TestLegacyImpls_AHaltNamesTheFirstTenRowsLeft(t *testing.T) {
 	assert.NotContains(t, halt.Message, "row-11")
 }
 
-// Each step checks its own postcondition: a row it could have replayed and
-// did not upgrade halts the boot, naming the step and the row.
 func TestLegacyImpls_ARowLeftBehindFailsVerification(t *testing.T) {
 	leftBehind := func(context.Context) ([]string, error) { return []string{"row-1"}, nil }
 	for name, spoil := range map[string]func(*legacyFuncs, home.Home){
 		"project-homes":               func(f *legacyFuncs, _ home.Home) { f.missingHomes = leftBehind },
 		"chat-types":                  func(f *legacyFuncs, _ home.Home) { f.untypedChats = leftBehind },
 		"chat-providers-from-history": func(f *legacyFuncs, _ home.Home) { f.staleProviders = leftBehind },
-		// Still listed after its removal reported no failure: nothing excuses it.
 		"hook-deliveries": func(f *legacyFuncs, h home.Home) {
 			journal := hookJournal{workspaceID: "ws", path: filepath.Join(h.Root(), "row-1")}
 			f.hookJournals = func(context.Context) ([]hookJournal, []error, error) {
@@ -216,8 +195,6 @@ func TestLegacyImpls_ARowLeftBehindFailsVerification(t *testing.T) {
 	}
 }
 
-// runLegacy boots a fresh home holding markers through the production catalog
-// and runs the legacy steps over f, returning what RunPostOpen returned.
 func runLegacy(
 	t *testing.T,
 	f legacyFuncs,
@@ -248,8 +225,6 @@ func runLegacyIn(
 	return sess.RunPostOpen(t.Context(), impls)
 }
 
-// journalsAt is a hook-journal listing that names each of journals while it is
-// still on disk, as the production listing does.
 func journalsAt(
 	journals ...hookJournal,
 ) func(context.Context) ([]hookJournal, []error, error) {
@@ -264,7 +239,6 @@ func journalsAt(
 	}
 }
 
-// upToDate is a home with nothing left to upgrade.
 func upToDate() legacyFuncs {
 	none := func(context.Context) ([]string, error) { return nil, nil }
 	return legacyFuncs{
@@ -278,7 +252,6 @@ func upToDate() legacyFuncs {
 	}
 }
 
-// untouchable halts the run if any step's work runs.
 func untouchable() legacyFuncs {
 	called := func(what string) error {
 		return errors.New(what + " ran on an adopted step")

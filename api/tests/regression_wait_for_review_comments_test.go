@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// An agent blocked in wait_for_review_comments must be handed the comment a human
-// posts through the ordinary threads route. The post may land before or after the
-// tool has subscribed; both orders have to deliver it, which is the lost-wakeup
-// property, so the test needs no synchronisation between the two.
 func TestRegression_WaitForReviewCommentsReturnsAHumanComment(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)

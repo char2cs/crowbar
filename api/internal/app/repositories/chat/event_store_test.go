@@ -23,15 +23,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// captureBroadcast records every (chatID, workspaceID) the hub projection
-// announces, mirroring reviewthread's test capture.
 type captureBroadcast struct {
 	mu   sync.Mutex
 	rows []string
 }
 
-// watch adapts the repository's announcement seam onto the frame this fixture's
-// assertions already use, so the change is proven against the existing suite.
 func (c *captureBroadcast) watch(e chat.ChatEvent) {
 	c.push(e.ChatID, e.WorkspaceID)
 }
@@ -48,9 +44,6 @@ func (c *captureBroadcast) count() int {
 	return len(c.rows)
 }
 
-// newRepoWithDeps builds an EventStore repo over throwaway in-memory event +
-// read-model DBs and returns the read-model DB and the captured hub broadcast
-// so tests can inspect persistence + fan-out.
 func newRepoWithDeps(
 	t *testing.T,
 ) (context.Context, chat.EventStore, *gormdb.DB, *captureBroadcast) {
@@ -87,9 +80,6 @@ func TestAgentChat_CreateAndGetChat(t *testing.T) {
 	assert.Equal(t, "c1", created.ID)
 	assert.Equal(t, now, created.CreatedAt)
 
-	// Create is the one command on the SendWait path, so the read model already
-	// reflects it: the hook that lands microseconds after a /clear mints a chat must
-	// not see "no such chat" and drop the turn.
 	got, err := repo.GetChat(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "w1", got.WorkspaceID)
@@ -111,11 +101,6 @@ func TestAgentChat_GetChat_MissingBridgesToPackageErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, chat.ErrNotFound)
 }
 
-// The segment lifecycle (EndSegment / OpenSegment / BindSession) and the
-// GetByProviderSession lookup that scanned segments are GONE, along with AgentSegment
-// itself. A chat holds no process state: which CLI is on it, and which conversations it
-// has hosted, are chat-ledger rows, covered by the ledger and the chat usecase tests.
-
 func TestAgentChat_SetTitle_UserSourceLocksAgainstAgent(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0).UTC()
@@ -136,12 +121,6 @@ func TestAgentChat_SetTitle_UserSourceLocksAgainstAgent(t *testing.T) {
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
-// TestAgentChat_Forget_ErasesAggregate mirrors reviewthread's
-// TestReviewThread_DeleteThread_Forgets: Forget hard-deletes via ax.Forget —
-// the synchronous OnForget drops the read-model row AND the underlying event
-// log is erased, so a subsequent GetChat cannot self-heal it back via lazy
-// Replay and genuinely reports chat.ErrNotFound. This is the primitive
-// the hard delete (agent.ChatUsecase.PurgeChat) uses.
 func TestAgentChat_Forget_ErasesAggregate(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())
@@ -150,13 +129,10 @@ func TestAgentChat_Forget_ErasesAggregate(t *testing.T) {
 	require.NoError(t, repo.Forget(ctx, "c1"))
 	chat.WaitQuiescentForTest(repo)
 
-	// The synchronous OnForget row-delete leaves the read model empty.
 	var n int64
 	require.NoError(t, db.WithContext(ctx).Table("agent_chats_read").Count(&n).Error)
 	assert.Zero(t, n, "Forget's OnForget must drop the read-model row")
 
-	// And the event log is erased, so GetChat's miss-triggered Replay-rebuild
-	// cannot resurrect it: a genuine not-found.
 	_, err := repo.GetChat(ctx, "c1")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, chat.ErrNotFound)
@@ -187,17 +163,8 @@ func TestAgentChat_HubBroadcastsChatIDAndKind(t *testing.T) {
 	assert.GreaterOrEqual(t, cap.count(), 1, "hub projection must broadcast a lifecycle frame")
 }
 
-// concurrentCreateTrials is the number of independent trials
-// TestAgentChat_ConcurrentCreate_OneWins runs. asynx v0.7.0 enforces real write-path
-// optimistic concurrency: eventstore.Write loads the aggregate state and its version
-// together and appends at expectedVersion+1, so two Sends to the same aggregate collide
-// on (id,version) uniqueness — the loser gets ErrPipelineFailed and retries (re-loading
-// the now-committed state), where Validate rejects it. Several trials give the race
-// repeated chances to surface any nondeterminism.
 const concurrentCreateTrials = 10
 
-// Two Creates of the SAME id race: exactly one commits and the loser, run after
-// it, is refused by Validate as an IDConflict, never ErrPipelineFailed.
 func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 	now := time.Unix(1000, 0).UTC()
@@ -246,8 +213,6 @@ func TestAgentChat_OpenReadModel_ErrorOnBadDB(t *testing.T) {
 	require.Error(t, err)
 }
 
-// A placement is read off the Tree, so a read model a moment behind the write
-// (its pre-placement row held in place here) still serves the chat where it is.
 func TestPlacement_IsCurrentWhileTheProjectionIsStillBehind(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 
@@ -257,8 +222,6 @@ func TestPlacement_IsCurrentWhileTheProjectionIsStillBehind(t *testing.T) {
 	require.NoError(t, err)
 	chat.WaitQuiescentForTest(repo)
 
-	// The read-model row as it stands BEFORE the placement: the exact bytes the
-	// projection serves during the window.
 	var unplaced []byte
 	require.NoError(t,
 		db.Raw("SELECT data FROM agent_chats_read WHERE id = ?", "c2").Row().Scan(&unplaced))
@@ -277,8 +240,6 @@ func TestPlacement_IsCurrentWhileTheProjectionIsStillBehind(t *testing.T) {
 	assert.Equal(t, "c1", loaded.ParentID, "the read a thread's inheritance decides on")
 }
 
-// A drag decides a parent for one row and an index for a whole level; SetOrder
-// is the second and cannot express a parent: the row keeps the one the Tree holds.
 func TestSetOrder_RenumbersWithoutMoving(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 
@@ -307,16 +268,6 @@ func TestSetOrder_RefusesAChatThatDoesNotExist(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestSetWorkspace_FillsTheSlotAndReflectsImmediatelyInTheReadModel pins
-// SetWorkspace to the SendWait path, unlike every other setter in this file.
-//
-// It asserts on GetChat — the READ MODEL — with no explicit wait in between,
-// which only holds deterministically if the write actually blocks until the
-// projection folds (SendWait), mirroring TestAgentChat_CreateAndGetChat's own
-// proof for Create. Promote (usecases/chat) depends on exactly this: its next
-// act after this write is a provider switch that resolves the respawn cwd off
-// GetChat, and a Send here would leave a live window serving the OLD, empty
-// WorkspaceID.
 func TestSetWorkspace_FillsTheSlotAndReflectsImmediatelyInTheReadModel(t *testing.T) {
 	ctx, repo := newRepo(t)
 	createChat(t, ctx, repo, "c1", "", time.Now())
@@ -337,8 +288,6 @@ func TestSetWorkspace_RefusesAChatThatDoesNotExist(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// A miss arrives as this package's own sentinel whichever read served it, so no
-// caller has to know that one folds from the log and the other reads a table.
 func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 
@@ -346,11 +295,6 @@ func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {
 	assert.ErrorIs(t, err, chat.ErrNotFound)
 }
 
-// A read that FAILS is not a read that missed. Both paths funnel through the
-// same not-found mapping, and a failure mapped to ErrNotFound would surface as a
-// 404 — telling a user their chat no longer exists because a database was
-// briefly unreadable, and inviting every caller to act on a deletion that never
-// happened.
 func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 
@@ -368,9 +312,6 @@ func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 		"a chat that cannot be READ is not a chat that is gone")
 }
 
-// TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError pins the
-// "agentchat: <verb>: %w" wrap every async-Send mutation applies: a command's
-// Validate refusal (asynxModels.ErrValidation) surfaces, so the caller gets the 422.
 func TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError(t *testing.T) {
 	ctx, repo := newRepo(t)
 
@@ -393,11 +334,6 @@ func TestAgentChat_MutationsOnUnknownChat_SurfaceTheCommandsValidationError(t *t
 	})
 }
 
-// TestAgentChat_Forget_RefusesAChatThatDoesNotExist pins Forget's own error wrap:
-// ax.Forget refuses an unknown aggregate with ErrValidation (asynx's own contract —
-// see asynx's TestForget_AggregateDoesNotExist_ReturnsErrValidation), and the
-// repository must surface that rather than reporting a silent no-op success for a
-// chat that was never there to delete.
 func TestAgentChat_Forget_RefusesAChatThatDoesNotExist(t *testing.T) {
 	ctx, repo := newRepo(t)
 	err := repo.Forget(ctx, "no-such-chat")
@@ -405,11 +341,6 @@ func TestAgentChat_Forget_RefusesAChatThatDoesNotExist(t *testing.T) {
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
-// TestAgentChat_ListReads_PropagateStorageFailure proves ListChats and
-// ListByWorkspace behave like GetChat (TestGetChat_AReadFailureIsNotAMiss): a
-// read-model that cannot be READ must surface as an error, never as a silently
-// empty list — an empty result reads to a caller as "no chats", which is a very
-// different (and wrong) fact from "the database is unavailable right now".
 func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())
@@ -426,8 +357,6 @@ func TestAgentChat_ListReads_PropagateStorageFailure(t *testing.T) {
 	require.Error(t, err, "a read-model failure must not read back as an empty chat list")
 }
 
-// A seeded permission level is published before the seed returns: a chat an
-// operation mints must not reach a client after the operation settled.
 func TestAgentChat_SeedPermissionLevelReturnsOnceItIsPublished(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		es := asynxstore.New()

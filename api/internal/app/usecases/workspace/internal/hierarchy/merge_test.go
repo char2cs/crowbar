@@ -100,7 +100,6 @@ func TestMergeIntoParent_ResyncsParentAndChildSummaries(t *testing.T) {
 	_, err := uc.MergeIntoParent(context.Background(), "c", gitdomain.MergeStrategyMerge)
 	require.NoError(t, err)
 
-	// Parent resyncs from its own fork point; child resyncs from the new tip.
 	require.Len(t, synced, 2)
 	assert.Equal(t, "p", synced[0].ID)
 	assert.Equal(t, 3, synced[0].Added)
@@ -111,10 +110,6 @@ func TestMergeIntoParent_ResyncsParentAndChildSummaries(t *testing.T) {
 	assert.Equal(t, []string{"/cw", "ptip"}, g.calls[3].args, "child summary uses new tip")
 }
 
-// TestMergeIntoParent_ResyncSummaryError verifies that a WorkingTreeSummary
-// failure during finalize does NOT fail MergeIntoParent — the git merge already
-// committed durably and the read-model self-corrects on the next watcher event.
-// UpdateForkPoint must still have been called (it is correctness-critical).
 func TestMergeIntoParent_ResyncSummaryError(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -166,11 +161,6 @@ func TestMergeIntoParent_RebaseStrategy_RebasesChildThenFFMerges(t *testing.T) {
 	assert.Equal(t, []string{"/cw", "develop", "/pw", "feat"}, g.calls[0].args)
 }
 
-// TestMergeIntoParent_Conflict_SetsPRConflicts proves that a local merge
-// conflict transitions the child to Status=pr-conflicts (via a
-// SyncWorkingTreeState HasConflicts write) instead of recording a pending merge,
-// AND aborts the in-progress merge in the PARENT worktree (where the plain
-// merge runs) so neither worktree is left stuck (try-then-warn, H6/H7 guard).
 func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -190,14 +180,10 @@ func TestMergeIntoParent_Conflict_SetsPRConflicts(t *testing.T) {
 	require.Len(t, synced, 1)
 	assert.Equal(t, "c", synced[0].ID)
 	assert.True(t, synced[0].HasConflicts)
-	// The plain merge runs in the parent worktree, so the abort targets the parent.
 	assert.Equal(t, []string{"MergeCommit", "OperationAbort"}, g.ops())
 	assert.Equal(t, []string{"/pw"}, g.calls[1].args, "abort must run in the PARENT worktree")
 }
 
-// TestMergeIntoParent_RebaseConflict_SetsPRConflicts proves the rebase strategy
-// aborts in the CHILD worktree (where RebaseThenFFMerge rebases the child) on a
-// conflict, so the child is never left mid-rebase and the parent is untouched.
 func TestMergeIntoParent_RebaseConflict_SetsPRConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -214,14 +200,10 @@ func TestMergeIntoParent_RebaseConflict_SetsPRConflicts(t *testing.T) {
 	assert.True(t, res.ConflictsPending)
 	require.Len(t, synced, 1)
 	assert.True(t, synced[0].HasConflicts)
-	// The rebase runs in the child worktree, so the abort targets the child.
 	assert.Equal(t, []string{"RebaseThenFFMerge", "OperationAbort"}, g.ops())
 	assert.Equal(t, []string{"/cw"}, g.calls[1].args, "abort must run in the CHILD worktree")
 }
 
-// TestMergeIntoParent_SquashConflict_AbortsInParent proves the squash strategy
-// aborts in the PARENT worktree (where MergeSquash runs) on a conflict. This is
-// the core H6 guard: a conflicting squash merge must not brick the parent.
 func TestMergeIntoParent_SquashConflict_AbortsInParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -242,11 +224,6 @@ func TestMergeIntoParent_SquashConflict_AbortsInParent(t *testing.T) {
 	assert.Equal(t, []string{"/pw"}, g.calls[1].args, "squash abort must run in the PARENT worktree")
 }
 
-// TestMergeIntoParent_Conflict_AbortFailure_FlagsParentAndChild proves R7: if
-// OperationAbort fails (the worktree stays mid-merge), the op is still best-effort
-// (no error returned) but the STUCK worktree — the PARENT for the merge/squash
-// strategies — is ALSO flagged pr-conflicts, so the brick is VISIBLE and
-// recoverable instead of a silent merge-pending success.
 func TestMergeIntoParent_Conflict_AbortFailure_FlagsParentAndChild(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
@@ -271,13 +248,10 @@ func TestMergeIntoParent_Conflict_AbortFailure_FlagsParentAndChild(t *testing.T)
 	assert.True(t, flagged["c"], "the child must be flagged pr-conflicts")
 }
 
-// TestMergeIntoParent_Conflict_AbortSuccess_FlagsOnlyChild proves that when the
-// abort SUCCEEDS (the normal case) the parent worktree is clean again, so only
-// the child is flagged — the parent is NOT spuriously marked conflicted.
 func TestMergeIntoParent_Conflict_AbortSuccess_FlagsOnlyChild(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
-	g := &fakeGit{mergeErr: enginegit.ErrConflict} // abort succeeds
+	g := &fakeGit{mergeErr: enginegit.ErrConflict}
 	ws := mergeWS(child, parent, nil)
 	var synced []workspace.SyncInput
 	ws.SyncFn = func(_ context.Context, in workspace.SyncInput, _ time.Time) (domain.Workspace, error) {
@@ -379,10 +353,6 @@ func TestMergeIntoParent_RevParseError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestMergeIntoParent_RejectsUnprovisionedParent proves a placeholder parent
-// (locked + empty WorktreePath) is rejected before any git runs — no
-// RevParse("", "HEAD"). It is ALSO rejected as locked; the empty-path guard is
-// the explicit backstop the spec adds (§3.4/B2).
 func TestMergeIntoParent_RejectsUnprovisionedParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspacePlaceholder}
@@ -393,8 +363,6 @@ func TestMergeIntoParent_RejectsUnprovisionedParent(t *testing.T) {
 	assert.Empty(t, g.calls, "no git runs against an unprovisioned parent")
 }
 
-// A merge that would fold a leaf away while its chat works is refused before any
-// git: nothing is left half-done. A non-leaf is never folded, so it may merge.
 func TestGuardMergeFold_RefusesOnlyAWorkingLeaf(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}

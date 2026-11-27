@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// errInner is a fake inner store that always errors.
 type errInner struct{ err error }
 
 func (e *errInner) Save(_ context.Context, _ agentChatRow) error { return e.err }
@@ -22,7 +21,6 @@ func (e *errInner) FindByKey(_ context.Context, _ string) (*agentChatRow, error)
 }
 func (e *errInner) FindAll(_ context.Context) ([]agentChatRow, error) { return nil, e.err }
 
-// badDataInner returns a row with corrupt JSON data.
 type badDataInner struct{}
 
 func (b *badDataInner) Save(_ context.Context, _ agentChatRow) error { return nil }

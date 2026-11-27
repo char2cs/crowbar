@@ -77,7 +77,6 @@ func headSHA(
 	return gitOutput(t, dir, "rev-parse", "HEAD")
 }
 
-// TestGate1_StatusDiffCommitHunkStage verifies the core git read + write path.
 func TestGate1_StatusDiffCommitHunkStage(
 	t *testing.T,
 ) {
@@ -134,7 +133,6 @@ func TestGate1_StatusDiffCommitHunkStage(
 	}
 }
 
-// TestGate1_WatcherFiresFanOut verifies watcher → fan-out → SyncWorkingTreeState.
 func TestGate1_WatcherFiresFanOut(
 	t *testing.T,
 ) {
@@ -145,7 +143,6 @@ func TestGate1_WatcherFiresFanOut(
 	makeCommit(t, dir, "seed.txt", "seed\n", "seed commit")
 	fork := headSHA(t, dir)
 
-	// Buffered so the watcher's loop goroutine never blocks on a slow reader.
 	fileEvents := make(chan domain.FileChangeEvent, 16)
 
 	d := &captureDispatcher{
@@ -161,18 +158,13 @@ func TestGate1_WatcherFiresFanOut(
 	w := watch.NewWatcher("ws-gate1", dir, fork, gitProv, d)
 	require.NoError(t, w.Start(ctx))
 	t.Cleanup(w.Stop)
-	// No settle sleep: Start arms the watch backend synchronously before it
-	// returns, so the write below is delivered; we wait on the real dispatched event.
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "newfile.txt"), []byte("new content\n"), 0o600))
 
-	// Block on the dispatcher's own callback — the real fan-out — instead of
-	// polling for it. `go test -timeout` is the backstop if the watcher is broken.
 	evt := <-fileEvents
 	assert.Equal(t, "ws-gate1", evt.WsID)
 }
 
-// TestGate1_GitStatusPushOnMutation verifies GitStatus is recomputed after mutations.
 func TestGate1_GitStatusPushOnMutation(
 	t *testing.T,
 ) {
@@ -199,7 +191,6 @@ func TestGate1_GitStatusPushOnMutation(
 	assert.True(t, status.Files[0].Staged)
 }
 
-// TestGate1_ConflictResolutionLifecycle verifies conflict detection → resolve → continue.
 func TestGate1_ConflictResolutionLifecycle(
 	t *testing.T,
 ) {

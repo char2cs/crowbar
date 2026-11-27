@@ -1,0 +1,42 @@
+[package]
+name = "webview"
+description = "The one platform crate: native web views embedded as children of a GPUI window."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+mock = []
+
+[dependencies]
+platform.workspace = true
+protocol.workspace = true
+raw-window-handle.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+wry.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+async-channel.workspace = true
+gdkx11.workspace = true
+gtk.workspace = true
+webkit2gtk.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSString", "NSThread"] }
+
+[dev-dependencies]
+webview = { path = ".", features = ["mock"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { workspace = true, features = ["xtest"] }
+
+[lints]
+workspace = true

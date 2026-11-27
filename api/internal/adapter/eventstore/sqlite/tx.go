@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/asynx/models"
 )
 
-// sqliteConstraint is SQLITE_CONSTRAINT; the extended codes share its low byte.
 const sqliteConstraint = 19
 
 type tx struct {

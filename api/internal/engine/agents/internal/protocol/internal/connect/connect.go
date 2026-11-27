@@ -1,5 +1,3 @@
-// Package connect runs a descriptor's connect command and maps its one-object
-// stdout to a WebSocket endpoint. Output and values never appear in errors.
 package connect
 
 import (
@@ -17,27 +15,22 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/pathselect"
 )
 
-// Exec runs argv with env and returns its stdout; stderr is the caller's to discard.
 type Exec func(ctx context.Context, argv, env []string) ([]byte, error)
 
-// Fields names, as dotted paths into the command's JSON object, where each part lives.
 type Fields struct {
 	URL        string
 	Protocols  string
-	Headers    map[string]string // header name -> path
-	Credential string            // sent as "Authorization: Bearer <value>"
-	Schemes    []string          // the URL schemes accepted; ws and wss when empty
+	Headers    map[string]string
+	Credential string
+	Schemes    []string
 }
 
-// Endpoint is everything a dial needs.
 type Endpoint struct {
 	URL       string
 	Protocols []string
 	Header    http.Header
 }
 
-// Resolve runs the command once and maps its output; allowed lists the header
-// names a descriptor may set.
 func Resolve(ctx context.Context, run Exec, argv, env []string, f Fields, allowed []string) (Endpoint, error) {
 	name := "connect"
 	if len(argv) > 0 {
@@ -107,7 +100,6 @@ func mapFields(doc map[string]any, f Fields) (Endpoint, error) {
 	return ep, nil
 }
 
-// stringList treats an absent value as empty and anything but []string as invalid.
 func stringList(v any) ([]string, bool) {
 	if v == nil {
 		return nil, true

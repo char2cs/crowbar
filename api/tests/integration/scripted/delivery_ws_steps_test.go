@@ -19,8 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// hermesOverSocket is the shipped hermes descriptor with only its connection swapped
-// for the rig's fake socket, so the events under test are the real mappings.
 func hermesOverSocket(t *testing.T) func(endpoint string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "internal", "engine", "agents", "internal",
@@ -34,21 +32,17 @@ func hermesOverSocket(t *testing.T) func(endpoint string) []byte {
 	}
 }
 
-// event pushes one frame of a prompt in the envelope the gateway wraps every event in.
 func (s *socketRig) event(t *testing.T, typ, payload string) {
 	t.Helper()
 	s.eventAt(t, 1, typ, payload)
 }
 
-// eventAt is event run by execution generation gen.
 func (s *socketRig) eventAt(t *testing.T, gen int, typ, payload string) {
 	t.Helper()
 	s.push(t, fmt.Sprintf(`{"method":"event","params":{"type":%q,"session_id":"sess-1","admission_id":"adm-1",`+
 		`"execution_generation":%d,"payload":%s}}`, typ, gen, payload))
 }
 
-// Stop fences the interrupt on the generation the running turn's frames name, as a
-// JSON number: the admission receipts carry none the gateway accepts.
 func TestRegression_HermesStopInterruptsTheGenerationItsFramesName(t *testing.T) {
 	s := newSocketRigFor(t, "hermes", hermesOverSocket(t))
 	s.results.Store("session.create", `{"session_id":"sess-1","execution_generation":0}`)
@@ -70,9 +64,6 @@ func TestRegression_HermesStopInterruptsTheGenerationItsFramesName(t *testing.T)
 	assert.JSONEq(t, `"sess-1"`, string(params["session_id"]))
 }
 
-// A gateway that numbers its model calls and ids no text or thought of its own: each
-// call's text and thought is one block, and the blocks keep the order the tool rows
-// were said in, not one stream of everything the prompt said.
 func TestRegression_StepNumberedFramesGiveEachModelCallItsOwnTextAndThought(t *testing.T) {
 	s := newSocketRigFor(t, "hermes", hermesOverSocket(t))
 	s.results.Store("session.create", `{"session_id":"sess-1","execution_generation":1}`)
@@ -124,7 +115,6 @@ type relayServer struct {
 	Env     []relayEnv `json:"env"`
 }
 
-// sessionCall is the part of a session.create/resume body this suite reads; Raw keeps what must be absent.
 type sessionCall struct {
 	Source    string `json:"source"`
 	SessionID string `json:"session_id"`
@@ -143,7 +133,6 @@ func decodeSessionCall(t *testing.T, f wireMsg) sessionCall {
 	return c
 }
 
-// flagValue is the argument after flag in args.
 func flagValue(t *testing.T, args []string, flag string) string {
 	t.Helper()
 	i := slices.Index(args, flag)
@@ -152,7 +141,6 @@ func flagValue(t *testing.T, args []string, flag string) string {
 	return args[i+1]
 }
 
-// readToken is the token file a relay reads, which must be 0600 and hold something.
 func readToken(t *testing.T, srv relayServer) string {
 	t.Helper()
 	path := flagValue(t, srv.Args, "--token-file")
@@ -165,7 +153,6 @@ func readToken(t *testing.T, srv relayServer) string {
 	return string(token)
 }
 
-// firstTurn drives one finished turn so the session has something a resume would load.
 func (s *socketRig) firstTurn(t *testing.T, chatID string) {
 	t.Helper()
 	require.NoError(t, s.send(chatID, "hi"))
@@ -176,8 +163,6 @@ func (s *socketRig) firstTurn(t *testing.T, chatID string) {
 		"the first turn never closed")
 }
 
-// relayAnswer is the reply the daemon gives a relay's tool call, with the token the relay
-// would read from its file now.
 func (s *socketRig) relayAnswer(t *testing.T, srv relayServer) string {
 	t.Helper()
 	out, send, err := s.d.app.Usecases.AgentProvider.DispatchRelayMCP(context.Background(),
@@ -188,9 +173,6 @@ func (s *socketRig) relayAnswer(t *testing.T, srv relayServer) string {
 	return string(out)
 }
 
-// Hermes has one per-session MCP path, and the gateway keeps it in memory only: the create
-// hands Crowbar's relay over as an ACP stdio server, and a resume after the connection is
-// gone hands it over again. The token rides a 0600 file, never the body.
 func TestRegression_HermesSessionCallsHandTheGatewayCrowbarsMCPRelay(t *testing.T) {
 	s := newSocketRigFor(t, "hermes", hermesOverSocket(t))
 	s.results.Store("session.create", `{"session_id":"sess-1","execution_generation":1}`)
@@ -230,9 +212,6 @@ func TestRegression_HermesSessionCallsHandTheGatewayCrowbarsMCPRelay(t *testing.
 	assert.NotContains(t, string(resumeFrame.Params), readToken(t, resume.Editor.MCPServers[0]))
 }
 
-// A chat's second runner resumes with the block its session was created with, byte for byte:
-// the gateway refuses a resume whose block differs. The relay the first runner's gateway
-// kept keeps answering through the second runner, and answers nothing once no runner lives.
 func TestRegression_HermesSecondRunnerResumesWithTheIdenticalBlock(t *testing.T) {
 	s := newSocketRigFor(t, "hermes", hermesOverSocket(t))
 	s.results.Store("session.create", `{"session_id":"sess-1","execution_generation":1}`)

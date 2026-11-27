@@ -7,35 +7,21 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// MaxPayloadBytes caps the raw provider payload a prompt may carry. It is held in memory while a person
-// decides and handed back to the provider to render the answer, so a bigger prompt is left to the
-// provider's own UI.
 const MaxPayloadBytes = 128 << 10
 
-// HookAnswer is what a relay prints. An empty Stdout means nobody answered in
-// time — the signal to leave the prompt to the provider.
 type HookAnswer struct {
 	Stdout []byte
 }
 
-// Prompt is everything the desk needs to hold one provider question open: which
-// question it is, whose it is, and the raw payload the provider will want back
-// when the answer is rendered.
 type Prompt struct {
 	ChoiceID string
 	ChatID   string
 	RunnerID string
-	// Event is the canonical hook event the prompt arrived on. The provider needs
-	// it to render an answer, because the answer's shape is per-event.
-	Event string
-	Raw   []byte
-	// Keys is what this provider can express: which decision keys it accepts, and
-	// how long its relay is willing to block.
-	Keys engineagents.AnswerCapability
+	Event    string
+	Raw      []byte
+	Keys     engineagents.AnswerCapability
 }
 
-// Slot is one relay currently blocked on a human decision. It is in memory only: it describes a live
-// hook process holding a provider gate open, which cannot outlive a restart.
 type Slot struct {
 	Prompt
 
@@ -43,28 +29,17 @@ type Slot struct {
 	stdout []byte
 	once   sync.Once
 
-	// decidedAt is when a verdict landed. A decided slot lingers for the desk's
-	// retention so a relay that has not asked yet still finds its answer.
 	decidedAt time.Time
-	// spent is set the moment the slot leaves the desk, so a second claim of one
-	// verdict is impossible however the callers race.
-	spent bool
-	reap  *time.Timer
-	// answering is the answer being recorded that claimed the relay: nothing else
-	// may end the relay's wait until it ends.
+	spent     bool
+	reap      *time.Timer
 	answering *claim
 }
 
-// claim is an answer being recorded. It owns the relay of its ask, whichever
-// slot holds that relay now, until done is closed.
 type claim struct {
 	slot *Slot
 	done chan struct{}
 }
 
-// Settled is closed once the slot has a verdict or has been given up on. A closed
-// channel rather than a value is the release, so any number of waiters wake and a
-// waiter that arrives late never blocks.
 func (s *Slot) Settled() <-chan struct{} { return s.done }
 
 func (s *Slot) settle(stdout []byte) {

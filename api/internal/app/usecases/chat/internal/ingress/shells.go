@@ -7,11 +7,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// toolShellRows are what a call of the main agent says of the background
-// commands: a command it left running starts a shell, a meta call that stopped
-// a known one ends it, and the end of a call that is itself a shell ends that
-// shell. Only a call of those kinds may, so a task id any other tool happens
-// to carry starts and ends nothing.
 func toolShellRows(st ledger.State, ev engineagents.CanonicalEvent, scope, turnID string) ([]ledger.Row, error) {
 	tool := ev.Tool
 	if scope != "" {
@@ -35,8 +30,6 @@ func toolShellRows(st ledger.State, ev engineagents.CanonicalEvent, scope, turnI
 	})
 }
 
-// runOf names where a command ran and its process when its call has one: what
-// makes it a shell should input reach it.
 func runOf(body *ledger.ToolCall, tool *engineagents.ToolEvent) {
 	if tool.ShellRef != "" {
 		body.Cwd, body.Ref = tool.Cwd, tool.ShellRef
@@ -50,7 +43,6 @@ func shellKind(kind string) string {
 	return ledger.ShellKindShell
 }
 
-// callEndStatus is how the end of a call that was a shell ended it.
 func callEndStatus(ev engineagents.CanonicalEvent) string {
 	switch {
 	case ev.Tool.Interrupted:
@@ -61,9 +53,6 @@ func callEndStatus(ev engineagents.CanonicalEvent) string {
 	return ledger.ShellFinished
 }
 
-// mapTerminalInput is input written to the process of a call still running:
-// that call outlived the moment it returned, so it is a shell from here on. A
-// call this chat holds no open command for starts nothing.
 func mapTerminalInput(st ledger.State, ev engineagents.CanonicalEvent, _ Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
 	tool := ev.Tool
 	if tool == nil || ev.Subagent != nil {
@@ -89,9 +78,6 @@ func mapTerminalInput(st ledger.State, ev engineagents.CanonicalEvent, _ Source,
 	return []ledger.Row{row}, Effects{}, err
 }
 
-// promptShellRows are what a harness-injected prompt reports of its background
-// commands: each one's end, or a line it printed. A task that is no live shell
-// of the chat's (a subagent's, say) ends and says nothing.
 func promptShellRows(st ledger.State, shells []engineagents.ShellEvent) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	for _, shell := range shells {
@@ -115,7 +101,6 @@ func promptShellRow(st ledger.State, shell engineagents.ShellEvent) ([]ledger.Ro
 	return endShell(st, shell.ID, ledger.ShellEnding{Status: status, ExitCode: shell.ExitCode, Summary: shell.Summary})
 }
 
-// statusOfExit is how a notice that gave only an exit code ended its shell.
 func statusOfExit(code *int) string {
 	switch {
 	case code == nil:

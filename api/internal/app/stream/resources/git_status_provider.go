@@ -7,9 +7,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// gitStatusProvider adapts the git engine to the watch.GitStatusProvider
-// surface the file watcher consumes. It exists to invert the dependency
-// so the watch package never imports the git engine directly.
 type gitStatusProvider struct {
 	engine enginegit.Engine
 }

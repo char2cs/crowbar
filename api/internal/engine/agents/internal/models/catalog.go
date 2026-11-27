@@ -16,8 +16,7 @@ type SlashCatalogItem struct {
 	Description string
 	InsertText  string
 	Source      string
-	// Terminal: running it opens a dialog in the CLI's terminal.
-	Terminal bool
+	Terminal    bool
 }
 
 const (
@@ -32,9 +31,6 @@ type ProbeOptions struct {
 	Home string
 }
 
-// ProbeRunner executes a one-shot child process for a catalogue or telemetry probe.
-// Named for what it does, so `Runner` can mean the live vendor CLI it does not
-// describe.
 type ProbeRunner interface {
 	Run(ctx context.Context, argv []string) ([]byte, error)
 }

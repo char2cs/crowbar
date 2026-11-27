@@ -166,7 +166,6 @@ func TestMatch_AimsAnOptionAnswerFromTheCursorsRow(t *testing.T) {
 	}
 }
 
-// An answer that cannot be aimed is withheld rather than typed blind.
 func TestMatch_WithholdsAnAnswerWithNoCursorRow(t *testing.T) {
 	got, ok := termprompt.Match(aiming(), "  No, exit\n  Yes, I trust this folder")
 

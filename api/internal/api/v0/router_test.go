@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"io"
 	"log/slog"
 	"net"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -28,12 +29,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 )
 
-// testFingerprint stands in for the TLS identity of a daemon with device
-// connections on: one with them off mints no pairing codes.
 const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
 
-// daemonEngine builds the production HTTP surface, so routes mounted on the
-// engine itself (pprof) are walked alongside the /v0 group Register builds.
 func daemonEngine(
 	t *testing.T,
 ) *gin.Engine {
@@ -41,7 +38,6 @@ func daemonEngine(
 	return daemonEngineWithLogs(t, logring.New())
 }
 
-// daemonEngineWithLogs is daemonEngine serving ring on GET /v0/console/logs.
 func daemonEngineWithLogs(
 	t *testing.T,
 	ring logring.Ring,
@@ -50,8 +46,6 @@ func daemonEngineWithLogs(
 	return daemonEngineWith(t, ring, time.Minute)
 }
 
-// daemonEngineWith is daemonEngineWithLogs bounding an anonymous TLS request's
-// reads at preAuthReadTimeout.
 func daemonEngineWith(
 	t *testing.T,
 	ring logring.Ring,
@@ -67,8 +61,6 @@ func daemonEngineWith(
 	return engine
 }
 
-// serveTLS runs one request through h as if it arrived on the TLS listener,
-// the only one on which requireBearerAuth enforces anything.
 func serveTLS(
 	t *testing.T,
 	h http.Handler,
@@ -85,8 +77,6 @@ func serveTLS(
 	return rec
 }
 
-// mintCode mints a code over the plaintext path, as `crowbar pair` does on the
-// unix socket.
 func mintCode(
 	t *testing.T,
 	h http.Handler,
@@ -104,7 +94,6 @@ func mintCode(
 	return minted.Data.Code
 }
 
-// redeemFrom posts code to the redeem route over TLS from the TCP peer remote.
 func redeemFrom(
 	t *testing.T,
 	h http.Handler,
@@ -120,8 +109,6 @@ func redeemFrom(
 	return rec
 }
 
-// pairClient mints a code and redeems it over TLS, returning the client's
-// bearer token and id.
 func pairClient(
 	t *testing.T,
 	h http.Handler,
@@ -140,9 +127,6 @@ func pairClient(
 	return paired.Data.Token, paired.Data.ClientID
 }
 
-// TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen requests every route on the real
-// engine: gin fixes middleware at registration, so a route added above the guard or
-// beside mountDebug is only visible to a request. A guarded route must give the guard's 401.
 func TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen(t *testing.T) {
 	engine := daemonEngine(t)
 
@@ -175,9 +159,6 @@ func TestRouter_TLSNoAuth_OnlyPairingAndPprofAreOpen(t *testing.T) {
 	assert.Equal(t, len(open), seenOpen, "every open route must still be registered")
 }
 
-// TestRouter_TLS_HealthNeedsAPairedToken covers the token side of the guard: a
-// paired client reads health, a token that was never issued does not, which is
-// how a revoked host surfaces on the periodic probe.
 func TestRouter_TLS_HealthNeedsAPairedToken(t *testing.T) {
 	engine := daemonEngine(t)
 
@@ -188,9 +169,6 @@ func TestRouter_TLS_HealthNeedsAPairedToken(t *testing.T) {
 		"health must refuse an unknown token over TLS")
 }
 
-// TestRouter_TLS_PairRedeemIsLimitedPerSource proves the redeem limit is per TCP
-// peer: a sixth redeem from one source within the window is refused, while
-// another source's redeem still reaches the outstanding code.
 func TestRouter_TLS_PairRedeemIsLimitedPerSource(t *testing.T) {
 	engine := daemonEngine(t)
 	code := mintCode(t, engine)
@@ -209,9 +187,6 @@ func TestRouter_TLS_PairRedeemIsLimitedPerSource(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "another source must still redeem the valid code: %s", rec.Body.String())
 }
 
-// TestRouter_TLS_RevokeEndsTheClientsOpenStreams proves a revoke reaches the
-// streams a client already holds: the revoked client's console-log WebSocket
-// closes, while another paired client's keeps receiving new records.
 func TestRouter_TLS_RevokeEndsTheClientsOpenStreams(t *testing.T) {
 	ring := logring.New()
 	engine := daemonEngineWithLogs(t, ring)
@@ -234,10 +209,6 @@ func TestRouter_TLS_RevokeEndsTheClientsOpenStreams(t *testing.T) {
 	readUntilFrame(t, kept, "logged after the revoke")
 }
 
-// TestRegression_Router_TLS_StalledBodiesAreCutUntilAuthenticated proves an
-// unpaired peer cannot pin a connection by never finishing a request body —
-// on the open pairing routes, a guarded route refusing it, or no route at all —
-// while a paired client's slow upload and open stream outlive the same bound.
 func TestRegression_Router_TLS_StalledBodiesAreCutUntilAuthenticated(t *testing.T) {
 	const bound = 100 * time.Millisecond
 	ring := logring.New()
@@ -259,7 +230,6 @@ func TestRegression_Router_TLS_StalledBodiesAreCutUntilAuthenticated(t *testing.
 		conn, reader := dialRaw(t, srv)
 		writeHead(t, conn, "/v0/settings/terminal/profiles", len(body),
 			"Authorization: Bearer "+token+"\r\nExpect: 100-continue\r\n")
-		// 100 Continue is sent once the handler reads the body: the guard has run.
 		continued, err := http.ReadResponse(reader, nil)
 		require.NoError(t, err)
 		require.NoError(t, continued.Body.Close())
@@ -281,8 +251,6 @@ func TestRegression_Router_TLS_StalledBodiesAreCutUntilAuthenticated(t *testing.
 	})
 }
 
-// dialRaw opens a TLS connection to srv for a test to drive byte by byte; the
-// deadline only bounds a failure.
 func dialRaw(
 	t *testing.T,
 	srv *httptest.Server,
@@ -298,7 +266,6 @@ func dialRaw(
 	return conn, bufio.NewReader(conn)
 }
 
-// writeHead sends a POST's head declaring a length-byte JSON body.
 func writeHead(
 	t *testing.T,
 	conn net.Conn,
@@ -312,9 +279,6 @@ func writeHead(
 	require.NoError(t, err)
 }
 
-// requireStalledRequestCut sends an anonymous POST to path whose body stops
-// short of its declared length, and waits for the server to close the
-// connection on it.
 func requireStalledRequestCut(
 	t *testing.T,
 	srv *httptest.Server,
@@ -332,8 +296,6 @@ func requireStalledRequestCut(
 		"%s: the server must close a stalled anonymous request: %v", path, err)
 }
 
-// dialLogs opens GET /v0/console/logs over srv's TLS with token, returning once
-// the stream's ready frame says it is following live records.
 func dialLogs(
 	t *testing.T,
 	srv *httptest.Server,
@@ -352,8 +314,6 @@ func dialLogs(
 	return conn
 }
 
-// readUntilFrame reads frames until one contains want; the deadline only
-// bounds a failure.
 func readUntilFrame(
 	t *testing.T,
 	conn *websocket.Conn,
@@ -370,7 +330,6 @@ func readUntilFrame(
 	}
 }
 
-// readUntilClosed reads frames until the connection fails, returning why.
 func readUntilClosed(
 	t *testing.T,
 	conn *websocket.Conn,

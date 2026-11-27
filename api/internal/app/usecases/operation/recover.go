@@ -10,11 +10,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// retained is how many settled operations survive a restart.
 const retained = 500
 
-// Recover fails what a restart interrupted and drops the saves the last boot
-// parked, then drops settled operations past the newest retained. It runs once at boot, before the API opens.
 func (s *Service) Recover(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -25,7 +22,6 @@ func (s *Service) Recover(ctx context.Context) error {
 	for i := range ops {
 		op := ops[i]
 		if op.Kind == domain.OpEntitySave && op.CreatedAt.Before(s.booted) {
-			// A save the last boot parked: this boot redelivers its aggregate.
 			if err := s.store.Delete(ctx, op.ID); err != nil {
 				return fmt.Errorf("operation: recover: drop parked save %s: %w", op.ID, err)
 			}
@@ -44,8 +40,6 @@ func (s *Service) Recover(ctx context.Context) error {
 	return s.prune(ctx)
 }
 
-// pruneLocked keeps the cap after a settle; s.mu is held. Nothing returns its
-// failure, so it is logged and kept for Shutdown.
 func (s *Service) pruneLocked(ctx context.Context) {
 	if err := s.prune(ctx); err != nil {
 		slog.ErrorContext(ctx, "operation: prune", "err", err)
@@ -53,7 +47,6 @@ func (s *Service) pruneLocked(ctx context.Context) {
 	}
 }
 
-// prune drops settled operations past the newest retained; s.mu is held.
 func (s *Service) prune(ctx context.Context) error {
 	ctx = context.WithoutCancel(ctx)
 	ops, err := s.store.FindAll(ctx)

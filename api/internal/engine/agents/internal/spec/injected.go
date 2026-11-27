@@ -7,9 +7,7 @@ import (
 
 const (
 	InjectedPromptTaskNotification = "task_notification"
-	// InjectedPromptSubagentResult is a subagent's result handed back to its
-	// parent: the event is subagent_result, never a prompt.
-	InjectedPromptSubagentResult = "subagent_result"
+	InjectedPromptSubagentResult   = "subagent_result"
 )
 
 var InjectedPromptKinds = map[string]struct{}{
@@ -20,29 +18,20 @@ var InjectedPromptKinds = map[string]struct{}{
 type InjectedPromptSpec struct {
 	Kind string `yaml:"kind"`
 
-	// Needle is the literal prefix a prompt opens with; Match an anchored regexp
-	// for one whose prefix varies. An entry names exactly one.
 	Needle string       `yaml:"needle"`
 	Match  *PromptMatch `yaml:"match"`
 
-	// ScopeID, Status and Result read a subagent_result's fields out of the prompt.
 	ScopeID *PromptPattern `yaml:"scope_id"`
 	Status  *PromptPattern `yaml:"status"`
 	Result  *PromptPattern `yaml:"result"`
 
-	// TaskID and Status read which background task a task_notification ends;
-	// StatusMap turns the provider's word for how into Crowbar's.
 	TaskID    *PromptPattern    `yaml:"task_id"`
 	StatusMap map[string]string `yaml:"status_map"`
-	// Items is for a prompt naming many tasks: every match of every pattern is one.
-	Items []TaskPattern `yaml:"items"`
-	// Summary is the provider's account of the task; Event a line it printed.
-	Summary *PromptPattern `yaml:"summary"`
-	Event   *PromptPattern `yaml:"event"`
+	Items     []TaskPattern     `yaml:"items"`
+	Summary   *PromptPattern    `yaml:"summary"`
+	Event     *PromptPattern    `yaml:"event"`
 }
 
-// PromptPattern keeps the (?P<v>...) group of its pattern matched in a prompt;
-// it is compiled when the descriptor loads.
 type PromptPattern struct {
 	re *regexp.Regexp
 }
@@ -65,7 +54,6 @@ func (p *PromptPattern) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// Find is the group in prompt; "" when p is nil or does not match.
 func (p *PromptPattern) Find(prompt string) string {
 	if p == nil || p.re == nil {
 		return ""

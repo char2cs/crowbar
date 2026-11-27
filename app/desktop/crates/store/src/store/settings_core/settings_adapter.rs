@@ -1,0 +1,197 @@
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use settings::{
+    Error, Follow, Key, Listener, Read, RecordBackend, RecordCommand, Records, Snapshot,
+    Subscription, Value, Write,
+};
+
+use crate::store::settings_core::SettingsCore;
+
+type Listeners = Rc<RefCell<BTreeMap<u64, Listener>>>;
+
+#[derive(Clone)]
+pub struct SettingsAdapter {
+    core: Arc<SettingsCore>,
+    listeners: Listeners,
+    next: Rc<RefCell<u64>>,
+}
+
+impl std::fmt::Debug for SettingsAdapter {
+    fn fmt(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter
+            .debug_struct("SettingsAdapter")
+            .finish_non_exhaustive()
+    }
+}
+
+impl SettingsAdapter {
+    pub(crate) fn new(core: Arc<SettingsCore>) -> Self {
+        Self {
+            core,
+            listeners: Rc::default(),
+            next: Rc::default(),
+        }
+    }
+
+    pub fn upload_descriptor(
+        &self,
+        text: Vec<u8>,
+    ) {
+        self.core.upload_descriptor(text);
+    }
+
+    pub fn flush(&self) {
+        self.core.flush();
+    }
+
+    pub fn deliver_pending(&self) {
+        let listeners: Vec<Listener> = self.listeners.borrow().values().cloned().collect();
+        let changes = self.core.take_changes();
+        let calls = changes
+            .iter()
+            .flat_map(|change| listeners.iter().map(move |listener| (listener, change)));
+        for (listener, change) in calls {
+            listener(change);
+        }
+    }
+}
+
+impl Read for SettingsAdapter {
+    fn snapshot(&self) -> Snapshot {
+        self.core.snapshot()
+    }
+
+    fn get(
+        &self,
+        key: &Key,
+    ) -> Option<Value> {
+        self.core.get(key)
+    }
+}
+
+impl Write for SettingsAdapter {
+    fn set(
+        &self,
+        key: &Key,
+        value: Value,
+    ) -> Result<(), Error> {
+        self.core.set(key, value);
+        Ok(())
+    }
+
+    fn invoke(
+        &self,
+        id: &str,
+    ) -> Result<(), Error> {
+        self.core.invoke(id)
+    }
+}
+
+impl Follow for SettingsAdapter {
+    fn subscribe(
+        &self,
+        listener: Listener,
+    ) -> Subscription {
+        let id = {
+            let mut next = self.next.borrow_mut();
+            *next += 1;
+            *next
+        };
+        self.listeners.borrow_mut().insert(id, listener);
+        let listeners = Rc::clone(&self.listeners);
+        Subscription::new(move || {
+            listeners.borrow_mut().remove(&id);
+        })
+    }
+}
+
+impl RecordBackend for SettingsAdapter {
+    fn records(
+        &self,
+        source: &str,
+    ) -> Records {
+        self.core.records(source)
+    }
+
+    fn apply(
+        &self,
+        source: &str,
+        record: &str,
+        command: RecordCommand,
+    ) -> Result<(), Error> {
+        self.core.apply(source, record, command)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::live::ChangeSignal;
+    use crate::live::OutcomeSink;
+    use settings::Change;
+
+    use crate::store::settings_core::parts::Parts;
+    use crate::store::settings_core::{HOSTS, SESSIONS};
+    use crate::test_support::{FakeFiles, state};
+
+    fn quiet_signal() -> ChangeSignal {
+        Arc::new(|| {})
+    }
+
+    fn quiet_outcome() -> OutcomeSink {
+        Arc::new(|_| {})
+    }
+
+    fn lists_changed(core: &SettingsCore) {
+        core.push(Change::Records(SESSIONS.to_owned()));
+        core.push(Change::Records(HOSTS.to_owned()));
+    }
+
+    #[tokio::test]
+    async fn changes_the_core_made_reach_a_listener_until_it_is_dropped() {
+        let (state, _) = state();
+        let hub = crate::live::Hub::new(state, quiet_signal());
+        let local = hub.read(|state| state.hosts[0].client.clone());
+        let file = crate::store::settings_core::json_file::JsonFile::new(
+            "/s.json".into(),
+            Arc::new(FakeFiles::default()),
+        );
+        let (fleet, desk) = crate::test_support::fleet_and_desk(&hub);
+        let core = SettingsCore::open(Parts {
+            file,
+            hub: Arc::clone(&hub),
+            handle: tokio::runtime::Handle::current(),
+            local,
+            signal: quiet_signal(),
+            fonts: crate::store::settings_core::system_fonts::SystemFonts::default(),
+            outcome: quiet_outcome(),
+            fleet,
+            desk,
+        })
+        .unwrap();
+        let adapter = SettingsAdapter::new(Arc::clone(&core));
+        let heard = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&heard);
+        let subscription = adapter.subscribe(Rc::new(move |_| counter.set(counter.get() + 1)));
+        lists_changed(&core);
+        adapter.deliver_pending();
+        assert_eq!(heard.get(), 2, "sessions and hosts");
+        drop(subscription);
+        lists_changed(&core);
+        adapter.deliver_pending();
+        assert_eq!(heard.get(), 2);
+        adapter
+            .set(&Key::new("tabSize"), Value::Number(4.0))
+            .unwrap();
+        assert_eq!(adapter.get(&Key::new("tabSize")), Some(Value::Number(4.0)));
+        assert!(adapter.invoke("hosts.add").is_ok());
+    }
+}

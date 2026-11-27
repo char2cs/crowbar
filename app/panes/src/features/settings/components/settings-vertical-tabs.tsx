@@ -1,0 +1,138 @@
+import * as React from 'react'
+import { useSettingsStore } from '@/features/settings/store'
+import { filterSettingsTabsBySearch } from '@/features/settings/lib/settings-tab-visibility'
+import type { SettingsTab } from '@/features/window/stores/ui-state-store'
+import type { SettingsTabItem } from './settings-tab-items'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/utils/cn'
+
+interface SettingsVerticalTabsProps {
+  tabs: SettingsTabItem[]
+  activeTab: SettingsTab
+  onTabChange: (tab: SettingsTab) => void
+  panelIdForTab?: (tab: SettingsTab) => string
+}
+
+export const SettingsVerticalTabs = ({
+  tabs,
+  activeTab,
+  onTabChange,
+  panelIdForTab = (tab) => `settings-panel-${tab}`,
+}: SettingsVerticalTabsProps) => {
+  const searchQuery = useSettingsStore((state) => state.search.query)
+  const searchResults = useSettingsStore((state) => state.search.results)
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null)
+  const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([])
+
+  const matchingTabs = searchQuery ? new Set(searchResults.map((result) => result.tab)) : null
+
+  const visibleTabs = filterSettingsTabsBySearch(tabs, matchingTabs)
+
+  React.useEffect(() => {
+    if (searchQuery && visibleTabs.length > 0) {
+      const firstVisibleTab = visibleTabs[0].id
+      if (firstVisibleTab !== activeTab) {
+        onTabChange(firstVisibleTab)
+      }
+    }
+  }, [searchQuery, visibleTabs, activeTab, onTabChange])
+
+  const handleSidebarWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const canScroll = container.scrollHeight > container.clientHeight
+    if (!canScroll || event.deltaY === 0) return
+
+    container.scrollTop += event.deltaY
+    event.preventDefault()
+  }
+
+  const focusTabAtIndex = React.useCallback(
+    (index: number) => {
+      const nextTab = visibleTabs[index]
+      if (!nextTab) return
+
+      onTabChange(nextTab.id)
+      window.requestAnimationFrame(() => {
+        tabRefs.current[index]?.focus()
+      })
+    },
+    [onTabChange, visibleTabs],
+  )
+
+  return (
+    <div className="flex h-full flex-col">
+      <div
+        ref={scrollContainerRef}
+        role="tablist"
+        aria-orientation="vertical"
+        aria-label="Settings sections"
+        className="flex-1 space-y-0.5 overflow-hidden p-2"
+        onWheelCapture={handleSidebarWheel}
+      >
+        {visibleTabs.length > 0 ? (
+          visibleTabs.map((item, index) => {
+            const Icon = item.icon
+            const isActive = activeTab === item.id
+
+            return (
+              <Button
+                key={item.id}
+                ref={(element) => {
+                  tabRefs.current[index] = element
+                }}
+                type="button"
+                variant="ghost"
+                compact
+                onClick={() => onTabChange(item.id)}
+                onKeyDown={(event) => {
+                  switch (event.key) {
+                    case 'ArrowDown':
+                    case 'ArrowRight':
+                      event.preventDefault()
+                      focusTabAtIndex((index + 1) % visibleTabs.length)
+                      break
+                    case 'ArrowUp':
+                    case 'ArrowLeft':
+                      event.preventDefault()
+                      focusTabAtIndex((index - 1 + visibleTabs.length) % visibleTabs.length)
+                      break
+                    case 'Home':
+                      event.preventDefault()
+                      focusTabAtIndex(0)
+                      break
+                    case 'End':
+                      event.preventDefault()
+                      focusTabAtIndex(visibleTabs.length - 1)
+                      break
+                    default:
+                      break
+                  }
+                }}
+                role="tab"
+                id={`settings-tab-${item.id}`}
+                aria-selected={isActive}
+                aria-controls={panelIdForTab(item.id)}
+                tabIndex={isActive ? 0 : -1}
+                className={cn(
+                  'ui-text-sm h-auto w-full justify-start gap-2.5 rounded-xl px-2.5 py-1.5 text-left',
+                  isActive
+                    ? 'bg-primary/12 text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                <Icon className="size-[18px] shrink-0 text-current" weight="duotone" />
+                <span className="font-heading truncate text-[19px]">{item.label}</span>
+              </Button>
+            )
+          })
+        ) : (
+          <div className="ui-font ui-text-sm p-2 text-center text-muted-foreground">
+            No matching settings
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

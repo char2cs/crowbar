@@ -1,0 +1,63 @@
+use gpui::prelude::FluentBuilder as _;
+use gpui::{InteractiveElement, IntoElement, ParentElement, Styled, div, px};
+use settings::{Control, Row};
+
+use crate::frame::Frame;
+use crate::frame::RowLayout;
+
+const INLINE_TEXTAREA_DESCENT: f32 = 5.0;
+const DISABLED_OPACITY: f32 = 0.64;
+
+pub(crate) fn field_control(
+    frame: &Frame<'_>,
+    row: &Row,
+) -> impl IntoElement {
+    let width = match &row.control() {
+        Control::Text { width, .. } | Control::TextList { width, .. } => width.pixels(),
+        _ => 0.0,
+    };
+    let list = matches!(row.control(), Control::TextList { .. });
+    let frozen = !frame.state.row_enabled(row);
+    div()
+        .w(px(width))
+        .when(frozen, |field| field.opacity(DISABLED_OPACITY).occlude())
+        .when(list, |field| field.pb(px(INLINE_TEXTAREA_DESCENT)))
+        .when(frame.rows == RowLayout::Stacked, Styled::w_full)
+        .max_w_full()
+        .children(
+            frame
+                .fields
+                .get(row.key())
+                .map(crate::frame::Field::element),
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use crate::intent::Intent;
+    use crate::test_support::{inspect, open, row, run};
+    use ui::TextInputEvent;
+
+    #[gpui::test]
+    fn a_pattern_list_takes_two_rows_and_the_inline_descent_under_them(cx: &mut TestAppContext) {
+        let (_, cx) = open(cx, "file-explorer");
+        let control = cx.debug_bounds("row-control-hiddenFilePatterns");
+        let control = control.unwrap_or_default();
+        assert_eq!(control.size.height, gpui::px(50.0 + 5.0), "{control:?}");
+    }
+
+    #[gpui::test]
+    fn an_invalid_search_template_is_kept_but_flagged(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx, "browser");
+        let target = row("browserCustomSearchUrl");
+        let typed = TextInputEvent::Changed("not a url".to_owned());
+        run(&harness, Intent::Edit(target.clone(), typed), cx);
+        run(&harness, Intent::Commit(target.clone()), cx);
+        assert!(inspect(&harness, cx, |modal| modal
+            .state
+            .issue(&target)
+            .is_some()));
+    }
+}

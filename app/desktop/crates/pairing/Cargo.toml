@@ -1,0 +1,20 @@
+[package]
+name = "pairing"
+description = "The Add Host dialog of the Crowbar shell: name and address, fingerprint, one-time code."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+store.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

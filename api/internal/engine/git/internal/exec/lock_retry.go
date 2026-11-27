@@ -20,9 +20,6 @@ var (
 	lockPathRe = regexp.MustCompile(`Unable to create '([^']+\.lock)'`)
 )
 
-// runWithLockRetry retries a git command failing on a held .git/index.lock up to
-// lockRetryAttempts times, then removes a lock older than staleLockMaxAge and retries
-// once. Age-only staleness is accepted: a live >10s index lock is far rarer than debris.
 func runWithLockRetry(
 	ctx context.Context,
 	run func() Result,

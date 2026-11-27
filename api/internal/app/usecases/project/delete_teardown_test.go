@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The project's whole tree goes: icon, repo entity dirs, worktree roots.
 func TestProjectDelete_RemovesTheProjectTree(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -30,10 +29,6 @@ func TestProjectDelete_RemovesTheProjectTree(t *testing.T) {
 	assert.NoDirExists(t, projectDir, "projects/p1 must be gone entirely")
 }
 
-// A repo moved to project p2 keeps its worktrees where they were created, under
-// projects/p1. Deleting p1 used to rm -rf them — p2's worktrees and chats — with
-// it (spec §3 P0-3, invariant D6). They, and only they, survive; so does a
-// row whose own ProjectID still says p1 but whose repo is p2's.
 func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -47,7 +42,6 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 	}
 	movedChats := filepath.Join(filepath.Dir(moved), "chats", "c1")
 	require.NoError(t, os.MkdirAll(movedChats, 0o755))
-	// A pre-leaf row of the moved repo: its checkout and the shared chats tree.
 	preLeaf := filepath.Join(projectDir, "github.com", "acme", "other", "d")
 	preLeafChats := filepath.Join(projectDir, "github.com", "acme", "other", "chats", "c2")
 	require.NoError(t, os.MkdirAll(preLeaf, 0o755))
@@ -70,9 +64,6 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 	assert.NotContains(t, f.workspaces.deleted, "w-stale", "and its row is not the project's to tombstone")
 }
 
-// A worktree git refused to remove — a protected one with uncommitted work —
-// is still a registered checkout. It is not the project delete's to rm -rf:
-// that would destroy the work and strand the registration in the user's repo.
 func TestRegression_ProjectDelete_KeepsACheckoutGitStillRegisters(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
@@ -86,8 +77,6 @@ func TestRegression_ProjectDelete_KeepsACheckoutGitStillRegisters(t *testing.T) 
 	assert.FileExists(t, filepath.Join(worktree, "unsaved.txt"))
 }
 
-// The user's real repository lives outside the crowbar home and is never
-// touched, whatever the rows say.
 func TestProjectDelete_NeverTouchesTheRealRepoPath(t *testing.T) {
 	f := newDeleteFixture(t)
 	real := t.TempDir()

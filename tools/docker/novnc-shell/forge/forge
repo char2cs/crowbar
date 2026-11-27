@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""The rig's stand-in forge CLIs, installed as both `glab` and `gh`. The daemon reads pull-request
+state through the forge's own CLI, picked by the origin URL ("gitlab" -> glab, "github.com" -> gh);
+the seed's remotes are local bare repos whose paths say so. Answers only the calls the daemon
+makes, from ~/fixtures/forge/merge-requests.json (glab) and pull-requests.json (gh), written by
+seed/full.py. A CLI is signed out while ~/fixtures/forge/<name>.signed-out exists. Stdlib only."""
+import json
+import os
+import sys
+
+STATE = os.path.expanduser(os.environ.get("RIG_FORGE_DIR", "~/fixtures/forge"))
+NAME = os.path.basename(sys.argv[0])
+
+
+def flag(args, name, default=None):
+    return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
+
+
+def fixture(file, empty):
+    try:
+        with open(os.path.join(STATE, file)) as f:
+            return json.load(f)
+    except OSError:
+        return empty
+
+
+def glab(args):
+    data = fixture("merge-requests.json", {"protected": ["main"], "merge_requests": []})
+    if args[:1] == ["api"]:
+        print("\n".join(data.get("protected", ["main"])) if args[1].endswith("protected_branches") else "")
+        return 0
+    if args[:2] == ["mr", "list"]:
+        mrs = data.get("merge_requests", [])
+        source, state = flag(args, "--source-branch"), flag(args, "--state", "all")
+        mrs = [m for m in mrs if (not source or m["source_branch"] == source) and state in ("all", m["state"])]
+        print(json.dumps(mrs))
+        return 0
+    return None
+
+
+def gh(args):
+    data = fixture("pull-requests.json", {"protected": ["main"], "pull_requests": []})
+    # The daemon takes the user's identity from `gh api user`: keep the seed's git author name.
+    user = data.get("user", {"login": "crowbar-seed", "name": "Crowbar Seed", "avatar_url": ""})
+    if args[:2] == ["api", "user"]:
+        print(json.dumps(user))
+        return 0
+    if args[:1] == ["api"] and args[1].endswith("/branches"):
+        print("\n".join(data.get("protected", ["main"])))
+        return 0
+    if args[:1] == ["api"] and args[1].startswith("repos/"):
+        print(user["avatar_url"])
+        return 0
+    if args[:2] == ["pr", "list"]:
+        prs = data.get("pull_requests", [])
+        head, state = flag(args, "--head"), flag(args, "--state", "open").upper()
+        prs = [p for p in prs if (not head or p["headRefName"] == head) and state in ("ALL", p["state"])]
+        fields = (flag(args, "--json") or "").split(",")
+        print(json.dumps([{k: p.get(k) for k in fields} for p in prs]))
+        return 0
+    return None
+
+
+def main(args):
+    if args[:1] == ["--version"]:
+        print(f"{NAME} version 0.0.0 (rig stand-in)")
+        return 0
+    if os.path.exists(os.path.join(STATE, f"{NAME}.signed-out")):
+        print(f"{NAME}: not logged in (rig stand-in); run {NAME} auth login", file=sys.stderr)
+        return 4 if NAME == "gh" and args[:2] != ["auth", "status"] else 1
+    if args[:2] == ["auth", "status"]:
+        print(f"Logged in to rig-forge as rig ({NAME} stand-in)", file=sys.stderr)
+        return 0
+    code = {"glab": glab, "gh": gh}[NAME](args)
+    if code is None:
+        print(f"{NAME}: unsupported call {args} (rig stand-in)", file=sys.stderr)
+        return 2
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

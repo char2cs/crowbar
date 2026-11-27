@@ -17,7 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// newLedger is an in-memory chat ledger.
 func newLedger(tb testing.TB) *ledgerstore.Store {
 	tb.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
@@ -27,7 +26,6 @@ func newLedger(tb testing.TB) *ledgerstore.Store {
 	return l
 }
 
-// receipt is requestID's prompt as chatID's ledger has folded it.
 func receipt(t *testing.T, f testFixture, chatID, requestID string) ledger.Prompt {
 	t.Helper()
 	st, err := f.ledger.State(f.ctx, chatID)
@@ -37,7 +35,6 @@ func receipt(t *testing.T, f testFixture, chatID, requestID string) ledger.Promp
 	return p
 }
 
-// crowbarPrompts is every prompt Crowbar recorded on chatID, oldest first.
 func crowbarPrompts(t *testing.T, f testFixture, chatID string) []ledger.Prompt {
 	t.Helper()
 	var out []ledger.Prompt
@@ -57,8 +54,6 @@ func ledgerRows(t *testing.T, f testFixture, chatID string) []ledger.Row {
 	return rows
 }
 
-// plantPrompt records a pending prompt carried by carrier, as a departure that
-// never settled it would leave it.
 func plantPrompt(t *testing.T, f testFixture, chatID, carrier string) string {
 	t.Helper()
 	requestID := uuid.NewString()
@@ -72,8 +67,6 @@ func plantPrompt(t *testing.T, f testFixture, chatID, carrier string) string {
 	return requestID
 }
 
-// A prompt whose replacement CLI never started is settled, unconsumed: the
-// composer keeps the text, and a resend of that request can never deliver it late.
 func TestLedgerFeed_SettlesAPromptWithoutATurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -95,8 +88,6 @@ func TestLedgerFeed_SettlesAPromptWithoutATurn(t *testing.T) {
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
 }
 
-// A retry names the refused prompt it sends again on its own row, so the ledger,
-// not the sending tab's memory, says the refused one was sent again.
 func TestLedgerFeed_ARetryRecordsTheRefusedPromptItSendsAgain(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -116,7 +107,6 @@ func TestLedgerFeed_ARetryRecordsTheRefusedPromptItSendsAgain(t *testing.T) {
 	assert.Equal(t, refused, userMessage(t, f, chatID, retry).RetryOf)
 }
 
-// A retry of a prompt the ledger does not hold as refused links nothing.
 func TestLedgerFeed_ARetryOfAnUnknownPromptLinksNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
@@ -139,9 +129,6 @@ func userMessage(t *testing.T, f testFixture, chatID, requestID string) ledger.U
 	return ledger.UserMessage{}
 }
 
-// A chat's first commit reaches a subscriber that reads the chat's snapshot.
-// Its facts are installed first, so no subscriber reads the ledger under the
-// writer still holding it.
 func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversation(t *testing.T) {
 	f := newFixture(t)
 	chatID, err := f.usecase.MintChat(f.ctx, "", "ws1", "codex", "")
@@ -168,8 +155,6 @@ func TestLedgerFeed_AChatsFirstCommitCompletesAndItsSnapshotCarriesTheConversati
 	assert.Equal(t, "thread-1", c.SessionID)
 }
 
-// A commit for a chat the snapshot owner cannot read (here: none exists) still
-// completes: its publication never reads the ledger under the chat's writer.
 func TestLedgerFeed_ACommitForAChatThatCannotBeReadCompletes(t *testing.T) {
 	f := newFixture(t)
 	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{})
@@ -187,8 +172,6 @@ func TestLedgerFeed_ACommitForAChatThatCannotBeReadCompletes(t *testing.T) {
 	appendWithin(t, f, uuid.NewString(), bound, asked, gaveUp)
 }
 
-// appendWithin commits rows to chatID, failing the test if the commit does not
-// return: a subscriber reading the ledger under its writer never would.
 func appendWithin(t *testing.T, f testFixture, chatID string, rows ...ledger.Row) {
 	t.Helper()
 	committed := make(chan error, 1)
@@ -206,8 +189,6 @@ func appendWithin(t *testing.T, f testFixture, chatID string, rows ...ledger.Row
 	}
 }
 
-// The provider's idle after its turn_stop names the turn that stop closed: it
-// closes it no second time, so it writes and announces nothing.
 func TestLedgerFeed_AnIdleAfterTheTurnStopAnnouncesNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -227,8 +208,6 @@ func TestLedgerFeed_AnIdleAfterTheTurnStopAnnouncesNothing(t *testing.T) {
 	assert.Len(t, ledgerRows(t, f, chatID), written, "the idle writes nothing")
 }
 
-// A stop naming a turn that already ended writes no second end, and announces
-// no turn edge: a client clears the running turn's live stream on one.
 func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -250,9 +229,6 @@ func TestLedgerFeed_ALateTurnStopAnnouncesNothing(t *testing.T) {
 	assert.Len(t, ledgerRows(t, f, chatID), written, "the late stop closes A no second time")
 }
 
-// A pick the first send stages divides nothing: no model or effort marker may
-// stand ahead of the chat's first message.
-// The pick reaches the live CLI or rides the launch of a dormant chat's.
 func TestLedger_TheFirstSendsStagedPickRecordsNoDivider(t *testing.T) {
 	for name, dormant := range map[string]bool{"live CLI": false, "dormant chat": true} {
 		t.Run(name, func(t *testing.T) {

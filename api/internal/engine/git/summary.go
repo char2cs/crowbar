@@ -29,9 +29,6 @@ func (e *engine) computeWorkingTreeSummary(
 	return added, deleted, hasConflicts, diffBase.HasCommits, nil
 }
 
-// diffBase resolves base to the commit the summary diffs against and whether
-// the branch has commits beyond it. With no resolvable base it falls back to
-// "does the repo have any commit".
 func (e *engine) diffBase(
 	ctx context.Context,
 	repoPath string,
@@ -44,9 +41,6 @@ func (e *engine) diffBase(
 	return gitdomain.DiffBase{Commit: commit, HasCommits: ahead > 0}
 }
 
-// resolveDiffBase returns merge-base(base, HEAD) so the summary counts only the branch's own changes;
-// a branch name tries origin/<b> and <b> and the merge-base closest to HEAD wins (local may be ahead).
-// "" means no candidate resolves (no committed diff); the second result is HEAD's commits beyond it.
 func (e *engine) resolveDiffBase(
 	ctx context.Context,
 	repoPath string,
@@ -78,8 +72,6 @@ func (e *engine) resolveDiffBase(
 	return "", 0
 }
 
-// baseRefCandidates: a branch name is probed as its remote-tracking and local ref; a full
-// SHA is used verbatim, since origin/<sha> never resolves.
 func baseRefCandidates(
 	base string,
 ) []string {
@@ -89,9 +81,6 @@ func baseRefCandidates(
 	return []string{"origin/" + base, base}
 }
 
-// looksLikeCommitSHA reports whether s is a full 40-character hex object name, the
-// form RevParse records as a fork point. Branch names are effectively never 40
-// hex chars, so this cleanly separates the SHA base from the branch-name base.
 func looksLikeCommitSHA(
 	s string,
 ) bool {
@@ -107,8 +96,6 @@ func looksLikeCommitSHA(
 	return true
 }
 
-// commitsAheadOf counts `rev-list ref..HEAD`: the distance from the merge-base to HEAD,
-// ranking candidates without a merge-base spawn each. ok is false when ref does not resolve.
 func (e *engine) commitsAheadOf(
 	ctx context.Context,
 	repoPath string,
@@ -167,8 +154,6 @@ func (e *engine) repoHasCommits(
 	return err == nil && count > 0
 }
 
-// numstatCount is one numstat column. A binary file's columns read "-", and
-// count no lines.
 func numstatCount(
 	field string,
 ) int {

@@ -141,10 +141,6 @@ func TestBranchReviewDTOFromEmptySlicesAreNonNil(
 	assert.Empty(t, got.Threads)
 }
 
-// TestBranchReviewDTOFromHasNoConversationsKey guards the Chat-aggregate removal
-// (decision 2): the branch-review wire model must no longer carry a
-// `conversations` key. The frontend degrades to `raw.conversations ?? []`, so
-// its absence is FE-safe (review-api.ts).
 func TestBranchReviewDTOFromHasNoConversationsKey(
 	t *testing.T,
 ) {
@@ -159,11 +155,6 @@ func TestBranchReviewDTOFromHasNoConversationsKey(
 		"branch-review DTO must not carry a conversations key after Chat removal")
 }
 
-// TestReviewMessageDTOFrom_CarriesAgentAttribution asserts the second, entirely
-// independent message DTO maps the provider and chat too. ReviewMessageDTO and
-// ThreadDTO are separate wire shapes over the same aggregate, served by different
-// endpoints, so attribution added to one and not the other would show an agent's
-// name on one review surface and not on another.
 func TestReviewMessageDTOFrom_CarriesAgentAttribution(
 	t *testing.T,
 ) {
@@ -181,10 +172,6 @@ func TestReviewMessageDTOFrom_CarriesAgentAttribution(
 	assert.Equal(t, "chat-7", got.ChatID)
 }
 
-// TestReviewMessageDTOFrom_PreAttributionMessageOmitsTheFields is the
-// degradation guard: a message written before attribution existed — every
-// message in every install today — must serialise without either key, so a
-// client sees "absent" rather than an empty provider id to resolve.
 func TestReviewMessageDTOFrom_PreAttributionMessageOmitsTheFields(
 	t *testing.T,
 ) {

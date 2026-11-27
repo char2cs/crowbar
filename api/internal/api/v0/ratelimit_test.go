@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeClock is the limiter's injected clock; tests move it by hand.
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) now() time.Time { return c.t }
@@ -40,9 +39,6 @@ func hitFrom(
 	return rec.Code
 }
 
-// TestSourceLimiter_RejectsOverMaxPerSource proves the (max+1)th request from
-// one source within a window is rejected with 429, while another source keeps
-// its own full budget.
 func TestSourceLimiter_RejectsOverMaxPerSource(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(1_000, 0)}
 	r := limitedEngine(newSourceLimiter(3, time.Minute, clock.now))
@@ -59,8 +55,6 @@ func TestSourceLimiter_RejectsOverMaxPerSource(t *testing.T) {
 	}
 }
 
-// TestSourceLimiter_ResetsAfterWindow proves an exhausted source stays limited
-// for the whole window and regains its budget once the window elapses.
 func TestSourceLimiter_ResetsAfterWindow(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(1_000, 0)}
 	r := limitedEngine(newSourceLimiter(1, 10*time.Second, clock.now))
@@ -74,8 +68,6 @@ func TestSourceLimiter_ResetsAfterWindow(t *testing.T) {
 	assert.Equal(t, http.StatusOK, hitFrom(t, r, "203.0.113.9:1000"))
 }
 
-// TestSourceLimiter_IgnoresForwardedHeaders proves a caller cannot pick a fresh
-// budget by naming another address in a header.
 func TestSourceLimiter_IgnoresForwardedHeaders(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(1_000, 0)}
 	r := limitedEngine(newSourceLimiter(1, time.Minute, clock.now))
@@ -93,8 +85,6 @@ func TestSourceLimiter_IgnoresForwardedHeaders(t *testing.T) {
 	assert.Equal(t, []int{http.StatusOK, http.StatusTooManyRequests}, codes)
 }
 
-// TestSourceLimiter_KeysIPv6ByItsSlash64 proves addresses inside one /64 share
-// a budget, since a single host can rotate through all of them.
 func TestSourceLimiter_KeysIPv6ByItsSlash64(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(1_000, 0)}
 	r := limitedEngine(newSourceLimiter(1, time.Minute, clock.now))
@@ -104,8 +94,6 @@ func TestSourceLimiter_KeysIPv6ByItsSlash64(t *testing.T) {
 	assert.Equal(t, http.StatusOK, hitFrom(t, r, "[2001:db8:1:3::1]:1000"), "another /64 is another source")
 }
 
-// TestSourceLimiter_TableIsBounded proves the per-source table never grows past
-// maxLimitedSources, however many distinct sources arrive within one window.
 func TestSourceLimiter_TableIsBounded(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(1_000, 0)}
 	l := newSourceLimiter(1, time.Minute, clock.now)

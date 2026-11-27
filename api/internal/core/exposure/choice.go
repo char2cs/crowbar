@@ -13,7 +13,6 @@ import (
 
 const choiceFile = "network.json"
 
-// choice is the owner's saved decision.
 type choice struct {
 	Enabled bool   `json:"enabled"`
 	Address string `json:"address"`
@@ -37,7 +36,6 @@ func load(root string) (choice, error) {
 	return c, nil
 }
 
-// save writes through a temp file so a crash never leaves half a choice.
 func save(root string, c choice) error {
 	raw, err := json.Marshal(c)
 	if err != nil {
@@ -54,8 +52,6 @@ func save(root string, c choice) error {
 	return nil
 }
 
-// validate refuses what is not a host:port, and any bind that is loopback-only:
-// that one is plaintext, which a device connection never is.
 func validate(address string) error {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {

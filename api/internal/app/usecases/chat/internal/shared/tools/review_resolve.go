@@ -31,9 +31,6 @@ type resolveReviewThreadArgs struct {
 	ThreadID string `json:"threadId"`
 }
 
-// resolveReviewThread carries the same scope check as replyToReviewThread, and
-// for the same reason: the thread id alone says nothing about who may act on it,
-// only the thread's own WsID does.
 func resolveReviewThread(
 	ctx context.Context,
 	deps Deps,
@@ -59,9 +56,6 @@ func resolveReviewThread(
 	return fmt.Sprintf("Resolved review thread %s.", in.ThreadID), nil
 }
 
-// broadcastThreadWrite announces a reply or resolution, which the thread store does not broadcast. The
-// frame carries wsID's own project and repo (a visible descendant may be in another repo), falling back
-// to the caller's; the visible set is already memoised by CanSee, so a load error is only logged.
 func broadcastThreadWrite(
 	deps Deps,
 	c Caller,

@@ -11,11 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestRetryProvision_OriginBranch_FetchFails_StillChecksOutBestEffort proves
-// originHasBranch's own best-effort contract: a failed refresh of origin/<branch>
-// must not stop the branch from being treated as "on origin" when the LOCAL
-// remote-tracking ref already resolves it — the checkout still runs AT that ref
-// rather than falling back to a plain local-branch checkout.
 func TestRetryProvision_OriginBranch_FetchFails_StillChecksOutBestEffort(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	g := &fakeGit{trackingExists: true, fetchRefErr: errBoom, revParseSha: "originsha"}
@@ -27,10 +22,6 @@ func TestRetryProvision_OriginBranch_FetchFails_StillChecksOutBestEffort(t *test
 	assert.NotContains(t, g.ops(), "WorktreeAdd", "must not silently fall back to a plain local checkout")
 }
 
-// TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds proves the
-// fork point read in RetryProvision's LOCAL-branch path is
-// non-essential: when it fails, provisioning still succeeds with an empty fork
-// point rather than failing a checkout that already landed cleanly on disk.
 func TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds(t *testing.T) {
 	var gotSha string
 	sawSha := false
@@ -39,7 +30,7 @@ func TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds(t *testing
 		gotSha, sawSha = sha, true
 		return domain.Workspace{ID: id, WorktreePath: path, ForkPointSha: sha, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
-	g := &fakeGit{revParseErr: errBoom} // no tracking ref -> local WorktreeAdd path
+	g := &fakeGit{revParseErr: errBoom}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
 	_, err := uc.RetryProvision(context.Background(), "ph")
@@ -48,11 +39,6 @@ func TestRetryProvision_LocalBranch_ForkPointUnresolved_StillSucceeds(t *testing
 	assert.Empty(t, gotSha, "the fork point is simply left empty when RevParse cannot resolve it")
 }
 
-// TestDeleteRepoWorkspaces_SkipsChildAlreadyReachedByParentsCascade proves the
-// dedup guard: a workspace whose parent is ALSO one of the repo's own rows is not
-// walked as its own separate root — it is only reached once, via the parent's
-// cascade. Without the guard it would be deleted a second time as an unrelated
-// root, which would emit a second tombstone for an aggregate that is already gone.
 func TestDeleteRepoWorkspaces_SkipsChildAlreadyReachedByParentsCascade(t *testing.T) {
 	var deleted []string
 	ws := &fakeWorkspace{

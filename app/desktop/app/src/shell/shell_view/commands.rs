@@ -1,0 +1,10 @@
+mod chat_zoom;
+mod closing;
+mod direction;
+mod focus_neighbour;
+mod new_tab;
+mod pane_commands;
+mod project_slot;
+mod renaming;
+mod reveal_target;
+mod shell_commands;

@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// TestResolve_AllowsInWorkspacePaths verifies that legitimate
-// workspace-relative paths resolve to the joined absolute path.
 func TestResolve_AllowsInWorkspacePaths(
 	t *testing.T,
 ) {
@@ -38,8 +36,6 @@ func TestResolve_AllowsInWorkspacePaths(
 	}
 }
 
-// TestResolve_RejectsPathEscape covers every lexical traversal class:
-// a "../" escape, an absolute path, and a sneaky mid-path escape.
 func TestResolve_RejectsPathEscape(
 	t *testing.T,
 ) {
@@ -62,9 +58,6 @@ func TestResolve_RejectsPathEscape(
 	}
 }
 
-// TestResolve_RejectsSymlinkEscape verifies the symlink-escape defense: a
-// relative path whose parent directory is a symlink pointing OUTSIDE the
-// workspace root is rejected even though the path is lexically local.
 func TestResolve_RejectsSymlinkEscape(
 	t *testing.T,
 ) {
@@ -74,17 +67,13 @@ func TestResolve_RejectsSymlinkEscape(
 	outside := t.TempDir()
 	root := t.TempDir()
 
-	// root/link -> outside (a symlinked directory escaping the workspace).
 	link := filepath.Join(root, "link")
 	require.NoError(t, os.Symlink(outside, link))
 
-	// Lexically local ("link/secret.txt") but resolves outside the root.
 	_, err := safepath.Resolve(root, "link/secret.txt")
 	require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
 }
 
-// TestResolve_RejectsSymlinkTargetEscape verifies that an existing file that
-// is itself a symlink to a target outside the root is rejected.
 func TestResolve_RejectsSymlinkTargetEscape(
 	t *testing.T,
 ) {
@@ -95,15 +84,12 @@ func TestResolve_RejectsSymlinkTargetEscape(
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0o600))
 	root := t.TempDir()
 
-	// root/escape.txt -> outside/secret.txt
 	require.NoError(t, os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(root, "escape.txt")))
 
 	_, err := safepath.Resolve(root, "escape.txt")
 	require.ErrorIs(t, err, safepath.ErrPathEscapesWorkspace)
 }
 
-// TestResolve_AllowsSymlinkInsideRoot verifies an internal symlink (target
-// inside the workspace) is still permitted.
 func TestResolve_AllowsSymlinkInsideRoot(
 	t *testing.T,
 ) {
@@ -119,9 +105,6 @@ func TestResolve_AllowsSymlinkInsideRoot(
 	assert.Equal(t, filepath.Join(root, "alias/file.txt"), got)
 }
 
-// TestResolve_AllowsNewFileUnderHonestParent verifies the new-file edge: a
-// not-yet-existing target whose existing ancestors are all inside the root is
-// allowed (so create/write of new files keeps working).
 func TestResolve_AllowsNewFileUnderHonestParent(
 	t *testing.T,
 ) {
@@ -131,9 +114,6 @@ func TestResolve_AllowsNewFileUnderHonestParent(
 	assert.Equal(t, filepath.Join(root, "does/not/exist/yet.txt"), got)
 }
 
-// TestCanonical_ResolvesSymlinkedParentOfNewFile verifies a file that does not
-// exist yet gets the same spelling through a symlinked parent as through its
-// real directory, so one file has one identity before and after it is created.
 func TestCanonical_ResolvesSymlinkedParentOfNewFile(
 	t *testing.T,
 ) {
@@ -149,9 +129,6 @@ func TestCanonical_ResolvesSymlinkedParentOfNewFile(
 	assert.Equal(t, want, safepath.Canonical(filepath.Join(dir, "new", "..", "new", "file.md")))
 }
 
-// TestLocate_MatchesByFileIdentity verifies the walk compares directories, not
-// spellings: a path through a symlinked alias of a root is under that root, the
-// nearest root wins, and every root that is that directory is reported.
 func TestLocate_MatchesByFileIdentity(
 	t *testing.T,
 ) {
@@ -173,8 +150,6 @@ func TestLocate_MatchesByFileIdentity(
 	assert.Empty(t, hits, "a path under no root is located nowhere")
 }
 
-// TestLocate_SpellsTheRestAsOnDisk verifies one file has one spelling on a
-// case-insensitive volume, whatever case the caller typed.
 func TestLocate_SpellsTheRestAsOnDisk(
 	t *testing.T,
 ) {
@@ -190,9 +165,6 @@ func TestLocate_SpellsTheRestAsOnDisk(
 	assert.Equal(t, filepath.Join("src", "a.md"), rel)
 }
 
-// TestLocate_SpellsNormalizationAsOnDisk verifies one file has one spelling on
-// a normalization-insensitive volume: a name typed in NFC that reaches an NFD
-// entry, or the reverse, resolves to the entry's own spelling.
 func TestLocate_SpellsNormalizationAsOnDisk(
 	t *testing.T,
 ) {

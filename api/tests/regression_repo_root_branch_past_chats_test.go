@@ -17,10 +17,6 @@ type repoRootRow struct {
 	order int
 }
 
-// repoRootLevel reads a repo's root level exactly as the sidebar draws it under
-// the header row (rows-from-repo.ts): the default checkout's root chats — its
-// OWNING chat excluded, that one IS the header — plus every locked branch row
-// (drawn at its workspace's own placement), on one order.
 func repoRootLevel(t *testing.T, h *harness, imported importedRepo, defaultWS string) []repoRootRow {
 	t.Helper()
 	var rows []repoRootRow
@@ -39,7 +35,7 @@ func repoRootLevel(t *testing.T, h *harness, imported importedRepo, defaultWS st
 			continue
 		}
 		if c.Worktree != nil && c.Worktree.OwningChatID == c.ID {
-			continue // the header row itself
+			continue
 		}
 		rows = append(rows, repoRootRow{id: c.ID, kind: "chat", order: c.Order})
 	}
@@ -98,13 +94,6 @@ func rootIDs(rows []repoRootRow) []string {
 	return out
 }
 
-// A repo's root level is ONE list under its header row: the default
-// checkout's chats and the repo's locked branches share it (rows-from-repo.ts;
-// sidebar-drop-policy.ts lets a locked branch reorder past a chat sibling and
-// a chat past a branch). PlaceWorkspace plans against a snapshot scoped to
-// the BRANCH's own workspace (scopeForWorkspace -> foreignAtRoot), so the
-// default checkout's root chats are foreign to it: the branch cannot be
-// placed past them and their orders are never shifted.
 func TestRegression_LockedBranchCannotReorderPastRepoRootChats(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -120,8 +109,6 @@ func TestRegression_LockedBranchCannotReorderPastRepoRootChats(t *testing.T) {
 	require.Len(t, before, 3)
 	require.Equal(t, imported.workspaceID, before[0].id, "the locked branch is drawn first")
 
-	// Drag the locked branch to the END of the repo root (after c1 and c2):
-	// the sidebar's index over the visible rows is 2.
 	var placed struct {
 		Chat struct {
 			Order int `json:"order"`
@@ -136,10 +123,6 @@ func TestRegression_LockedBranchCannotReorderPastRepoRootChats(t *testing.T) {
 	assert.Equal(t, []string{c1, c2, imported.workspaceID}, rootIDs(after), "the branch must sort after both chats")
 }
 
-// The chat writer's view of the same level counts the default checkout's
-// OWNING chat as a root sibling (withoutHomeOwner only drops a project-home
-// owner), a row the sidebar never draws — so a chat dropped at the end of the
-// visible level lands one slot early.
 func TestRegression_RepoRootChatDropCountsTheInvisibleOwnerChat(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -152,7 +135,6 @@ func TestRegression_RepoRootChatDropCountsTheInvisibleOwnerChat(t *testing.T) {
 	t.Logf("before: %+v", before)
 	require.Equal(t, []string{imported.workspaceID, c1, c2}, rootIDs(before))
 
-	// Drag c1 AFTER c2 (the end of the level): rest = [branch, c2], index 2.
 	h.patch(repoBase(imported)+"/chats/"+c1+"/placement", map[string]any{"parentId": "", "order": 2}, nil)
 	h.Quiesce()
 

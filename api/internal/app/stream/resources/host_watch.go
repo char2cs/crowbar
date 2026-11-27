@@ -13,25 +13,19 @@ import (
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
-// Signaler is where a resource's news goes: the stream hub.
 type Signaler interface {
 	Signal(scope stream.Scope, kind string, data any)
 }
 
-// fileWatcherFactory builds the unstarted watch on one held path; emit runs on
-// the watch's own goroutine for each change to the file.
 type fileWatcherFactory func(
 	path string,
 	emit func(change domain.FileChangeType),
 ) watcherProc
 
-// hostWatch is one held path's watch; its identity tells a stale one apart.
 type hostWatch struct {
 	proc watcherProc
 }
 
-// HostWatch watches the host documents clients hold open, one watch per path,
-// armed before Start returns so a read made after it misses no change.
 type HostWatch struct {
 	root      context.Context
 	factory   fileWatcherFactory
@@ -42,8 +36,6 @@ type HostWatch struct {
 	closed  bool
 }
 
-// NewHostWatch builds the resource over the fs engine's file watchers,
-// signalling each change on the path's doc scope.
 func NewHostWatch(
 	root context.Context,
 	signals Signaler,
@@ -70,9 +62,6 @@ func newHostWatch(
 	}
 }
 
-// Start arms path's watch outside the lock, so a slow mount holds back only
-// the clients of its own path. A path the OS has no watches left for is
-// refused with a code of its own: the client words it apart.
 func (m *HostWatch) Start(
 	path string,
 ) error {
@@ -102,7 +91,6 @@ func (m *HostWatch) Start(
 	return fmt.Errorf("resources: watch host document: %w", err)
 }
 
-// Stop ends path's watch after the lock is released, since its emit takes it.
 func (m *HostWatch) Stop(
 	path string,
 ) {
@@ -115,7 +103,6 @@ func (m *HostWatch) Stop(
 	}
 }
 
-// Close stops every watch and refuses every later Start.
 func (m *HostWatch) Close() {
 	m.mu.Lock()
 	m.closed = true
@@ -127,8 +114,6 @@ func (m *HostWatch) Close() {
 	}
 }
 
-// emitter broadcasts the held spelling of path, never the one the OS reports,
-// and drops the changes of a watch that is no longer path's current one.
 func (m *HostWatch) emitter(
 	path string,
 	hw *hostWatch,

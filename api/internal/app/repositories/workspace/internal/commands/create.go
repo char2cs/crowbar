@@ -10,7 +10,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// CreateWorkspace creates a new workspace aggregate seeded to status "new".
 type CreateWorkspace struct {
 	ID            string
 	RepoID        string
@@ -56,8 +55,6 @@ func (c CreateWorkspace) Validate(
 	return validateProvisioning(c.Provisioning, c.WorktreePath)
 }
 
-// validateProvisioning refuses a create that does not say what its worktree
-// is, or whose path contradicts it: only a placeholder has none.
 func validateProvisioning(
 	p domain.WorkspaceProvisioning,
 	worktreePath string,
@@ -88,8 +85,6 @@ func (c CreateWorkspace) EmitEvent(
 	if kind == "" {
 		kind = domain.WorkspaceKindGit
 	}
-	// Seed the lifecycle status from the protected flag: a protected branch
-	// starts locked, every other workspace starts new.
 	status := domain.WorkspaceStatusNew
 	if c.Protected {
 		status = domain.WorkspaceStatusLocked

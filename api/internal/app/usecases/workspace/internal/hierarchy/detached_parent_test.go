@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// A branchless parent that is NOT the repo folder forks from its own commit,
-// not from whatever the repo folder happens to hold.
 func TestCreateChild_OffABranchlessManagedParent_ForksFromThatParentsCommit(t *testing.T) {
 	repoPath, _ := setupImportRepo(t)
 	parentPath := filepath.Join(t.TempDir(), "detached")
@@ -45,8 +43,6 @@ func TestCreateChild_OffABranchlessManagedParent_ForksFromThatParentsCommit(t *t
 	assert.Equal(t, parentHead, child.ForkPointSha)
 }
 
-// A thread made a branch starts from what its folder has committed: the parent's
-// local HEAD, never origin's tip, with its uncommitted edits left where they are.
 func TestCreateChild_FromParentHead_ForksFromTheLocalCommitNotOrigin(t *testing.T) {
 	repoPath, _ := setupImportRepo(t)
 	parentPath := filepath.Join(t.TempDir(), "feature")

@@ -15,72 +15,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ---------------------------------------------------------------------------
-// Deterministic shell synchronisation — no clocks.
-//
-// These tests drive REAL PTYs and REAL shells, so nearly every wait here answers the
-// question "has the shell got there yet?". A duration is not an answer to that question: it
-// is a guess about how fast a fork/exec/prompt is on whichever machine happens to be running
-// the suite, and when the guess is wrong the test fails for reasons that have nothing to do
-// with the code under test.
-//
-// A shell already has a protocol for announcing where it is — it prints its PROMPT once it
-// has finished everything it was asked to do and is blocked reading stdin. The helpers below
-// turn that protocol into a test signal, anchored on the session's pump seam
-// (PumpNotifyForTest) so a waiter is woken by real progress rather than by a timer.
-//
-// None of them takes a timeout. A wait that never completes is a HANG, and `go test -timeout`
-// is the backstop that reports it — with a goroutine dump, which is strictly more diagnostic
-// than a bespoke "did not happen within 5s" message.
-// ---------------------------------------------------------------------------
-
-// shellPrompt is the PS1 handed to every test shell. It is deliberately unlikely to occur in
-// command output, so finding it on screen unambiguously means "the shell printed its prompt".
 const shellPrompt = "<<CRWB-RDY>>"
 
-// testEnv is the environment every test session spawns with: a pinned, prompt-announcing
-// shell with no rc file. Without the pin, a session inherits whatever PS1 the developer's
-// environment carries and may source dotfiles that speak (or fork children) asynchronously —
-// leaving no stable point at which the shell can be said to be ready. Pinning removes that
-// nondeterminism at its source instead of trying to out-wait it. exec dedups the environment
-// keeping the LAST occurrence of a key, so appending overrides any inherited value.
 func testEnv() []string {
 	return append(os.Environ(),
-		"PS1="+shellPrompt, // the readiness protocol
-		"ENV=",             // POSIX sh rc file: none, so no dotfile may speak
-		"BASH_ENV=",        // /bin/sh is bash-in-sh-mode on darwin; silence it too
+		"PS1="+shellPrompt,
+		"ENV=",
+		"BASH_ENV=",
 	)
 }
 
-// stripANSI removes escape sequences from serializer output, leaving the screen's visible
-// text. The serializer emits a clean, ground-state redraw (CSI cursor/SGR, OSC title, then
-// literal cell text), so dropping the sequences yields the text a user would see — which is
-// what the readiness predicates below match on.
 func stripANSI(b []byte) string {
 	var out strings.Builder
 	for i := 0; i < len(b); {
 		c := b[i]
 		if c != 0x1b {
-			// Keep printable text and newlines; drop other control bytes (notably \r, which
-			// the serializer uses for positioning and which would otherwise glue rows).
 			if c == '\n' || c >= 0x20 {
 				out.WriteByte(c)
 			}
 			i++
 			continue
 		}
-		i++ // consume ESC
+		i++
 		if i >= len(b) {
 			break
 		}
 		switch b[i] {
-		case '[': // CSI: params, then a final byte in @-~
+		case '[':
 			i++
 			for i < len(b) && (b[i] < '@' || b[i] > '~') {
 				i++
 			}
-			i++ // consume the final byte
-		case ']', 'P', 'X', '^', '_': // OSC/DCS/SOS/PM/APC: run to BEL or ST (ESC \)
+			i++
+		case ']', 'P', 'X', '^', '_':
 			i++
 			for i < len(b) {
 				if b[i] == 0x07 {
@@ -93,33 +60,17 @@ func stripANSI(b []byte) string {
 				}
 				i++
 			}
-		case '(', ')', '*', '+': // charset designation: ESC ( B — two bytes follow
+		case '(', ')', '*', '+':
 			i += 2
-		default: // simple two-byte escape: ESC =, ESC >, ESC M …
+		default:
 			i++
 		}
 	}
 	return out.String()
 }
 
-// screenText returns the session's current visible screen as plain text. SerializedForTest is
-// deliberately non-consuming, so polling it never perturbs the dirty bit a test may later assert on.
 func screenText(s *Session) string { return stripANSI(s.SerializedForTest()) }
 
-// waitScreen blocks until pred is satisfied by the session's screen.
-//
-// It is the core synchronisation primitive of this package and contains no clock. On each
-// iteration it checks the real observable (the screen); if unsatisfied it blocks on the pump
-// seam — a signal published only when pumpStep has FULLY processed another chunk (model
-// written, frame emitted, dirty set). Waking is proof the screen may have changed, so the loop
-// re-reads it.
-//
-// The check-then-block order is what makes it race-free: the pump seam is 1-buffered, so a
-// chunk landing between our check and our receive leaves the edge latched and wakes us
-// immediately rather than being missed.
-//
-// s.Done() is selected on purely so an exited shell fails fast and loudly instead of hanging;
-// it is a real signal (the process is gone; no further output can EVER arrive), not a deadline.
 func waitScreen(
 	t *testing.T,
 	s *Session,
@@ -134,10 +85,7 @@ func waitScreen(
 		}
 		select {
 		case <-notify:
-			// The pump processed another chunk; loop and re-read the screen.
 		case <-s.Done():
-			// The shell exited. Re-check once (its final output may have satisfied pred on
-			// the way out), then fail — no further output can ever arrive.
 			if pred(screenText(s)) {
 				return
 			}
@@ -146,9 +94,6 @@ func waitScreen(
 	}
 }
 
-// waitPrompt blocks until the shell has printed its prompt — i.e. it has finished starting up,
-// has flushed everything it intends to say, and is now blocked reading stdin. It is the honest
-// replacement for "sleep until the shell looks settled": nothing follows the prompt until we type.
 func waitPrompt(t *testing.T, s *Session) {
 	t.Helper()
 	waitScreen(t, s, func(scr string) bool {
@@ -156,21 +101,8 @@ func waitPrompt(t *testing.T, s *Session) {
 	}, "the shell to print its first prompt")
 }
 
-// markerSeq hands out process-unique marker ids so concurrent sessions can never match on
-// each other's markers.
 var markerSeq atomic.Int64
 
-// runShell writes cmd to the session and blocks until the shell has RUN it and returned to its
-// prompt — leaving the session quiescent, with no output still in flight.
-//
-// The wait is anchored on a unique marker the shell prints after cmd. The marker is emitted
-// from two arguments (`printf '%s%s\n' MK7 END`) so the joined token "MK7END" appears ONLY in
-// the command's OUTPUT and never in the terminal's echo of the typed line — which contains
-// "MK7 END", with a space. Matching the joined form therefore cannot be satisfied by the echo.
-//
-// Requiring the PROMPT after the marker is the other half: PTY output is ordered, so once the
-// prompt that follows the marker is on screen, every byte the command produced has already been
-// through the pump. That is what "quiescent" means, established by observation, not by a timer.
 func runShell(t *testing.T, s *Session, cmd string) {
 	t.Helper()
 	n := markerSeq.Add(1)
@@ -183,17 +115,6 @@ func runShell(t *testing.T, s *Session, cmd string) {
 	}, fmt.Sprintf("command %q to finish and the prompt to return", cmd))
 }
 
-// startForeground starts a long-running foreground child and blocks until the KERNEL agrees
-// that child owns the terminal — i.e. until the session is genuinely non-idle by the same
-// TIOCGPGRP measure IsIdle uses.
-//
-// The child is a subshell that announces itself and then execs the sleep. That shape is what
-// makes the wait exact rather than approximate: job control puts a job in its own process group
-// and makes it the terminal's FOREGROUND group BEFORE the job runs, and exec preserves that
-// pid/pgroup for the sleep. So the marker's arrival PROVES the foreground process group has
-// already flipped away from the shell — no settling, no polling, no "give it 100ms to take
-// effect". The assertion below documents that this holds with zero delay; it is checked, not
-// assumed.
 func startForeground(t *testing.T, s *Session) {
 	t.Helper()
 	n := markerSeq.Add(1)
@@ -208,16 +129,6 @@ func startForeground(t *testing.T, s *Session) {
 			"(job control foregrounds a job's process group before it runs)")
 }
 
-// waitForegroundSampled blocks until the pump has run pumpStep's debounced foreground sample at
-// least once — i.e. the session has latched the terminal's foreground process group and fired
-// whatever OnForegroundReset edge that first sample implies.
-//
-// It exists for the one test whose model is a FAKE (session_forcesuspend_race_test.go), whose
-// screen therefore never shows a shell prompt, so waitPrompt cannot be its readiness signal. The
-// sample runs on the FIRST chunk the pump processes (lastFgSampleAt is the zero time, so the
-// debounce interval has trivially elapsed) and completes — teardown mutation included — before
-// pumpStep publishes its notify edge. Waiting for the stamp is therefore waiting for exactly the
-// state the caller depends on, rather than for a duration in which it is assumed to have happened.
 func waitForegroundSampled(t *testing.T, s *Session) {
 	t.Helper()
 	notify := s.PumpNotifyForTest()
@@ -236,9 +147,6 @@ func waitForegroundSampled(t *testing.T, s *Session) {
 	}
 }
 
-// waitFrame blocks until ch delivers a frame. A CLOSED channel is a real signal (the session
-// tore down and dropped its clients) and is reported as ok==false. There is no timeout: a frame
-// that never arrives is a hang, and `go test -timeout` reports it with the blocked stack.
 func waitFrame(
 	t *testing.T,
 	ch <-chan OutputFrame,
@@ -248,8 +156,6 @@ func waitFrame(
 	return f, ok
 }
 
-// waitFrameContaining blocks until a frame whose data contains sub arrives, accumulating
-// everything seen along the way. A closed channel fails the test — the data can never arrive.
 func waitFrameContaining(
 	t *testing.T,
 	ch <-chan OutputFrame,
@@ -269,10 +175,6 @@ func waitFrameContaining(
 	}
 }
 
-// newTestSession spawns a live session at the default 80×24 size with no scrollback
-// override, the shape every session unit test that does not care about size uses. It spawns
-// with the pinned, prompt-announcing environment so waitPrompt/runShell can synchronise on the
-// shell's own protocol instead of on a clock.
 func newTestSession(
 	t *testing.T,
 	id string,
@@ -290,8 +192,6 @@ func TestSession_NewAndKill(t *testing.T) {
 
 	s.Kill()
 
-	// Kill's own shutdown closes Done: block on that real signal. A deadline here would
-	// only be a second, weaker definition of "too slow".
 	<-s.Done()
 }
 
@@ -305,37 +205,24 @@ func TestSession_AttachReceivesOutput(t *testing.T) {
 
 	require.NoError(t, s.Write([]byte("echo hello\n")))
 
-	// Block on the frames themselves until the echoed output shows up; a closed channel
-	// (the session died) is the only failure a real signal can report here.
 	waitFrameContaining(t, ch, "hello")
 
 	s.Kill()
 }
 
-// TestSession_NaturalExitReapsChild proves H4: a shell that exits on its own
-// (the common case — the user types `exit`) must be reaped via cmd.Wait() on the
-// pump/shutdown path, not only on Kill(). Without the reap the child is left a
-// zombie. ProcessState is non-nil only after a successful Wait().
 func TestSession_NaturalExitReapsChild(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-natural-exit", dir)
 	require.NoError(t, err)
 
-	// Make the shell exit on its own — no Kill().
 	require.NoError(t, s.Write([]byte("exit\n")))
 
-	// The pump's exit path runs shutdown(), which reaps the child and closes Done. Block on
-	// that signal: it fires exactly when the thing under test has happened.
 	<-s.Done()
 
-	// The child must have been waited on (reaped); otherwise it is a zombie.
 	require.NotNil(t, s.cmd.ProcessState, "natural shell exit must reap the child via cmd.Wait()")
 	assert.True(t, s.cmd.ProcessState.Exited(), "child process must have exited")
 }
 
-// TestSession_ClientCloseImpliesDone pins the order shutdown publishes death in: Done is
-// closed BEFORE any client channel, so a reader that sees its channel close can ask Done
-// whether the process exited (the transport's exit-frame decision) without racing.
 func TestSession_ClientCloseImpliesDone(t *testing.T) {
 	s, err := newTestSession(t, "sid-close-order", t.TempDir())
 	require.NoError(t, err)
@@ -379,16 +266,10 @@ func TestSession_DetachClosesChannel(t *testing.T) {
 
 	s.Detach(ch)
 
-	// After detach, sending more output must not block forever.
-	// We write to the PTY and verify channel is closed.
 	_ = s.Write([]byte("echo bye\n"))
 	s.Kill()
 }
 
-// TestSession_ReAttachSerializesScreen proves the serialize-on-attach behavior switch:
-// a re-attaching client receives ONE clean redraw serialized from the current screen
-// model (not a raw ring replay), so output a prior client produced is still visible in
-// the new client's first frame.
 func TestSession_ReAttachSerializesScreen(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-5", dir)
@@ -399,12 +280,10 @@ func TestSession_ReAttachSerializesScreen(t *testing.T) {
 
 	require.NoError(t, s.Write([]byte("echo ringmarker\n")))
 
-	// Wait until the first client sees the echoed marker so the model has parsed it.
 	waitFrameContaining(t, ch, "ringmarker")
 
 	s.Detach(ch)
 
-	// Second attach must serialize the current screen, whose grid still shows the marker.
 	ch2, err := s.Attach()
 	require.NoError(t, err)
 
@@ -412,8 +291,6 @@ func TestSession_ReAttachSerializesScreen(t *testing.T) {
 	assert.True(t, ok, "expected serialized redraw frame")
 	assert.True(t, containsStr(f.Data, "ringmarker"),
 		"serialized redraw must contain the on-screen marker, got: %q", f.Data)
-	// The serialized redraw must be a clean ground-state frame: no replay sanitizer CAN
-	// byte and no historical query bytes — it starts with the soft-reset DECSTR.
 	assert.True(t, contains(f.Data, []byte("\x1b[!p")),
 		"serialized redraw must begin with the DECSTR soft reset, got: %q", f.Data)
 
@@ -439,7 +316,6 @@ func TestSession_ID(t *testing.T) {
 
 func TestSession_New_BadShell(t *testing.T) {
 	dir := t.TempDir()
-	// A non-existent executable must cause pty.Start to fail.
 	_, err := New(t.Context(), "sid-bad", "/nonexistent/shell/binary", dir, "", os.Environ(), 80, 24, 0)
 	assert.Error(t, err)
 }
@@ -449,9 +325,7 @@ func TestSession_WriteAfterKill(t *testing.T) {
 	s, err := newTestSession(t, "sid-7", dir)
 	require.NoError(t, err)
 	s.Kill()
-	// Wait for PTY to fully close.
 	<-s.Done()
-	// Writing to a killed session should return an error.
 	writeErr := s.Write([]byte("hello"))
 	assert.Error(t, writeErr)
 }
@@ -462,7 +336,6 @@ func TestSession_ResizeAfterKill(t *testing.T) {
 	require.NoError(t, err)
 	s.Kill()
 	<-s.Done()
-	// Resizing a killed session should return an error.
 	resizeErr := s.Resize(80, 24)
 	assert.Error(t, resizeErr)
 }
@@ -476,22 +349,15 @@ func TestSession_DropOnOverflow(t *testing.T) {
 	ch, err := s.Attach()
 	require.NoError(t, err)
 
-	// Drain any snapshot frame that was delivered on attach.
 	for len(ch) > 0 {
 		<-ch
 	}
 
-	// Call fanOut directly until the client's channel overflows.
-	// ClientSendBufForTest + 1 writes are guaranteed to overflow.
 	chunk := []byte("x")
 	for i := 0; i <= ClientSendBufForTest; i++ {
 		s.FanOutForTest(chunk)
 	}
 
-	// The overflowing client must have been DROPPED, which closes its channel — that close
-	// is the real signal, and fanOutFrameLocked performs it synchronously on the overflowing
-	// send. Drain to the close rather than waiting out a deadline: if the drop never happens
-	// this ranges forever, and `go test -timeout` reports the hang with the blocked stack.
 	for range ch {
 	}
 }
@@ -501,7 +367,6 @@ func TestIsNormalPTYClose_EOF(t *testing.T) {
 }
 
 func TestIsNormalPTYClose_EIO(t *testing.T) {
-	// On Linux the PTY master returns EIO when the shell exits.
 	assert.True(t, isNormalPTYClose(syscall.EIO))
 }
 
@@ -515,15 +380,6 @@ func TestIsNormalPTYClose_OtherError(t *testing.T) {
 	assert.False(t, isNormalPTYClose(syscall.EPERM))
 }
 
-// TestSession_ReplayLiveHandoff_NoDuplication verifies that a client attaching
-// while the pump is between the model write and fanOut never receives the same chunk
-// twice (once in the serialized attach redraw, once via the live fan-out delivery).
-//
-// PumpChunkForTest delegates to pumpStep — the production critical section used by
-// pump() — so this test exercises the real code path. A regression that removes the
-// lock from pumpStep will be caught by the race detector running this test.
-//
-// Run with: go test -race -run TestSession_ReplayLiveHandoff_NoDuplication
 func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-handoff", dir)
@@ -532,8 +388,6 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 
 	const rounds = 100
 
-	// makeChunk returns a unique 8-byte sentinel for each round using bytes
-	// that are invalid UTF-8 lead bytes and will not appear in shell output.
 	makeChunk := func(r int) []byte {
 		return []byte{
 			0xC0, 0xC1,
@@ -546,8 +400,6 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 	var dupCount int64
 	stop := make(chan struct{})
 
-	// Attacher goroutines: continuously attach, collect frames, check for
-	// duplicate delivery of any known chunk.
 	const numAttachers = 5
 	var attachWg sync.WaitGroup
 	for a := 0; a < numAttachers; a++ {
@@ -563,15 +415,9 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 
 				ch, attachErr := s.Attach()
 				if attachErr != nil {
-					return // session is dead
+					return
 				}
 
-				// Drain everything this attach can see, then detach — with no clock. Attach
-				// enqueues its serialized redraw SYNCHRONOUSLY (under s.mu, into a buffered
-				// channel) and every live fan-out likewise lands synchronously in pumpStep,
-				// so "the channel has run dry" is a complete answer to "what did this client
-				// receive?" — no window needs waiting out. The old 5ms drain timer added
-				// nothing but a chance to truncate a batch and mask a duplicate.
 				var received []byte
 			drain:
 				for {
@@ -587,8 +433,6 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 				}
 				s.Detach(ch)
 
-				// Any unique chunk appearing more than once means the client
-				// saw it in both the serialized attach redraw and the live fan-out.
 				for r := 0; r < rounds; r++ {
 					if countOccurrences(received, makeChunk(r)) > 1 {
 						atomic.AddInt64(&dupCount, 1)
@@ -598,9 +442,6 @@ func TestSession_ReplayLiveHandoff_NoDuplication(t *testing.T) {
 		}()
 	}
 
-	// Producer: pump all chunks via the pump-simulation helper. PumpChunkForTest
-	// delegates to pumpStep (the production critical section), so this exercises
-	// the same lock path as the real pump goroutine.
 	for r := 0; r < rounds; r++ {
 		s.PumpChunkForTest(makeChunk(r))
 	}
@@ -644,12 +485,6 @@ func contains(
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// New lifecycle / safety tests
-// ---------------------------------------------------------------------------
-
-// TestAttachedCount_Transitions verifies AttachedCount and Done across a typical session
-// lifecycle: 0 clients → 1 → 0, then Kill closes Done.
 func TestAttachedCount_Transitions(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-lifecycle", dir)
@@ -669,8 +504,6 @@ func TestAttachedCount_Transitions(t *testing.T) {
 	require.Error(t, err, "a dead session refuses new clients")
 }
 
-// TestLiveSession_ModelBytesAccountsGrid verifies a live session's ModelBytes reflects its
-// grid (and grows with scrollback) so the byte-ceiling accounting stays correct.
 func TestLiveSession_ModelBytesAccountsGrid(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-cap", dir)
@@ -680,15 +513,12 @@ func TestLiveSession_ModelBytesAccountsGrid(t *testing.T) {
 		"a live session must account a positive model footprint")
 }
 
-// TestOSC7_CWD_Update pumps two OSC 7 sequences through pumpStep and verifies
-// that CWD() returns the path from the LAST sequence.
 func TestOSC7_CWD_Update(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-osc7", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	// Build a chunk with two OSC 7 sequences: first /old/dir, then /new/dir.
 	chunk := []byte(
 		"\x1b]7;file:///old/dir\x07" +
 			"\x1b]7;file:///new/dir\x07",
@@ -699,13 +529,6 @@ func TestOSC7_CWD_Update(t *testing.T) {
 		"CWD must reflect the last OSC 7 path in the chunk")
 }
 
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Phase 2: Suspend/Restore helpers
-// ---------------------------------------------------------------------------
-
-// TestSession_SuspendEligible_WithClients verifies a session with a client is never eligible.
 func TestSession_SuspendEligible_WithClients(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-bse1", dir)
@@ -720,7 +543,6 @@ func TestSession_SuspendEligible_WithClients(t *testing.T) {
 	assert.False(t, s.SuspendEligible(true), "not even by force")
 }
 
-// TestSession_ExitCode_Default verifies ExitCode is -1 before any exit.
 func TestSession_ExitCode_Default(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-ec0", dir)
@@ -730,31 +552,19 @@ func TestSession_ExitCode_Default(t *testing.T) {
 	assert.Equal(t, -1, s.ExitCode())
 }
 
-// TestSession_ExitCode_AfterCleanExit verifies ExitCode is 0 after `exit 0`.
 func TestSession_ExitCode_AfterCleanExit(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-ec1", dir)
 	require.NoError(t, err)
 
 	require.NoError(t, s.Write([]byte("exit 0\n")))
-	// The shell's own exit closes Done (via the pump's shutdown); ExitCode is recorded in the
-	// same shutdown, so Done closing is exactly the signal that makes the assertion below valid.
 	<-s.Done()
 	assert.Equal(t, 0, s.ExitCode())
 }
 
-// TestSession_NewRestored_RebuildsModelFromBlob verifies that NewRestored parses a
-// persisted CRWB1 blob, rebuilds the model from its redraw bytes BEFORE the pump starts,
-// and a first Attach serializes the restored screen — so prior on-screen content survives
-// the round-trip. The blob is produced by a real live session's Snapshot so the header and
-// redraw are exactly what the engine persists.
 func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 	dir := t.TempDir()
 
-	// Produce a real persisted blob: a live session that printed a known marker. runShell
-	// returns only once the marker's output is through the pump AND the prompt is back, so the
-	// screen — and therefore the Snapshot serialized from it — provably carries the marker.
-	// No polling for it: the shell's own prompt says when it is there.
 	src, err := newTestSession(t, "sid-src", dir)
 	require.NoError(t, err)
 	waitPrompt(t, src)
@@ -779,13 +589,6 @@ func TestSession_NewRestored_RebuildsModelFromBlob(t *testing.T) {
 		"first attach frame must contain the restored on-screen marker; got %q", f.Data)
 }
 
-// waitIdlePrompt blocks until the shell is at its prompt and asserts it is idle THERE.
-//
-// It replaces the old poll-until-IsIdle helper (and its "did not settle in 5s, skip the test"
-// escape hatch, which silently voided the assertions on a slow machine). The prompt is the
-// shell's own statement that it has nothing left to run, and at that point it IS the terminal's
-// foreground process group — so IsIdle is already true with zero delay. That is asserted here,
-// not waited for: if it were ever false at the prompt, polling would only have hidden the bug.
 func waitIdlePrompt(t *testing.T, s *Session) {
 	t.Helper()
 	waitPrompt(t, s)
@@ -793,7 +596,6 @@ func waitIdlePrompt(t *testing.T, s *Session) {
 		"a shell sitting at its prompt is the foreground process group, so it must report idle")
 }
 
-// countOccurrences counts non-overlapping occurrences of needle in data.
 func countOccurrences(data, needle []byte) int {
 	if len(needle) == 0 || len(data) < len(needle) {
 		return 0
@@ -809,7 +611,7 @@ func countOccurrences(data, needle []byte) int {
 		}
 		if match {
 			count++
-			i += len(needle) // skip past the match (non-overlapping)
+			i += len(needle)
 		} else {
 			i++
 		}

@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// Reach makes every directory from the home down to a workspace root
-// traversable by group and others, adding only the search bits; Unreachable
-// names the ones it would change.
 func TestReach_AddsTraverseFromTheHomeDownToTheWorkspaceRoot(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	home := filepath.Join(t.TempDir(), "crowbar")
@@ -41,7 +38,6 @@ func TestReach_AddsTraverseFromTheHomeDownToTheWorkspaceRoot(t *testing.T) {
 	require.Error(t, Reach(home, filepath.Join(t.TempDir(), "worktree")), "a path outside the home")
 }
 
-// HomeOf finds the Crowbar home a managed checkout lives in by its LAYOUT file.
 func TestHomeOf_FindsTheHomeAboveAManagedCheckout(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "projects", "crowbar")
 	wt := filepath.Join(home, "projects", "p1", "projects", "main", "worktree")

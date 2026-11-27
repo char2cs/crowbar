@@ -1,0 +1,22 @@
+[package]
+name = "terminalview"
+description = "GPUI view of the Crowbar terminal: grid painting, input, selection, search bar, scrollbar."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+gpui.workspace = true
+terminal.workspace = true
+tracing.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

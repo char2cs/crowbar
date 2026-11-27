@@ -1,4 +1,3 @@
-// Package status parses git status --porcelain=v2 --branch output into domain types.
 package status
 
 import (
@@ -11,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// Parse runs git status in repoPath and returns the parsed working-tree status.
 func Parse(
 	ctx context.Context,
 	repoPath string,
@@ -60,7 +58,7 @@ func parseAheadBehind(
 	ahead, aErr := strconv.Atoi(strings.TrimPrefix(parts[0], "+"))
 	behind, bErr := strconv.Atoi(strings.TrimPrefix(parts[1], "-"))
 	if aErr != nil || bErr != nil {
-		return 0, 0 // a header that does not parse says no more than an absent one
+		return 0, 0
 	}
 	return ahead, behind
 }

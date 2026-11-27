@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// runCodex is codex: `app-server` speaks JSON-RPC over its own stdio, one
-// message per line (the chat surface); anything else is the TUI, reporting
-// over the -c hooks wiring (the terminal surface).
 func runCodex(args []string) int {
 	switch {
 	case hasArg(args, "--version"):
@@ -52,20 +49,17 @@ func codexResumeID(args []string) string {
 	return ""
 }
 
-// serveCodex answers on its stdio until its stdin closes, then exits 0.
 func serveCodex() int {
 	record("codex", "start", map[string]any{"argv": os.Args[1:], "serve": true})
 	(&appServer{conn: testutil.NewLinePeer(os.Stdin, os.Stdout), calls: map[int64]chan json.RawMessage{}}).serve()
 	return 0
 }
 
-// appServer is the fake app-server's one connection: its own stdio.
 type appServer struct {
-	conn    *testutil.LinePeer
-	nextID  atomic.Int64
-	callsMu sync.Mutex
-	calls   map[int64]chan json.RawMessage
-	// interrupt is closed by turn/interrupt to end the running turn.
+	conn      *testutil.LinePeer
+	nextID    atomic.Int64
+	callsMu   sync.Mutex
+	calls     map[int64]chan json.RawMessage
 	turnMu    sync.Mutex
 	interrupt chan struct{}
 }
@@ -110,7 +104,6 @@ func (a *appServer) notify(method string, params map[string]any) {
 	a.send(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 }
 
-// call sends a server→client request (an approval ask) and waits for the answer.
 func (a *appServer) call(method string, params map[string]any) json.RawMessage {
 	id := a.nextID.Add(1)
 	ch := make(chan json.RawMessage, 1)
@@ -216,8 +209,6 @@ func (a *appServer) complete(threadID, turnID, status, text string) {
 	}})
 }
 
-// step plays one scripted step; false ends the turn early (interrupted or
-// abandoned by the script).
 func (a *appServer) step(threadID, turnID string, i int, st step, stop chan struct{}) bool {
 	id := fmt.Sprintf("%s-%d", turnID[:8], i)
 	on := func(item map[string]any) map[string]any {

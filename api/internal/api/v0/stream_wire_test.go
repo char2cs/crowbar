@@ -15,7 +15,6 @@ import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// An operation goes out as the row the daemon recorded, nothing added.
 func TestEncodeEntity_AnOperationIsItsRecordedRow(t *testing.T) {
 	op := domain.Operation{ID: "op1", Kind: "git.push", State: domain.OpFailed, Version: 3}
 	want, err := json.Marshal(op)
@@ -27,8 +26,6 @@ func TestEncodeEntity_AnOperationIsItsRecordedRow(t *testing.T) {
 	assert.JSONEq(t, string(want), string(got))
 }
 
-// A review thread goes out as its ThreadDTO, whether a REST write hands the DTO
-// or the stream hands the thread and the ids of its scope.
 func TestEncodeEntity_AReviewThreadIsItsThreadDTO(t *testing.T) {
 	th := domain.ReviewThread{ID: "th1", WsID: "w1", FilePath: "a.go"}
 	want, err := json.Marshal(dto.ThreadDTOFrom(th.NormalizedMessages(), "p1", "r1"))
@@ -54,7 +51,6 @@ func TestEncodeEntity_RefusesAnUnknownKindOrAMismatchedValue(t *testing.T) {
 	require.Error(t, err)
 }
 
-// The sidebar's kinds go out as the DTOs their list routes answer with.
 func TestEncodeEntity_TheSidebarKindsAreTheirListDTOs(t *testing.T) {
 	cases := map[stream.EntityKind]any{
 		stream.KindProject:    dto.ProjectDTO{ID: "p1", Name: "P"},
@@ -74,7 +70,6 @@ func TestEncodeEntity_TheSidebarKindsAreTheirListDTOs(t *testing.T) {
 	}
 }
 
-// A usage report goes out as the GET answered it.
 func TestEncodeEntity_TelemetryIsItsReportDTO(t *testing.T) {
 	used := 9
 	report := agents.Telemetry{Source: "statusline", Context: &agents.ContextUsage{UsedTokens: &used}}
@@ -87,7 +82,6 @@ func TestEncodeEntity_TelemetryIsItsReportDTO(t *testing.T) {
 	assert.JSONEq(t, string(want), string(got))
 }
 
-// A chat's presence goes out as its viewer count.
 func TestEncodeEntity_APresenceIsItsViewerCount(t *testing.T) {
 	got, err := EncodeEntity(stream.KindPresence, appstream.Presence{Viewers: 2})
 

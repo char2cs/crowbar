@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/conflicts"
 )
 
-// BenchmarkConflictParse measures ParseFile on a file with a single conflict hunk.
 func BenchmarkConflictParse(b *testing.B) {
 	dir := b.TempDir()
 
@@ -36,28 +35,24 @@ func BenchmarkConflictParse(b *testing.B) {
 		}
 	}
 
-	// Base commit.
 	writeFile("line1\nline2\nline3\n")
 	git("add", "file.txt")
 	git("commit", "-m", "base")
 
-	// Branch A changes line2.
 	git("checkout", "-b", "branch-a")
 	writeFile("line1\nfrom-a\nline3\n")
 	git("add", "file.txt")
 	git("commit", "-m", "a")
 
-	// Branch B changes line2 differently.
 	git("checkout", "main")
 	git("checkout", "-b", "branch-b")
 	writeFile("line1\nfrom-b\nline3\n")
 	git("add", "file.txt")
 	git("commit", "-m", "b")
 
-	// Merge branch-a into branch-b to produce a conflict.
 	cmd := exec.Command("git", "merge", "branch-a")
 	cmd.Dir = dir
-	_ = cmd.Run() // expected to fail due to conflict
+	_ = cmd.Run()
 
 	ctx := context.Background()
 	b.ResetTimer()

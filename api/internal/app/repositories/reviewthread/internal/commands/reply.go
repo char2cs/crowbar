@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ReplyReviewThread appends a message to an existing thread. ProviderID and ChatID
-// attribute it to an agent (empty for a human) and, as on open, are unvalidated.
 type ReplyReviewThread struct {
 	ID         string
 	MessageID  string

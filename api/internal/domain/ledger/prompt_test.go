@@ -39,8 +39,6 @@ func TestReceipt_RecordsAConsumedSettle(t *testing.T) {
 	assert.Equal(t, ledger.ReasonProviderBuiltin, got.Reason)
 }
 
-// carriedPrompts is r1 and r3 on run-1 (r3 delivered), r2 on run-2, and r4
-// with no carrier.
 func carriedPrompts(t *testing.T) ledger.State {
 	t.Helper()
 	msg := func(requestID, runnerID, turnID string) ledger.Row {

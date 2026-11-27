@@ -1,0 +1,150 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "desktop/crates/*", "desktop/app"]
+exclude = ["mobile"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+license-file = "../legal/LICENSING.md"
+repository = "https://github.com/char2cs/crowbar"
+publish = false
+
+[workspace.dependencies]
+atomicfile = { path = "crates/atomicfile" }
+journal = { path = "crates/journal" }
+browser = { path = "crates/browser" }
+browseragent = { path = "crates/browseragent" }
+chord = { path = "desktop/crates/chord" }
+daemonapi = { path = "desktop/crates/daemonapi" }
+protocol = { path = "crates/protocol" }
+layout = { path = "crates/layout" }
+webview = { path = "desktop/crates/webview" }
+panehost = { path = "desktop/crates/panehost" }
+ui = { path = "desktop/crates/ui" }
+sidebar = { path = "desktop/crates/sidebar" }
+sidebarview = { path = "desktop/crates/sidebarview" }
+layoutview = { path = "desktop/crates/layoutview" }
+ideshell = { path = "desktop/crates/ideshell" }
+viewtabs = { path = "desktop/crates/viewtabs" }
+transport = { path = "crates/transport" }
+supervisor = { path = "desktop/crates/supervisor" }
+startup = { path = "desktop/crates/startup" }
+settings = { path = "desktop/crates/settings" }
+settingsview = { path = "desktop/crates/settingsview" }
+store = { path = "desktop/crates/store" }
+keymap = { path = "desktop/crates/keymap" }
+browserbar = { path = "desktop/crates/browserbar" }
+branchimport = { path = "desktop/crates/branchimport" }
+pairing = { path = "desktop/crates/pairing" }
+oobe = { path = "desktop/crates/oobe" }
+folderimport = { path = "desktop/crates/folderimport" }
+folderpicker = { path = "desktop/crates/folderpicker" }
+windowstate = { path = "desktop/crates/windowstate" }
+platform = { path = "desktop/crates/platform" }
+diagnostics = { path = "desktop/crates/diagnostics" }
+terminal = { path = "desktop/crates/terminal" }
+terminalview = { path = "desktop/crates/terminalview" }
+ptysession = { path = "desktop/crates/ptysession" }
+editor = { path = "desktop/crates/editor" }
+editorview = { path = "desktop/crates/editorview" }
+
+async-channel = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+gdkx11 = "0.18"
+gpui = { package = "gpui-pre", version = "=0.3.14" }
+gpui-kit = { version = "=0.11.0", default-features = false, features = [
+    "component",
+    "tree-sitter-bash",
+    "tree-sitter-css",
+    "tree-sitter-diff",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-toml",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
+gpui_wgpu = { package = "gpui-pre-wgpu", version = "=0.3.14" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.14", default-features = false, features = ["font-kit", "wayland", "x11"] }
+gtk = "0.18"
+image = { version = "0.25", default-features = false }
+lsp-types = "0.97"
+webkit2gtk = "2.0.1"
+raw-window-handle = "0.6"
+wry = { version = "0.53", features = ["linux-body", "transparent"] }
+x11rb = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1.13"
+thiserror = "2"
+tracing = "0.1"
+unicode-segmentation = "1"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[workspace.lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+future_incompatible = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+dead_code = "deny"
+unreachable_pub = "deny"
+missing_debug_implementations = "deny"
+unused_must_use = "deny"
+unused_qualifications = "deny"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+static_mut_refs = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+similar_names = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+exit = "deny"
+mem_forget = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+let_underscore_must_use = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+allow_attributes_without_reason = "deny"
+mod_module_files = "deny"
+missing_assert_message = "deny"
+clone_on_ref_ptr = "deny"
+rc_mutex = "deny"
+same_name_method = "deny"
+str_to_string = "deny"
+empty_drop = "deny"
+cognitive_complexity = "deny"
+excessive_nesting = "deny"
+large_futures = "deny"
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"

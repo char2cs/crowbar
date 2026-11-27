@@ -15,8 +15,6 @@ func usecaseOf(u TurnUsecase) *Usecase {
 	return uc
 }
 
-// FailTurnOnNotice runs what the terminal-wait sweep does once a runner's
-// screen shows a notice that ends its turn.
 func FailTurnOnNotice(
 	ctx context.Context, u TurnUsecase, runner engineagents.Runner, notice engineagents.TerminalNotice,
 ) {

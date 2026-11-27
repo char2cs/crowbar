@@ -34,7 +34,6 @@ func TestBrowse_ListsDirectory(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	// Dirs first (alpha, zeta), then files (readme.txt).
 	body := rec.Body.String()
 	alphaIdx, zetaIdx, readmeIdx := indexOf(body, `"alpha"`), indexOf(body, `"zeta"`), indexOf(body, `"readme.txt"`)
 	if alphaIdx >= zetaIdx || zetaIdx >= readmeIdx {
@@ -83,9 +82,6 @@ func TestBrowse_EmptyPath_DefaultsToHome(t *testing.T) {
 	}
 }
 
-// TestRegression_Browse_RootChildPathsAreJoined proves browsing the
-// filesystem root yields "/etc", not "//etc": child paths are joined, not
-// concatenated with a separator the parent already ends in.
 func TestRegression_Browse_RootChildPathsAreJoined(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	root := filepath.VolumeName(t.TempDir()) + string(filepath.Separator)
@@ -114,8 +110,6 @@ func TestRegression_Browse_RootChildPathsAreJoined(t *testing.T) {
 	}
 }
 
-// TestBrowse_RelativePath_Returns400 proves a relative path is refused rather
-// than resolved against whatever the daemon's working directory happens to be.
 func TestBrowse_RelativePath_Returns400(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

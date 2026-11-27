@@ -1,6 +1,3 @@
-// Package ignore is an in-process gitignore matcher that lets the watcher skip directories without
-// forking `git check-ignore`. It honours root and nested .gitignore and .git/info/exclude, but not
-// core.excludesFile, which lists per-file editor/OS noise rather than directories.
 package ignore
 
 import (
@@ -12,19 +9,12 @@ import (
 	"sync"
 )
 
-// Matcher decides whether an absolute directory path is gitignored, relative to
-// the repository root it was built for.
 type Matcher interface {
-	// Match reports whether absPath (an absolute directory path under the
-	// repository root) is ignored by the repository's gitignore rules.
 	Match(
 		absPath string,
 	) bool
 }
 
-// NewMatcher builds a gitignore matcher rooted at repoPath. Gitignore files are
-// read lazily and cached on first access, so the matcher does no I/O until the
-// first Match call and never re-reads a directory's .gitignore.
 func NewMatcher(
 	repoPath string,
 ) Matcher {
@@ -63,8 +53,6 @@ func (m *matcher) Match(
 	return ignored
 }
 
-// eval applies every pattern in a single gitignore file (in file order, so a
-// later line overrides an earlier one) to absPath, updating ignored in place.
 func (m *matcher) eval(
 	patterns []pattern,
 	base string,
@@ -78,8 +66,6 @@ func (m *matcher) eval(
 	}
 }
 
-// dirPatterns returns the compiled patterns from dir/.gitignore, caching the
-// result (including the empty/absent case) so each file is read at most once.
 func (m *matcher) dirPatterns(
 	dir string,
 ) []pattern {
@@ -93,8 +79,6 @@ func (m *matcher) dirPatterns(
 	return patterns
 }
 
-// excludePatterns returns the compiled patterns from .git/info/exclude, loaded
-// once. It behaves as a lowest-precedence root .gitignore.
 func (m *matcher) excludePatterns() []pattern {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -106,8 +90,6 @@ func (m *matcher) excludePatterns() []pattern {
 	return m.exclude
 }
 
-// readPatterns parses every rule line of a gitignore-format file, returning nil
-// when the file is absent or empty of rules.
 func readPatterns(
 	path string,
 ) []pattern {

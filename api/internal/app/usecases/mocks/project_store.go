@@ -6,25 +6,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ProjectStore is a fake store.Store[domain.Project, string].
 type ProjectStore struct {
-	Saved   []domain.Project
-	SaveErr error
-	FindErr error
-	// FindAllErr, when set, fails FindAll independently of FindErr (which only
-	// guards FindByKey) — so a test can fail the list read without also
-	// breaking every by-id lookup on the same store.
+	Saved      []domain.Project
+	SaveErr    error
+	FindErr    error
 	FindAllErr error
 }
 
-// NewProjectStore returns an empty ProjectStore.
 func NewProjectStore() *ProjectStore {
 	return &ProjectStore{}
 }
 
-// Save UPSERTS by id, mirroring the real GORM store: re-saving a row replaces
-// it rather than shadowing it with a duplicate the reads would then have to pick
-// between. Anything that renumbers a list writes the same row more than once.
 func (s *ProjectStore) Save(
 	ctx context.Context,
 	item domain.Project,
@@ -36,9 +28,6 @@ func (s *ProjectStore) Save(
 	return nil
 }
 
-// Delete removes the row so Saved reflects the net persisted state (a
-// rollback after a Save leaves no row), mirroring RepositoryStore.Delete and
-// the real GORM store.
 func (s *ProjectStore) Delete(
 	ctx context.Context,
 	id string,

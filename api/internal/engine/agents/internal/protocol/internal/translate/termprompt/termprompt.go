@@ -35,7 +35,6 @@ func Match(d *spec.Descriptor, screen string) (models.TerminalPrompt, bool) {
 	return generic, found
 }
 
-// answers are p's replies aimed at this screen; one that cannot be aimed is not offered.
 func answers(p spec.TerminalPromptSpec, screen string) []models.TerminalPromptAnswer {
 	var out []models.TerminalPromptAnswer
 	for _, a := range p.Answers {

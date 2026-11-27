@@ -10,11 +10,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/walk"
 )
 
-// BenchmarkWalk_500Files benchmarks walking a directory tree with 500 files.
 func BenchmarkWalk_500Files(b *testing.B) {
 	dir := b.TempDir()
 
-	// Create 500 files spread across 10 subdirectories.
 	for i := 0; i < 500; i++ {
 		sub := filepath.Join(dir, fmt.Sprintf("pkg%d", i%10))
 		if err := os.MkdirAll(sub, 0o755); err != nil {

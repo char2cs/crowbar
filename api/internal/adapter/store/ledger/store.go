@@ -1,5 +1,3 @@
-// Package ledger stores each chat's ledger rows in an append-only SQLite
-// table, one writer per chat. Import it as ledgerstore.
 package ledger
 
 import (
@@ -16,19 +14,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// FileName is the ledger database under the store directory.
 const FileName = "chat_ledger.db"
 
-// ErrSessionClaimed is a session_bound row naming a session another chat owns.
 var ErrSessionClaimed = errors.New("ledger: session is bound to another chat")
 
-// Subscriber is called after commit, under the chat's writer, in seq order.
-// It must not block: hand work to a channel or do it in O(1). st is a read-only
-// view of the writer's cache: never mutate it or Apply to it.
 type Subscriber func(chatID string, rows []ledger.Row, st ledger.State)
 
-// Store is the chat ledger. Each chat has a single writer that owns its seqs
-// and its cached State.
 type Store struct {
 	db    *gorm.DB
 	clock func() time.Time
@@ -38,17 +29,12 @@ type Store struct {
 	subs    []Subscriber
 }
 
-// chatWriter serialises one chat's appends; state is nil until first touch.
-// changed, once watched, is closed by the next commit or Forget.
 type chatWriter struct {
 	mu      sync.Mutex
 	state   *ledger.State
 	changed chan struct{}
 }
 
-// Open creates the ledger tables on db if they are missing, and purges the
-// dead letters older than their retention: a daemon boot is the store's one
-// maintenance point.
 func Open(ctx context.Context, db *gorm.DB, clock func() time.Time) (*Store, error) {
 	for _, ddl := range schema {
 		if err := db.Exec(ddl).Error; err != nil {
@@ -62,16 +48,12 @@ func Open(ctx context.Context, db *gorm.DB, clock func() time.Time) (*Store, err
 	return s, nil
 }
 
-// Subscribe adds fn to the subscribers every later commit is published to.
 func (s *Store) Subscribe(fn Subscriber) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.subs = append(s.subs, fn)
 }
 
-// Do runs decide under chatID's writer against the chat's current State, then
-// commits the returned rows and head in one transaction and notifies subscribers.
-// It returns the committed rows and the resulting State; no rows commit nothing.
 func (s *Store) Do(
 	ctx context.Context,
 	chatID string,
@@ -103,12 +85,10 @@ func (s *Store) Do(
 	return stamped, next.Clone(), nil
 }
 
-// Append is Do with a decision that always appends rows.
 func (s *Store) Append(ctx context.Context, chatID string, rows ...ledger.Row) ([]ledger.Row, ledger.State, error) {
 	return s.Do(ctx, chatID, func(ledger.State) ([]ledger.Row, error) { return rows, nil })
 }
 
-// State is chatID's current State.
 func (s *Store) State(ctx context.Context, chatID string) (ledger.State, error) {
 	w := s.writer(chatID)
 	w.mu.Lock()
@@ -120,8 +100,6 @@ func (s *Store) State(ctx context.Context, chatID string) (ledger.State, error) 
 	return cur.Clone(), nil
 }
 
-// View runs fn on chatID's State under the chat's writer, so no commit lands
-// while it runs. fn may Read the chat's rows; it must never Do, Append or View.
 func (s *Store) View(ctx context.Context, chatID string, fn func(ledger.State) error) error {
 	w := s.writer(chatID)
 	w.mu.Lock()
@@ -133,8 +111,6 @@ func (s *Store) View(ctx context.Context, chatID string, fn func(ledger.State) e
 	return fn(cur.Clone())
 }
 
-// Watch is chatID's current State and a channel closed by the chat's next
-// commit, read together so no commit between them can be missed.
 func (s *Store) Watch(ctx context.Context, chatID string) (ledger.State, <-chan struct{}, error) {
 	w := s.writer(chatID)
 	w.mu.Lock()
@@ -149,8 +125,6 @@ func (s *Store) Watch(ctx context.Context, chatID string) (ledger.State, <-chan 
 	return cur.Clone(), w.changed, nil
 }
 
-// Forget erases chatID's rows, head, sessions and dead letters, as a purged chat
-// must leave nothing.
 func (s *Store) Forget(ctx context.Context, chatID string) error {
 	w := s.writer(chatID)
 	w.mu.Lock()
@@ -181,7 +155,6 @@ func (s *Store) Forget(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// wake closes the watchers' signal. The caller holds w.mu.
 func (w *chatWriter) wake() {
 	if w.changed != nil {
 		close(w.changed)
@@ -189,8 +162,6 @@ func (w *chatWriter) wake() {
 	}
 }
 
-// writer is chatID's writer. Entries are never removed: a waiter holding one
-// must contend with every later caller on the same mutex.
 func (s *Store) writer(chatID string) *chatWriter {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -208,7 +179,6 @@ func (s *Store) subscribers() []Subscriber {
 	return slices.Clone(s.subs)
 }
 
-// load folds chatID's rows into w on first touch. The caller holds w.mu.
 func (s *Store) load(ctx context.Context, chatID string, w *chatWriter) (ledger.State, error) {
 	if w.state != nil {
 		return *w.state, nil
@@ -222,8 +192,6 @@ func (s *Store) load(ctx context.Context, chatID string, w *chatWriter) (ledger.
 	return st, nil
 }
 
-// stamp numbers and dates rows after cur and checks each against the State
-// the rows before it leave.
 func (s *Store) stamp(chatID string, cur ledger.State, rows []ledger.Row) ([]ledger.Row, ledger.State, error) {
 	next := cur.Clone()
 	stamped := make([]ledger.Row, 0, len(rows))
@@ -271,11 +239,8 @@ func (s *Store) commit(ctx context.Context, chatID string, rows []ledger.Row, ne
 	return nil
 }
 
-// sessionKey names one provider session in the index.
 type sessionKey struct{ provider, sessionID string }
 
-// movedAway is every session rows give up to another chat. A binding of one
-// of them in the same rows is not claimed: an import replays in any chat order.
 func movedAway(rows []ledger.Row) map[sessionKey]bool {
 	out := map[sessionKey]bool{}
 	for _, r := range rows {
@@ -286,9 +251,6 @@ func movedAway(rows []ledger.Row) map[sessionKey]bool {
 	return out
 }
 
-// indexSession keeps the session index with r: a binding claims its session,
-// a move takes it from the chat that gave it up, and a session given up
-// passes to the chat that took it.
 func indexSession(tx *gorm.DB, chatID string, r ledger.Row, movedAway map[sessionKey]bool) error {
 	if r.Kind == ledger.KindSessionLost {
 		body, err := ledger.DecodeBody[ledger.SessionLost](r)
@@ -319,8 +281,6 @@ func indexSession(tx *gorm.DB, chatID string, r ledger.Row, movedAway map[sessio
 	return indexRelay(tx, chatID, body)
 }
 
-// passSession repoints key's claim from one chat to another; a claim the
-// first chat no longer holds is left as it is.
 func passSession(tx *gorm.DB, key sessionKey, from, to string) error {
 	err := tx.Exec(`UPDATE chat_ledger_sessions SET chat_id = ? WHERE provider = ? AND session_id = ? AND chat_id = ?`,
 		to, key.provider, key.sessionID, from).Error
@@ -330,9 +290,6 @@ func passSession(tx *gorm.DB, key sessionKey, from, to string) error {
 	return nil
 }
 
-// claimSession indexes key under chatID, refusing a session another chat
-// owns. The insert is the claim: only when it took no row is the session
-// already someone's, and then only its owner may rebind it.
 func claimSession(tx *gorm.DB, chatID string, key sessionKey) error {
 	claim := tx.Exec(`INSERT INTO chat_ledger_sessions (provider, session_id, chat_id) VALUES (?, ?, ?)
 		ON CONFLICT(provider, session_id) DO NOTHING`, key.provider, key.sessionID, chatID)

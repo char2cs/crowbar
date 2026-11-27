@@ -1,0 +1,53 @@
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
+import type { Repo } from '@/core/entities/repo-types'
+import { readSelect, selectHomeTrees, selectRepos, selectProjects } from '@/core/entities/select'
+import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
+import { applyPendingRemovals, renderedHiddenIds } from '@/components/layout/removal-plan'
+import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { treeInputFor } from '@/features/workspace/tree/input'
+
+export function insertIndex(rest: string[], targetId: string, mode: 'before' | 'after'): number {
+  const at = rest.indexOf(targetId)
+  if (at < 0) return rest.length
+  return mode === 'after' ? at + 1 : at
+}
+
+export function visibleRepos(): Repo[] {
+  const tray = treeUiStore.getState()
+  return applyPendingRemovals(
+    readSelect(selectRepos),
+    renderedHiddenIds(tray.hiddenIds, tray.removals),
+  )
+}
+
+export function renderedProjectRows(projectId: string, repos?: readonly Repo[]): SidebarRow[] {
+  return deriveRows(treeInputFor(projectId, repos)).filter((r) => !r.operation && !r.draft)
+}
+
+export function renderedSiblings(
+  rows: readonly SidebarRow[],
+  containerId: string,
+  lifted: ReadonlySet<string>,
+): string[] {
+  return rows
+    .filter((r) => (r.parentId ?? '') === containerId && !lifted.has(r.id))
+    .sort(compareSidebarRows)
+    .map((r) => r.id)
+}
+
+export function projectOfWorkspace(repos: readonly Repo[], wsId: string): string | null {
+  const scope = resolveRowRepo(repos, wsId)
+  if (scope?.projectId) return scope.projectId
+  const projectIds = new Set<string>([
+    ...readSelect(selectProjects).map((p) => p.id),
+    ...Object.keys(readSelect(selectHomeTrees)),
+    ...repos.flatMap((r) => (r.projectId ? [r.projectId] : [])),
+  ])
+  for (const projectId of projectIds) {
+    if (getHomeWorkspaceId(projectId) === wsId) return projectId
+  }
+  return null
+}

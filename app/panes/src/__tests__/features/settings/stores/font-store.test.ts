@@ -1,0 +1,25 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { useFontStore } from '@/features/settings/stores/font-store'
+
+beforeEach(() => {
+  localStorage.clear()
+})
+
+describe('font store — bundled fonts', () => {
+  it('populates monospace fonts with the bundled Geist Mono', async () => {
+    await useFontStore.getState().actions.loadMonospaceFonts(true)
+
+    const families = useFontStore.getState().monospaceFonts.map((f) => f.family)
+    expect(families).toContain('Geist Mono Variable')
+    expect(families).not.toContain('Geist Variable')
+  })
+
+  it('populates the full available-fonts list (never empty)', async () => {
+    await useFontStore.getState().actions.loadAvailableFonts(true)
+
+    const families = useFontStore.getState().availableFonts.map((f) => f.family)
+    expect(families.length).toBeGreaterThan(0)
+    expect(families).toContain('Geist Variable')
+    expect(families).toContain('Geist Mono Variable')
+  })
+})

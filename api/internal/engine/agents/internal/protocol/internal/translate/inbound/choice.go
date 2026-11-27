@@ -33,8 +33,6 @@ func declaresChoice(fields spec.FieldMap) bool {
 	return false
 }
 
-// markReasons flags the options whose declared reply carries the person's reason, so a
-// card offers a reason only where the agent will receive it.
 func markReasons(options []models.ChoiceOption, d *spec.Descriptor, canonical string) {
 	answer, ok := d.AnswerFor(canonical)
 	if !ok {
@@ -120,7 +118,6 @@ func choiceQuestion(
 		Text:  mapping.String(question, fields["question_text"]),
 		Multi: multi,
 	}
-	// Options are objects (question_options) or bare strings (question_choices).
 	options := make([]models.ChoiceOption, 0)
 	for _, option := range mapping.Objects(question, fields["question_options"]) {
 		options = append(options, models.ChoiceOption{
@@ -163,11 +160,6 @@ func suggestionOptions(fields spec.FieldMap, suggestions []any) []models.ChoiceO
 	return out
 }
 
-// suggestionLabel reads a LITERAL display string out of the descriptor, not a
-// payload path: suggestion_label.* maps a provider's machine name for a broader
-// grant to the English text the field map carries verbatim. exact when a label
-// names the grant's description too (suggestion_label.<type>.<description>). An event
-// that declares no suggestion_type names each offer by itself (spec.OfferName).
 func suggestionLabel(fields spec.FieldMap, suggestion any, description string) (string, bool) {
 	kind := spec.OfferName(suggestion)
 	if typed := fields["suggestion_type"]; len(typed) > 0 {
@@ -186,8 +178,6 @@ func suggestionLabel(fields spec.FieldMap, suggestion any, description string) (
 	return literal(fields, suggestionLabelDefault), false
 }
 
-// literal reads a FieldMap entry as the single literal value it declares,
-// never as a payload path — see suggestionLabel's own doc.
 func literal(fields spec.FieldMap, key string) string {
 	return fields[key].Literal()
 }

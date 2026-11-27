@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// projectDirOf mirrors worktreepath.ProjectDir for the oracle's path-shape assertion,
-// rebuilt from the layout contract rather than imported.
 func projectDirOf(
 	home string,
 	projectID string,
@@ -21,9 +19,6 @@ func projectDirOf(
 	return filepath.Join(home, "projects", projectID)
 }
 
-// worktreePathOf mirrors worktreepath.Derive for a no-remote repo:
-// <home>/projects/<project>/<base(repoPath)>/<branch>/worktree. It is rebuilt from the
-// layout contract rather than imported, so the oracle never echoes the code under test.
 func worktreePathOf(
 	home string,
 	projectID string,
@@ -38,8 +33,6 @@ func worktreePathOf(
 	)
 }
 
-// AssertWorkspaceConsistency verifies that wsID's read model matches disk: it is in
-// Get and List, its worktree dir exists, and the on-disk branch matches Branch.
 func AssertWorkspaceConsistency(
 	t *testing.T,
 	env *Env,
@@ -83,8 +76,6 @@ func AssertWorkspaceConsistency(
 	)
 
 	if ws.WorktreePath != "" {
-		// A Crowbar-created child worktree must follow <home>/projects/<project>/<slug>/<branch>;
-		// an adopted main worktree points at the user's own repo path and is exempt.
 		if strings.HasPrefix(ws.WorktreePath, projectDirOf(env.homeDir, ws.ProjectID)) {
 			assert.Equal(
 				t,

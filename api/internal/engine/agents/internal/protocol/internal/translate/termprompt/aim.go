@@ -6,8 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// aim is a's keystrokes from the cursor's row to its option's row on screen; false
-// when either row is missing or ambiguous, so an answer is never typed blind.
 func aim(p spec.TerminalPromptSpec, a spec.TerminalPromptAnswerSpec, screen string) (string, bool) {
 	if a.Option == "" {
 		return a.Keys, true

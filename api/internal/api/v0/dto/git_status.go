@@ -4,18 +4,12 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GitFileDTO is the wire shape of a single changed file in a workspace's
-// working-tree status: its workspace-relative path, its per-file status,
-// and whether the change is staged.
 type GitFileDTO struct {
 	Path   string `json:"path"`
 	Status string `json:"status"`
 	Staged bool   `json:"staged"`
 }
 
-// GitStatusDTO is the wire shape of a workspace's full working-tree status:
-// the current branch, its ahead/behind counts against the upstream,
-// and the list of changed files.
 type GitStatusDTO struct {
 	Branch string       `json:"branch"`
 	Ahead  int          `json:"ahead"`
@@ -23,9 +17,6 @@ type GitStatusDTO struct {
 	Files  []GitFileDTO `json:"files"`
 }
 
-// GitStatusDTOFrom converts a domain GitStatus into its wire DTO. The files
-// slice is always non-nil so the envelope's data serialises with files: []
-// rather than null.
 func GitStatusDTOFrom(
 	status gitdomain.GitStatus,
 ) GitStatusDTO {

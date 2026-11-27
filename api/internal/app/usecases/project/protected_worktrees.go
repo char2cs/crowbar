@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// provisionProtectedWorktrees gives every protected branch its own
-// Crowbar-managed git worktree, reporting each one's outcome to progress. A
-// failed branch never rolls back a repo that already has its home workspace.
 func (u *projectImport) provisionProtectedWorktrees(
 	ctx context.Context,
 	repo domain.Repository,
@@ -35,7 +32,6 @@ func (u *projectImport) provisionProtectedWorktrees(
 		if err == nil && !has {
 			continue
 		}
-		// The workspace's id is minted here, so a failed branch is named too.
 		wsID := uuid.NewString()
 		if err == nil && homeErr != nil {
 			err = fmt.Errorf("crowbar home: %w", homeErr)
@@ -47,8 +43,6 @@ func (u *projectImport) provisionProtectedWorktrees(
 	}
 }
 
-// repoHasBranch: a protected name can be the provider's default list, which
-// names branches this repo may not have; those are not part of it.
 func (u *projectImport) repoHasBranch(ctx context.Context, repoPath, branch string) (bool, error) {
 	local, err := u.deps.Git.LocalBranchExists(ctx, repoPath, branch)
 	if err != nil {
@@ -64,9 +58,6 @@ func (u *projectImport) repoHasBranch(ctx context.Context, repoPath, branch stri
 	return remote, nil
 }
 
-// provisionProtectedBranchWorktree materialises one protected branch, the single owner of placeholder
-// creation: any live holder (after pruning dead registrations), managed or not, yields a locked
-// placeholder with HeldByPath, since a new repo owns no workspace yet; only a free branch gets a worktree.
 func (u *projectImport) provisionProtectedBranchWorktree(
 	ctx context.Context,
 	repo domain.Repository,
@@ -81,16 +72,11 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	if outcome.Kind != holder.Free {
 		return u.createPlaceholderWorkspace(ctx, repo, branch, wsID, outcome.HeldByPath)
 	}
-	// Free: provision the managed worktree at its human-readable derived path
-	// <home>/projects/<project>/<slug>/<branch>.
 	slug := worktreepath.RemoteSlug(repo)
 	siblings, err := worktreepath.SiblingRoots(crowbarHome, repo.ProjectID, slug)
 	if err != nil {
 		return fmt.Errorf("scan sibling worktrees for %q: %w", branch, err)
 	}
-	// Same rule as Create: the directory name is frozen at creation, so an
-	// imported branch takes the next free variant of a name an earlier workspace
-	// still holds.
 	pathBranch, err := worktreepath.FreePathBranch(
 		crowbarHome, repo.ProjectID, slug, branch, siblings)
 	if err != nil {
@@ -115,8 +101,6 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 		Provisioning: domain.WorkspaceProvisioned,
 	}
 	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
-		// The row failed after the worktree was created on disk — remove the
-		// orphaned worktree so a later retry can recreate it cleanly.
 		if rmErr := u.deps.Git.WorktreeRemove(ctx, repo.Path, path, true); rmErr != nil {
 			slog.WarnContext(ctx, "project import: failed to clean up orphaned worktree",
 				"path", path, "error", rmErr)
@@ -126,8 +110,6 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	return nil
 }
 
-// createPlaceholderWorkspace persists a locked, worktree-less row naming a protected branch's live
-// holder, so the branch is never silently dropped and the user can retry; the UI explains via HeldByPath.
 func (u *projectImport) createPlaceholderWorkspace(
 	ctx context.Context,
 	repo domain.Repository,
@@ -140,7 +122,7 @@ func (u *projectImport) createPlaceholderWorkspace(
 		RepoID:       repo.ID,
 		ProjectID:    repo.ProjectID,
 		Branch:       branch,
-		Protected:    true, // seeds locked; keeps every protection guard for free (B1)
+		Protected:    true,
 		HeldByPath:   heldByPath,
 		Provisioning: domain.WorkspacePlaceholder,
 	}
@@ -150,8 +132,6 @@ func (u *projectImport) createPlaceholderWorkspace(
 	return nil
 }
 
-// addProtectedWorktree checks the protected branch out at path through the one
-// provisioner (provision.ExistingBranch) and returns its fork point.
 func (u *projectImport) addProtectedWorktree(
 	ctx context.Context,
 	repo domain.Repository,

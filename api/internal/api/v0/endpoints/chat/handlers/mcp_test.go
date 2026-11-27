@@ -10,12 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMCP_ReturnsRPCResponseInEnvelope proves MCP forwards the :segid path
-// param, the body's token and the RAW rpc message to DispatchMCP, and returns
-// the reply verbatim under the standard envelope's data.rpc. The rpc message
-// must reach the usecase unparsed: the JSON-RPC framing is the engine's
-// business, and re-encoding it here would let the handler silently reshape a
-// message it does not understand.
 func TestMCP_ReturnsRPCResponseInEnvelope(
 	t *testing.T,
 ) {
@@ -48,7 +42,6 @@ func TestMCP_ReturnsRPCResponseInEnvelope(
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{}}`, string(env.Data.RPC))
 }
 
-// The relay route hands the usecase the :relay id, never a runner id.
 func TestRelayMCP_ForwardsTheRelayIDTheTokenAndTheRawMessage(
 	t *testing.T,
 ) {
@@ -72,9 +65,6 @@ func TestRelayMCP_ForwardsTheRelayIDTheTokenAndTheRawMessage(
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, string(uc.dispatchRelayCalls[0].message))
 }
 
-// TestMCP_NotificationGets204 proves a message the engine answers with silence
-// (a JSON-RPC notification) produces an empty 204, never an envelope: a client
-// that sent notifications/initialized must not receive a stray reply.
 func TestMCP_NotificationGets204(
 	t *testing.T,
 ) {

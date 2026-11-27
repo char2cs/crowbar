@@ -20,10 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// The scripted fake CLI. The test binary re-executes itself as a provider CLI
-// when FAKECLI_SCRIPT names a transcript, so a conformance run drives a real
-// process over a real PTY, stdio and hook relay, with every behaviour —
-// healthy or faulty — declared in testdata.
 func TestMain(m *testing.M) {
 	if script := os.Getenv("FAKECLI_SCRIPT"); script != "" {
 		os.Exit(runFake(script, os.Args[1:]))
@@ -38,18 +34,15 @@ type transcript struct {
 		Screen   string   `yaml:"screen"`
 		ExitCode *int     `yaml:"exit_code"`
 		Hooks    []string `yaml:"hooks"`
-		// Modal parks the CLI on its boot screen, resuming or not.
-		Modal bool `yaml:"modal"`
+		Modal    bool     `yaml:"modal"`
 	} `yaml:"boot"`
 	Turn struct {
 		Hooks        []string `yaml:"hooks"`
 		WriteSession bool     `yaml:"write_session"`
 	} `yaml:"turn"`
-	// UnknownResume is "exit" (the default), "hang" or "silent" (exits 1 saying nothing).
-	UnknownResume string `yaml:"unknown_resume"`
-	// Serve is "answer" (the default), "hang", "refuse" or "exit".
-	Serve    string            `yaml:"serve"`
-	Payloads map[string]string `yaml:"payloads"`
+	UnknownResume string            `yaml:"unknown_resume"`
+	Serve         string            `yaml:"serve"`
+	Payloads      map[string]string `yaml:"payloads"`
 }
 
 var defaultPayloads = map[string]string{
@@ -119,8 +112,6 @@ func fakeTUI(tr transcript, args []string) int {
 	return 0
 }
 
-// resumable reports whether the session exists; an unknown one ends the
-// CLI, or parks it when the transcript says the CLI hangs instead.
 func resumable(tr transcript, id string) bool {
 	if _, err := os.Stat(sessionFile(id)); err == nil {
 		return true
@@ -152,8 +143,6 @@ func fireHook(tr transcript, hooks map[string]string, event, session, prompt str
 	_ = c.Run()
 }
 
-// fakeServe is the app-server on its own stdio: one JSON message per line,
-// until its stdin closes.
 func fakeServe(tr transcript) int {
 	if tr.Serve == "exit" {
 		return 1
@@ -217,7 +206,6 @@ func argAfter(args []string, flag string) string {
 	return ""
 }
 
-// waitForKill parks the fake the way a live TUI sits: until it is killed.
 func waitForKill() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGHUP)

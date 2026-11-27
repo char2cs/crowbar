@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// nestedChoiceDescriptorYAML is the answer stub plus the two tool events a
-// provider that streams a subagent's own thread over the parent's connection
-// uses: tool_post naming the child it spawned (spawns_scope), then the child's own
-// events carrying the child's session id.
 const nestedChoiceEventsYAML = `  tool_pre:
     in: tool_pre
     map:
@@ -53,7 +49,6 @@ func newNestedChoiceChat(t *testing.T) nestedChoiceChat {
 
 func (c nestedChoiceChat) nestedAsk(t *testing.T, promptID string) (choiceID string) {
 	t.Helper()
-	// A nested ask is held for the person, not left to the provider's terminal.
 	return c.askAs(t.Context(), t, "child", promptID)
 }
 
@@ -92,8 +87,6 @@ func TestRegression_ANestedAskDoesNotChangeHowNestedToolRowsRender(t *testing.T)
 	assert.Len(t, ids, 2)
 }
 
-// A subagent's CLI held on an ask past its turn's end really waits, so the ask
-// is a card the person answers, as a held top-level ask outside a turn is.
 func TestRegression_ANestedAskAfterTheTurnClosedIsAnAnswerableCard(t *testing.T) {
 	c := newNestedChoiceChat(t)
 	postHook(t, c.h, repoBase(c.imported), "answerstub", c.runnerID, "turn_stop",

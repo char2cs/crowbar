@@ -15,14 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// The four entrypoints of the windowed review API — the surface that replaced
-// the whole-diff composite. Each takes the shared read lock and delegates to
-// internal/diff; the integration suite covers them through HTTP, which is
-// build-tagged and therefore invisible to the unit coverage gate.
-//
-// One fixture serves all four: a base commit on main, a branch with a committed
-// change, an uncommitted edit of a tracked file, and a binary file — so the
-// blend (committed + uncommitted) and the binary special-case are both live.
 func reviewFixture(t *testing.T) string {
 	t.Helper()
 	dir := initRepo(t)
@@ -33,12 +25,10 @@ func reviewFixture(t *testing.T) string {
 		"committed.go",
 		"package main\n\nfunc committed() { needle() }\n",
 		"committed change")
-	// git detects binary content by NUL bytes, and emits no @@ headers for it.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "logo.bin"), []byte{0, 1, 2, 0, 3}, 0o644))
 	gitRun(t, dir, "add", "logo.bin")
 	gitRun(t, dir, "commit", "-m", "binary file")
 
-	// Uncommitted edit of a tracked file, so the blend has something to blend.
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "base.go"),
 		[]byte("package main\n\nfunc base() { needle() }\n"),
@@ -62,22 +52,13 @@ func TestReviewFiles_BlendsCommittedAndUncommitted(t *testing.T) {
 	assert.Positive(t, byPath["committed.go"].Additions)
 	assert.Positive(t, byPath["base.go"].Additions,
 		"the working-tree edit contributes counts of its own")
-	// `Uncommitted` is deliberately NOT set here: the engine reports the blended
-	// picture, and branch_review_files.go annotates which half a path came from
-	// using the caller's git status. Asserting it at this layer would pin the
-	// flag to the wrong owner.
 	assert.False(t, byPath["base.go"].Uncommitted)
 
-	// Binary files carry -1 counts, mirroring git numstat's "-" convention, so a
-	// real 0/0 text change stays distinguishable from a binary one.
 	require.Contains(t, byPath, "logo.bin")
 	assert.Equal(t, -1, byPath["logo.bin"].Additions)
 	assert.Equal(t, -1, byPath["logo.bin"].Deletions)
 }
 
-// The `dirty` argument is the caller's git-status set: it keeps the +/- counts
-// off the O(diff size) path by re-diffing only those paths against the working
-// tree. Passing it must not change WHAT is reported, only how it is computed.
 func TestReviewFiles_DirtyHintMatchesRecompute(t *testing.T) {
 	dir := reviewFixture(t)
 	e := git.New()
@@ -125,8 +106,6 @@ func TestReviewFilePatch_WritesOneFilesPatch(t *testing.T) {
 		"the patch is scoped to the requested path, not the whole branch")
 }
 
-// maxLines cuts on a HUNK boundary, so a cut patch is still a patch — never a
-// half-hunk the client cannot render.
 func TestReviewFilePatch_TruncatesAtMaxLines(t *testing.T) {
 	dir := initRepo(t)
 	makeCommit(t, dir, "wide.txt", "seed\n", "base commit")
@@ -163,16 +142,12 @@ func TestReviewSearch_FindsHitsAndReportsTruncation(t *testing.T) {
 		assert.Contains(t, []string{gitdomain.SearchSideOld, gitdomain.SearchSideNew}, h.Side)
 	}
 
-	// Limit is what keeps a broad query over a huge diff from being an OOM: the
-	// scan stops the moment it fills, and says so.
 	limited, truncated, err := e.ReviewSearch(ctx, dir, "main", "needle", gitdomain.SearchOpts{Limit: 1})
 	require.NoError(t, err)
 	assert.Len(t, limited, 1)
 	assert.True(t, truncated)
 }
 
-// A find-as-you-type box submits every half-finished pattern the user passes
-// through, so an invalid regex must be an error, never a panic.
 func TestReviewSearch_InvalidRegexIsAnError(t *testing.T) {
 	dir := reviewFixture(t)
 

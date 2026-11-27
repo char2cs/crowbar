@@ -12,8 +12,6 @@ import (
 
 var hunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
-// unifiedHunks splits a unified diff into its hunks; file headers and
-// "\ No newline" markers are not lines of any hunk.
 func unifiedHunks(diff string) []models.PatchHunk {
 	var out []models.PatchHunk
 	for _, line := range strings.Split(diff, "\n") {
@@ -21,7 +19,7 @@ func unifiedHunks(diff string) []models.PatchHunk {
 			oldStart, oldErr := strconv.Atoi(m[1])
 			newStart, newErr := strconv.Atoi(m[2])
 			if oldErr != nil || newErr != nil {
-				continue // a start beyond int range is not a usable hunk header
+				continue
 			}
 			out = append(out, models.PatchHunk{OldStart: oldStart, NewStart: newStart})
 			continue

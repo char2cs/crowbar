@@ -1,0 +1,4 @@
+const TAB_HEIGHT_PX = 32
+const TAB_GAP_PX = 5
+
+export const CHROME_ROW_HEIGHT_PX = TAB_HEIGHT_PX + 2 * TAB_GAP_PX

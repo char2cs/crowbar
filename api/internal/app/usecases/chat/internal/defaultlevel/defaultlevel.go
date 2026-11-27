@@ -1,5 +1,3 @@
-// Package defaultlevel owns the one global row holding the permission level a
-// newly created chat is seeded with (see conversation.Deps.DefaultPermissionLevel).
 package defaultlevel
 
 import (
@@ -12,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Valid keeps the global default, which has no provider to validate against
-// yet, inside Crowbar's own level names.
 func Valid(level string) bool {
 	return slices.Contains(domain.PermissionLevels(), level)
 }
@@ -32,9 +28,6 @@ func New(
 	return &DefaultLevel{prefs: d.Prefs}
 }
 
-// Get is the level a newly created chat is seeded with. Unset (no row saved
-// yet) reports "full-auto" — the shipped out-of-the-box default — not an
-// error.
 func (d *DefaultLevel) Get(
 	ctx context.Context,
 ) (string, error) {
@@ -48,8 +41,6 @@ func (d *DefaultLevel) Get(
 	return row.Level, nil
 }
 
-// Set overwrites the global default. It rejects any level outside the closed
-// set before writing anything.
 func (d *DefaultLevel) Set(
 	ctx context.Context,
 	level string,

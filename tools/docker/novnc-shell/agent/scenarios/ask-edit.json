@@ -1,0 +1,28 @@
+{
+ "description": "An edit that asks permission (with a session-wide grant offered).",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Edit",
+   "kind": "edit",
+   "target": "src/pricing.ts",
+   "input": {
+    "file_path": "src/pricing.ts"
+   },
+   "ask": {
+    "message": "Edit",
+    "suggestions": [
+     {
+      "type": "setMode",
+      "mode": "trusted"
+     }
+    ]
+   },
+   "patch": "--- a/src/pricing.ts\n+++ b/src/pricing.ts\n@@ -1,5 +1,6 @@\n export function roundPrice(cents: number): number {\n-  return Math.round(cents / 100) * 100\n+  // Round half up to the nearest cent.\n+  return Math.round(cents)\n }\n \n export const CURRENCY = 'USD'\n"
+  },
+  {
+   "do": "text",
+   "text": "Edited."
+  }
+ ]
+}

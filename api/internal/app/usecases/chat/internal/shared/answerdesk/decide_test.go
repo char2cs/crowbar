@@ -37,9 +37,6 @@ func TestDecide_RefusesAnOptionTheChoiceDoesNotOffer(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
-// Allow-and-deny is not a decision, and no provider's answer format can carry it.
-// The choice is deliberately multi-pick, so the domain's own arity check lets the
-// pair through and the kind check is the thing under test.
 func TestDecide_RefusesOptionsOfTwoKinds(t *testing.T) {
 	t.Parallel()
 
@@ -68,8 +65,6 @@ func TestDecide_CarriesTheKindReasonAndContent(t *testing.T) {
 	assert.Equal(t, []byte("body"), decision.Content)
 }
 
-// A provider reads an empty deny message as its own hook's refusal and goes looking
-// for a misconfigured hook; a person's deny must read as theirs.
 func TestDecide_ADenyWithNoReasonSaysThePersonDeniedIt(t *testing.T) {
 	t.Parallel()
 
@@ -87,7 +82,6 @@ func TestDecide_ADenyWithNoReasonSaysThePersonDeniedIt(t *testing.T) {
 	assert.Empty(t, allowed.Reason)
 }
 
-// Picking the provider's broader grant names which of its suggestions to apply.
 func TestDecide_ASuggestionNamesTheGrantsPicked(t *testing.T) {
 	t.Parallel()
 	choice := permission()
@@ -101,8 +95,6 @@ func TestDecide_ASuggestionNamesTheGrantsPicked(t *testing.T) {
 	assert.Equal(t, []string{"suggestion-1"}, decision.Picked)
 }
 
-// A choice with no options at all is a free-form prompt: the option id IS the
-// answer, passed through untouched.
 func TestDecide_PassesTheRawIDThroughForAnOptionlessChoice(t *testing.T) {
 	t.Parallel()
 

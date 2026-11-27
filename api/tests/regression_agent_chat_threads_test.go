@@ -17,36 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/config"
 )
 
-// This file pins what a chat's PARENT EDGE actually does to the agent on the
-// other end of it, end to end over the real HTTP surface.
-//
-// A chat whose parent is another CHAT is a thread of it and reads that chat's
-// turns. A chat whose parent is a FOLDER is merely filed there. The three
-// properties below are the whole contract, and each one has failed silently
-// before in a way only a black-box test can catch:
-//
-//   - A thread is SPAWNED pointed at its lineage — the ids, not the turns — and a
-//     chat with no chat ancestors is spawned exactly as it always was.
-//   - The lineage steps THROUGH folders, so filing a thread away never changes a
-//     word of what it reads.
-//   - Reading runs DOWN and only down. A chat may read its ancestors, its
-//     siblings and anything else in scope; it may NOT read its own threads.
-//
-// The MCP calls go through .../chats/runners/:segid/mcp, the same route a vendor
-// CLI's relay uses, authenticated with the per-runner token the daemon minted at
-// spawn. The stub descriptor writes that token to a file under {tmp} exactly as a
-// real descriptor writes its hook config there — so the test reaches the tool
-// surface the way a CLI does, rather than reaching past the transport into the
-// usecase.
-
-// threadStubProviderDescriptorYAML runs the fake CLI, which holds its PTY open, and
-// renders the two things this suite has to read back: the runner's MCP token, and
-// the {context} document the spawn injected.
-//
-// Writing {context} to a FILE is what makes the injected text assertable at all.
-// A real provider's channel is a flag or a config key on a process the test never
-// sees; write_file is the same declarative verb every descriptor already uses for
-// its hook config, pointed at the one thing this suite is about.
 const threadStubProviderDescriptorYAML = `id: threadstub
 events:
   session_start:
@@ -74,15 +44,6 @@ resume_context_inject:
   - write_file: { path: "{tmp}/context.txt", content: "{context}" }
 `
 
-// threadContextBlock renders the CONFIGURED thread_lineage prompt with the ids
-// filled in, so these tests assert the text a spawn actually injects rather than
-// re-hardcoding a copy of it that could drift.
-//
-// It matters that this is the whole block and not a substring of it. The
-// re-parent note Crowbar writes into the chat's own ledger ALSO names the parent
-// and also says get_chat_log, and it rides into the same document inside the
-// handoff — so an assertion looking merely for the id would pass with the spawn
-// injection switched off entirely.
 func threadContextBlock(
 	ids ...string,
 ) string {
@@ -101,8 +62,6 @@ func writeThreadStubProviderDescriptor(
 	writeProviderDescriptor(t, h, "threadstub", threadStubProviderDescriptorYAML)
 }
 
-// newThreadChat creates a chat on the thread stub and returns it with the runner
-// placed on it.
 func newThreadChat(
 	t *testing.T,
 	h *harness,
@@ -112,10 +71,6 @@ func newThreadChat(
 	return createStubChat(t, h, imported, "threadstub")
 }
 
-// newThreadChatUnder creates a chat BORN under parentID — the "New thread" and
-// "new chat in this folder" gestures — and returns it with the runner placed on
-// it. That runner is the chat's FIRST, which is the whole point: what it was told
-// at spawn is what the user's first question is answered with.
 func newThreadChatUnder(
 	t *testing.T,
 	h *harness,
@@ -134,11 +89,6 @@ func newThreadChatUnder(
 	return created.ID, startChat(t, h, repoBase(imported), created.ID)
 }
 
-// runnerFile reads one file out of a runner's per-spawn directory — the {tmp} its
-// descriptor rendered into. The path is derived the way the daemon derives it
-// (<chatsDir>/runners/<runnerID>-<provider>) off the workspace's own chats dir, so
-// a home-kind workspace whose chats reroot under crowbar home would be followed
-// too.
 func runnerFile(
 	t *testing.T,
 	h *harness,
@@ -156,9 +106,6 @@ func runnerFile(
 	return string(data)
 }
 
-// say drives one full exchange into a chat's ledger through the hook route, which
-// is the ONLY way turns are ever recorded: Crowbar builds this record itself from
-// vendor-CLI hooks and never reads a file the CLI wrote.
 func say(
 	t *testing.T,
 	h *harness,
@@ -183,12 +130,6 @@ func mustQuote(
 	return string(out)
 }
 
-// readChatLog calls the get_chat_log tool as runnerID, over the real MCP route
-// with the real per-runner token, and returns the text the model would see.
-//
-// A refused call is NOT an HTTP error: a tool refusal rides back to the model as
-// result text, so the refusal wording is exactly what this returns and exactly
-// what the tests assert on.
 func readChatLog(
 	t *testing.T,
 	h *harness,
@@ -209,14 +150,6 @@ func readChatLog(
 	return string(out.RPC)
 }
 
-// TestRegression_AThreadReadsTheChatItHangsOff is the permission the whole
-// feature rests on, and it is asserted rather than assumed.
-//
-// Threads live in the same workspace as their parent, and get_chat_log has always
-// been workspace-scoped, so admitting an ancestor was EXPECTED to be a no-op. But
-// "expected to be" is not a test, and the descendant refusal added beside it is
-// exactly the kind of check that overshoots by one edge and closes the direction
-// the feature exists for.
 func TestRegression_AThreadReadsTheChatItHangsOff(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -234,12 +167,6 @@ func TestRegression_AThreadReadsTheChatItHangsOff(t *testing.T) {
 		"a thread must be able to read the chat it continues — that edge is the whole point of it")
 }
 
-// TestRegression_AChatCannotReadItsOwnThread is the load-bearing refusal.
-//
-// Context in this tree runs DOWN. A thread is handed its ancestors and may fetch
-// them; a parent is handed nothing about its threads and may not fetch them
-// either. Without the second half, three threads off one chat stop being three
-// independent attempts the moment the parent looks into any of them.
 func TestRegression_AChatCannotReadItsOwnThread(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -257,10 +184,6 @@ func TestRegression_AChatCannotReadItsOwnThread(t *testing.T) {
 		"a parent reading its own thread closes the loop the tree exists to keep open")
 }
 
-// And the refusal survives being filed away. A thread two folders deep under a
-// chat is still that chat's thread — the lineage the refusal is decided from
-// steps straight through folders — so a check written against the stored parent
-// id would have missed every filed thread, which is the same as no check at all.
 func TestRegression_AChatCannotReadAThreadItHasFiledInFolders(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -281,13 +204,6 @@ func TestRegression_AChatCannotReadAThreadItHasFiledInFolders(t *testing.T) {
 	assert.NotContains(t, got, "the filed thread's findings")
 }
 
-// TestRegression_SiblingThreadsStillReadEachOther pins the permission the
-// refusal must not swallow.
-//
-// Cross-chat reading is DELIBERATE and predates threads: agents working the same
-// repo compare notes through this tool, and two threads off one chat are two such
-// agents. Only the downward edge is closed, and this test is here so nobody
-// re-reads the rule as "only your ancestors" and tightens it.
 func TestRegression_SiblingThreadsStillReadEachOther(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -307,14 +223,6 @@ func TestRegression_SiblingThreadsStillReadEachOther(t *testing.T) {
 		"siblings comparing notes is what this tool was built for and must keep working")
 }
 
-// TestRegression_AThreadIsSpawnedPointedAtItsLineage pins the injection: the
-// thread's next CLI comes up already knowing which chats it reads.
-//
-// A POINTER, never a paste. The document names ids and tells the agent to fetch
-// them, so what it reads is the parent AS IT STANDS at the moment it asks —
-// including everything the parent says after this spawn. Pasting the parent's
-// turns here would freeze it at this instant and turn a live relationship into a
-// snapshot nothing could refresh.
 func TestRegression_AThreadIsSpawnedPointedAtItsLineage(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -328,8 +236,6 @@ func TestRegression_AThreadIsSpawnedPointedAtItsLineage(t *testing.T) {
 	placeChat(t, h, base, threadID, map[string]any{"parentId": parentID})
 	h.Quiesce()
 
-	// The next spawn on that chat. A provider switch is the shortest way to ask
-	// for one over HTTP; a reopened tab and a revive take the same seam.
 	var switched struct {
 		ID string `json:"id"`
 	}
@@ -344,9 +250,6 @@ func TestRegression_AThreadIsSpawnedPointedAtItsLineage(t *testing.T) {
 		"a pointer, not a paste: a pasted parent is frozen at this instant and can never be refreshed")
 }
 
-// A chat merely FILED in a folder inherits nothing, and must be spawned exactly
-// as it is today — compared against a chat that has never been near the tree,
-// rather than against a substring, so "exactly" means exactly.
 func TestRegression_AFiledChatIsSpawnedWithNoThreadContext(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -375,12 +278,6 @@ func TestRegression_AFiledChatIsSpawnedWithNoThreadContext(t *testing.T) {
 	assert.NotContains(t, filed, "THREAD CONTEXT")
 }
 
-// TestRegression_FoldersAreTransparentToWhatAThreadIsTold is the folder rule
-// stated where it has to hold: in the document the CLI is actually handed.
-//
-// A thread two folders deep under a chat must resolve exactly the lineage of one
-// sitting directly under it. Asserted against the OTHER document rather than
-// against a literal, so the two shapes can never be updated apart.
 func TestRegression_FoldersAreTransparentToWhatAThreadIsTold(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -417,15 +314,6 @@ func TestRegression_FoldersAreTransparentToWhatAThreadIsTold(t *testing.T) {
 		"a thread two folders deep reads exactly what one sitting directly under the chat reads")
 }
 
-// TestRegression_ReParentingIsRecordedInTheThreadsOwnLedger pins the decision
-// that re-parenting is NOT retroactive.
-//
-// Dragging a chat that already has turns of its own under another chat makes it a
-// thread FROM THE MOVE ONWARD. Nothing it already said was said with that
-// context, and nothing rewrites it to pretend otherwise — a silent retroactive
-// rewrite of what a chat has read is the version nobody can audit afterwards. So
-// the move is written into the chat's own append-only record, at the point in the
-// conversation where it actually happened.
 func TestRegression_ReParentingIsRecordedInTheThreadsOwnLedger(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -439,8 +327,6 @@ func TestRegression_ReParentingIsRecordedInTheThreadsOwnLedger(t *testing.T) {
 	placeChat(t, h, base, threadID, map[string]any{"parentId": parentID})
 	h.Quiesce()
 
-	// Read the chat's own record back the way anything else would: through the
-	// handoff a joining provider is handed.
 	var assembled struct {
 		Handoff string `json:"handoff"`
 	}
@@ -457,20 +343,6 @@ func TestRegression_ReParentingIsRecordedInTheThreadsOwnLedger(t *testing.T) {
 		"the note lands AFTER the turns that were had without the context, never before them")
 }
 
-// TestRegression_AChatCreatedUnderAChatIsThreadedOnItsFirstSpawn is the
-// regression the create path exists to close.
-//
-// The panel's "New thread" gesture used to create a chat and place it afterwards,
-// which meant the thread's CLI was already running by the time the parent edge was
-// written. Its FIRST session — the one the user just asked for and is about to
-// type a question into — came up knowing nothing about the chat it was threaded
-// off, and the lineage only arrived on some later spawn the user never asked for.
-// A user right-clicking "New thread" and asking a follow-up question got a
-// stranger.
-//
-// So the chat is minted, PLACED, and only then started. This asserts against the
-// very first runner the chat ever had; it fails if the placement moves back after
-// the spawn, because that runner's document would no longer name the parent.
 func TestRegression_AChatCreatedUnderAChatIsThreadedOnItsFirstSpawn(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -488,15 +360,10 @@ func TestRegression_AChatCreatedUnderAChatIsThreadedOnItsFirstSpawn(t *testing.T
 		threadContextBlock(parentID),
 		"the FIRST CLI on a new thread must already know which chat it continues")
 
-	// And the pointer works from that first session: it can read the parent now.
 	assert.Contains(t, readChatLog(t, h, imported, threadRunner, parentID),
 		"the plan is to rewrite the parser")
 }
 
-// A chat created in a FOLDER is "new chat in this folder": it is placed there and
-// inherits nothing, because folders hold no turns. Same request, same path, and
-// the only difference is what the lineage resolves to — which is the folder rule
-// doing its job rather than a second code path.
 func TestRegression_AChatCreatedInAFolderIsPlacedButNotThreaded(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -511,8 +378,6 @@ func TestRegression_AChatCreatedInAFolderIsPlacedButNotThreaded(t *testing.T) {
 		"a chat filed in a folder inherits nothing and must be spawned like any other")
 }
 
-// A chat created inside a folder that is itself inside a chat IS a thread of that
-// chat — the create resolves lineage through folders exactly as a drag does.
 func TestRegression_AChatCreatedInAFolderInsideAChatIsStillItsThread(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -530,7 +395,6 @@ func TestRegression_AChatCreatedInAFolderInsideAChatIsStillItsThread(t *testing.
 		"folders are transparent to a create for the same reason they are to a drag")
 }
 
-// An absent parentId is the panel root and behaves exactly as it always did.
 func TestRegression_AChatCreatedWithNoParentIsUnchanged(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)
@@ -548,8 +412,6 @@ func TestRegression_AChatCreatedWithNoParentIsUnchanged(t *testing.T) {
 		"an omitted parentId and an empty one are the same request, and it is today's request")
 }
 
-// A parentId naming nothing is refused, and NOTHING is left behind — no chat, no
-// CLI. A create the user was told failed must not put a row in their panel.
 func TestRegression_CreatingAChatUnderAnUnknownParentLeavesNothingBehind(t *testing.T) {
 	h := newHarness(t)
 	writeThreadStubProviderDescriptor(t, h)

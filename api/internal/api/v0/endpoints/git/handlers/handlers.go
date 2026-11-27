@@ -1,4 +1,3 @@
-// Package handlers contains the HTTP handler layer for v0 git endpoints.
 package handlers
 
 import (
@@ -13,9 +12,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Git is the git usecase surface consumed by the HTTP handlers.
 type Git interface {
-	// Reads
 	Status(ctx context.Context, wsID string) (gitdomain.GitStatus, error)
 	Diff(ctx context.Context, wsID string, staged bool) ([]gitdomain.FileDiff, error)
 	Log(ctx context.Context, wsID string, limit, skip int) ([]gitdomain.Commit, error)
@@ -24,7 +21,6 @@ type Git interface {
 	ConflictedFiles(ctx context.Context, wsID string) ([]string, error)
 	ConflictHunks(ctx context.Context, wsID, filePath string) ([]gitdomain.ConflictHunk, error)
 	CommitDiff(ctx context.Context, wsID, sha string) (gitdomain.MultiFileDiff, error)
-	// Writes
 	StageFile(ctx context.Context, wsID, filePath string, now time.Time) error
 	StageHunk(ctx context.Context, wsID, filePath, hunkID string, now time.Time) error
 	UnstageFile(ctx context.Context, wsID, filePath string, now time.Time) error
@@ -50,8 +46,6 @@ type Git interface {
 	OperationAbort(ctx context.Context, wsID string, now time.Time) error
 }
 
-// Operations starts the slow git verbs as operations. It is satisfied by the
-// operation service.
 type Operations interface {
 	Start(
 		ctx context.Context,
@@ -60,13 +54,11 @@ type Operations interface {
 	) (domain.Operation, error)
 }
 
-// Handlers holds the git usecase and the operation service the slow verbs run on.
 type Handlers struct {
 	git Git
 	ops Operations
 }
 
-// New builds a Handlers from the git usecase and the operation service.
 func New(
 	git Git,
 	ops Operations,
@@ -77,8 +69,6 @@ func New(
 	}
 }
 
-// workspaceID reads the chat's worktree that resolveChatWorktree stashed in
-// reqscope; chat-scoped URLs carry no workspace id to take it from.
 func (h *Handlers) workspaceID(
 	ctx *gin.Context,
 ) string {

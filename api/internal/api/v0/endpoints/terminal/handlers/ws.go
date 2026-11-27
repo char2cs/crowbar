@@ -17,17 +17,11 @@ import (
 const (
 	wsWriteWait  = 10 * time.Second
 	wsPongWait   = 60 * time.Second
-	wsPingPeriod = 45 * time.Second // must be < wsPongWait
+	wsPingPeriod = 45 * time.Second
 )
 
-// terminalUpgrader rejects cross-origin WebSocket upgrades from a non-allow-listed
-// Origin: the terminal socket is a live shell, so a blanket "return true" would let
-// any website the user visited open a PTY through their browser. See origin.Allowed.
 var terminalUpgrader = websocket.Upgrader{
-	ReadBufferSize: 4096,
-	// 64 KB write buffer matches the writePump coalescing target so a coalesced
-	// output message flushes in a couple of socket writes instead of being
-	// re-fragmented into ~64 writes by a small 4 KB buffer.
+	ReadBufferSize:  4096,
 	WriteBufferSize: 64 * 1024,
 	CheckOrigin: func(r *http.Request) bool {
 		o := r.Header.Get("Origin")
@@ -40,9 +34,6 @@ var terminalUpgrader = websocket.Upgrader{
 	},
 }
 
-// WS handles GET .../workspaces/:wsId/terminals/:sessionId/ws.
-// It verifies the session exists before upgrading, sets up ping/pong keepalive,
-// then runs the read/write pumps via the terminal engine.
 func (h *Handlers) WS(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {

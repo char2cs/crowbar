@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// Push pushes the current branch and resyncs the working tree.
 func (u *gitUsecase) Push(
 	ctx context.Context,
 	wsID string,
@@ -17,9 +16,6 @@ func (u *gitUsecase) Push(
 	})
 }
 
-// Fetch fetches from the remote and resyncs the working tree, then cascades the
-// resync to the workspace's direct children (a fetch moves origin/<base>, which
-// resolveDiffBase/summaryBase probe, so a child's diff base can shift).
 func (u *gitUsecase) Fetch(
 	ctx context.Context,
 	wsID string,
@@ -34,8 +30,6 @@ func (u *gitUsecase) Fetch(
 	return nil
 }
 
-// Pull pulls with the given mode, resyncs, and cascades the resync to direct children, whose summaries
-// measure against this branch's moved ref.
 func (u *gitUsecase) Pull(
 	ctx context.Context,
 	wsID string,
@@ -51,9 +45,6 @@ func (u *gitUsecase) Pull(
 	return nil
 }
 
-// syncChildren resyncs every direct child's working-tree summary after a pull/fetch moved the parent tip
-// they measure against. Best-effort: a failure is logged and never fails the pull or blocks a sibling.
-// Grandchildren measure against their own parent's branch, which did not move.
 func (u *gitUsecase) syncChildren(
 	ctx context.Context,
 	parentID string,
@@ -66,8 +57,6 @@ func (u *gitUsecase) syncChildren(
 		return
 	}
 	for _, ws := range all {
-		// A self-loop (ParentID == ID) must not resync the pulled workspace as its
-		// own child, and only direct children of parentID are in scope.
 		if ws.ParentID != parentID || ws.ID == parentID {
 			continue
 		}

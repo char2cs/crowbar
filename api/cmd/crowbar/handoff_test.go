@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newHandoffTestSocket stands up a unix listener under a short /tmp directory
-// (t.TempDir() nests under the long test name and overflows macOS's 104-byte
-// sun_path limit) serving handler for every request, and returns the socket
-// path plus a cleanup func.
 func newHandoffTestSocket(t *testing.T, handler http.HandlerFunc) string {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("/tmp", "handoff")
@@ -32,9 +28,6 @@ func newHandoffTestSocket(t *testing.T, handler http.HandlerFunc) string {
 	return sock
 }
 
-// TestRunHandoffDump_PrintsHandoff proves runHandoffDump GETs the
-// workspace-nested /v0/projects/<p>/repos/<r>/workspaces/<w>/chats/<id>/handoff
-// and writes the decoded data.handoff to out.
 func TestRunHandoffDump_PrintsHandoff(t *testing.T) {
 	sock := newHandoffTestSocket(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
@@ -52,8 +45,6 @@ func TestRunHandoffDump_PrintsHandoff(t *testing.T) {
 	require.Equal(t, "X", out.String())
 }
 
-// TestRunHandoffDump_DaemonError proves a {success:false,error:...} envelope
-// surfaces as a Go error rather than being printed as if it were the handoff.
 func TestRunHandoffDump_DaemonError(t *testing.T) {
 	sock := newHandoffTestSocket(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// writable opens path the way the old daemon did: read-write, in WAL mode,
-// creating each table of ddl it does not hold yet.
 func writable(t *testing.T, path string, ddl ...string) *sql.DB {
 	t.Helper()
 	db, err := sql.Open(glebarez.DriverName, path)

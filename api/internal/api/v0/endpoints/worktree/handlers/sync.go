@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ChatSync handles POST .../chats/:id/sync, answering 202 with the operation that recomputes the
-// working-tree summary; the synced workspace arrives on the workspace stream.
 func (h *Handlers) ChatSync(
 	c *gin.Context,
 ) {

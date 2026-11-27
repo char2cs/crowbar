@@ -1,0 +1,36 @@
+@import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/geist-mono/wght-italic.css';
+
+:root {
+  --editor-font-family: ui-monospace, 'Geist Mono Variable', monospace;
+
+  --diffs-font-family: var(--editor-font-family);
+  --diffs-header-font-family: var(--app-font-family, 'CalSansUI', sans-serif);
+}
+
+diffs-container {
+  --diffs-bg: var(--background);
+  --diffs-fg: var(--foreground);
+}
+
+[data-review-code-view-scroller] diffs-container {
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px var(--border);
+  overflow: clip;
+}
+
+.monaco-editor-shell {
+  will-change: transform;
+}
+
+html[data-pane-resizing] .monaco-editor {
+  transform: translateZ(0);
+}
+
+html[data-editor-layout] .monaco-editor {
+  transform: translateZ(0);
+}
+
+html[data-editor-selecting] .monaco-editor {
+  transform: translateZ(0);
+}

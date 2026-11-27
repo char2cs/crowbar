@@ -11,9 +11,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// SubmitPromptWithSwitch sends with the provider and pick a composer staged, in
-// one hold of the chat: the pick is checked before anything changes, and every
-// decision after a wait is taken again. Only a nil selection stages nothing.
 func (rs *Runners) SubmitPromptWithSwitch(
 	ctx context.Context,
 	chatID, text, clientRequestID, provider string,
@@ -29,15 +26,12 @@ func (rs *Runners) SubmitPromptWithSwitch(
 		return domain.AgentPromptSubmission{}, err
 	}
 
-	// Admission runs once the request is known to be new: a replayed or busy
-	// send must leave the chat's provider and selection exactly as it found them.
 	admit := func(chat domain.Chat, requestID string) (domain.AgentPromptSubmission, bool, error) {
 		providerID, launches, err := rs.deliveryLaunch(ctx, chat, provider)
 		if err != nil {
 			return domain.AgentPromptSubmission{}, true, err
 		}
 		if !launches {
-			// The live CLI's own delivery is decided against the chat's pick.
 			return domain.AgentPromptSubmission{}, false, rs.commitStagedSelection(ctx, chatID, selection)
 		}
 		submission, err := rs.launchForDelivery(ctx, h, chat, providerID, requestID, text, selection)
@@ -46,16 +40,12 @@ func (rs *Runners) SubmitPromptWithSwitch(
 	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, admit)
 }
 
-// commitStagedSelection commits a staged pick only for a chat that will take
-// the send; nil means nothing was staged.
 func (rs *Runners) commitStagedSelection(
 	ctx context.Context, chatID string, selection *domain.ChatSelection,
 ) error {
 	if selection == nil {
 		return nil
 	}
-	// The composer re-posts its picker on every send. A pick the chat already
-	// holds changes nothing, so it must not turn a deliverable send away as busy.
 	if rs.holdsSelection(ctx, chatID, *selection) {
 		return nil
 	}
@@ -65,9 +55,6 @@ func (rs *Runners) commitStagedSelection(
 	return rs.setChatSelectionLocked(ctx, chatID, selection.Model, selection.Effort)
 }
 
-// SetChatSelection is the PATCH .../selection route. It takes the chat's hold so
-// its read, write and dividers never interleave with a send staging its own
-// pick; unlocked, a divider records a change a concurrent write already undid.
 func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort string) error {
 	h, err := rs.acquire(ctx, chatID)
 	if err != nil {
@@ -80,8 +67,6 @@ func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort s
 	return rs.setChatSelectionLocked(ctx, chatID, model, effort)
 }
 
-// validateSelectionForProvider refuses a model or effort providerID does not
-// declare; a staged switch checks it before that provider is the chat's.
 func (rs *Runners) validateSelectionForProvider(
 	ctx context.Context,
 	chatID, providerID, model, effort string,
@@ -106,15 +91,11 @@ func (rs *Runners) validateSelectionForProvider(
 	return nil
 }
 
-// holdsSelection reports whether the chat's pick already is selection.
 func (rs *Runners) holdsSelection(ctx context.Context, chatID string, selection domain.ChatSelection) bool {
 	current, err := rs.conversations.ChatSelection(ctx, chatID)
 	return err == nil && current.Model == selection.Model && current.Effort == selection.Effort
 }
 
-// setChatSelectionLocked commits model/effort and records a divider for
-// whichever of the two actually changed, once a turn has run: before that a
-// pick divides nothing, and its divider would stand above the first message.
 func (rs *Runners) setChatSelectionLocked(
 	ctx context.Context,
 	chatID, model, effort string,
@@ -130,26 +111,22 @@ func (rs *Runners) setChatSelectionLocked(
 	if model != before.Model {
 		rs.divide(ctx, chatID, ledger.MarkerModelChanged, model)
 	}
-	// An unset effort runs as the one its turns report: picking that one is no change.
 	if effort != before.Effort && effort != cmp.Or(before.Effort, st.ReportedEffort()) {
 		rs.divide(ctx, chatID, ledger.MarkerEffortChanged, effort)
 	}
 	return nil
 }
 
-// validateStagedSelection checks a staged pick against the provider the send is
-// about to launch, before anything changes: checked after a switch, a bad pick
-// strands the chat on the new provider with nothing delivered.
 func (rs *Runners) validateStagedSelection(
 	ctx context.Context,
 	chatID, provider string,
 	selection *domain.ChatSelection,
 ) error {
 	if selection == nil || *selection == (domain.ChatSelection{}) {
-		return nil // the provider's default is always valid
+		return nil
 	}
 	var err error
-	if provider == "" { // nothing staged: the chat's current provider
+	if provider == "" {
 		provider, err = rs.conversations.ChatProviderID(ctx, chatID)
 	}
 	if err != nil {

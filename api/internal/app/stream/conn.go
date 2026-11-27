@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// Conn is one client's socket as the hub drives it.
 type Conn interface {
 	ReadJSON(v any) error
 	WriteJSON(v any) error
@@ -26,30 +25,20 @@ type outgoing struct {
 	live  bool
 }
 
-// connection orders every frame for one client. Live frames are bounded by
-// QueueSize; every frame, snapshots too, by HardQueueSize.
 type connection struct {
-	conn Conn
-	// scopes is what this connection holds, guarded by the hub's lock.
-	scopes map[string]stream.Scope
-	// resources is each scope whose resources it holds, its Serve goroutine's alone.
+	conn      Conn
+	scopes    map[string]stream.Scope
 	resources map[string]stream.Scope
-	// follows is each ledger scope it follows, guarded by the hub's lock.
-	follows map[string]*follow
-	// reads is each scope whose snapshot is being read, guarded by the hub's lock.
-	reads map[string]*pendingRead
+	follows   map[string]*follow
+	reads     map[string]*pendingRead
 
-	mu      sync.Mutex
-	pending []outgoing
-	live    int
-	ended   bool
-	// snapshotting is each scope whose synced frame is still queued.
+	mu           sync.Mutex
+	pending      []outgoing
+	live         int
+	ended        bool
 	snapshotting map[string]bool
 
 	wake chan struct{}
-	// room hears each frame the writer takes, for a replay waiting to queue. One
-	// token serves many waiters: a waiter parks only behind QueueSize frames and
-	// every pop offers a token, so one that misses a token hears the next.
 	room chan struct{}
 	done chan struct{}
 	once sync.Once
@@ -69,7 +58,6 @@ func newConnection(conn Conn) *connection {
 	}
 }
 
-// push queues f; false means the queue is full and the connection must resync.
 func (c *connection) push(f stream.Frame, live bool) bool {
 	c.mu.Lock()
 	if c.ended {
@@ -114,8 +102,6 @@ func (c *connection) pop() (stream.Frame, bool) {
 	return next.frame, true
 }
 
-// purge drops the frames of scope still queued, so none of a released hold's
-// reach the client after its unsub was read.
 func (c *connection) purge(scope string) {
 	c.mu.Lock()
 	kept := c.pending[:0]
@@ -138,7 +124,6 @@ func (c *connection) purge(scope string) {
 	}
 }
 
-// await blocks while QueueSize frames wait; false once the connection or ctx ends.
 func (c *connection) await(ctx context.Context) bool {
 	for {
 		c.mu.Lock()
@@ -160,7 +145,6 @@ func (c *connection) await(ctx context.Context) bool {
 	}
 }
 
-// beginSnapshot marks scope's snapshot queued; false if a held scope's already is.
 func (c *connection) beginSnapshot(scope string, held bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -171,14 +155,12 @@ func (c *connection) beginSnapshot(scope string, held bool) bool {
 	return true
 }
 
-// endSnapshot forgets a snapshot that ended without its synced frame.
 func (c *connection) endSnapshot(scope string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.snapshotting, scope)
 }
 
-// write drains the queue to the socket until the connection ends or a write fails.
 func (c *connection) write() {
 	for {
 		select {
@@ -195,7 +177,6 @@ func (c *connection) write() {
 	}
 }
 
-// end closes the socket once, which also ends Serve's read.
 func (c *connection) end(code int, reason string) {
 	c.once.Do(func() {
 		c.mu.Lock()
@@ -203,7 +184,6 @@ func (c *connection) end(code int, reason string) {
 		c.pending = nil
 		c.mu.Unlock()
 		close(c.done)
-		// The writer may be stuck in a write: close from aside, never under the hub's lock.
 		go func() {
 			defer safego.Recover("stream.close")
 			if err := c.conn.CloseWith(code, reason); err != nil {

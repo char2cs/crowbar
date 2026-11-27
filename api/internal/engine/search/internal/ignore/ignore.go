@@ -1,4 +1,3 @@
-// Package ignore implements a .gitignore hierarchy loader and path matcher.
 package ignore
 
 import (
@@ -12,28 +11,21 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// Stack accumulates .gitignore layers during traversal in git precedence order (root
-// first, most specific last). .git/ is always ignored.
 type Stack struct {
 	layers []layer
 }
 
 type layer struct {
-	// dir is the absolute directory this .gitignore applies to.
 	dir      string
 	patterns []pattern
 }
 
 type pattern struct {
-	raw     string
-	negated bool
-	// anchored means the pattern contains a slash (other than trailing),
-	// so it is matched relative to the layer's dir only.
+	raw      string
+	negated  bool
 	anchored bool
 }
 
-// Add loads a .gitignore file at gitignorePath that applies to dir.
-// Missing files are silently skipped (not an error).
 func (s *Stack) Add(
 	dir string,
 	gitignorePath string,
@@ -66,8 +58,6 @@ func (s *Stack) Add(
 	return nil
 }
 
-// ShouldIgnore reports whether absPath should be excluded from a walk.
-// It always returns true for paths under a .git/ directory.
 func (s *Stack) ShouldIgnore(
 	absPath string,
 ) bool {
@@ -75,8 +65,6 @@ func (s *Stack) ShouldIgnore(
 		return true
 	}
 
-	// Later layers (deeper directories) have higher precedence in git.
-	// We apply all layers in order; the last matching pattern wins.
 	ignored := false
 	for _, l := range s.layers {
 		for _, p := range l.patterns {
@@ -89,17 +77,13 @@ func (s *Stack) ShouldIgnore(
 	return ignored
 }
 
-// parseLine converts a raw .gitignore line into a pattern.
-// Returns (pattern, false) when the line should be skipped.
 func parseLine(
 	line string,
 ) (pattern, bool) {
-	// Blank lines and comments are ignored.
 	if line == "" || strings.HasPrefix(line, "#") {
 		return pattern{}, false
 	}
 
-	// A backslash-escaped # is a literal hash, not a comment.
 	line = strings.TrimRight(line, " \t\r")
 	if line == "" {
 		return pattern{}, false
@@ -110,19 +94,16 @@ func parseLine(
 		negated = true
 		line = line[1:]
 	} else if strings.HasPrefix(line, `\!`) {
-		line = line[1:] // unescape leading !
+		line = line[1:]
 	}
 
-	// A trailing slash means "directory only" — we drop it and match the name.
 	line = strings.TrimSuffix(line, "/")
 
-	// Anchored: pattern has a leading slash, or contains a slash in the middle.
-	// Both forms pin the pattern to the root of the directory that owns this layer.
 	hasLeadingSlash := strings.HasPrefix(line, "/")
 	anchored := hasLeadingSlash || strings.Contains(strings.TrimPrefix(line, "/"), "/")
 	line = strings.TrimPrefix(line, "/")
 	if !doublestar.ValidatePattern(line) {
-		return pattern{}, false // a malformed glob can match nothing
+		return pattern{}, false
 	}
 
 	return pattern{
@@ -132,7 +113,6 @@ func parseLine(
 	}, true
 }
 
-// matchesPattern reports whether absPath is matched by p, relative to layerDir.
 func matchesPattern(
 	p pattern,
 	layerDir string,
@@ -143,7 +123,6 @@ func matchesPattern(
 		return false
 	}
 
-	// Path outside layerDir.
 	if strings.HasPrefix(rel, "..") {
 		return false
 	}
@@ -157,9 +136,6 @@ func matchesPattern(
 	return matchesAnywhere(p.raw, rel)
 }
 
-// matchesAnchored checks a rooted pattern against the relative path.
-// The pattern must match from the repo root; files under a matching directory
-// are also covered by appending the doublestar suffix.
 func matchesAnchored(
 	raw string,
 	rel string,
@@ -167,8 +143,6 @@ func matchesAnchored(
 	return doublestar.MatchUnvalidated(raw, rel) || doublestar.MatchUnvalidated(raw+"/**", rel)
 }
 
-// matchesAnywhere checks a non-anchored pattern against each path component
-// and every suffix of the relative path.
 func matchesAnywhere(
 	raw string,
 	rel string,
@@ -188,7 +162,6 @@ func matchesAnywhere(
 	return false
 }
 
-// containsDotGit reports whether any component of the path is ".git".
 func containsDotGit(
 	absPath string,
 ) bool {

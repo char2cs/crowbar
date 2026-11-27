@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// drainFrames pulls everything currently queued on ch without blocking.
 func drainFrames(ch <-chan OutputFrame) {
 	for {
 		select {
@@ -20,9 +19,6 @@ func drainFrames(ch <-chan OutputFrame) {
 	}
 }
 
-// TestAttach_FirstFrameIsSnapshot pins the attach redraw's Snapshot marking:
-// the client applies it onto a reset buffer, so it must be distinguishable
-// from incremental output.
 func TestAttach_FirstFrameIsSnapshot(t *testing.T) {
 	s, err := New(t.Context(), "sid-snap-attach", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 0)
 	require.NoError(t, err)

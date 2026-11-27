@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// shellStopExtraEvents add a background-command tool and, optionally, the
-// descriptor's own words for asking the agent to end one.
 const shellStopToolEvents = `events:
   tool_post:
     in: tool_post
@@ -67,8 +65,6 @@ func (f steerFixture) shell(t *testing.T, id string) ledger.Shell {
 	return shell
 }
 
-// Asking a running shell to end sends the agent the descriptor's request and
-// marks the shell stopping; it does not end it, and asking again says nothing more.
 func TestRegression_StoppingAShellAsksTheAgentAndWaitsForItsEnd(t *testing.T) {
 	f := newShellStopFixture(t, true)
 

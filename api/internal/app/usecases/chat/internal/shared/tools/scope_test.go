@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Resolve runs on every MCP call and used to read the whole workspace table
-// there — a full scan plus a JSON unmarshal per row — for tools that never look
-// past their own workspace. Authenticating must not touch the tree.
 func TestResolve_DoesNotReadTheWorkspaceTree(t *testing.T) {
 	ws := &treeLister{all: tree()}
 	r, m := lazyResolverOn(t, "ws-a", ws)
@@ -25,9 +22,6 @@ func TestResolve_DoesNotReadTheWorkspaceTree(t *testing.T) {
 	require.Zero(t, ws.lists, "resolving a caller must not list workspaces")
 }
 
-// The tree is read at most once per resolved caller however many times the
-// visible set is consulted, and a Caller passed BY VALUE into a tool handler
-// shares that one load with the copy it was made from.
 func TestCaller_LoadsTheVisibleSetOnceAcrossCopies(t *testing.T) {
 	ws := &treeLister{all: tree()}
 	r, m := lazyResolverOn(t, "ws-a", ws)
@@ -44,11 +38,6 @@ func TestCaller_LoadsTheVisibleSetOnceAcrossCopies(t *testing.T) {
 	require.Equal(t, 1, ws.lists)
 }
 
-// A workspace tree that cannot be read must DENY, never allow. This is the
-// failure direction the whole authority model rests on: an unreadable tree is
-// exactly the moment the daemon cannot tell one workspace from another, and
-// reading that as "no restriction" would hand an agent every workspace on the
-// machine.
 func TestCanSee_DeniesWhenTheVisibleSetCannotBeLoaded(t *testing.T) {
 	ws := &treeLister{all: tree(), listErr: errors.New("read model unavailable")}
 	r, m := lazyResolverOn(t, "ws-a", ws)
@@ -64,9 +53,6 @@ func TestCanSee_DeniesWhenTheVisibleSetCannotBeLoaded(t *testing.T) {
 	require.Error(t, err, "the failure must be reportable, not rendered as an empty tree")
 }
 
-// A Caller that never came out of Resolve — a zero value, which is what every
-// error path here returns — carries no visibility set at all, and must deny
-// rather than treat "no set" as "no restriction".
 func TestCanSee_ZeroCallerDenies(t *testing.T) {
 	var c tools.Caller
 
@@ -115,8 +101,6 @@ func TestResolve_RejectsBadToken(t *testing.T) {
 	require.ErrorIs(t, err, tools.ErrUnauthorized)
 }
 
-// A runner that has exited is out of the live table: its token, still valid,
-// must not resolve to the chat it used to be on.
 func TestResolve_RejectsAnExitedRunner(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
@@ -126,8 +110,6 @@ func TestResolve_RejectsAnExitedRunner(t *testing.T) {
 	require.ErrorIs(t, err, tools.ErrUnauthorized)
 }
 
-// A resolver built with no workspace store to scope a caller against refuses
-// every caller instead of panicking on the first one it authenticates.
 func TestResolve_NoWorkspaceStoreFailsClosed(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
@@ -144,8 +126,6 @@ func relayResolver(t *testing.T, runners stubRunners) (*tools.Resolver, *tools.T
 	return tools.NewResolver(m, runners, stubWorkspaces{all: tree()}), m
 }
 
-// A relay id outlives any runner: the caller is whichever runner the chat that bound the
-// session has now.
 func TestResolveRelay_ResolvesToTheChatsLiveRunner(t *testing.T) {
 	live := agents.Runner{ID: "RUN-2", CurrentChatID: "CHAT", ProviderID: "p", WorkspaceID: "ws-a"}
 	r, m := relayResolver(t, stubRunners{r: live, relay: "RELAY"})
@@ -180,7 +160,6 @@ func TestResolveRelay_RefusesWhatNoLiveRunnerOrBindingBacks(t *testing.T) {
 	}
 }
 
-// A token minted for a runner id never opens a relay of the same string, nor the reverse.
 func TestResolve_ARelayTokenIsNotARunnerToken(t *testing.T) {
 	live := agents.Runner{ID: "ID", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}
 	r, m := relayResolver(t, stubRunners{r: live, relay: "ID"})
@@ -189,19 +168,10 @@ func TestResolve_ARelayTokenIsNotARunnerToken(t *testing.T) {
 	require.ErrorIs(t, err, tools.ErrUnauthorized)
 }
 
-// TestResolve_NeverSeesDeletedWorkspaces covers all three visibility branches,
-// because the bug was in none of them individually and in all of them at once:
-// WorkspaceLister.List hands back the residual rows of workspaces the user has
-// already deleted, five other consumers of that list filter them, and the tool
-// surface did not. The symptom is list_workspaces advertising workspaces the
-// user's own sidebar no longer shows — and every other tool then willing to act
-// on them, because CanSee is computed from the same set.
 func TestResolve_NeverSeesDeletedWorkspaces(t *testing.T) {
 	deletedTree := func() []domain.Workspace {
 		all := tree()
 		for i := range all {
-			// One in each branch's reach: a descendant of ws-a, a sibling under
-			// the repo default, and a workspace in another repo of the project.
 			switch all[i].ID {
 			case "ws-a1", "ws-b", "other-repo-ws":
 				all[i].Status = domain.WorkspaceStatusDeleted
@@ -236,10 +206,6 @@ func TestResolve_NeverSeesDeletedWorkspaces(t *testing.T) {
 	}
 }
 
-// The caller's OWN workspace survives the filter even mid-delete: Caller.Visible
-// always containing it is an invariant every tool reads through CanSee, so a
-// runner whose workspace is being reaped must still resolve to itself rather
-// than to an empty set that makes its own chat unreachable.
 func TestResolve_KeepsTheCallersOwnWorkspaceEvenWhenDeleted(t *testing.T) {
 	all := tree()
 	for i := range all {
@@ -258,20 +224,6 @@ func TestResolve_KeepsTheCallersOwnWorkspaceEvenWhenDeleted(t *testing.T) {
 	require.True(t, c.CanSee("ws-a"))
 }
 
-// TestResolve_AParentCycleCannotHangTheWalk is about TERMINATION, not policy —
-// read the assertion with that in mind before changing either.
-//
-// With x.ParentID == y and y.ParentID == x, x's downward walk reaches y, which
-// is also x's own parent. That is NOT sanctioned upward visibility and must
-// never be read as such. It is unreachable state: Create only ever sets a
-// ParentID on a brand-new id, which nothing can be an ancestor of, and Reparent
-// refuses both a self-parent and moving a workspace that HAS children — which is
-// what closing any cycle would require. A tree like the one below therefore
-// comes from direct DB corruption and nothing else.
-//
-// What is pinned here is only that the seen set makes the walk RETURN on such a
-// tree instead of spinning forever. TestResolve_NeverSeesUpwards above is where
-// the actual upward-visibility policy is asserted.
 func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
@@ -288,10 +240,6 @@ func TestResolve_AParentCycleCannotHangTheWalk(t *testing.T) {
 	require.ElementsMatch(t, []string{"x", "y"}, visibleIDs(c))
 }
 
-// TestResolve_NilMinterFailsClosed proves a resolver built without a minter
-// refuses every caller instead of panicking inside Verify. A misconfiguration
-// must deny, not crash the daemon on the first tool call an agent makes — and it
-// must certainly not be mistaken for "no authentication required".
 func TestResolve_NilMinterFailsClosed(t *testing.T) {
 	r := tools.NewResolver(nil,
 		stubRunners{r: agents.Runner{ID: "RUN", CurrentChatID: "CHAT", WorkspaceID: "ws-a"}},

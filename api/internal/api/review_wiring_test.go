@@ -11,10 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// windowedReviewRoutes is the three-route windowed diff API, spelled at the
-// depth the production tree mounts it: under the flat /v0/chats/:chatId
-// prefix (spec §7.1) — the old /workspaces/:wsId twin the endpoint package
-// used to also register is gone (spec §8 step 6).
 func windowedReviewRoutes() []string {
 	const chat = "/v0/chats/:chatId"
 	return []string{
@@ -24,11 +20,6 @@ func windowedReviewRoutes() []string {
 	}
 }
 
-// TestAPI_New_WindowedReviewRoutesMountedUnderV0 reads the real router's route
-// table, so the assertion is about REGISTRATION rather than about a request
-// happening to 200. A handler that answers on a hand-built test router but
-// mounts at the wrong depth in the real container fails silently, and only a
-// run against the live daemon would ever discover it.
 func TestAPI_New_WindowedReviewRoutesMountedUnderV0(
 	t *testing.T,
 ) {
@@ -45,15 +36,6 @@ func TestAPI_New_WindowedReviewRoutesMountedUnderV0(
 	}
 }
 
-// TestAPI_New_WindowedReviewRoutesAnswerOnRealRouter walks the whole production
-// chain — every global middleware plus the chat group's resolveChatWorktree
-// guard — to each of the three routes.
-//
-// The empty test home has no such chat, so the guard answers 404 "chat not
-// found". That is the point: gin's 404 for an UNMOUNTED path is the plain-text
-// "404 page not found", while a mounted route rejected by the guard answers
-// the v0 error envelope. Only the second proves the route exists and its
-// middleware chain ran.
 func TestAPI_New_WindowedReviewRoutesAnswerOnRealRouter(
 	t *testing.T,
 ) {

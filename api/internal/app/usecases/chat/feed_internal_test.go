@@ -29,7 +29,6 @@ func seqRows(from, to int64) []ledger.Row {
 	return rows
 }
 
-// attaching emits frames as a replay would.
 func attaching(during func(), frames ...FeedFrame) func(func(FeedFrame) bool) error {
 	return func(emit func(FeedFrame) bool) error {
 		if during != nil {
@@ -44,7 +43,6 @@ func attaching(during func(), frames ...FeedFrame) func(func(FeedFrame) bool) er
 	}
 }
 
-// drain reads frames until the feed closes.
 func drain(out <-chan FeedFrame) []FeedFrame {
 	var frames []FeedFrame
 	for f := range out {
@@ -53,7 +51,6 @@ func drain(out <-chan FeedFrame) []FeedFrame {
 	return frames
 }
 
-// take reads n frames.
 func take(t *testing.T, out <-chan FeedFrame, n int) []FeedFrame {
 	t.Helper()
 	frames := make([]FeedFrame, 0, n)
@@ -97,8 +94,6 @@ func TestFeeds_AFullBufferResyncsInsteadOfSkipping(t *testing.T) {
 	assert.Equal(t, FeedFrame{Type: FeedResync, Seq: 2}, frames[2], "resync from the last row it was sent")
 }
 
-// The frame the writer holds is unread too: with row 1 in its hand, two more
-// rows overflow a feed of two.
 func TestFeeds_TheFrameInTheWritersHandCountsAsUnread(t *testing.T) {
 	f := newFeeds(2)
 	attached := make(chan struct{})
@@ -158,8 +153,6 @@ func TestFeeds_ReadyIsFollowedBySnapshotsThenLiveFrames(t *testing.T) {
 	assert.Equal(t, &live, frames[2].Delta)
 }
 
-// apply is the client's rule: a delta applies only as its stream's next frame;
-// a Replace sets the text and the count.
 func apply(frames []FeedFrame) string {
 	text, last := "", 0
 	for _, f := range frames {
@@ -230,7 +223,6 @@ func TestFeeds_AFeedClosesWhenItsContextEndsOrItsAttachFails(t *testing.T) {
 	assert.Empty(t, f.byChat)
 }
 
-// knownChats knows one chat, for reads up to its last one when that is set.
 type knownChats struct {
 	agentchat.EventStore
 	id    string
@@ -271,7 +263,6 @@ func TestOpenFeed_ReplaysAfterSinceThenIsReadyThenLive(t *testing.T) {
 	assert.Equal(t, FeedFrame{Type: FeedReady, Seq: 3}, frames[2])
 }
 
-// turnRows are turnID's prompt, start, also and end.
 func turnRows(t *testing.T, turnID string, also ...ledger.Row) []ledger.Row {
 	t.Helper()
 	row := func(kind ledger.Kind, body any) ledger.Row {
@@ -286,7 +277,6 @@ func turnRows(t *testing.T, turnID string, also ...ledger.Row) []ledger.Row {
 	return append(append(rows, also...), row(ledger.KindTurnEnded, ledger.TurnEnded{Status: "done"}))
 }
 
-// imported writes rows into c1 as its whole ledger.
 func imported(t *testing.T, u *Usecase, rows ...ledger.Row) {
 	t.Helper()
 	for i := range rows {
@@ -374,7 +364,6 @@ func TestReadBlob_ReadsARefOfAKnownChat(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument, "a ref rows never carry")
 }
 
-// bulkyTurn is turnID's rows with a tool call whose diff is 100 KB.
 func bulkyTurn(t *testing.T, turnID string) []ledger.Row {
 	t.Helper()
 	call, err := ledger.NewRow(ledger.KindToolCall, turnID, "", ledger.ToolCall{

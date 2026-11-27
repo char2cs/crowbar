@@ -18,8 +18,6 @@ func requiring(canonical string) *spec.Descriptor {
 	return d
 }
 
-// A delta frame whose text is an explicit null carries nothing to show: it is dropped
-// quietly like any other variant this event does not take, not failed as a broken mapping.
 func TestParse_ADeltaWithNullTextIsDroppedQuietly(t *testing.T) {
 	for _, kind := range []string{spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta} {
 		_, err := parse(requiring(kind), kind, []byte(`{"session_id":"s1","payload":{"text":null}}`))
@@ -29,8 +27,6 @@ func TestParse_ADeltaWithNullTextIsDroppedQuietly(t *testing.T) {
 	}
 }
 
-// The rule is narrow: an absent text, a null on any other event, and a null in a
-// different required slot all stay hard errors.
 func TestParse_OnlyANullDeltaTextIsExcused(t *testing.T) {
 	cases := map[string]struct{ kind, payload string }{
 		"absent text on a delta":        {spec.HookMessageDelta, `{"session_id":"s1","payload":{}}`},

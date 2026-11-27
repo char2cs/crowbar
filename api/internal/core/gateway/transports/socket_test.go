@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// tempSocketPath returns a short unique socket path safe on macOS, where the
-// sun_path limit (104 bytes) makes long t.TempDir() paths overflow.
 func tempSocketPath(t *testing.T) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "cb-*.sock")
@@ -39,7 +37,6 @@ func TestNewSocket_ExplicitPath(t *testing.T) {
 }
 
 func TestNewSocket_DefaultPath_UsesHome(t *testing.T) {
-	// A short prefix keeps ~/.crowbar/crowbar.sock under the sun_path limit.
 	userHome, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(userHome) })
@@ -53,7 +50,6 @@ func TestNewSocket_DefaultPath_UsesHome(t *testing.T) {
 	assert.NoError(t, statErr, "socket should be created at ~/.crowbar/crowbar.sock")
 }
 
-// The binder, not the resolver, creates the socket's directory.
 func TestNewSocket_CreatesTheSocketDirectory(t *testing.T) {
 	dir, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)
@@ -85,7 +81,6 @@ func TestNewSocket_Permissions(t *testing.T) {
 func TestNewSocket_StaleSocket_IsReclaimed(t *testing.T) {
 	sockPath := tempSocketPath(t)
 
-	// Simulate a crash: bind then leave the file behind on close.
 	stale, err := net.Listen("unix", sockPath)
 	require.NoError(t, err)
 	stale.(*net.UnixListener).SetUnlinkOnClose(false)
@@ -121,7 +116,6 @@ func TestNewSocket_DaemonAlreadyRunning(t *testing.T) {
 }
 
 func TestNewSocket_ListenError(t *testing.T) {
-	// A path longer than sun_path can be created as a directory but not bound.
 	tooLong := filepath.Join(t.TempDir(), strings.Repeat("x", 120), "crowbar.sock")
 	_, err := NewSocket("unix://" + tooLong)
 	assert.Error(t, err)
@@ -155,8 +149,6 @@ func TestSocketListener_Close_RemovesFile(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "socket file should be removed after Close")
 }
 
-// TestNewSocket_CrowbarHomeOverride_BindsShortPath proves an override home too
-// deep for sun_path still yields a bindable socket.
 func TestNewSocket_CrowbarHomeOverride_BindsShortPath(t *testing.T) {
 	deep := filepath.Join(t.TempDir(), strings.Repeat("deep-segment/", 12), ".crowbar")
 	t.Setenv(home.EnvVar, deep)
@@ -167,8 +159,6 @@ func TestNewSocket_CrowbarHomeOverride_BindsShortPath(t *testing.T) {
 	assert.Greater(t, 104, len(l.Addr().String()), "socket path must fit sun_path")
 }
 
-// A default home too deep for sun_path binds in a per-user directory only its
-// owner can enter, and the CLI resolves the same path to reach it.
 func TestNewSocket_ADefaultHomeTooDeepBindsInAPrivateDir(t *testing.T) {
 	base, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)
@@ -190,8 +180,6 @@ func TestNewSocket_ADefaultHomeTooDeepBindsInAPrivateDir(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
-// A directory others can write to without the sticky bit lets them swap the
-// socket for their own, so the daemon refuses to bind there.
 func TestNewSocket_RefusesADirectoryOthersCanReplaceTheSocketIn(t *testing.T) {
 	dir, err := os.MkdirTemp("", "cb")
 	require.NoError(t, err)

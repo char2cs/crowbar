@@ -13,15 +13,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries is the
-// anti-drift test for spec §5's whole promise: ONE read of a chat has to answer
-// everything the deleted workspace list answered, so every field a client used
-// to read off WorkspaceDTO must survive the projection onto the chat.
-//
-// It asserts against a fully-populated source rather than a couple of sampled
-// fields, because the failure this guards against is a field being ADDED to
-// WorkspaceDTO later and silently not reaching the chat — which a sampled test
-// would never see.
 func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) {
 	source := dto.WorkspaceDTOFrom(
 		ctx,
@@ -76,11 +67,6 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 	assert.Equal(t, source.Order, got.Order)
 }
 
-// TestChatWorktreeFrom_TakesTheConflictOverlaidStatus proves the projection
-// goes through WorkspaceDTOFrom rather than reading domain.Workspace directly:
-// a branch predicted to conflict with its parent is pr-conflicts on the wire,
-// and a chat that reported the raw persisted status instead would disagree with
-// the workspace describing the very same branch.
 func TestChatWorktreeFrom_TakesTheConflictOverlaidStatus(t *testing.T) {
 	source := dto.WorkspaceDTOFrom(
 		ctx,
@@ -97,11 +83,6 @@ func TestChatWorktreeFrom_TakesTheConflictOverlaidStatus(t *testing.T) {
 	assert.True(t, got.MergeConflicts)
 }
 
-// TestAgentChatDTOFrom_ABubbleOmitsTheWorktreeEntirely pins the absent-is-
-// meaningful encoding. A chat that owns no worktree does not have a branch
-// named "" with nothing added and nothing deleted — it has no branch at all,
-// and a zero object on the wire would have every conversation in the panel
-// drawing an empty diff badge.
 func TestAgentChatDTOFrom_ABubbleOmitsTheWorktreeEntirely(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{}, nil)
 
@@ -113,9 +94,6 @@ func TestAgentChatDTOFrom_ABubbleOmitsTheWorktreeEntirely(t *testing.T) {
 		"absent, not present-and-zero: the key must not appear at all")
 }
 
-// TestAgentChatDTOFrom_AWorktreeOwningChatCarriesItsGitState is the other half:
-// the chat list is now the ONE read a client makes to draw a branch row, so a
-// chat that owns a worktree has to carry the branch on its own object.
 func TestAgentChatDTOFrom_AWorktreeOwningChatCarriesItsGitState(t *testing.T) {
 	worktree := &dto.ChatWorktreeDTO{Branch: "feature/x", Added: 2, OwningChatID: "c1"}
 
@@ -127,10 +105,6 @@ func TestAgentChatDTOFrom_AWorktreeOwningChatCarriesItsGitState(t *testing.T) {
 	assert.Equal(t, "ws-1", got.WorkspaceID)
 }
 
-// TestAgentChatDTOList_ResolvesEachRowsWorktreeThroughTheClosure mirrors
-// WorkspaceDTOList's own eligFn/owningChatIDFn contract: the CALLER supplies a
-// closure built over the repo-wide reads it has already taken once, so the
-// enrichment costs one repo read for a whole list rather than one per row.
 func TestAgentChatDTOList_ResolvesEachRowsWorktreeThroughTheClosure(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "owner", WorkspaceID: "ws-1"},
@@ -150,10 +124,6 @@ func TestAgentChatDTOList_ResolvesEachRowsWorktreeThroughTheClosure(t *testing.T
 	assert.Nil(t, got[1].Worktree, "a bubble owns none")
 }
 
-// TestAgentChatDTOList_ANilClosureLeavesEveryWorktreeAbsent keeps the
-// folder-only surfaces honest: they mount these handlers without the workspace
-// reads wired, and a folder owns no worktree by construction, so "no closure"
-// must mean "no worktree" rather than a panic.
 func TestAgentChatDTOList_ANilClosureLeavesEveryWorktreeAbsent(t *testing.T) {
 	got := dto.AgentChatDTOList(
 		[]domain.Chat{{ID: "f1", Type: domain.ChatTypeFolder}}, nil, nil)

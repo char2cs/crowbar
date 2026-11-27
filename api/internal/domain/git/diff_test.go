@@ -10,10 +10,6 @@ import (
 	domaingit "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// TestFileDiff_MarshalJSON_NilSlicesBecomeEmptyArrays guards the wire contract
-// described on FileDiff.MarshalJSON: a binary file leaves Lines nil and a diff
-// with no hunks leaves Hunks nil, but clients always dereference both fields
-// as arrays. Marshaling a zero-value FileDiff must never emit `null` for them.
 func TestFileDiff_MarshalJSON_NilSlicesBecomeEmptyArrays(t *testing.T) {
 	fd := domaingit.FileDiff{
 		FilePath: "main.go",
@@ -30,9 +26,6 @@ func TestFileDiff_MarshalJSON_NilSlicesBecomeEmptyArrays(t *testing.T) {
 	assert.Equal(t, []any{}, decoded["hunks"], "nil Hunks must marshal to [] not null")
 }
 
-// TestFileDiff_MarshalJSON_PreservesPopulatedSlices ensures the nil-guard in
-// MarshalJSON only substitutes empty slices for nil ones — it must not clobber
-// or truncate a FileDiff that already carries real lines and hunks.
 func TestFileDiff_MarshalJSON_PreservesPopulatedSlices(t *testing.T) {
 	fd := domaingit.FileDiff{
 		FilePath: "main.go",

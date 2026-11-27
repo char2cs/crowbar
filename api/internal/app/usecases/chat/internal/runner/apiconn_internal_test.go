@@ -23,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// noopTurns is the Turns port doing nothing; spyTurns overrides its Hook.
 type noopTurns struct{}
 
 func (noopTurns) Hook(context.Context, string, string, string, []byte) ([]byte, string, error) {
@@ -59,24 +58,19 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	reg.set("runner-1", &apiconn{serve: serve})
 	reg.drop("runner-1")
 
-	// Gone by the time drop returns: codex refuses a replacement resuming the
-	// thread while the old process still holds its writer lock.
 	select {
 	case <-serve.exited:
 	default:
 		t.Fatal("drop returned before the killed serve process was reaped")
 	}
 
-	// The process must actually be dead, not merely asked nicely.
 	require.Eventually(t, func() bool {
 		return cmd.Process.Signal(os.Signal(nil)) != nil || cmd.Wait() != nil
 	}, 2*time.Second, 20*time.Millisecond, "process %d should have been killed", pid)
 
-	// A second drop of the same (now-absent) runner must not panic.
 	reg.drop("runner-1")
 }
 
-// A dialed connection has no process: dropping it still ends its runner.
 func TestAPIConnRegistry_DropOfADialedConnectionIsItsExit(t *testing.T) {
 	reg := newAPIConnRegistry()
 	exited := make(chan struct{}, 1)
@@ -86,9 +80,6 @@ func TestAPIConnRegistry_DropOfADialedConnectionIsItsExit(t *testing.T) {
 	<-exited
 }
 
-// A daemon shutting down kills its own serve processes; that is not the
-// runner exiting. Its row stays live, so the next boot records the real
-// reason (daemon_restart) — an exit reconciled here raced the store's close.
 func TestAPIConnRegistry_CloseAllIsNotARunnerExit(t *testing.T) {
 	reg := newAPIConnRegistry()
 	cmd := exec.CommandContext(t.Context(), "sleep", "5")
@@ -132,8 +123,6 @@ func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// helperServeGate names a FIFO the helper serve opens before it reads a word:
-// the open proves serve is alive, and the test's close lets it answer.
 const helperServeGate = "CROWBAR_TEST_SERVE_GATE"
 
 func awaitServeGate(t *testing.T) {
@@ -149,8 +138,6 @@ func awaitServeGate(t *testing.T) {
 	require.NoError(t, f.Close())
 }
 
-// A serve that ends without answering was never ready: its end is seen at
-// once, and the spawn goes on over its PTY.
 func TestStartAPIConn_AServeThatEndsUnansweredIsNotReady(t *testing.T) {
 	h := helperServeSpawn(t, "exit", false)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -164,8 +151,6 @@ func TestStartAPIConn_AServeThatEndsUnansweredIsNotReady(t *testing.T) {
 	assert.Len(t, h.term.created, 1, "the spawn went on over its PTY")
 }
 
-// A connection that never came up leaves the chat on the CLI's terminal; the
-// chat says so instead of silently becoming a different kind of chat.
 func TestRegression_AConnectionThatNeverCameUpIsSaidInTheChat(t *testing.T) {
 	h := helperServeSpawn(t, "exit", false)
 
@@ -182,20 +167,16 @@ func TestRegression_AConnectionThatNeverCameUpIsSaidInTheChat(t *testing.T) {
 	assert.Contains(t, notices[0], "could not connect")
 }
 
-// fakeServe is serve on the far end of a stdio pipe, answering the handshake
-// as a real one does: a REAL *engineagents.APIConn (via agent.StartAPIConn)
-// without forking a process, so pumpAPIConn's own routing is tested apart from
-// startAPIConn's process half. afterInit then holds the child's end.
 func fakeServe(t *testing.T, afterInit func(*testutil.LinePeer)) engineagents.APIStdio {
 	t.Helper()
 	in, out, peer := testutil.StdioPipe(t)
 	go func() {
 		var req struct{ ID json.RawMessage }
-		if peer.ReadJSON(&req) != nil || // initialize; a failed read is the client hanging up
+		if peer.ReadJSON(&req) != nil ||
 			!assert.NoError(t, peer.WriteJSON(map[string]any{"id": req.ID, "result": map[string]string{}})) {
 			return
 		}
-		if _, err := peer.Read(); err == nil && afterInit != nil { // initialized notification
+		if _, err := peer.Read(); err == nil && afterInit != nil {
 			afterInit(peer)
 		}
 	}()
@@ -248,7 +229,6 @@ func apiTransportTestAgent(t *testing.T) engineagents.Agent {
 	return a
 }
 
-// dialAPI opens the api-test descriptor's connection over stdio, for the test.
 func dialAPI(t *testing.T, stdio engineagents.APIStdio) (engineagents.Agent, *engineagents.APIConn, context.Context) {
 	t.Helper()
 	agent := apiTransportTestAgent(t)
@@ -260,15 +240,12 @@ func dialAPI(t *testing.T, stdio engineagents.APIStdio) (engineagents.Agent, *en
 	return agent, apiConn, ctx
 }
 
-// spyTurns records every event the pump places. Like the real ingress, it
-// holds a permission's ask (for wait) before Hook returns, so the test's answer
-// cannot race awaitAndReply's Await; failFirst refuses the first event placed.
 type spyTurns struct {
 	noopTurns
 	answers   *answerdesk.Desk
 	wait      time.Duration
 	failFirst bool
-	reply     []byte // the ingress's own answer to every ask
+	reply     []byte
 
 	mu    sync.Mutex
 	calls []spyCall
@@ -298,7 +275,6 @@ func (s *spyTurns) Hook(
 	return s.reply, call.ask, nil
 }
 
-// snapshot returns a race-free copy of the calls recorded so far.
 func (s *spyTurns) snapshot() []spyCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -307,22 +283,15 @@ func (s *spyTurns) snapshot() []spyCall {
 
 func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *testing.T) {
 	turnCompleted := []byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"items":[]}}}`)
-	// SubagentStart is declared transport: hooks on this descriptor — a driver
-	// resolving it must never reach IngestHook, or the hooks wire's own copy
-	// would be double-applied.
 	subagentStart := []byte(`{"method":"SubagentStart","params":{"session_id":"s1","agent_id":"a1","agent_type":"reviewer"}}`)
 
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		require.NoError(t, conn.Write(turnCompleted))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	agent, apiConn, ctx := dialAPI(t, stdio)
 
-	// SubagentStart isn't in this descriptor's `in:`/`ask:` table for the API
-	// transport at all (it's hooks-only), so dispatch.Resolve never surfaces it —
-	// confirming the guard by construction rather than by injecting a frame
-	// dispatch would refuse to translate in the first place.
 	_ = subagentStart
 
 	spy := &spyTurns{}
@@ -368,7 +337,6 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	assert.Equal(t, "permission", call.canonical)
 	require.NotEmpty(t, call.ask, "an ask event is held on its ask so the pump can await it")
 
-	// Held inside Hook (spyTurns), as the real ingress does: a human decides it.
 	slot, held := answers.ByChoiceID(call.ask)
 	require.True(t, held)
 	_, err := answers.Answer(ctx, slot, []byte(`{"decision":"approved"}`), func(context.Context, func() bool) (bool, error) { return true, nil })
@@ -382,7 +350,6 @@ func TestPumpAPIConn_AnAskIsAnsweredOverTheConnection(t *testing.T) {
 	}
 }
 
-// closeLedger tells which resolution the desk closes each ask with.
 type closeLedger chan<- string
 
 func (c closeLedger) ResolveAsk(_ context.Context, _, _, resolution string) error {
@@ -390,9 +357,6 @@ func (c closeLedger) ResolveAsk(_ context.Context, _, _, resolution string) erro
 	return nil
 }
 
-// An api provider has no TUI to fall back to: an ask nobody answers from
-// Crowbar, or one the ingress refused, gets the descriptor's refusal, never
-// silence that holds its turn; a held one closes as the refusal it was sent.
 func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 	for name, tc := range map[string]struct {
 		turns    *spyTurns
@@ -449,9 +413,6 @@ func TestPumpAPIConn_AnAskNobodyAnswersIsRefused(t *testing.T) {
 	}
 }
 
-// An ask is awaited off the pump: every event behind it (deltas, turn_stop, the
-// next ask) keeps flowing while a human decides, and an interrupt never hangs
-// behind the driver's full buffers.
 func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
 		ask, _ := json.Marshal(map[string]any{
@@ -476,8 +437,6 @@ func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 	assert.Equal(t, "turn_stop", spy.snapshot()[1].canonical)
 }
 
-// An event the ingress could not place is already dead-lettered: the pump goes
-// on placing the ones behind it.
 func TestPumpAPIConn_KeepsPlacingAfterAnEventIsRefused(t *testing.T) {
 	turnCompleted := []byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"items":[]}}}`)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
@@ -523,7 +482,6 @@ runtime:
     handshake: { call: initialize, notify: initialized }
 `
 
-// establishedParams is the params of the one session call tctx makes on a fake server.
 func establishedParams(t *testing.T, tctx engineagents.TemplateCtx) map[string]any {
 	t.Helper()
 	home := t.TempDir()
@@ -556,8 +514,6 @@ func establishedParams(t *testing.T, tctx engineagents.TemplateCtx) map[string]a
 	return <-got
 }
 
-// The relay vars reach a session call's body so a descriptor can hand the provider Crowbar's
-// MCP server; the token is file-only, since bodies are logged.
 func TestEstablishAPISession_RendersTheRelayVarsOfTheSpawnIntoFreshAndResume(t *testing.T) {
 	tctx := engineagents.TemplateCtx{
 		ChatID: "chat-1", CrowbarBin: "/bin/crowbar", Segid: "seg-1", RunnerToken: "s3cret-token",

@@ -322,8 +322,6 @@ func TestList_LastCommitDate(
 	assert.NotNil(t, bs[0].LastCommitDate)
 }
 
-// --- Error path tests ---
-
 func TestList_InvalidRepo(
 	t *testing.T,
 ) {
@@ -358,7 +356,6 @@ func TestCreate_AlreadyExists_WithSwitch(
 	ctx := context.Background()
 	makeCommit(t, dir, "file.txt", "hello\n", "initial")
 
-	// "main" already exists — checkout -b main should fail.
 	err := branches.Create(ctx, dir, "main", "", true)
 
 	require.Error(t, err)
@@ -417,8 +414,6 @@ func TestSwitch_NonExistentBranch(
 	assert.Contains(t, err.Error(), "branches: switch")
 }
 
-// --- parseTrack / parseTrackSegment: ahead+behind, behind-only paths ---
-
 func TestList_AheadAndBehind(
 	t *testing.T,
 ) {
@@ -436,7 +431,6 @@ func TestList_AheadAndBehind(
 	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	// Push a commit to remote via a clone so the remote is ahead of local.
 	cloneDir := t.TempDir()
 	r = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -451,7 +445,6 @@ func TestList_AheadAndBehind(
 	r = exec.Git(ctx, cloneDir, "push", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	// Local adds its own commit (ahead) and fetches so it knows it is also behind.
 	makeCommit(t, dir, "local.txt", "local\n", "local commit")
 	_ = exec.Git(ctx, dir, "fetch", "origin")
 
@@ -483,7 +476,6 @@ func TestList_BehindOnly(
 	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	// Push a commit to remote via a clone.
 	cloneDir := t.TempDir()
 	r = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -498,7 +490,6 @@ func TestList_BehindOnly(
 	r = exec.Git(ctx, cloneDir, "push", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	// Fetch only — local has no new commits, so it is purely behind.
 	_ = exec.Git(ctx, dir, "fetch", "origin")
 
 	bs, err := branches.List(ctx, dir)
@@ -510,8 +501,6 @@ func TestList_BehindOnly(
 	assert.Equal(t, 1, *b.Behind)
 	assert.Nil(t, b.Ahead)
 }
-
-// --- White-box tests using exported internal helpers ---
 
 func TestCreate_WithSwitchAndSource(
 	t *testing.T,
@@ -532,7 +521,6 @@ func TestCreate_WithSwitchAndSource(
 func TestParseRecord_TooFewLines(
 	t *testing.T,
 ) {
-	// A record with fewer than 5 lines should return ok=false.
 	_, ok := branches.ExportedParseRecord("name\n*\n")
 	assert.False(t, ok)
 }
@@ -540,7 +528,6 @@ func TestParseRecord_TooFewLines(
 func TestParseRecord_EmptyRefname(
 	t *testing.T,
 ) {
-	// A record where the first line (refname) is blank should return ok=false.
 	_, ok := branches.ExportedParseRecord("\n*\ntrack\n2024-01-01T00:00:00Z\nrefs/heads/main")
 	assert.False(t, ok)
 }
@@ -548,15 +535,10 @@ func TestParseRecord_EmptyRefname(
 func TestParseList_WithBadRecord(
 	t *testing.T,
 ) {
-	// parseList skips records that parseRecord rejects.
-	// Inject a bad record between two record separators.
 	output := "bad\n---RECORD---\n"
 	bs := branches.ExportedParseList(output)
-	// "bad\n" is a single field record — fewer than 5 lines → skipped.
 	assert.Empty(t, bs)
 }
-
-// --- Tests that inject a failing git runner to cover exec error paths ---
 
 func TestList_ExecError(
 	t *testing.T,

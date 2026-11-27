@@ -11,12 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The repo's own default checkout (IsDefault, WorktreePath == the repo's main
-// folder) is served with an owning chat like every other workspace, and every
-// worktree verb — delete included — is chat-keyed. Once the checkout is not
-// locked (an unprotected default branch, or a user unlock), deleting that
-// owner cascades DeleteCascade onto the main checkout: the workspace row is
-// dropped and the repo loses its header.
 func TestRegression_DeletingTheDefaultCheckoutOwnerKeepsTheCheckout(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -56,8 +50,6 @@ func TestRegression_DeletingTheDefaultCheckoutOwnerKeepsTheCheckout(t *testing.T
 	}
 }
 
-// A project's home has no repo, so it is no repo's default checkout; deleting
-// the only chat it holds must still leave the project its home.
 func TestRegression_DeletingAHomesOnlyChatKeepsTheHome(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)

@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 )
 
-// attachQuiet starts /bin/sh at 50x10, attaches, prints a URL that wraps at 50 columns, parks
-// the shell and drains every frame, so the test sees only what its own Resize causes.
 func attachQuiet(t *testing.T, id string) (*Session, <-chan OutputFrame) {
 	t.Helper()
 	s, err := New(t.Context(), id, "/bin/sh", t.TempDir(), "", testEnv(), 50, 10, 200)
@@ -35,9 +33,6 @@ func attachQuiet(t *testing.T, id string) (*Session, <-chan OutputFrame) {
 	return s, ch
 }
 
-// parkShell hands the terminal to a silent foreground child: a shell at its prompt redraws its
-// line on SIGWINCH from the real pump goroutine, outside the test's bubble, racing its frames.
-// The marker is the child's last byte, so seeing it means no output is still in flight.
 func parkShell(t *testing.T, s *Session) {
 	t.Helper()
 	n := markerSeq.Add(1)
@@ -46,8 +41,6 @@ func parkShell(t *testing.T, s *Session) {
 	waitScreen(t, s, func(scr string) bool { return strings.Contains(scr, tok) }, "the parked child to announce itself")
 }
 
-// assertRebuilds replays a keyframe into a fresh client at the session's size and requires it
-// to reproduce the session's model, cursor included.
 func assertRebuilds(t *testing.T, s *Session, f OutputFrame, cols, rows int) {
 	t.Helper()
 	require.True(t, f.Snapshot, "a resize frame is a keyframe")
@@ -60,7 +53,6 @@ func assertRebuilds(t *testing.T, s *Session, f OutputFrame, cols, rows int) {
 	assert.Equal(t, string(want), string(ser.Serialize(replay)), "the keyframe rebuilds the reflowed screen and cursor")
 }
 
-// takeFrames returns every frame already queued on ch.
 func takeFrames(ch <-chan OutputFrame) []OutputFrame {
 	var frames []OutputFrame
 	for len(ch) > 0 {
@@ -69,11 +61,6 @@ func takeFrames(ch <-chan OutputFrame) []OutputFrame {
 	return frames
 }
 
-// The resize tests run in a synctest bubble, so the settle timer a resize arms runs on a fake
-// clock; the PTY session is started outside it, where its I/O can block.
-
-// stopTimerInBubble stops, inside the bubble, a timer a test leaves armed: stopping a bubble's
-// timer from outside it (the session's own cleanup) is fatal.
 func stopTimerInBubble(t *testing.T, s *Session) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -83,9 +70,6 @@ func stopTimerInBubble(t *testing.T, s *Session) {
 	})
 }
 
-// TestModelDriven_ResizeSendsTheReflowedKeyframe pins a reload at a new width: the attach
-// snapshot was laid out at the old width, and a shell idle at its prompt prints nothing on
-// SIGWINCH, so the resize must send the keyframe or the client keeps a stale cursor.
 func TestModelDriven_ResizeSendsTheReflowedKeyframe(t *testing.T) {
 	s, ch := attachQuiet(t, "sid-md-resize")
 	synctest.Test(t, func(t *testing.T) {
@@ -101,13 +85,11 @@ func TestModelDriven_ResizeSendsTheReflowedKeyframe(t *testing.T) {
 	})
 }
 
-// A 60 Hz window drag resizes every 16ms while the app redraws on each SIGWINCH; the burst
-// collapses into one keyframe of the last size, sent after the last resize.
 func TestModelDriven_ResizeBurstSendsOneKeyframe(t *testing.T) {
 	s, ch := attachQuiet(t, "sid-md-resize-burst")
 	synctest.Test(t, func(t *testing.T) {
 		stopTimerInBubble(t, s)
-		coldFrameClock(s) // output outside a settle window would emit at once
+		coldFrameClock(s)
 		for cols := uint16(51); cols <= 74; cols++ {
 			require.NoError(t, s.Resize(cols, 10))
 			s.PumpChunkForTest([]byte("."))
@@ -124,8 +106,6 @@ func TestModelDriven_ResizeBurstSendsOneKeyframe(t *testing.T) {
 	})
 }
 
-// An app that redraws on SIGWINCH only after the burst settled (an idle shell's prompt) lands
-// after the keyframe; it goes out as a diff on that keyframe and the client converges.
 func TestModelDriven_RedrawAfterResizeKeyframeIsADiff(t *testing.T) {
 	s, ch := attachQuiet(t, "sid-md-resize-late")
 	synctest.Test(t, func(t *testing.T) {
@@ -146,7 +126,29 @@ func TestModelDriven_RedrawAfterResizeKeyframeIsADiff(t *testing.T) {
 	})
 }
 
-// A resize to the size the PTY already has changes nothing, so it sends nothing.
+func TestModelDriven_ATimerThatFiredBeforeItWasStoppedSendsNothing(t *testing.T) {
+	s, ch := attachQuiet(t, "sid-md-stale-timer")
+	synctest.Test(t, func(t *testing.T) {
+		stopTimerInBubble(t, s)
+		require.NoError(t, s.Resize(74, 10))
+		s.mu.Lock()
+		replaced := s.emitTimer
+		s.mu.Unlock()
+		require.NoError(t, s.Resize(80, 12))
+
+		s.mu.Lock()
+		s.emitDueLocked(replaced)
+		s.mu.Unlock()
+		require.Empty(t, takeFrames(ch), "the resize that replaced the timer is still settling")
+
+		time.Sleep(resizeSettle)
+		synctest.Wait()
+		frames := takeFrames(ch)
+		require.Len(t, frames, 1, "its own timer still sends the keyframe")
+		assertRebuilds(t, s, frames[0], 80, 12)
+	})
+}
+
 func TestModelDriven_SameSizeResizeSendsNothing(t *testing.T) {
 	s, ch := attachQuiet(t, "sid-md-resize-same")
 	synctest.Test(t, func(t *testing.T) {
@@ -159,7 +161,6 @@ func TestModelDriven_SameSizeResizeSendsNothing(t *testing.T) {
 	})
 }
 
-// With no client attached a resize renders nothing; the next attach serializes and primes.
 func TestModelDriven_ResizeWithNoClientSchedulesNothing(t *testing.T) {
 	s, ch := attachQuiet(t, "sid-md-resize-none")
 	s.Detach(ch)

@@ -15,8 +15,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// rebaseWS builds a fakeWorkspace resolving exactly child and parent by id, for
-// RebaseOntoParent tests (which never calls workspaces.List).
 func rebaseWS(
 	child domain.Workspace,
 	parent domain.Workspace,
@@ -45,12 +43,10 @@ func TestRebaseOntoParent_GetChildError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRebaseOntoParent_NoParent_ReturnsError proves a root workspace (no parent
-// to rebase onto) is rejected with a plain error before any git or parent lookup.
 func TestRebaseOntoParent_NoParent_ReturnsError(t *testing.T) {
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) {
-			return domain.Workspace{ID: "c"}, nil // ParentID is empty
+			return domain.Workspace{ID: "c"}, nil
 		},
 	}
 	g := &fakeGit{}
@@ -84,10 +80,6 @@ func TestRebaseOntoParent_ParentTipRevParseError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRebaseOntoParent_CleanRebase_SettlesOntoParentTip proves a clean rebase
-// (no conflict) integrates the child: it persists the PARENT'S TIP as the new
-// fork point via the same settle path Reparent uses, rather than leaving
-// anything predicted-conflicting.
 func TestRebaseOntoParent_CleanRebase_SettlesOntoParentTip(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
@@ -117,12 +109,6 @@ func TestRebaseOntoParent_NonConflictRebaseError_Propagates(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRebaseOntoParent_ConflictPersistsForkPointAndFlagsConflicts proves the
-// user-initiated "finish the move" DELIBERATELY differs from the automatic
-// Reparent: on a conflict it does NOT abort — the rebase is left in progress so
-// the user can resolve it with the standard conflict tooling — but the intended
-// fork point (the parent's tip) is persisted up front and the child is flagged
-// pr-conflicts so it reads correctly once resolved.
 func TestRebaseOntoParent_ConflictPersistsForkPointAndFlagsConflicts(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Provisioning: domain.WorkspaceProvisioned}
@@ -181,9 +167,6 @@ func TestRebaseOntoParent_ConflictSetConflictsError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop: with its
-// own tip recorded as its fork point, a branch rebased onto its parent was reset
-// to the parent's tip.
 func TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
@@ -201,9 +184,6 @@ func TestRegression_RebaseOntoParentKeepsCommitsAStaleForkPointWouldDrop(t *test
 	assert.Empty(t, gitRun(t, child.WorktreePath, "merge-base", "--is-ancestor", h.baseBranch, "HEAD"))
 }
 
-// TestRegression_RebaseOntoParentOffAnAmendedParentStopsOnTheStaleCommit: the
-// replay starts at the merge-base, so P's pre-amend commit conflicts with its
-// amended self; the rebase stays in progress for `git rebase --skip`, C intact.
 func TestRegression_RebaseOntoParentOffAnAmendedParentStopsOnTheStaleCommit(t *testing.T) {
 	h := newRealUsecase(t)
 	p, c := stacked(t, h)

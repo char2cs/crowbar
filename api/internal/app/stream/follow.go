@@ -9,24 +9,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// following is a ledger source: Attach replays, emits synced, then keeps
-// emitting until its ctx ends. The hub runs it on a goroutine of its own,
-// outside the lock; the ledger's seq orders its frames, not the hub's.
 type following struct{ Source }
 
-// Following marks src as a ledger source.
 func Following(src Source) Source { return following{src} }
 
-// follow is one connection's hold on a ledger scope.
 type follow struct {
 	cancel context.CancelFunc
 	synced bool
-	// since is the seq the hold went live at; an entity the follow emits that a
-	// live frame carried after it is stale.
-	since uint64
+	since  uint64
 }
 
-// subFollow starts following scope for c, unless c already does: that hold is current.
 func (h *Hub) subFollow(ctx context.Context, c *connection, scope stream.Scope, src Source, since int64) bool {
 	name := scope.String()
 	h.mu.Lock()
@@ -60,19 +52,15 @@ func (h *Hub) runFollow(ctx context.Context, c *connection, scope stream.Scope, 
 	}
 	h.releaseLocked(c, name)
 	if err == nil {
-		// The ledger ended without saying why: the client asks again from its seq.
 		c.push(stream.Closed(name, stream.ReasonResync, nil), false)
 		return
 	}
-	// A failed ledger is refused on its own; the connection's other scopes go on.
 	if problem.CodeOf(err) == problem.Internal {
 		slog.WarnContext(ctx, "stream: follow", "scope", name, "err", err)
 	}
 	refuse(c, name, err)
 }
 
-// followed queues one frame of f's hold, if it still holds. The replay waits
-// for room in the queue; only live frames count toward the bound.
 func (h *Hub) followed(ctx context.Context, c *connection, name string, f *follow, fr stream.Frame) {
 	if !f.synced && !c.await(ctx) {
 		return

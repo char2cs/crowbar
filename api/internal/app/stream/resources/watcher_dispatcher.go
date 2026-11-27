@@ -12,17 +12,12 @@ import (
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
-// watcherDispatcher fans a debounced filesystem event out to its three sinks:
-// the workspace's files: and git: scopes, and the Workspace aggregate's
-// SyncWorkingTreeState command (which publishes the projected row itself).
 type watcherDispatcher struct {
 	signals   Signaler
 	workspace workspacerepo.Workspace
 	now       func() time.Time
 }
 
-// newWatcherDispatcher builds a watcherDispatcher over the stream, the
-// workspace repository, and a clock.
 func newWatcherDispatcher(
 	signals Signaler,
 	workspace workspacerepo.Workspace,
@@ -49,15 +44,12 @@ func (d *watcherDispatcher) OnGitStatus(
 	wsID string,
 	status gitdomain.GitStatus,
 ) {
-	// A clean tree carries a nil Files slice; the client reads files: [], never null.
 	if status.Files == nil {
 		status.Files = []gitdomain.GitFile{}
 	}
 	d.signals.Signal(stream.Scope{Kind: stream.KindGit, Key: wsID}, stream.SignalGitStatus, status)
 }
 
-// gitUnreadable is the git_status a workspace git cannot read carries: the client
-// reloads on it and reads the reason from the status route, as it does on recovery.
 type gitUnreadable struct {
 	Error string `json:"error"`
 }

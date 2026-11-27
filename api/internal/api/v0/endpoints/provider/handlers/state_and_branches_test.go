@@ -12,8 +12,6 @@ import (
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
-// configurableEngine lets each test dial in the PollOnView/ProtectedBranches
-// behavior needed to exercise the State/ProtectedBranches error branches.
 type configurableEngine struct {
 	pollState engineprovider.ProviderState
 	pollErr   error
@@ -37,8 +35,6 @@ func (c configurableEngine) ProtectedBranches(
 	return c.branches, c.branchErr
 }
 
-// configurableReader lets each test dial in the workspace List behavior
-// needed to exercise worktreeForRepo's success and not-found branches.
 type configurableReader struct {
 	all     []domain.Workspace
 	listErr error
@@ -53,10 +49,6 @@ func (c configurableReader) List(
 	return c.all, nil
 }
 
-// TestState_NoResolvedWorkspace_500 is the wiring-bug guard: a route mounted
-// outside chatScoped's resolveChatWorktree middleware finds no workspace on
-// reqscope and reports a 500 rather than 404ing on a URL param that no
-// chat-scoped route carries any more (Handlers.workspace).
 func TestState_NoResolvedWorkspace_500(
 	t *testing.T,
 ) {
@@ -66,7 +58,6 @@ func TestState_NoResolvedWorkspace_500(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestState_PollError pins that a poll failure surfaces as a 500.
 func TestState_PollError(
 	t *testing.T,
 ) {
@@ -77,8 +68,6 @@ func TestState_PollError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestState_Success pins the happy poll path returns 200 with the resolved
-// provider state.
 func TestState_Success(
 	t *testing.T,
 ) {
@@ -89,8 +78,6 @@ func TestState_Success(
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestProtectedBranches_RepoNotFound pins that a repo with no matching
-// workspace 404s.
 func TestProtectedBranches_RepoNotFound(
 	t *testing.T,
 ) {
@@ -103,8 +90,6 @@ func TestProtectedBranches_RepoNotFound(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestProtectedBranches_ListError pins that a wsReader.List failure also 404s
-// (worktreeForRepo folds a List error into the same not-found response).
 func TestProtectedBranches_ListError(
 	t *testing.T,
 ) {
@@ -115,8 +100,6 @@ func TestProtectedBranches_ListError(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestProtectedBranches_EngineError pins that a provider engine failure
-// surfaces as a 500 once the worktree path resolves.
 func TestProtectedBranches_EngineError(
 	t *testing.T,
 ) {
@@ -130,8 +113,6 @@ func TestProtectedBranches_EngineError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestProtectedBranches_NoBranches pins the success path when the repo has no
-// protected branches configured.
 func TestProtectedBranches_NoBranches(
 	t *testing.T,
 ) {
@@ -145,9 +126,6 @@ func TestProtectedBranches_NoBranches(
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestProtectedBranches_SomeBranches pins the success path when the repo has
-// protected branches configured, resolved via a repoID matching a
-// non-first entry in the workspace list.
 func TestProtectedBranches_SomeBranches(
 	t *testing.T,
 ) {

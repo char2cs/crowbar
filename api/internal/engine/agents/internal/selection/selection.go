@@ -18,8 +18,6 @@ func Models(
 	return append([]string(nil), d.Model.Available...)
 }
 
-// ModelParts is id cut into its descriptor-declared named parts, nil for a
-// provider whose ids are not composed or an id that is not.
 func ModelParts(d *spec.Descriptor, id string) map[string]string {
 	if d == nil || d.Model == nil || d.Model.IDSplit == nil {
 		return nil
@@ -45,9 +43,6 @@ func Efforts(
 	return append([]string(nil), d.Effort.Available[spec.EffortFallbackKey]...)
 }
 
-// PermissionLevels reports the Crowbar level names this provider declares in
-// permission_levels.levels, nothing inferred, in Crowbar's fixed least-to-most
-// permissive order so a menu never jitters with map iteration.
 func PermissionLevels(
 	d *spec.Descriptor,
 ) []string {
@@ -63,9 +58,6 @@ func PermissionLevels(
 	return out
 }
 
-// PermissionVars is level's own named values (see PermissionLevelSpec's own
-// doc comment), with its after-leave values over them when left — nil for a
-// level the provider doesn't declare, same as an absent block.
 func PermissionVars(
 	d *spec.Descriptor,
 	level string,
@@ -86,7 +78,6 @@ func PermissionVars(
 	return out
 }
 
-// Steps is sel on the argv of a process the spawn FORKS.
 func Steps(
 	d *spec.Descriptor,
 	sel models.Selection,
@@ -109,9 +100,6 @@ func Steps(
 	return out
 }
 
-// APISteps is sel on the api channel's `serve` argv, used instead of Steps when a
-// spawn forks no process. Permission levels deliberately add nothing: their api
-// carrier is vars:, rendered into the establish call's send: tree.
 func APISteps(
 	d *spec.Descriptor,
 	sel models.Selection,

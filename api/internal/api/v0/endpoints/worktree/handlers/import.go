@@ -18,8 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// importRequest is the POST …/chats/import-batch body: each branch to import,
-// the chat id the caller draws it under, and whether it is created locked.
 type importRequest struct {
 	Branches []importBranchRequest `json:"branches"`
 }
@@ -30,9 +28,6 @@ type importBranchRequest struct {
 	Lock   bool   `json:"lock"`
 }
 
-// Import handles POST …/repos/:repoId/chats/import-batch. What it can check up
-// front is a 4xx; then it answers 202 with one running item per branch, which
-// the work settles branch by branch.
 func (h *Handlers) Import(c *gin.Context) {
 	var body importRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -53,16 +48,12 @@ func (h *Handlers) Import(c *gin.Context) {
 		return
 	}
 	names := branchNames(body.Branches)
-	// The chain walk TERMINATES at the default branch, so importing it would
-	// create nothing; refused here, where the caller can surface it.
 	if slices.Contains(names, repo.DefaultBranch) {
 		libs.WriteErr(c, http.StatusConflict, fmt.Sprintf(
 			"%s is the repository's default branch — it is already the repo's home workspace", repo.DefaultBranch,
 		))
 		return
 	}
-	// A branch not on the remote (a stale picker, a hand-crafted request) has
-	// nothing to import; the refusal belongs on the request.
 	if missing := h.branchesMissingFromRemote(c.Request.Context(), repo.Path, names); len(missing) > 0 {
 		libs.WriteErr(c, http.StatusBadRequest, fmt.Sprintf(
 			"not found on the remote: %s", strings.Join(missing, ", "),
@@ -94,9 +85,7 @@ func (h *Handlers) startImport(c *gin.Context, repo *domain.Repository, body imp
 		ProjectID: repo.ProjectID,
 		Label:     importLabel(branchNames(body.Branches)),
 		Items:     items,
-		// Only for a new key: a retry after the first import made these chats
-		// gets the first operation back, not a refusal.
-		Validate: func(ctx context.Context) error { return h.chatIDsUnused(ctx, body.Branches) },
+		Validate:  func(ctx context.Context) error { return h.chatIDsUnused(ctx, body.Branches) },
 	}, func(ctx context.Context, p operation.Progress) error {
 		return h.hierarchy.CreateFromImport(ctx, in, importProgress{p})
 	})
@@ -107,8 +96,6 @@ func (h *Handlers) startImport(c *gin.Context, repo *domain.Repository, body imp
 	libs.WriteOperation(c, op)
 }
 
-// checkImportBranches refuses an empty batch, a nameless or repeated branch, or
-// a chat id that is not a UUID or is given twice.
 func checkImportBranches(branches []importBranchRequest) error {
 	if len(branches) == 0 {
 		return &problem.Error{Code: problem.InvalidArgument, Message: "branches is required"}
@@ -133,7 +120,6 @@ func checkImportBranches(branches []importBranchRequest) error {
 	return nil
 }
 
-// chatIDsUnused refuses a chat id that already names a chat.
 func (h *Handlers) chatIDsUnused(ctx context.Context, branches []importBranchRequest) error {
 	for _, b := range branches {
 		_, err := h.chats.GetChat(ctx, b.ChatID)
@@ -147,8 +133,6 @@ func (h *Handlers) chatIDsUnused(ctx context.Context, branches []importBranchReq
 	return nil
 }
 
-// importProgress settles each branch's item from its outcome; an ancestor the
-// import added arrives as an item of its own.
 type importProgress struct {
 	p operation.Progress
 }
@@ -174,9 +158,6 @@ func branchNames(branches []importBranchRequest) []string {
 	return names
 }
 
-// branchesMissingFromRemote fetches, then returns the requested branches origin lacks so Import
-// can refuse them before the 202; it decides on the just-written local refs, not a live ls-remote.
-// Any uncertainty (offline, unreadable ref, no git surface) is "not missing"; placeholders backstop it.
 func (h *Handlers) branchesMissingFromRemote(
 	ctx context.Context,
 	repoPath string,

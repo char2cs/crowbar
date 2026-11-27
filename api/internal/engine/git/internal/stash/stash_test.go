@@ -238,8 +238,6 @@ func TestList_MultipleStashes(
 	assert.Equal(t, "stash@{1}", ss[1].ID)
 }
 
-// TestList_ExecError exercises the exec.Git error path in List by passing a
-// directory that does not exist (git cannot chdir into it).
 func TestList_ExecError(
 	t *testing.T,
 ) {
@@ -248,7 +246,6 @@ func TestList_ExecError(
 	require.Error(t, err)
 }
 
-// TestPush_ExecError exercises the exec.Git error path in Push.
 func TestPush_ExecError(
 	t *testing.T,
 ) {
@@ -257,14 +254,11 @@ func TestPush_ExecError(
 	require.Error(t, err)
 }
 
-// TestPush_RequireSuccessError exercises the RequireSuccess error path in Push.
-// A repo that has no initial commit causes "git stash push" to exit non-zero.
 func TestPush_RequireSuccessError(
 	t *testing.T,
 ) {
 	dir := initRepo(t)
 	ctx := context.Background()
-	// Write a file but do NOT make any commit, then stage it.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0o600))
 	_ = exec.Git(ctx, dir, "add", "file.txt")
 
@@ -272,7 +266,6 @@ func TestPush_RequireSuccessError(
 	require.Error(t, err)
 }
 
-// TestApply_ExecError exercises the exec.Git error path in Apply.
 func TestApply_ExecError(
 	t *testing.T,
 ) {
@@ -281,7 +274,6 @@ func TestApply_ExecError(
 	require.Error(t, err)
 }
 
-// TestApply_RequireSuccessError exercises the RequireSuccess error path in Apply.
 func TestApply_RequireSuccessError(
 	t *testing.T,
 ) {
@@ -293,7 +285,6 @@ func TestApply_RequireSuccessError(
 	require.Error(t, err)
 }
 
-// TestPop_ExecError exercises the exec.Git error path in Pop.
 func TestPop_ExecError(
 	t *testing.T,
 ) {
@@ -302,7 +293,6 @@ func TestPop_ExecError(
 	require.Error(t, err)
 }
 
-// TestPop_RequireSuccessError exercises the RequireSuccess error path in Pop.
 func TestPop_RequireSuccessError(
 	t *testing.T,
 ) {
@@ -314,7 +304,6 @@ func TestPop_RequireSuccessError(
 	require.Error(t, err)
 }
 
-// TestDrop_ExecError exercises the exec.Git error path in Drop.
 func TestDrop_ExecError(
 	t *testing.T,
 ) {
@@ -323,7 +312,6 @@ func TestDrop_ExecError(
 	require.Error(t, err)
 }
 
-// TestDrop_RequireSuccessError exercises the RequireSuccess error path in Drop.
 func TestDrop_RequireSuccessError(
 	t *testing.T,
 ) {

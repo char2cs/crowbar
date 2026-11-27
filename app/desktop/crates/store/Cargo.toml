@@ -1,0 +1,39 @@
+[package]
+name = "store"
+description = "Daemon-backed data for the native shell: sidebar entities and commands, settings and records."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Store::lose_projects_snapshot, for the shell's tests of the projects landing.
+fake = []
+
+[dependencies]
+atomicfile.workspace = true
+journal.workspace = true
+daemonapi.workspace = true
+base64 = "0.22"
+chrono.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+ignore = { version = "0.4", default-features = false }
+indexmap = "2"
+protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+settings.workspace = true
+sidebar.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+daemonapi = { workspace = true, features = ["fake"] }
+tempfile = "3"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true

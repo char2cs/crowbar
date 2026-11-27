@@ -1,0 +1,11 @@
+{
+ "description": "A reply that streams a mermaid diagram slowly (about 20 s), so the open fence is visible mid-stream.",
+ "steps": [
+  {
+   "do": "text",
+   "text": "Drawing it now:\n\n```mermaid\nsequenceDiagram\n  participant U as User\n  participant A as Agent\n  U->>A: prompt\n  A->>A: think\n  A-->>U: reply\n```\n\nDone.",
+   "chunk": 4,
+   "every_ms": 200
+  }
+ ]
+}

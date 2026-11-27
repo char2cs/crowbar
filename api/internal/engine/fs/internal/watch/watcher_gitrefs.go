@@ -7,15 +7,10 @@ import (
 	"strings"
 )
 
-// gitWatchDirs returns git dirs watched as directories: git replaces HEAD and packed-refs by rename,
-// ending a file watch. A linked worktree's HEAD is in its gitdir, shared refs in the common dir.
 func (w *Watcher) gitWatchDirs() []string {
 	return []string{w.gitDir(), w.commonDir()}
 }
 
-// gitRefRoots returns the ref trees whose every directory is watched: a branch
-// named feat/x or a remote-tracking ref origin/main sits below refs/heads or
-// refs/remotes, and inotify watches one directory level only.
 func (w *Watcher) gitRefRoots() []string {
 	return []string{
 		filepath.Join(w.gitDir(), "refs"),
@@ -23,9 +18,6 @@ func (w *Watcher) gitRefRoots() []string {
 	}
 }
 
-// anchors names the main worktree's directory: moving or deleting it takes the
-// common dir with it, and inotify sends nothing to watches below a moved directory.
-// A bare common dir has no worktree directory to anchor on.
 func (w *Watcher) anchors() []string {
 	common := w.commonDir()
 	if filepath.Base(common) != ".git" {
@@ -34,8 +26,6 @@ func (w *Watcher) anchors() []string {
 	return []string{filepath.Dir(common)}
 }
 
-// anchorEntry reports whether path is an entry of an anchor's parent directory, and if
-// so whether it is the anchor itself; its siblings are unrelated and dropped.
 func (w *Watcher) anchorEntry(
 	path string,
 ) (isAnchor, ok bool) {
@@ -60,8 +50,6 @@ func (w *Watcher) maybeHandleGitRef(
 	w.scheduleGitRecompute()
 }
 
-// isGitRefPath matches against the resolved roots, not a ".git/" substring: a linked worktree's ref
-// tree lives under the parent repo, so substring matching answers for the wrong worktree.
 func (w *Watcher) isGitRefPath(
 	path string,
 ) bool {
@@ -76,8 +64,6 @@ func (w *Watcher) isGitRefPath(
 	return false
 }
 
-// isGitInternal reports whether path belongs to the repository's own machinery (the
-// worktree's gitdir or the shared common dir) rather than to the working tree.
 func (w *Watcher) isGitInternal(
 	path string,
 ) bool {
@@ -109,8 +95,6 @@ func (w *Watcher) isRewriteInProgress() bool {
 	return false
 }
 
-// gitDir resolves and caches the real git dir: a linked worktree's .git is a "gitdir:" FILE, so
-// statting repoPath/.git/<marker> would hit ENOTDIR and mid-rebase guards would always read false.
 func (w *Watcher) gitDir() string {
 	w.gitDirOnce.Do(func() {
 		dotGit := filepath.Join(w.repoPath, ".git")
@@ -118,8 +102,6 @@ func (w *Watcher) gitDir() string {
 			w.resolvedGitDir = dotGit
 			return
 		}
-		// .git is a gitlink file ("gitdir: <path>"). Fall back to dotGit on any
-		// parse failure (worst case: the guard behaves as before for this worktree).
 		w.resolvedGitDir = dotGit
 		data, err := os.ReadFile(dotGit) //nolint:gosec // G304: dotGit is repoPath/.git, a fixed path derived from the watched repo
 		if err != nil {
@@ -139,9 +121,6 @@ func (w *Watcher) gitDir() string {
 	return w.resolvedGitDir
 }
 
-// commonDir resolves and caches the dir all worktrees share (refs, packed-refs, objects); a linked
-// worktree's own gitdir has empty refs/, so watching it would miss every branch update. Falls back to
-// the git dir when commondir is absent, which is the main-worktree layout.
 func (w *Watcher) commonDir() string {
 	w.commonDirOnce.Do(func() {
 		gitDir := w.gitDir()

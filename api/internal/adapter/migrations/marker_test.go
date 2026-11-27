@@ -47,8 +47,6 @@ func TestRemoveMarker_AbsentIsNothingToDo(t *testing.T) {
 	assert.Empty(t, testutil.TreeSnapshot(t, h))
 }
 
-// An older daemon finished the step and left its marker: the step is recorded
-// as adopted, the marker goes, and the step's own work never runs.
 func TestAdopting_AMarkedStepIsAdoptedNotRun(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	execViewDB(t, h, "CREATE TABLE workspace_paths (id TEXT)")
@@ -61,8 +59,6 @@ func TestAdopting_AMarkedStepIsAdoptedNotRun(t *testing.T) {
 	assert.Equal(t, []migrate.Counts{{"adopted": 1}}, migratetest.Applied(t, h)[StepWorkspacePathsTable])
 }
 
-// The adoption is recorded before the marker is deleted, so an attempt that
-// stops in between is still an adoption on the next boot, never a re-run.
 func TestAdopting_AnAdoptionOutlivesItsMarker(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	h := testutil.FixtureHome(t)
@@ -90,9 +86,6 @@ func TestAdopting_AnAdoptionOutlivesItsMarker(t *testing.T) {
 	assert.Equal(t, []migrate.Counts{{"adopted": 1}}, migratetest.Applied(t, h)[StepWorkspacePathsTable])
 }
 
-// A step is never run on the strength of a marker location it could not look at:
-// the older daemon may have finished it, and running it again can change which
-// provider a chat resumes.
 func TestAdopting_AnUnexaminableMarkerFailsTheStepWithoutRunningIt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("windows reports a path through a file as not found")

@@ -1,0 +1,19 @@
+{
+ "description": "The answer to Crowbar's shell-stop prompt (\"#shell-stop <id>\"): stops that shell.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "TaskStop",
+   "kind": "meta",
+   "target": "{args}",
+   "input": {
+    "task_id": "{args}"
+   },
+   "stops_shell": "{args}"
+  },
+  {
+   "do": "text",
+   "text": "Stopped {args}."
+  }
+ ]
+}

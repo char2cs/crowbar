@@ -1,0 +1,51 @@
+use crate::live::{LinkState, State};
+use crate::store::Store;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalLink {
+    Unfollowed,
+    Live,
+    Lost,
+}
+
+impl Store {
+    pub fn local_link(&self) -> LocalLink {
+        self.hub.read(link_of)
+    }
+}
+
+fn link_of(state: &State) -> LocalLink {
+    let local = state.hosts.iter().find(|slot| slot.spec.endpoint.is_none());
+    match local.map(|slot| slot.link) {
+        None => LocalLink::Unfollowed,
+        Some(LinkState::Live) => LocalLink::Live,
+        Some(LinkState::Connecting | LinkState::Down) => LocalLink::Lost,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::local_store;
+
+    fn linked(
+        data: &Store,
+        link: LinkState,
+    ) -> LocalLink {
+        data.hub.edit(|state| state.link("local", link));
+        data.local_link()
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_is_not_open_is_lost_until_it_opens_again() {
+        let data = local_store(1);
+        let cases = [
+            (LinkState::Live, LocalLink::Live),
+            (LinkState::Connecting, LocalLink::Lost),
+            (LinkState::Down, LocalLink::Lost),
+        ];
+        let seen = cases.map(|(link, _)| (link, linked(&data, link)));
+        assert_eq!(seen, cases);
+        assert_eq!(local_store(0).local_link(), LocalLink::Unfollowed);
+    }
+}

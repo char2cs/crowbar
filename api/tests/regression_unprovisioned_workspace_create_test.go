@@ -11,13 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// heldBranchPlaceholder imports a branch an EXTERNAL worktree already holds, so
-// the import can only record a placeholder row: a workspace with no worktree on
-// disk at all. It returns that workspace's id.
-//
-// The same flow TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal
-// drives, reduced to the row it produces — the sidebar draws exactly this row
-// with the amber "Branch needs provisioning" triangle.
 func heldBranchPlaceholder(
 	t *testing.T,
 	h *harness,
@@ -43,17 +36,6 @@ func heldBranchPlaceholder(
 	return wsID
 }
 
-// TestRegression_CreateOnUnprovisionedWorkspace_IsRefused pins the create side
-// of the placeholder row.
-//
-// Caught live: the sidebar offered Thread on the amber "Branch needs
-// provisioning" row, the daemon answered 201, the runner spawned, and an
-// ordinary-looking chat row and pane appeared — no toast, no failed badge. The
-// only trace was the daemon log, where every read of that chat then 500'd
-// ("agents: catalog worktree is invalid"), because the workspace the chat was
-// attached to has no worktree for the CLI to run in. The refusal has to come
-// BEFORE the mint, so nothing is created and the create-row error path has a
-// real reason to show.
 func TestRegression_CreateOnUnprovisionedWorkspace_IsRefused(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -70,9 +52,6 @@ func TestRegression_CreateOnUnprovisionedWorkspace_IsRefused(t *testing.T) {
 	assert.Contains(t, errMsg, "worktree", "the refusal must name the reason the client can show")
 }
 
-// TestRegression_CreateOnProvisionedWorkspace_StillSucceeds is the other half:
-// the guard reads the worktree path, not the lock — an ordinary locked branch
-// with a real worktree still takes threads.
 func TestRegression_CreateOnProvisionedWorkspace_StillSucceeds(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

@@ -1,4 +1,3 @@
-// Package search mounts the v0 global search and replace REST routes.
 package search
 
 import (
@@ -7,9 +6,6 @@ import (
 	searchhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/search/handlers"
 )
 
-// Register mounts the search and replace routes on the chat-scoped group (/v0/chats/:chatId/search).
-// Search is per worktree: every chat holding it gets the same answer, resolved by chatScoped's
-// resolveChatWorktree middleware.
 func Register(
 	chatScoped *gin.RouterGroup,
 	searchEng searchhandlers.SearchEngine,
@@ -18,7 +14,6 @@ func Register(
 	mount(chatScoped, "/search", h)
 }
 
-// mount registers the 2-route search surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,

@@ -43,9 +43,6 @@ func TestBranchReview_SearchDiff_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	assert.Equal(t, 12, hits[0].LineNumber)
 }
 
-// A find-as-you-type box submits every half-finished pattern the user passes
-// through, so a broken one is a client mistake (400), not a daemon failure
-// (500) — and it must be rejected before a git subprocess is spawned.
 func TestBranchReview_SearchDiff_InvalidRegex_IsInvalidArgumentAndNeverReachesGit(t *testing.T) {
 	ctx := context.Background()
 
@@ -64,8 +61,6 @@ func TestBranchReview_SearchDiff_InvalidRegex_IsInvalidArgumentAndNeverReachesGi
 	assert.False(t, called)
 }
 
-// The same string is a perfectly ordinary literal, and literal mode quotes it
-// before compiling, so it must not be rejected as a broken pattern.
 func TestBranchReview_SearchDiff_LiteralModeAcceptsRegexMetacharacters(t *testing.T) {
 	ctx := context.Background()
 

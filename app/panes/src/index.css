@@ -1,0 +1,253 @@
+@import 'tailwindcss' source('.');
+@import 'tw-animate-css';
+@import './styles/window-breakpoints.css';
+@import './styles/theme-fonts.css';
+@import './styles/theme-vars.css';
+@import './styles/theme.css';
+@import './styles/crowbar.css';
+@import './styles/mobile.css';
+@import './styles/wavy-rule.css';
+@import './styles/editor-theme.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@property --sidebar-track-width {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --console-size {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *),
+  *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *)::before,
+  *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-chrome-bg text-foreground;
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+@utility control-surface {
+  background-color: var(--control-surface);
+  border-color: var(--control-surface);
+  outline-color: var(--control-surface);
+  color: var(--control-foreground);
+  --foreground: var(--control-foreground);
+  --muted-foreground: var(--control-muted-foreground);
+  --elevated-highlight: var(--control-highlight);
+}
+
+@source inline('avatar-{rose,amber,emerald,cyan,indigo,violet,slate,pink}');
+
+@utility avatar-rose {
+  background-color: var(--color-rose-700);
+}
+
+@utility avatar-amber {
+  background-color: var(--color-amber-700);
+}
+
+@utility avatar-emerald {
+  background-color: var(--color-emerald-700);
+}
+
+@utility avatar-cyan {
+  background-color: var(--color-cyan-700);
+}
+
+@utility avatar-indigo {
+  background-color: var(--color-indigo-700);
+}
+
+@utility avatar-violet {
+  background-color: var(--color-violet-700);
+}
+
+@utility avatar-slate {
+  background-color: var(--color-slate-700);
+}
+
+@utility avatar-pink {
+  background-color: var(--color-pink-700);
+}
+
+@utility ui-font {
+  font-family: var(--app-font-family, var(--font-sans));
+}
+
+@utility ui-text-xs {
+  font-size: var(--ui-text-xs);
+}
+
+@utility ui-text-sm {
+  font-size: var(--ui-text-sm);
+}
+
+@utility ui-text-base {
+  font-size: var(--ui-text-base);
+}
+
+@utility ui-text-lg {
+  font-size: var(--ui-text-lg);
+}
+
+@utility ui-text-xl {
+  font-size: var(--ui-text-xl);
+}
+
+[data-pane-container] {
+  overflow: visible !important;
+}
+
+html[data-pane-resizing] [data-pane-content],
+html[data-pane-resizing] [data-chat-view],
+html[data-pane-resizing] [data-editor-view] {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-pane-resizing] [data-testid='edge-dissolve'] > div,
+html[data-pane-resizing] .agent-chat .dissolve-layer {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+
+html[data-row-dragging] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html[data-row-dragging],
+html[data-row-dragging] * {
+  cursor: grabbing !important;
+}
+
+@keyframes flicker-strip {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@layer utilities {
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-scrollbar {
+    scrollbar-width: none;
+  }
+  .tab-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@theme inline {
+  --animate-toast-success-odd: toast-success-odd 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-success-even: toast-success-even 0.32s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+  --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-highlight: var(--highlight);
+  @keyframes toast-success-odd {
+    0% {
+      scale: 1;
+    }
+    30% {
+      scale: 1.025;
+    }
+    60% {
+      scale: 0.99;
+    }
+    100% {
+      scale: 1;
+    }
+  }
+  @keyframes toast-error-odd {
+    0% {
+      translate: 0 0;
+    }
+    25% {
+      translate: -3px 0;
+    }
+    50% {
+      translate: 3px 0;
+    }
+    75% {
+      translate: -3px 0;
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+  @keyframes toast-success-even {
+    0% {
+      scale: 1;
+    }
+    30% {
+      scale: 1.025;
+    }
+    60% {
+      scale: 0.99;
+    }
+    100% {
+      scale: 1;
+    }
+  }
+  @keyframes toast-error-even {
+    0% {
+      translate: 0 0;
+    }
+    25% {
+      translate: -3px 0;
+    }
+    50% {
+      translate: 3px 0;
+    }
+    75% {
+      translate: -3px 0;
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+}
+
+:root {
+  --highlight: oklch(0.852 0.199 91.936);
+}
+
+.dark {
+  --highlight: oklch(0.852 0.199 91.936);
+}

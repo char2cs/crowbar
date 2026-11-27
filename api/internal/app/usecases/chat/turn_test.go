@@ -26,15 +26,12 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// ─── from observation_test.go ─────────────────────────────────────────
-
 func hook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload)))
 	f.wait()
 }
 
-// deadLetters is how many hooks the ingress has refused.
 func deadLetters(t *testing.T, f testFixture) int {
 	t.Helper()
 	n, err := f.usecase.DeadLetterCount(f.ctx)
@@ -42,8 +39,6 @@ func deadLetters(t *testing.T, f testFixture) int {
 	return n
 }
 
-// refusedHook is a hook runnerID's descriptor cannot map: the ingress refuses it
-// as unprocessable and records nothing of it but a marker.
 func refusedHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	err := f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload))
@@ -51,8 +46,6 @@ func refusedHook(t *testing.T, f testFixture, runnerID, provider, kind string, p
 	f.wait()
 }
 
-// lateHook is a hook from a CLI that is no runner any more (exited, displaced, or
-// its chat purged): the ingress refuses it as unknown and records nothing.
 func lateHook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	err := f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload))
@@ -60,18 +53,12 @@ func lateHook(t *testing.T, f testFixture, runnerID, provider, kind string, payl
 	f.wait()
 }
 
-// exchange is a whole turn on runnerID's CLI: the prompt that starts it on the
-// chat's bound session, which makes that session resumable, then the reply.
 func exchange(t *testing.T, f testFixture, runnerID, provider, reply string) {
 	t.Helper()
 	prompt(t, f, runnerID, provider, "go on")
 	turn(t, f, runnerID, provider, reply)
 }
 
-// hookAPI is hook() placed on the api channel, as the runner's api connection
-// places it. Use it for a payload shaped the way a provider's api: channel block
-// maps it (codex's threadId/item.*/turn.* — see codex.yaml); through hook() it
-// resolves against the hooks block and is misparsed or refused.
 func hookAPI(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
 	_, err := f.usecase.placeHook(f.ctx, engineagents.ChannelAPI, runnerID, provider, kind, mustJSON(t, payload))
@@ -79,8 +66,6 @@ func hookAPI(t *testing.T, f testFixture, runnerID, provider, kind string, paylo
 	f.wait()
 }
 
-// codexTurnStop delivers a codex turn_stop api-shaped, as pumpAPIConn receives it:
-// turn()'s flat last_assistant_message is the hooks shape and maps to nothing here.
 func codexTurnStop(t *testing.T, f testFixture, runnerID, sessionID, message string) {
 	t.Helper()
 	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
@@ -173,8 +158,6 @@ func TestRegression_ACompletedEditReplacesItsSnippetDiffWithTheProvidersTrueHunk
 	assert.Equal(t, "--- a/repo/a.go\n+++ b/repo/a.go\n@@ -8,3 +8,3 @@\n before\n-x\n+y\n after\n", calls[0].Diff)
 }
 
-// The hook's text names the attachment by its absolute store path; the ledger
-// keeps the logical chats/<chatID>/attachments/<file> ref the asset endpoint serves.
 func TestRegression_UserPromptHookRestoresTheDurableAttachmentRef(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -243,17 +226,12 @@ func TestObservation_AnonymousSubagentStopsDoNotCreatePhantomRows(t *testing.T) 
 	assert.Empty(t, subs)
 }
 
-// A spawned agent's child thread, opened by its spawn's completion, records its
-// own tool calls and reply under its scope: never dropped, never the chat's turn.
 func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "thread-main")
 	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "delegate"})
 
-	// The parent's spawnAgent completion names the child thread it created
-	// (item.receiverThreadIds[0]), which binds the subagent; api-shaped, as
-	// every event below, on an API-marked ctx.
 	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
 		"threadId": "thread-main",
 		"item": map[string]any{
@@ -268,8 +246,6 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Equal(t, "thread-child", subs[0].ID)
 	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
 
-	// The CHILD thread's own tool call — threadId names the CHILD, not the
-	// parent — must be routed into the subagent's nested activity.
 	hookAPI(t, f, runnerID, "codex", "tool_pre", map[string]any{
 		"threadId": "thread-child",
 		"item":     map[string]any{"type": "commandExecution", "id": "child-tool-1", "command": "echo hi"},
@@ -282,8 +258,6 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 		},
 	})
 
-	// The CHILD thread's own turn closing is what CLOSES the subagent and
-	// records its own final reply.
 	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
 		"threadId": "thread-child",
 		"turn": map[string]any{
@@ -293,9 +267,6 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 
 	calls, err := f.activity.ToolCalls(f.ctx, chatID)
 	require.NoError(t, err)
-	// Two rows: the PARENT's own spawnAgent call (already-working, ordinary
-	// top-level visibility, unaffected by any of this — SubagentID empty)
-	// and the CHILD's own nested Bash call (SubagentID set).
 	require.Len(t, calls, 2)
 	var parent, nested *toolView
 	for i := range calls {
@@ -310,7 +281,6 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Equal(t, "spawnAgent", parent.Name)
 	require.NotNil(t, nested, "the child's own tool call must be recorded")
 	assert.Equal(t, "thread-child", nested.SubagentID)
-	// A real commandExecution item carries no item.tool: its name is its type.
 	assert.Equal(t, "commandExecution", nested.Name)
 	assert.Equal(t, domain.ToolStatusOK, nested.Status)
 
@@ -321,15 +291,11 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	require.Len(t, subs[0].Messages, 1)
 	assert.Equal(t, "done", subs[0].Messages[0])
 
-	// The chat's own top-level turn activity must stay untouched — the whole
-	// point of ROUTING instead of bleeding through.
 	turns, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, turns, 1, "only the prompt: the child's reply is the subagent's")
 }
 
-// codex on multi-agent v2 reports a spawn as a subAgentActivity item naming
-// the child's thread (live, 0.164): the child's reply was dead-lettered.
 func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -356,7 +322,6 @@ func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
 	require.NotNil(t, subs[0].EndedAt, "the child's own turn end closes it")
 	assert.Equal(t, []string{"pong"}, subs[0].Messages)
 
-	// A follow-up runs the same child again: its next reply is its result.
 	activity("interacted")
 	codexTurnStop(t, f, runnerID, "thread-child", "bye")
 	subs, err = f.activity.Subagents(f.ctx, chatID)
@@ -366,9 +331,6 @@ func TestObservation_ACodexV2SpawnIsASubagentWithItsReply(t *testing.T) {
 	assert.Equal(t, refused, deadLetters(t, f), "nothing of the child is refused")
 }
 
-// TestRegression_SpawnAgentCompletionOpensTheNestedSubagent is the bug
-// live-reported against SubagentShelf: a codex chat ran a real collab_agents
-// subagent, and the live shelf never showed it running at all.
 func TestRegression_SpawnAgentCompletionOpensTheNestedSubagent(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -377,16 +339,12 @@ func TestRegression_SpawnAgentCompletionOpensTheNestedSubagent(t *testing.T) {
 	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "spawn a subagent"})
 	require.True(t, f.busy(t, chatID), "precondition: the turn is open")
 
-	// codex ends its OWN visible turn the instant it delegates — nothing else
-	// is open once this lands.
 	hook(t, f, runnerID, "codex", "turn_stop", map[string]any{
 		"session_id": "thread-main", "last_assistant_message": "Delegating now.",
 	})
 	require.False(t, f.busy(t, chatID),
 		"precondition: the parent's own turn genuinely closed, nothing else open yet")
 
-	// The parent's spawnAgent completion binds the child thread: the ONLY
-	// thing open at this instant, api-shaped as in the sibling test above.
 	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
 		"threadId": "thread-main",
 		"item": map[string]any{
@@ -401,9 +359,6 @@ func TestRegression_SpawnAgentCompletionOpensTheNestedSubagent(t *testing.T) {
 	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
 }
 
-// A resumed codex chat can have no bound conversation (thread/resume fires no
-// thread/started), and its subagents' prompts and replies must still stay out of
-// the main transcript rather than pass as the user's and the agent's own.
 func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -418,8 +373,6 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 	require.Contains(t, f.term.calls[f.term.callCount()-1].argv, "thread-main",
 		"precondition: the revive resumes the chat's own thread")
 
-	// The parent's own spawnAgent completes, naming the child thread it just
-	// created — this is what opens the nested subagent.
 	hookAPI(t, f, resumedID, "codex", "tool_post", map[string]any{
 		"threadId": "thread-main",
 		"item": map[string]any{
@@ -428,9 +381,6 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 		},
 	})
 
-	// Everything below names the CHILD thread: the prompt Crowbar's own agent
-	// handed its subagent, the subagent's streamed answer, and the subagent's
-	// own turn closing. None of it is this chat's transcript.
 	hookAPI(t, f, resumedID, "codex", "user_prompt", map[string]any{
 		"threadId": "thread-child",
 		"item": map[string]any{
@@ -462,8 +412,6 @@ func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testi
 			"a subagent's answer was filed as the main agent's own")
 	}
 
-	// ...and none of that visibility is lost: the child's work stays on the
-	// subagent it belongs to.
 	subs, err := f.activity.Subagents(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, subs, 1)
@@ -561,8 +509,6 @@ func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
 	assert.Empty(t, turns, "a report is not a turn")
 }
 
-// §6a: the gauge is pushed, not polled: every report lands on the chat feed. A report
-// is its provider's, so a switch retracts it until the incoming one reports.
 func TestTelemetry_IsPushedOnTheChatFeedAndRetractedBySwitch(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -642,8 +588,6 @@ func textsOfPage(items []domain.LedgerTurn) []string {
 	return out
 }
 
-// A tool_pre with no tool id is a malformed delivery that required: rejects:
-// a minted fallback id would give one call's two deliveries two ids.
 func TestObservation_AToolPreWithNoIDIsRejectedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -670,8 +614,6 @@ func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusOK, calls[0].Status)
 }
 
-// An observation the record refuses is refused to its sender and kept as a dead
-// letter: a hook is never acknowledged with nothing written.
 func TestObservation_AnUnrecordableObservationIsRefusedAndDeadLettered(t *testing.T) {
 	f := newFixture(t)
 	_, runnerID := f.spawn(t, "claude")
@@ -724,7 +666,6 @@ func TestRegression_ADeadCLIDoesNotLeaveItsToolsRunningForever(t *testing.T) {
 	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
 	f.wait()
 
-	// A turn closed by its CLI's exit is what ends the tool calls left open in it.
 	st, err = f.ledger.State(f.ctx, chatID)
 	require.NoError(t, err)
 	_, running = st.RunningTurn()
@@ -755,10 +696,6 @@ func TestRegression_AfterADeadCLIANewTurnOwnsItsOwnActivity(t *testing.T) {
 		"a new turn must not inherit the activity of the one a dead CLI abandoned")
 }
 
-// ─── from hook_delivery_test.go ───────────────────────────────────────
-
-// Two hooks with the same words are two turns: a hook is never taken for a
-// retry of the last one.
 func TestHook_TwoIdenticalTurnEndsAreTwoTurns(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -774,8 +711,6 @@ func TestHook_TwoIdenticalTurnEndsAreTwoTurns(t *testing.T) {
 	assert.Len(t, turns, 2)
 }
 
-// A hook from a runner the daemon does not hold is refused, but no dead letter:
-// the door admits only runners this daemon minted, so its chat was erased.
 func TestHook_AnUnknownRunnerIsRefusedNotDeadLettered(t *testing.T) {
 	f := newFixture(t)
 
@@ -786,8 +721,6 @@ func TestHook_AnUnknownRunnerIsRefusedNotDeadLettered(t *testing.T) {
 	assert.Zero(t, deadLetters(t, f))
 }
 
-// Once the PTY is gone no turn opens on its runner: a late prompt from it
-// changes nothing. (Liveness has exactly one source: the process.)
 func TestHook_AnExitedRunnersPromptOpensNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -803,8 +736,6 @@ func TestHook_AnExitedRunnersPromptOpensNothing(t *testing.T) {
 	assert.Empty(t, handoff, "a dead runner's hook must not write to the ledger")
 }
 
-// An event the descriptor does not declare is refused, and the chat's transcript
-// marks where it was lost.
 func TestHook_AnUnmappedEventIsRefusedWithAMarker(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -815,8 +746,6 @@ func TestHook_AnUnmappedEventIsRefusedWithAMarker(t *testing.T) {
 	require.Len(t, markers, 1)
 	assert.True(t, strings.HasPrefix(markers[0], ledger.MarkerDeadLetter+":not_a_real_hook: "), markers[0])
 }
-
-// ─── from turn_stall_test.go ──────────────────────────────────────────
 
 const codexUsageLimitScreen = "" +
 	"■ You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit\n" +
@@ -863,9 +792,6 @@ func TestRegression_ATurnEndingNoticeFailsTheTurnAndTheChatSaysWhy(t *testing.T)
 	assert.Equal(t, "sess-1", notices[0].SessionID)
 }
 
-// A notice ending the turn keeps the reply already streamed live: codex
-// streams part of a reply, then hits its usage limit before its own
-// turn/completed ever arrives.
 func TestRegression_ATurnEndingNoticeSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -873,8 +799,6 @@ func TestRegression_ATurnEndingNoticeSalvagesTheAlreadyStreamedText(t *testing.T
 	prompt(t, f, runnerID, "codex", "please do the thing")
 	require.True(t, f.busy(t, chatID), "the user's prompt must have opened a turn")
 
-	// Codex streaming its own reply — no `final`/`index`, exactly as its own
-	// descriptor maps message_delta — when the usage-limit banner appears.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "message_delta",
 		mustJSON(t, map[string]any{
 			"threadId": "sess-1", "turnId": "turn-1", "itemId": "reply-msg",
@@ -1035,8 +959,6 @@ func TestRegression_ANoticeIsDurableBeforeTheTurnFails(t *testing.T) {
 		"the explanation is durable in the very row that ends the turn")
 }
 
-// ─── from choice_test.go ──────────────────────────────────────────────
-
 func permissionPayload() map[string]any {
 	return map[string]any{
 		"prompt_id": "81899da5", "permission_mode": "default",
@@ -1170,8 +1092,6 @@ func TestObservation_APendingChoiceDoesNotSurviveItsTurn(t *testing.T) {
 	assert.Equal(t, ledger.ResolutionAbandoned, all[0].Resolution)
 }
 
-// Once its turn ended, only a subagent running past that end can hold the
-// CLI on an ask: held, it stays a card to answer (held ⇔ answerable).
 func TestObservation_AHeldAskOutlivesAnEndASubagentRunsPast(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1192,7 +1112,6 @@ func TestObservation_AHeldAskOutlivesAnEndASubagentRunsPast(t *testing.T) {
 	assert.Len(t, st.PendingAsks(), 1, "the chat's frames announce it too")
 }
 
-// Its CLI blocks on a held ask whether or not a turn runs: it is there to answer.
 func TestObservation_APermissionWithNoTurnOpenIsPending(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1284,8 +1203,6 @@ func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testin
 	assert.Contains(t, got[0].Schema, `"enum":["A","B"]`)
 }
 
-// It proves an unmapped kind is dropped, never failed, so it must name a kind
-// codex genuinely does not declare: notification is what is left.
 func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -1301,19 +1218,11 @@ func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 		"a refused hook records no notification")
 }
 
-// The positive case that replaced tool_fail above. A failed or declined codex
-// tool used to be recorded as a silent OK: tool_post fired on item/completed
-// whatever item.status said, and codex declared no tool_fail at all, so its
-// error text was discarded and the row looked exactly like a success.
 func TestRegression_ACodexFailedToolIsRecordedAsAnError(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 
-	// tool_fail is api-only — codex declares no hooks: block for it at all
-	// (PostToolUse always names canonical tool_post, never tool_fail — see
-	// codex.yaml's own comment) — so both of these must arrive api-shaped on
-	// an API-marked ctx, or tool_fail resolves to nothing and drops.
 	hookAPI(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
 		"threadId": "t1", "turnId": "tn1",
 		"item": map[string]any{
@@ -1334,12 +1243,9 @@ func TestRegression_ACodexFailedToolIsRecordedAsAnError(t *testing.T) {
 	require.NoError(t, listErr)
 	require.Len(t, calls, 1, "tool_pre and tool_fail must correlate on item.id")
 	assert.Equal(t, domain.ToolStatusError, calls[0].Status)
-	// Without a target the transcript renders the bare word "commandExecution".
 	assert.Equal(t, "rg --files", calls[0].Target)
 }
 
-// codex's elicitation map extracts only message for a hooks delivery: Title, Mode
-// and Schema stay unset by the declared mapping, not by oversight.
 func TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -1434,8 +1340,6 @@ func TestRegression_AnInterruptedToolIsFailedNotAbandoned(t *testing.T) {
 	assert.Equal(t, domain.ToolStatusError, after[0].Status, "the turn-close sweep must find nothing left to abandon")
 }
 
-// ─── from injected_prompt_test.go ─────────────────────────────────────
-
 const taskNotificationPrompt = `<task-notification>
 <task-id>aa3b60603214670cc</task-id>
 <tool-use-id>toolu_01CZ…</tool-use-id>
@@ -1519,9 +1423,6 @@ func TestRegression_SubagentHandBackIsRecordedAsHarnessNotUser(t *testing.T) {
 	assert.Equal(t, domain.TurnRoleHarness, page[0].Role)
 }
 
-// A user_prompt hook starts the turn for the Crowbar prompt only when its text is
-// that prompt's; text typed at the CLI or written by its harness starts its own
-// turn and leaves the Crowbar prompt pending.
 func TestUserPromptHook_AcknowledgesOnlyTheCrowbarPromptWhoseTextItCarries(t *testing.T) {
 	for _, tc := range []struct{ name, text, origin string }{
 		{"typed at the CLI", "something typed at the CLI", ledger.OriginProvider},
@@ -1566,7 +1467,6 @@ func TestRegression_FinalIncrementAheadOfAnEarlierOneNeverRecordsATruncatedMessa
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "greet me"})))
 
-	// Hooks are separate processes, so the closing increment can land first.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
 		deltaHook(t, "m1", 1, true, "world")))
 	f.wait()
@@ -1683,10 +1583,6 @@ func TestRegression_ChatLogDoesNotServeAHarnessTurnAsTheUsers(t *testing.T) {
 	assert.Contains(t, handoff, "claude harness (injected, NOT the user):")
 }
 
-// ─── background subagents ─────────────────────────────────────────────
-
-// backgroundSubagent starts subagent a1 in a turn that then ends with it still
-// running, as claude's background Agent call does.
 func backgroundSubagent(t *testing.T, f testFixture, runnerID string) {
 	t.Helper()
 	prompt(t, f, runnerID, "claude", "launch a background subagent")
@@ -1697,7 +1593,6 @@ func backgroundSubagent(t *testing.T, f testFixture, runnerID string) {
 	f.wait()
 }
 
-// A running subagent keeps the chat busy, so a switch is refused until it stops.
 func TestSwitchProvider_ARunningSubagentIsRefusedUntilItStops(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1719,8 +1614,6 @@ func TestSwitchProvider_ARunningSubagentIsRefusedUntilItStops(t *testing.T) {
 	require.Contains(t, f.term.terminatedIDs(), oldTerm)
 }
 
-// The subagent's hand-back opens the parent's turn that answers it; that
-// turn's end, with the subagent done, ends the chat's work.
 func TestRegression_ASubagentsHandBackIsAnsweredThenTheChatRests(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1742,8 +1635,6 @@ func TestRegression_ASubagentsHandBackIsAnsweredThenTheChatRests(t *testing.T) {
 	assert.Equal(t, "It finished.", page[len(page)-1].Text, "the hand-back's reply is recorded")
 }
 
-// A CLI killed with a subagent running sends no stop; its runner's exit, which
-// the boot reconcile records, interrupts the subagent.
 func TestRegression_KilledCLIWithARunningSubagent_DoesNotSpinForever(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -1758,9 +1649,6 @@ func TestRegression_KilledCLIWithARunningSubagent_DoesNotSpinForever(t *testing.
 	require.False(t, f.busy(t, chatID), "a dead CLI's subagent must not spin the chat forever across a restart")
 }
 
-// A stopped Claude still finishing its text after a switch to Codex: what it
-// streamed is kept under Claude when it exits, and its late turn_stop lands in
-// its own turn, so nothing of it lands under Codex.
 func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNextProvider(t *testing.T) {
 	f := newFixture(t)
 
@@ -1769,8 +1657,6 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a Valve essay"})))
 
-	// Claude starts streaming its reply — NOT final: the user interrupts
-	// (asks it to stop) before this message ever closes on its own.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "message_delta",
 		deltaHook(t, "claude-msg", 0, false, "Valve Software: The Reluctant Giant")))
 	f.wait()
@@ -1786,8 +1672,6 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop", mustJSON(t, codexStop)))
 	f.wait()
 
-	// Claude's text — still gracefully finishing — arrives LATE, after Codex
-	// has already closed its own turn on the same chat: its runner is gone.
 	err = f.usecase.IngestHook(f.ctx, claudeRunnerID, "claude", "turn_stop",
 		mustJSON(t, map[string]any{
 			"session_id":             "s1",
@@ -1819,8 +1703,6 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 		"dispatched first, so displays first, even though it was recorded last")
 }
 
-// TestRegression_StopChatSalvagesTheAlreadyStreamedText: a stop mid-stream lost the
-// partial reply already streamed to the client; the abandoned turn keeps it.
 func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
@@ -1828,7 +1710,6 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a long essay about the transistor"})))
 
-	// Claude is still streaming — NOT final — when the user hits Stop.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
 		deltaHook(t, "essay-msg", 0, false, "The transistor stands as one of the most consequential inventions...")))
 	f.wait()
@@ -1850,9 +1731,6 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	assert.Equal(t, "claude", salvaged.Provider)
 }
 
-// TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText is the same gap as
-// TestRegression_StopChatSalvagesTheAlreadyStreamedText through another door: the CLI
-// /clears onto a new session while a message is still streaming on the old one.
 func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
@@ -1860,7 +1738,6 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a long essay about the telegraph"})))
 
-	// Claude is still streaming — NOT final — when the CLI itself /clears.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "message_delta",
 		deltaHook(t, "clear-msg", 0, false, "The telegraph transformed long-distance communication...")))
 	f.wait()
@@ -1884,15 +1761,11 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	assert.Equal(t, "claude", salvaged.Provider)
 }
 
-// stopPayload is a claude Stop hook payload on session s1.
 func stopPayload(t *testing.T, message string) []byte {
 	t.Helper()
 	return mustJSON(t, map[string]any{"session_id": "s1", "last_assistant_message": message})
 }
 
-// thread/compact/start wraps its item pair in its own turn/started..completed,
-// byte-for-byte an ordinary turn's close; only the turn_id-armed latch keeps a
-// compaction from stopping the chat's turn.
 func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	f := newFixture(t)
 
@@ -1904,16 +1777,12 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	rowsBefore, err := f.ledger.Read(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
 
-	// compact_pre's contextCompaction item/started arms the latch; turn_id resolves only
-	// off codex's api block, so this and the wrapper turn_stop are api-shaped.
 	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
 		"threadId": "sess-1",
 		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-1"},
 		"turnId":   "compact-turn-1",
 	})
 
-	// The wrapper's own turn/completed — same turn id, no items — exactly the
-	// shape captured live from a real thread/compact/start round trip.
 	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
 		"threadId": "sess-1",
 		"turn": map[string]any{
@@ -1936,9 +1805,6 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	require.Len(t, afterCompaction, len(before),
 		"the compaction's own turn_stop must record NOTHING in the ledger")
 
-	// The guard must be surgically scoped to the armed id, not to turn_stop as
-	// a whole: an ORDINARY turn right after, with its own different turn id,
-	// must still record its reply exactly as it always has.
 	prompt(t, f, runnerID, "codex", "what changed?")
 	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
 		"threadId": "sess-1",
@@ -1958,8 +1824,6 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 		"an ordinary turn_stop with its OWN turn id must still record its reply — the guard must not be overbroad")
 }
 
-// TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice: a compaction's
-// wrapper turn failing is not the assistant's reply, so it records no failure notice.
 func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T) {
 	f := newFixture(t)
 
@@ -1969,17 +1833,12 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 	before, err := f.activity.Turns(f.ctx, chatID)
 	require.NoError(t, err)
 
-	// turn_failed is api-only (no hooks: block at all — same as tool_fail),
-	// so both this and its own compact_pre below must be api-shaped on an
-	// API-marked ctx.
 	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
 		"threadId": "sess-1",
 		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-2"},
 		"turnId":   "compact-turn-2",
 	})
 
-	// The wrapper's failed turn/completed, driven as turn_failed by name: IngestHook
-	// bypasses dispatch.Resolve, so this is what it would resolve the payload to.
 	hookAPI(t, f, runnerID, "codex", "turn_failed", map[string]any{
 		"threadId": "sess-1",
 		"turn": map[string]any{
@@ -1996,9 +1855,6 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 		"a failed compaction round trip must record NO notice row in the transcript")
 }
 
-// Codex's compaction item carries no trigger, so Crowbar's own record of the
-// Compact() it dispatched labels the divider manual. compact_post is driven too:
-// it rebuilds the interruption and must not discard what compact_pre wrote.
 func TestRegression_CodexManualCompactionIsLabelledManual(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2030,10 +1886,6 @@ func TestRegression_CodexManualCompactionIsLabelledManual(t *testing.T) {
 		"compact_post must not rebuild the interruption and clobber manual back to empty")
 }
 
-// TestRegression_CodexAutomaticCompactionIsNotLabelledManual is the negative
-// case the fix above must not break: a codex compaction NOBODY asked for
-// through Compact() must keep reading as automatic (an empty Detail — the
-// frontend's own fallback is what turns that into "automatically").
 func TestRegression_CodexAutomaticCompactionIsNotLabelledManual(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2051,9 +1903,6 @@ func TestRegression_CodexAutomaticCompactionIsNotLabelledManual(t *testing.T) {
 	assert.Empty(t, ints[0].Detail)
 }
 
-// TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery: codex may
-// compact on its own before a sent prompt starts; settling that real delivery hid
-// the message for the whole compaction.
 func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2064,13 +1913,9 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 	require.True(t, agentusecase.HasPendingPrompt(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the real prompt is dispatched and still unconfirmed")
 
-	// The delivery belongs to whichever runner is live now: with no api connection
-	// registered, SubmitPrompt's dispatch may have replaced it.
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 
-	// codex's OWN decision, never Compact() — the manual latch is deliberately
-	// left unarmed, matching an automatic pre-turn compaction exactly.
 	hookAPI(t, f, live.ID, "codex", "compact_pre", map[string]any{
 		"threadId": "sess-1",
 		"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
@@ -2090,9 +1935,6 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 		"compact_post must not settle it either")
 }
 
-// The user turn a Crowbar-dispatched prompt produces carries that dispatch's
-// own request id, so a client confirms its queued prompt by identity rather
-// than by comparing text the CLI may have reshaped.
 func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -2120,8 +1962,6 @@ func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
 	assert.Equal(t, []string{requestID}, ids)
 }
 
-// claudeHookNames maps the provider's own hook names, as they appear in a
-// captured payload's hook_event_name, to the canonical events the ingest takes.
 var claudeHookNames = map[string]string{
 	"SessionStart": "session_start", "UserPromptSubmit": "user_prompt", "Stop": "turn_stop",
 	"MessageDisplay": "message_delta", "PreToolUse": "tool_pre", "PostToolUse": "tool_post",
@@ -2129,9 +1969,6 @@ var claudeHookNames = map[string]string{
 	"PreCompact": "compact_pre", "PostCompact": "compact_post", "SessionEnd": "session_end",
 }
 
-// replayRealClaudeSession feeds a sanitized capture of a REAL claude session
-// (two background subagents that call tools, their hand-backs, /compact, a
-// follow-up) through IngestHook in recorded order.
 func replayRealClaudeSession(t *testing.T, f testFixture, runnerID string) {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "tests", "testdata", "hooks", "claude-subagent-session", "*.json"))
@@ -2206,7 +2043,6 @@ func TestRegression_RealClaudeSubagentSession_SubagentToolCallsAreItsOwn(t *test
 	assert.Len(t, subs, 2, "the subagents themselves are still tracked")
 }
 
-// running is the chat's ledger holding a turn open.
 func running(t *testing.T, f testFixture, chatID string) bool {
 	t.Helper()
 	f.wait()
@@ -2216,8 +2052,6 @@ func running(t *testing.T, f testFixture, chatID string) bool {
 	return ok
 }
 
-// activityReads reads a chat's record from its ledger rows, as the feed's
-// client folds them: each tool call, marker, ask and subagent by its rows.
 type activityReads struct {
 	u      *harnessUsecase
 	ledger *ledgerstore.Store
@@ -2279,8 +2113,6 @@ func (a activityReads) ToolCalls(ctx context.Context, chatID string) ([]toolView
 	return views, err
 }
 
-// Interruptions are the chat's markers and asks, a compaction resolved by its
-// end and an ask by its resolution.
 func (a activityReads) Interruptions(ctx context.Context, chatID string) ([]markView, error) {
 	rows, err := a.rows(ctx, chatID)
 	var out []markView
@@ -2314,8 +2146,6 @@ func (a activityReads) Interruptions(ctx context.Context, chatID string) ([]mark
 	return out, err
 }
 
-// Choices are the chat's asks that offered a choice, each with how its own
-// row resolved it.
 func (a activityReads) Choices(ctx context.Context, chatID string) ([]choiceView, error) {
 	rows, err := a.rows(ctx, chatID)
 	var out []choiceView

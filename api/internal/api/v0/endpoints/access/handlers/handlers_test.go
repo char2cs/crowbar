@@ -101,8 +101,6 @@ func TestPut_MalformedJSONIs400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, serve(t, &fakeAccess{}, http.MethodPut, "nope").Code)
 }
 
-// A paired device must not be able to turn device connections off (or move
-// them): only the owner at this computer decides who may connect at all.
 func TestRegression_Put_RefusesAPairedRemoteDevice(t *testing.T) {
 	for _, body := range []string{`{"enabled":false}`, `{"enabled":true,"address":"0.0.0.0:4000"}`} {
 		a := &fakeAccess{st: exposure.Status{Enabled: true}}

@@ -57,8 +57,6 @@ func buildAx[T any](
 	return a
 }
 
-// aggregates are ad's read models and the asynx instances built to deliver to
-// them, as the app layer wires them.
 type aggregates struct {
 	rm        *repositories.ReadModels
 	rt        asynx.Asynx[domain.ReviewThread]
@@ -95,11 +93,9 @@ func newRepos(
 	return repositories.New(context.Background(), ad, a.rm, publish, a.rt, a.ws, a.chat, a.placement, nil, noChatWatch, noGiveUp)
 }
 
-// noChatWatch is the announcement seam for tests that assert nothing about chat frames.
 func noChatWatch(_ agentchat.ChatEvent)                          {}
 func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 
-// captureHub records every workspace row the container publishes.
 type captureHub struct {
 	mu         sync.Mutex
 	workspaces []dto.WorkspaceDTO
@@ -165,14 +161,12 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 	a := newAggregates(t, ad)
 	_, err := repositories.New(
 		context.Background(), ad, a.rm, (&captureHub{}).publish,
-		a.rt, nil /* nil axWorkspace → workspace.New rejects */, a.chat, a.placement,
+		a.rt, nil, a.chat, a.placement,
 		nil, noChatWatch, noGiveUp,
 	)
 	assert.Error(t, err)
 }
 
-// A created workspace is projected and published; each row goes out at a rev
-// above every row read before it, so the hub drops a read another overtook.
 func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
@@ -196,9 +190,6 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	assert.Equal(t, []int64{1, 2, 3}, h.revs)
 }
 
-// TestBroadcastWorkspace_WorkingFalse pins the idle baseline of the working
-// overlay: with no background mutation in flight, every broadcast carries
-// Working=false.
 func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
@@ -217,9 +208,6 @@ func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 	assert.False(t, working)
 }
 
-// TestContainer_ListWorkspaces_NoWorkingOverlay asserts the snapshot source
-// returns workspace rows with the working overlay false while no background
-// mutation is in flight.
 func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
@@ -237,8 +225,6 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 	assert.False(t, rows[0].Working)
 }
 
-// TestWorkingFor_IsTheAgentHalfOnly: a workspace reads working while one of its
-// agent chats is mid-turn; work an operation runs on it is the operation's to show.
 func TestWorkingFor_IsTheAgentHalfOnly(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
@@ -260,10 +246,6 @@ func TestWorkingFor_IsTheAgentHalfOnly(t *testing.T) {
 	assert.False(t, c.WorkingFor("w1"))
 }
 
-// TestBroadcastWorkspace_ResolvesMergeEligibility pins that the broadcast DTO
-// carries the merge-eligibility overlay resolved from the row's repo siblings
-// (spec §10): a child whose parent is a same-repo non-locked sibling is eligible
-// with the parent's branch, while the parent itself is not eligible.
 func TestBroadcastWorkspace_ResolvesMergeEligibility(t *testing.T) {
 	ctx := context.Background()
 	h := &captureHub{}
@@ -274,12 +256,6 @@ func TestBroadcastWorkspace_ResolvesMergeEligibility(t *testing.T) {
 		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
-	// Drain the parent's store projection before creating the child. The child's
-	// hub frame resolves merge eligibility by reading its repo siblings, so the
-	// parent row must already be in the read model when the child event is
-	// projected. Without this barrier the child's single broadcast races the
-	// parent's projection across the two concurrent per-aggregate workers, and
-	// CanMergeLocally would be non-deterministic. This makes it deterministic.
 	c.WaitQuiescent()
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "child", RepoID: "r1", ProjectID: "p1", Branch: "feat", ParentID: "parent",
@@ -319,20 +295,12 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 	assert.Nil(t, rows)
 }
 
-// Deleting a workspace tombstones it; the delete reactor then forgets its review
-// threads, removes the worktree and forgets the workspace aggregate.
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
 	c, err := newRepos(t, ad, (&captureHub{}).publish)
 	require.NoError(t, err)
 
-	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
-	// guarded to the home (an adopted checkout outside the home is never touched, so
-	// a delete can never destroy a user's real repository), so the reaped worktree
-	// must live under <home>/projects/... like a real crowbar-managed one.
-	// The identity-keyed shape every managed workspace has: the worktree sits in
-	// its own root, which is what makes removing that root safe.
 	worktree := filepath.Join(ad.Home().Root(), "projects", "p1", "workspaces", "w1", "worktree")
 	require.NoError(t, os.MkdirAll(worktree, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(worktree, "f"), []byte("x"), 0o600))
@@ -343,14 +311,11 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
-	// A review thread anchored to the workspace: the cascade must forget it.
 	_, err = c.ReviewThread.Open(ctx, reviewthread.OpenInput{
 		ID: "t1", WsID: "w1", FilePath: "a.go", LineNumber: 1, MessageID: "m1", Author: "u", Body: "hi",
 	}, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 
-	// The thread's read-model row must be present before we delete, so the cascade
-	// has a row to forget.
 	c.WaitQuiescent()
 	threads, err := c.ReviewThread.ListByWorkspace(ctx, "w1")
 	require.NoError(t, err)
@@ -358,14 +323,6 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
 
-	// The async delete reactor cascades: review threads forgotten (rows gone),
-	// worktree removed, workspace aggregate Forgotten (read-model row gone). The
-	// reactor detaches into a gate-tracked goroutine, so draining the projection
-	// queues alone would not cover it — and draining WHILE it runs would refuse
-	// its own dispatches (asynx WaitPublish): QuiesceReactors holds the door,
-	// drains, then runs the reactor and folds what it dispatched. Caught live
-	// under -race: the old drain-then-join chain let the reactor's Forget land
-	// inside the drain and answer "dispatcher closed", leaving the tombstone.
 	c.QuiesceReactors(context.Background())
 
 	threads, err = c.ReviewThread.ListByWorkspace(ctx, "w1")
@@ -378,15 +335,12 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-// An adopted workspace's WorktreePath is the user's real checkout, outside the
-// crowbar home: deleting it reaps the record and leaves the checkout on disk.
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
 	c, err := newRepos(t, ad, (&captureHub{}).publish)
 	require.NoError(t, err)
 
-	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
 	adopted := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(adopted, "README.md"), []byte("real"), 0o600))
 
@@ -399,24 +353,17 @@ func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 
 	require.NoError(t, c.Workspace.Delete(ctx, "home1"))
 
-	// The record is reaped (aggregate Forgotten, read-model row gone) ... The reactor
-	// runs the cascade in a drainWG-tracked goroutine: WaitQuiescent so the delete
-	// event is dispatched (reactor joined drainWG + tombstone written), block on the
-	// reactor drain for the goroutine to finish, then WaitQuiescent to settle the
-	// terminal Forget projection that drops the row. Deterministic, no polling.
 	c.QuiesceReactors(context.Background())
 
 	rows, err := c.Workspace.List(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "the deleted workspace record must be reaped")
 
-	// ... but the user's real checkout on disk must survive untouched.
 	_, statErr := os.Stat(filepath.Join(adopted, "README.md"))
 	require.NoError(t, statErr,
 		"an adopted checkout outside the crowbar home must never be rm'd by a workspace delete")
 }
 
-// createAgentChat seeds a fresh AgentChat bound to wsID, with its Node row.
 func createAgentChat(
 	t *testing.T,
 	ctx context.Context,
@@ -435,9 +382,6 @@ func createAgentChat(
 	require.NoError(t, err)
 }
 
-// recordingPurge stands in for the chat usecase's PurgeChat: it records each
-// chat it is asked to purge and Forgets it, answering not-found for one that is
-// already gone — exactly the contract the cascade relies on.
 type recordingPurge struct {
 	mu     sync.Mutex
 	c      *repositories.Container
@@ -460,11 +404,6 @@ func (p *recordingPurge) all() []string {
 	return append([]string(nil), p.purged...)
 }
 
-// Deleting a workspace removes everything it owns (invariant D5): each of its
-// chats goes through the chat usecase's OWN PurgeChat — the path a user's chat
-// delete takes, which also drops the conversation record, telemetry, history,
-// runners and ledger — and the chats' Node rows and the workspace's own Node
-// row go too. A chat of another workspace is untouched.
 func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})
@@ -498,10 +437,6 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 	assert.NoError(t, err)
 }
 
-// A chat a user delete purged concurrently — the owning chat's own DELETE
-// tombstones its workspace and purges the chat in the same request — is
-// already gone when the cascade reaches it. That is success, not a failure
-// that aborts the purge and strands the worktree.
 func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 	ctx := context.Background()
 	c := newContainer(t, &captureHub{})

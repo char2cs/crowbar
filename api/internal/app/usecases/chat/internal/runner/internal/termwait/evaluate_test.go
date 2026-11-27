@@ -12,8 +12,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// A notice that ends the turn fails it the moment it appears on a busy chat's
-// screen: the screen is the only place the provider says so.
 func TestDetector_Sweep_ReportsANoticeThatEndsTheTurn(t *testing.T) {
 	r := newRig(t)
 	r.wedged()
@@ -128,8 +126,6 @@ func TestDetector_Sweep_WithoutNoticeDependenciesNothingEnds(t *testing.T) {
 	assert.Zero(t, r.notices.asked)
 }
 
-// A choice the person has yet to make holds the turn: a notice that would end
-// it waits until the choice is made.
 func TestDetector_Sweep_ANoticeWaitsForAPendingChoice(t *testing.T) {
 	r := newRig(t)
 	r.wedged()
@@ -143,8 +139,6 @@ func TestDetector_Sweep_ANoticeWaitsForAPendingChoice(t *testing.T) {
 	assert.Len(t, r.ended.all(), 1, "once the choice is made, the notice ends the turn")
 }
 
-// A prompt awaiting its provider, with no turn running, is ended by a notice
-// too: the provider will never take it.
 func TestDetector_Sweep_ANoticeEndsAnAwaitedPrompt(t *testing.T) {
 	r := newRig(t)
 	r.wedged()

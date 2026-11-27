@@ -17,9 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// holdRefLocksHook is a reference-transaction hook that, once git holds the ref
-// locks, reports on ready and waits for a line on release. It drops stdout and
-// stderr so a git that dies under it is not kept waiting on the pipes.
 const holdRefLocksHook = `#!/bin/sh
 [ "$1" = prepared ] || exit 0
 exec >/dev/null 2>&1 3<>'%RELEASE%'
@@ -27,8 +24,6 @@ echo held > '%READY%'
 read _ <&3
 `
 
-// freeFIFO lets go whoever waits on either end of path: opened read-write it
-// never blocks, completes a waiting writer's open and hands a reader a line.
 func freeFIFO(
 	t *testing.T,
 	path string,
@@ -56,8 +51,6 @@ func lockFiles(
 	return locks
 }
 
-// A fetch cancelled while it holds its ref locks must get a signal git cleans
-// up on (SIGTERM), not a SIGKILL that strands refs/...lock for every later fetch.
 func TestGit_CancelledFetchLeavesNoRefLock(t *testing.T) {
 	ctx := context.Background()
 	src := initRepo(t)

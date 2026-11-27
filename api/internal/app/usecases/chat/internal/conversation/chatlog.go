@@ -26,7 +26,6 @@ func (c *Conversations) renderConversation(
 	if err != nil {
 		return nil, fmt.Errorf("agent: render conversation: %w", err)
 	}
-	// What the person cleared is no conversation to hand on.
 	resuming := !cut.IsZero()
 	if cleared := st.ClearedAt(); cleared.After(cut) {
 		cut = cleared
@@ -41,8 +40,6 @@ func (c *Conversations) renderConversation(
 		}
 		since = append(since, t)
 	}
-	// Capped like get_chat_log's recent window, as a handoff is injected cold on
-	// every switch; a fresh join keeps the first ask, which a resume already holds.
 	head, note, recent := agenttools.HandoffWindow(chatID, since, pin)
 	var b strings.Builder
 	writeTurns(&b, head)
@@ -60,8 +57,6 @@ func writeTurns(b *strings.Builder, turns []domain.LedgerTurn) {
 	}
 }
 
-// appendNote adds text to the chat's conversation as a note from Crowbar, for
-// the agent to read.
 func (c *Conversations) appendNote(ctx context.Context, chatID, text string) error {
 	row, err := ledger.NewRow(ledger.KindUserMessage, uuid.NewString(), "",
 		ledger.UserMessage{Text: text, Origin: ledger.OriginNote})
@@ -75,9 +70,6 @@ func (c *Conversations) appendNote(ctx context.Context, chatID, text string) err
 	return nil
 }
 
-// speaker names who produced a ledger turn, as display text for the handoff and chat
-// log. "harness (injected, NOT the user)" stops a reader — or a model reading its own
-// handoff — mistaking an injected prompt for something a person typed.
 func speaker(t domain.LedgerTurn) string {
 	switch t.Role {
 	case "assistant":

@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The relay gives a call 120s; staying well under it leaves room for the reply.
 const (
 	defaultWaitSeconds = 50
 	minWaitSeconds     = 1
@@ -52,9 +51,6 @@ func waitTimeout(seconds int) time.Duration {
 	return time.Duration(min(max(seconds, minWaitSeconds), maxWaitSeconds)) * time.Second
 }
 
-// waitForReviewComments returns the caller's threads needing attention (unresolved, human message last),
-// waiting for one if none do. It subscribes before the first look so no comment is missed, and on a wake
-// the notified aggregates override the independently projected listing.
 func waitForReviewComments(
 	ctx context.Context,
 	deps Deps,
@@ -100,8 +96,6 @@ func drainChanges(ch <-chan domain.ReviewThread, into []domain.ReviewThread) []d
 	}
 }
 
-// overlayThreads replaces listed threads with their notified aggregates (the later
-// notification wins) and appends any the listing has not caught up to.
 func overlayThreads(listed, woken []domain.ReviewThread, wsID string) []domain.ReviewThread {
 	out := append([]domain.ReviewThread(nil), listed...)
 	for _, w := range woken {

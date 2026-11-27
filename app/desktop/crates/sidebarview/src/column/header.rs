@@ -1,0 +1,180 @@
+mod host_picker;
+mod icon_button;
+mod tile_shape;
+
+pub(crate) use host_picker::host_icon;
+pub(crate) use icon_button::IconButton;
+pub(crate) use tile_shape::TileShape;
+
+use gpui::prelude::FluentBuilder;
+use gpui::{
+    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    WindowControlArea, div, px,
+};
+use sidebar::{Command, DockSide, Host, Intent, Visibility};
+use ui::{IconName, Surface, Theme};
+
+use crate::column::header::host_picker::host_picker;
+use crate::sidebar::RowAction;
+use crate::sidebar::Sidebar;
+use crate::sidebar::{HEADER_HEIGHT, SPACE_LG, SPACE_MD, SPACE_XS, TRAFFIC_LIGHT_RESERVE};
+
+impl Sidebar {
+    pub(crate) fn header(
+        &mut self,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
+        let side = self.panel.side();
+        let picker = self.host_choice(cx);
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_XS)
+            .h(px(HEADER_HEIGHT))
+            .w_full()
+            .overflow_hidden()
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(MouseButton::Left, ui::drag_window)
+            .when(side == DockSide::Left, |d| d.pl(SPACE_LG).pr(SPACE_MD))
+            .when(side == DockSide::Right, |d| {
+                d.flex_row_reverse().pr(SPACE_LG).pl(SPACE_MD)
+            })
+            .children(traffic_light_spacer(side))
+            .child(self.settings_button(cx))
+            .child(div().flex().flex_1().justify_center().children(picker))
+            .child(self.toggle_button(cx))
+            .into_any_element()
+    }
+
+    fn settings_button(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> IconButton {
+        let action = RowAction::Intent(Intent::Send(Command::OpenSettings));
+        IconButton::new("sidebar-settings", IconName::Gear)
+            .tooltip("Settings")
+            .focus(&self.settings_focus)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.act(action.clone(), window, cx);
+            }))
+    }
+
+    fn toggle_button(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> IconButton {
+        let icon = match self.panel.side() {
+            DockSide::Left => IconName::SidebarToggle,
+            DockSide::Right => IconName::SidebarToggleRight,
+        };
+        let tooltip = match self.panel.visibility() {
+            Visibility::Open => "Hide Sidebar",
+            Visibility::Closed => "Show Sidebar",
+        };
+        IconButton::new("sidebar-toggle", icon)
+            .tooltip(tooltip)
+            .on_click(cx.listener(|this, _, window, cx| this.toggle(window, cx)))
+    }
+
+    fn host_choice(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<AnyElement> {
+        let hosts = self.data.hosts();
+        let current = self.current_host(&hosts)?;
+        if hosts.len() < 2 {
+            return None;
+        }
+        let palette = Theme::of(cx).palette(Surface::Chrome);
+        let picker = host_picker(&hosts, &current, palette, &Self::row_handler(cx));
+        let held = div()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(picker);
+        Some(held.into_any_element())
+    }
+
+    fn current_host(
+        &self,
+        hosts: &[Host],
+    ) -> Option<Host> {
+        let shown = self.data.shown_host()?;
+        hosts.iter().find(|host| host.id == shown).cloned()
+    }
+}
+
+fn traffic_light_spacer(side: DockSide) -> Option<gpui::Div> {
+    let reserve = traffic_light_reserve(side);
+    (reserve > 0.0).then(|| div().flex_none().w(px(reserve)))
+}
+
+fn traffic_light_reserve(side: DockSide) -> f32 {
+    if side == DockSide::Right {
+        return 0.0;
+    }
+    TRAFFIC_LIGHT_RESERVE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{traffic_light_reserve, traffic_light_spacer};
+    use sidebar::{DockSide, Visibility};
+
+    use crate::sidebar::Sidebar;
+    use crate::sidebar::TRAFFIC_LIGHT_RESERVE;
+    use crate::test_support::prelude::*;
+
+    #[test]
+    fn only_a_left_dock_reserves_room_for_the_traffic_lights() {
+        let cases = [
+            (DockSide::Left, TRAFFIC_LIGHT_RESERVE),
+            (DockSide::Right, 0.0),
+        ];
+        for (side, reserve) in cases {
+            assert_eq!(traffic_light_reserve(side), reserve, "{side:?}");
+        }
+    }
+
+    #[test]
+    fn no_spacer_takes_a_gap_where_there_are_no_traffic_lights() {
+        assert!(traffic_light_spacer(DockSide::Right).is_none(), "right");
+        let left = traffic_light_spacer(DockSide::Left).is_some();
+        assert_eq!(left, TRAFFIC_LIGHT_RESERVE > 0.0, "left");
+    }
+
+    #[gpui::test]
+    fn the_toggle_closes_and_reopens_the_sidebar(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        sidebar.update_in(cx, Sidebar::toggle);
+        assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Closed));
+        sidebar.update_in(cx, Sidebar::toggle);
+        assert!(sidebar.read_with(cx, |this, _| this.panel.visibility() == Visibility::Open));
+    }
+
+    #[gpui::test]
+    fn the_current_host_is_the_one_of_the_active_space(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::rich());
+        let name = sidebar.read_with(cx, |this, _| {
+            let hosts = this.data.hosts();
+            this.current_host(&hosts).map(|host| host.name)
+        });
+        assert!(name.is_some());
+    }
+
+    #[gpui::test]
+    fn the_picker_names_a_down_host_that_lists_no_space(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::showing_down_host());
+        let name = sidebar.read_with(cx, |this, _| {
+            let hosts = this.data.hosts();
+            this.current_host(&hosts).map(|host| host.name)
+        });
+        assert_eq!(name.as_deref(), Some("devbox"));
+    }
+
+    #[gpui::test]
+    fn a_single_host_shows_no_picker(cx: &mut TestAppContext) {
+        let (_, sidebar, cx) = open(cx, DemoShell::reference());
+        let picker = sidebar.update(cx, |this, cx| this.host_choice(cx));
+        assert!(picker.is_none());
+    }
+}

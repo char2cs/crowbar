@@ -19,18 +19,11 @@ var (
 
 	ErrForeignConversation = errors.New("agents: hook does not describe this CLI's own conversation")
 
-	// ErrRequiredFieldMissing is a required: field that resolved to nothing against
-	// the delivered payload, so a broken mapping fails loudly instead of reading empty.
 	ErrRequiredFieldMissing = errors.New("agents: required field resolved to nothing")
 
-	// ErrVariantMismatch is a payload that fails the event's when: discriminator: a
-	// different variant of the same wire event, which the matching sibling handles,
-	// so callers drop it quietly.
 	ErrVariantMismatch = errors.New("agents: payload is a different variant of this wire event")
 )
 
-// VariantMismatchError names the descriptor, event, channel and discriminator that
-// rejected the delivery, so a quiet drop is still diagnosable.
 type VariantMismatchError struct {
 	Descriptor string
 	Event      string
@@ -55,8 +48,6 @@ func (e *ForeignConversationError) Error() string {
 
 func (e *ForeignConversationError) Unwrap() error { return ErrForeignConversation }
 
-// RequiredFieldError names the descriptor, event, channel and field that failed
-// to resolve.
 type RequiredFieldError struct {
 	Descriptor string
 	Event      string
@@ -71,32 +62,21 @@ func (e *RequiredFieldError) Error() string {
 
 func (e *RequiredFieldError) Unwrap() error { return ErrRequiredFieldMissing }
 
-// Parse turns one raw provider payload into a canonical event, reading the field
-// map of the channel the delivery ACTUALLY arrived on: a dual-shape event's shape
-// is per message, not per declaration.
 func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
 	decoded, err := decode(d, raw, channel)
 	if err != nil {
 		return models.CanonicalEvent{}, err
 	}
-	// The ownership guard confirms an HTTP-delivered payload names THIS CLI's own
-	// conversation, since any local process can POST one. Only the api channel, a
-	// private connection Crowbar dialled itself, is exempt; every other channel is checked.
 	if channel != spec.ChannelAPI {
 		if field, ok := ownsConversation(d, decoded); !ok {
 			return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
 		}
 	}
-	// The field map is the block of the channel THIS delivery arrived on, never
-	// inferred from the payload's shape or the event's static transport.
 	fields, declared := d.EventFieldsFor(canonical, channel)
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf(
 			"%w: %q on %q (channel %q)", ErrUndeclaredEvent, canonical, d.ID, channel)
 	}
-	// when: selects which deliveries of one wire hook this event accepts, so it runs
-	// before required: (a different variant owes this one no fields). It is what keeps
-	// a hook carrying both an idle report and a prompt from ending a live turn.
 	if when := d.EventWhenFor(canonical, channel); len(when) > 0 &&
 		!mapping.Match(decoded, when) {
 		return models.CanonicalEvent{}, &VariantMismatchError{
@@ -121,9 +101,6 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channe
 	return ev, nil
 }
 
-// handedBack is a prompt its descriptor declares a subagent's handed-back
-// result as that result: a subagent_result of the scope it names, opening the
-// parent's turn the prompt's own turn id names.
 func handedBack(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEvent {
 	p, ok := promptorigin.Match(d, ev.Message)
 	if !ok || p.Kind != spec.InjectedPromptSubagentResult {
@@ -143,8 +120,6 @@ func handedBack(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 	}
 }
 
-// endedShell is a prompt its descriptor declares the end of a background task
-// as that task named: still the prompt that opens the turn answering it.
 func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEvent {
 	if ev.Kind != spec.HookUserPrompt {
 		return ev
@@ -164,8 +139,6 @@ func endedShell(d *spec.Descriptor, ev models.CanonicalEvent) models.CanonicalEv
 	return ev
 }
 
-// namedTasks is every task a prompt names: the one task_id finds, else each
-// match of the entry's items.
 func namedTasks(p spec.InjectedPromptSpec, prompt string) []spec.TaskRef {
 	if id := p.TaskID.Find(prompt); id != "" {
 		return []spec.TaskRef{{ID: id, Status: p.Status.Find(prompt)}}
@@ -177,8 +150,6 @@ func namedTasks(p spec.InjectedPromptSpec, prompt string) []spec.TaskRef {
 	return refs
 }
 
-// decode reads raw as JSON. Only a hook delivery declares its format; an api frame
-// is JSON by its transport, so a descriptor with no hooks block still parses.
 func decode(d *spec.Descriptor, raw []byte, channel spec.Channel) (map[string]any, error) {
 	if format := d.HookFormat(); format != "json" && channel != spec.ChannelAPI {
 		return nil, fmt.Errorf("%w %q on %q", ErrUnsupportedFormat, format, d.ID)
@@ -195,8 +166,6 @@ func decode(d *spec.Descriptor, raw []byte, channel spec.Channel) (map[string]an
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.RequiredPayloadFields() {
-		// Only a present-but-empty field is foreign: a payload shape that never
-		// carries it (an api delivery of a dual-shape event) proves nothing.
 		if !mapping.Present(decoded, mapping.Paths(field)) {
 			continue
 		}
@@ -230,7 +199,6 @@ func build(
 	}
 	switch canonical {
 	case spec.HookSessionStart:
-		// Why it started, in Crowbar's words: a clear starts the conversation over.
 		ev.Reason = mapped(statusMap, ev.Reason)
 	case spec.HookUserPrompt:
 		ev.Subagent = scope(get("scope_id"))
@@ -252,9 +220,6 @@ func build(
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
 	case spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta,
 		spec.HookDiffUpdate:
-		// Same payload shape, deliberately: a thought and an answer are both
-		// streamed text belonging to one item. Only ev.Kind tells them apart, and
-		// only the consumer acts on that difference.
 		ev.Delta = buildDelta(fields, decoded)
 	case spec.HookMessageComplete:
 		ev.Complete = &models.MessageComplete{
@@ -273,7 +238,6 @@ func build(
 	return ev
 }
 
-// mapped is v in Crowbar's words where m names it, else v unchanged.
 func mapped(m map[string]string, v string) string {
 	if out, ok := m[v]; ok {
 		return out
@@ -281,7 +245,6 @@ func mapped(m map[string]string, v string) string {
 	return v
 }
 
-// scope is the subagent an event ran under; nil is the main conversation.
 func scope(id string) *models.SubagentEvent {
 	if id == "" {
 		return nil
@@ -325,9 +288,6 @@ func buildDelta(fields spec.FieldMap, decoded map[string]any) *models.MessageDel
 	}
 }
 
-// buildPlan reads the whole plan array: the newest list is the entire truth, so
-// nothing merges or drifts. Text-less steps are skipped; an unmapped status passes
-// through unchanged, since an unstyled row beats silently shortening the plan.
 func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep {
 	if steps == nil || steps.Items == "" {
 		return nil
@@ -348,7 +308,6 @@ func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep 
 	return out
 }
 
-// toolSpecs is what an event's descriptor declares beside its field map to read a tool call.
 type toolSpecs struct {
 	status, kinds, shellKinds map[string]string
 	locations                 *spec.LocationsSpec
@@ -440,7 +399,6 @@ func buildDiffFiles(files *spec.DiffFilesSpec, decoded map[string]any) string {
 	return out.String()
 }
 
-// writeWholeFile writes content as the one hunk that creates (added) or removes path.
 func writeWholeFile(out *strings.Builder, path, content string, added bool) {
 	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 	if added {
@@ -454,7 +412,6 @@ func writeWholeFile(out *strings.Builder, path, content string, added bool) {
 	}
 }
 
-// hunkCount is a hunk range's ",count" suffix, which unified diff omits for one line.
 func hunkCount(n int) string {
 	if n == 1 {
 		return ""

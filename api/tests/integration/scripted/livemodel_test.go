@@ -14,18 +14,12 @@ import (
 	"testing"
 )
 
-// liveReply is what the stand-in model answers every request with.
 const liveReply = "LIVE-MODEL-REPLY"
 
-// modelServer stands in for the Anthropic Messages and OpenAI Responses APIs,
-// so the REAL claude and codex CLIs run whole turns with no credentials. hold
-// parks every request until released, to catch a CLI mid-turn.
 type modelServer struct {
 	*httptest.Server
-	mu   sync.Mutex
-	hold chan struct{}
-	// replies numbers each reply: a real API never repeats a message id, and
-	// the CLIs key their items by it.
+	mu      sync.Mutex
+	hold    chan struct{}
 	replies atomic.Int64
 }
 
@@ -40,7 +34,6 @@ func newModelServer(t *testing.T) *modelServer {
 	return m
 }
 
-// holdTurns parks every model request from now on until release.
 func (m *modelServer) holdTurns() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

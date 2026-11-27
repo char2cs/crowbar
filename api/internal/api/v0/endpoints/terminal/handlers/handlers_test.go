@@ -67,9 +67,6 @@ func (stubEngine) ListSessionsForChat(
 	return []string{"sess1"}
 }
 
-// SetHostTheme is a no-op here: the host theme's behaviour is covered where it has an
-// observable effect (a session's OSC 11 answer at birth, in the terminal engine's own
-// tests) and at the endpoint, by the recording engine in hosttheme_test.go.
 func (stubEngine) SetHostTheme(_, _ color.Color) {}
 
 func (stubEngine) HostTheme() (bg, fg color.Color) { return nil, nil }
@@ -107,8 +104,6 @@ func (stubProfiles) Delete(
 	return nil
 }
 
-// notFoundEngine returns ErrSessionNotFound on Kill so the 404 path can be
-// exercised; it embeds stubEngine for the rest of the surface.
 type notFoundEngine struct {
 	stubEngine
 }
@@ -120,16 +115,12 @@ func (notFoundEngine) Kill(
 	return fmt.Errorf("terminal: kill ghost: %w", engineterminal.ErrSessionNotFound)
 }
 
-// chatPath is the flat chat-scoped terminals collection path.
 const chatPath = "/v0/chats/chat1/terminals"
 
 func newHandlers() *handlers.Handlers {
 	return handlers.New(stubEngine{}, stubProfiles{})
 }
 
-// scopeWorkspace stands in for v0's resolveChatWorktree middleware: it stashes
-// the workspace the chat resolved to, which is where the handlers now read the
-// PTY's working directory from.
 func scopeWorkspace(
 	c *gin.Context,
 ) {
@@ -149,9 +140,6 @@ func mountSessions(
 	scoped.GET("/terminals/:sessionId/ws", h.WS)
 }
 
-// mountSessionsUnscoped mounts the same routes WITHOUT the worktree-resolving
-// middleware, so the handlers' "no workspace on the request context" branch can
-// be exercised.
 func mountSessionsUnscoped(
 	r *gin.Engine,
 	h *handlers.Handlers,
@@ -200,7 +188,7 @@ func TestTerminalHandlers_HappyPath(
 	rec := do(r, http.MethodPost, chatPath, nil)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil) // KillSession
+	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = do(r, http.MethodGet, "/v0/settings/terminal/profiles", nil)
@@ -267,12 +255,6 @@ func TestListSessions_ReturnsScopedList(
 	assert.Equal(t, "active", env.Data[0].Status)
 }
 
-// TestCreateSession_500WhenWorktreeUnresolved is the descendant of the old
-// "404 on unknown workspace" case. Resolving the chat is no longer this
-// handler's job — resolveChatWorktree does it, and 404s a chat whose worktree
-// cannot be found before the handler runs (covered in v0's middleware_test).
-// What is left here is the same refusal to spawn without a workspace, now
-// reported as the wiring bug it can only be: nothing is created.
 func TestCreateSession_500WhenWorktreeUnresolved(
 	t *testing.T,
 ) {

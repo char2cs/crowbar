@@ -18,11 +18,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// refusedS1 is a CLI's exit on refusing to resume session S1.
 var refusedS1 = engineterminal.Exit{Code: 1, Screen: "No conversation found with session ID: S1\n"}
 
-// refusingTerm is a PTY seam whose every CLI refuses the session it resumes:
-// during its fork when early, else once it is asked to die or refuseAll runs.
 type refusingTerm struct {
 	fakeTermForAttach
 	early bool
@@ -45,7 +42,6 @@ func (r *refusingTerm) TerminateGraceful(_ context.Context, sessionID string) er
 	return nil
 }
 
-// refuse ends sessionID's CLI on its refusal, once.
 func (r *refusingTerm) refuse(sessionID string) bool {
 	r.mu.Lock()
 	onExit, ok := r.onExit[sessionID]
@@ -66,8 +62,6 @@ func (r *refusingTerm) refuseAll() {
 	}
 }
 
-// reviveConversations is the record of a chat on provider with no lineage,
-// selection or gap to hand over.
 type reviveConversations struct {
 	stubConversationsForSpawn
 	provider string
@@ -85,7 +79,6 @@ func (reviveConversations) ChatTurns(context.Context, string) ([]domain.LedgerTu
 	return nil, nil
 }
 
-// dividers are the dividers chatID's ledger holds, as kind:detail.
 func dividers(t *testing.T, l *ledgerstore.Store, chatID string) []string {
 	t.Helper()
 	rows, err := l.Read(t.Context(), chatID, 0, 0)
@@ -101,9 +94,6 @@ func dividers(t *testing.T, l *ledgerstore.Store, chatID string) []string {
 	return out
 }
 
-// A send launches one CLI carrying the prompt: the dormant chat's provider or
-// the one staged with it. That CLI's refusal of the session, before the launch
-// answers or after, settles the prompt and loses the session once.
 func TestSubmitPromptWithSwitch_ARefusedResumeSettlesThePromptItsOneLaunchCarried(t *testing.T) {
 	scenarios := map[string]struct {
 		current, staged string

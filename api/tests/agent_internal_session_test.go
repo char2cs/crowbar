@@ -11,13 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// memStubProviderDescriptorYAML is livestub plus the one line this file exists to
-// test: hooks.require_payload_fields. It mirrors what codex.yaml declares.
-//
-// It is a SEPARATE descriptor rather than a change to livestub because livestub's
-// job in the other agent tests is to be the provider that declares nothing —
-// which is also the fixture that proves this guard is opt-in and cannot have
-// changed claude.
 const memStubProviderDescriptorYAML = `id: memstub
 events:
   session_start:
@@ -45,22 +38,15 @@ func writeMemStubProviderDescriptor(t *testing.T, h *harness) {
 	writeProviderDescriptor(t, h, "memstub", memStubProviderDescriptorYAML)
 }
 
-// createMemStubChat is createLiveStubChat against the memstub provider.
 func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID, runnerID string) {
 	t.Helper()
 	return createStubChat(t, h, imported, "memstub")
 }
 
-// The payloads below are VERBATIM captures from codex 0.146.0 with
-// `[features] memories = true`, recorded by standing in for the hook relay on the
-// real `-c hooks.*` commands the codex descriptor injects. Only the paths are
-// shortened. All five came out of ONE codex process, six seconds apart.
 const (
 	realStart  = `{"session_id":"019fafae-f27f-7d00-bd23-3bcbce0ece1f","transcript_path":"/h/.codex/sessions/2026/07/29/rollout-019fafae.jsonl","cwd":"/ws","hook_event_name":"SessionStart","model":"gpt-5.6-sol","permission_mode":"default","source":"startup"}`
 	realPrompt = `{"session_id":"019fafae-f27f-7d00-bd23-3bcbce0ece1f","turn_id":"019fafaf-38cf","transcript_path":"/h/.codex/sessions/2026/07/29/rollout-019fafae.jsonl","cwd":"/ws","hook_event_name":"UserPromptSubmit","model":"gpt-5.6-sol","permission_mode":"default","prompt":"THE-USERS-OWN-QUESTION"}`
 
-	// source is `startup` here too — identical to a real /new, which is why no move
-	// label can separate these from the user's own conversation.
 	memoryStart  = `{"session_id":"019fafaf-4f2c-7551-806e-eda96d1cefed","transcript_path":null,"cwd":"/h/.codex/memories","hook_event_name":"SessionStart","model":"gpt-5.6-terra","permission_mode":"bypassPermissions","source":"startup"}`
 	memoryPrompt = `{"session_id":"019fafaf-4f2c-7551-806e-eda96d1cefed","turn_id":"019fafaf-4f54","transcript_path":null,"cwd":"/h/.codex/memories","hook_event_name":"UserPromptSubmit","model":"gpt-5.6-terra","permission_mode":"bypassPermissions","prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION"}`
 	memoryStop   = `{"session_id":"019fafaf-4f2c-7551-806e-eda96d1cefed","turn_id":"019fafaf-4f54","transcript_path":null,"cwd":"/h/.codex/memories","hook_event_name":"Stop","model":"gpt-5.6-terra","permission_mode":"bypassPermissions","stop_hook_active":false,"last_assistant_message":"MEMORY-AGENT-REPLY"}`
@@ -71,39 +57,6 @@ const (
 	memorySessionID = "019fafaf-4f2c-7551-806e-eda96d1cefed"
 )
 
-// TestRegression_InternalProviderSessionDoesNotStealTheChat is the black-box
-// contract for the codex-memories bug: a vendor CLI's hooks are not only its
-// USER'S hooks, and a hook arriving through them is not proof that it is about the
-// conversation on screen.
-//
-// codex 0.146.0 with memories enabled runs its Memory Writing Agent as an INTERNAL
-// session inside the same process. That session inherits the `-c hooks.*` commands
-// Crowbar injected, so it fires the whole lifecycle at Crowbar — SessionStart,
-// UserPromptSubmit, Stop — carrying a session id nobody has seen and
-// `source: startup`, which is byte-identical to the user typing /new.
-//
-// What that produced, live, was a chat theft with no error anywhere:
-//
-//  1. the announcement was an unknown conversation under a live runner, so the
-//     reducer read it as /new: it MINTED a chat and MOVED the runner into it,
-//  2. leaving the user's chat with no CLI on it and its open turn force-closed,
-//  3. the internal session's own prompt then titled the phantom chat and went into
-//     its ledger as something the USER said,
-//  4. and the CLI on screen never moved at all — so the user's next message landed
-//     in the phantom chat while the conversation they were looking at was stranded.
-//
-// Every numbered outcome above is asserted below, against the durable oracles (the
-// chat list, the runner's placement, the conversation history, the on-disk ledger)
-// rather than against the drop itself — so a regression that finds a NEW way to let
-// an internal session through fails here too.
-//
-// NO TIMING. The hook route places the hook synchronously, so a dropped hook has
-// finished being dropped by the time its 200 returns; h.Quiesce is the
-// read-your-writes barrier (asynx WaitPublish) before the plain REST reads. The
-// negative assertions are then made STRICT by a real signal: a genuine turn is
-// taken afterwards and its turn_started frame awaited, and WS frames are ordered,
-// so any frame the internal session's hooks would have produced necessarily
-// arrived before it.
 func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	h := newHarness(t)
 	writeMemStubProviderDescriptor(t, h)
@@ -114,7 +67,6 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 
 	chat, runner := createMemStubChat(t, h, ws)
 
-	// The user's own conversation announces itself and takes a turn.
 	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", realStart)
 	frames.awaitConversation(chat, realSessionID)
 	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", realPrompt)
@@ -126,13 +78,11 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	require.Equal(t, []string{realSessionID}, getAgentChat(t, h, base, chat).sessionIDs(),
 		"precondition: the chat hosts the user's conversation and only that")
 
-	// --- the bug: the provider's INTERNAL session runs the full lifecycle at us ---
 	postHook(t, h, repoBase(ws), "memstub", runner, "session_start", memoryStart)
 	postHook(t, h, repoBase(ws), "memstub", runner, "user_prompt", memoryPrompt)
 	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop", memoryStop)
 	h.Quiesce()
 
-	// (1) No phantom chat was minted.
 	var chats []agentChatDTO
 	h.get(base+"/chats", &chats)
 	chats = conversationsOnly(chats)
@@ -141,7 +91,6 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 			"see one chat, not a second one they never asked for")
 	require.Equal(t, chat, chats[0].ID)
 
-	// (2) The runner never left the user's chat, and the chat never lost its CLI.
 	after := getAgentChat(t, h, base, chat)
 	assert.Equal(t, runner, after.LiveRunnerID,
 		"the runner must still be placed on the user's chat: the CLI on screen never moved, so Crowbar "+
@@ -151,9 +100,6 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 			"rollout, so resuming it would ask the CLI for a thread that does not exist")
 	assert.NotContains(t, after.sessionIDs(), memorySessionID)
 
-	// (3) Nothing the internal session said is in the user's chat, and it did not
-	// retitle it. The ledger is the on-disk oracle: it answers after every piece of
-	// in-memory state is gone.
 	handoff := chatHandoff(t, h, base, chat)
 	assert.Contains(t, handoff, "THE-USERS-OWN-QUESTION", "precondition: the user's turn IS in the ledger")
 	assert.NotContains(t, handoff, "MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION",
@@ -163,9 +109,6 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	assert.Equal(t, "THE-USERS-OWN-QUESTION", after.Title,
 		"the title is derived from the same hook, so it must follow the same routing")
 
-	// (4) And the conversation on screen still works: the next real turn lands here,
-	// in this chat, on this runner. This is the ordered signal that makes every
-	// negative above strict rather than merely un-awaited.
 	postHook(t, h, repoBase(ws), "memstub", runner, "turn_stop",
 		`{"session_id":"`+realSessionID+`","transcript_path":"/h/rollout-019fafae.jsonl","last_assistant_message":"THE-USERS-OWN-ANSWER"}`)
 	frames.awaitTurnEnd(chat)
@@ -173,9 +116,6 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	assert.Contains(t, chatHandoff(t, h, base, chat), "THE-USERS-OWN-ANSWER",
 		"the user's conversation must carry on in the chat it was always in")
 
-	// No live chat row other than the user's was EVER published — the
-	// live-signal counterpart of the chat-list assertion, over the whole recorded
-	// stream rather than a point read.
 	for _, row := range frames.liveRows() {
 		if row.Kind == string(stream.KindChatEntity) {
 			assert.Equal(t, chat, row.ID, "no chat other than the user's may appear on the wire at all; row: %v", row)
@@ -183,15 +123,6 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	}
 }
 
-// TestRegression_InternalSessionHooksAreDroppedNotFailed pins the other half of the
-// contract, and the one that is easy to lose in a later refactor: a hook Crowbar
-// declines to act on must still answer the vendor CLI with success.
-//
-// The hook command runs INSIDE the CLI's own process tree, on its turn. A non-2xx
-// (or a hang, or a stderr splat) is something the CLI has to deal with mid-turn, and
-// a listener that breaks the thing it is listening to is worse than no listener —
-// which is why the ingress acknowledges another conversation's hook and keeps it as
-// a dead letter, rather than refusing it (spec §4.7).
 func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 	h := newHarness(t)
 	writeMemStubProviderDescriptor(t, h)
@@ -204,8 +135,6 @@ func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 		{"user_prompt", memoryPrompt},
 		{"turn_stop", memoryStop},
 	} {
-		// postHook requires a 200: the hook runs inside the vendor CLI's turn, and an
-		// error there is the listener breaking the thing it listens to.
 		postHook(t, h, repoBase(ws), "memstub", runner, ev.event, ev.payload)
 	}
 }

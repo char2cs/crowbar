@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// Status GET /v0/chats/:chatId/git/status
 func (h *Handlers) Status(
 	ctx *gin.Context,
 ) {
@@ -23,11 +22,9 @@ func (h *Handlers) Status(
 		return
 	}
 
-	// Serialise through the DTO so a clean tree yields files: [] (never null).
 	libs.WriteQueryOK(ctx, dto.GitStatusDTOFrom(status))
 }
 
-// Diff GET /v0/chats/:chatId/git/diff?staged=true|false
 func (h *Handlers) Diff(
 	ctx *gin.Context,
 ) {
@@ -50,7 +47,6 @@ func (h *Handlers) Diff(
 	libs.WriteQueryOK(ctx, diffs)
 }
 
-// Log GET /v0/chats/:chatId/git/log?limit=50&skip=0
 func (h *Handlers) Log(
 	ctx *gin.Context,
 ) {
@@ -81,7 +77,6 @@ func (h *Handlers) Log(
 	libs.WriteQueryOK(ctx, commits)
 }
 
-// Branches GET /v0/chats/:chatId/git/branches
 func (h *Handlers) Branches(
 	ctx *gin.Context,
 ) {
@@ -97,7 +92,6 @@ func (h *Handlers) Branches(
 	libs.WriteQueryOK(ctx, branches)
 }
 
-// Stashes GET /v0/chats/:chatId/git/stashes
 func (h *Handlers) Stashes(
 	ctx *gin.Context,
 ) {
@@ -113,7 +107,6 @@ func (h *Handlers) Stashes(
 	libs.WriteQueryOK(ctx, stashes)
 }
 
-// Conflicts GET /v0/chats/:chatId/git/conflicts
 func (h *Handlers) Conflicts(
 	ctx *gin.Context,
 ) {
@@ -129,7 +122,6 @@ func (h *Handlers) Conflicts(
 	libs.WriteQueryOK(ctx, files)
 }
 
-// ConflictHunks GET /v0/chats/:chatId/git/conflict-hunks?path=<filePath>
 func (h *Handlers) ConflictHunks(
 	ctx *gin.Context,
 ) {
@@ -151,7 +143,6 @@ func (h *Handlers) ConflictHunks(
 	libs.WriteQueryOK(ctx, hunks)
 }
 
-// CommitDiff GET /v0/chats/:chatId/git/commit-diff?sha=<sha>
 func (h *Handlers) CommitDiff(
 	ctx *gin.Context,
 ) {

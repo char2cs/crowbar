@@ -32,10 +32,6 @@ type mintCodeResponse struct {
 	Addresses         []string `json:"addresses"`
 }
 
-// runPair mints a pairing code and prints it with the addresses a device dials and
-// the daemon's TLS fingerprint. The code only proves possession of this socket; the
-// operator compares the fingerprint to what the client shows to confirm which
-// daemon TLS reaches.
 func runPair(socket string, out io.Writer) error {
 	got, err := postJSON[mintCodeResponse](socket, "/v0/pair/code")
 	if err != nil {

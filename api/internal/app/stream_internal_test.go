@@ -15,7 +15,6 @@ import (
 	domainstream "github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// pipeConn is a stream client: requests go in, frames come out.
 type pipeConn struct {
 	in  chan domainstream.Request
 	out chan domainstream.Frame
@@ -48,8 +47,6 @@ func (p pipeConn) WriteJSON(v any) error {
 
 func (pipeConn) CloseWith(int, string) error { return nil }
 
-// An agent's review comment must reach a review pane already open on its
-// workspace, carrying the project and repo its wire form names.
 func TestLateStream_AnAgentsReviewThreadReachesItsWorkspaceScope(t *testing.T) {
 	encode := func(_ domainstream.EntityKind, v any) (json.RawMessage, error) {
 		th, ok := v.(stream.ReviewThread)

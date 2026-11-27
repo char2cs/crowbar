@@ -1,0 +1,92 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { renameRepo, importBranches, renameWorkspaceBranch } from '@/lib/api'
+import { apiFetch } from '@/lib/api/fetch'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+
+let fetchMock: ReturnType<typeof vi.fn>
+
+beforeEach(() => {
+  fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
+  vi.stubGlobal('fetch', fetchMock)
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
+})
+
+function lastCall(): [string, RequestInit] {
+  return fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit]
+}
+
+describe('hierarchical mutations', () => {
+  test('PATCH /v0/projects/:p/repos/:r body {name} → 204, resolves undefined', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const res = await renameRepo('p1', 'r1', 'New Name')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'New Name' })
+    expect(res).toBeUndefined()
+  })
+
+  test('POST .../chats/import-batch sends each branch with its chat id and lock, and the operation key', async () => {
+    const branches = [
+      { name: 'feature/x', chatId: 'c1', lock: true },
+      { name: 'feature/y', chatId: 'c2', lock: false },
+    ]
+    await importBranches('p1', 'r1', branches, 'op1')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/import-batch')
+    expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('op1')
+    expect(JSON.parse(init.body as string)).toEqual({ branches })
+  })
+
+  test('sends every branch in ONE request, never one request per branch', async () => {
+    const branches = ['a', 'b', 'c'].map((name) => ({ name, chatId: `chat-${name}`, lock: false }))
+    await importBranches('p1', 'r1', branches, 'op1')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [, init] = lastCall()
+    expect(JSON.parse(init.body as string).branches).toEqual(branches)
+  })
+
+  test('PATCH .../chats/:chatId/branch body {branch}', async () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1', owningChatId: 'c1' })
+    await renameWorkspaceBranch('p1', 'r1', 'w1', 'feature/renamed')
+    const [url, init] = lastCall()
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/c1/branch')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/renamed' })
+  })
+
+  test('refuses to rename a workspace whose owning chat was never recorded', async () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w-orphan' })
+    expect(() => renameWorkspaceBranch('p1', 'r1', 'w-orphan', 'x')).toThrow(/no owning chat/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('apiFetch empty/204/202 success handling', () => {
+  test('treats a 204 No Content success as undefined, not an error', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await expect(apiFetch('/v0/things/delete', { method: 'POST' })).resolves.toBeUndefined()
+  })
+
+  test('treats a 202 Accepted with no body as undefined', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 202 }))
+    await expect(apiFetch('/v0/things/accept', { method: 'POST' })).resolves.toBeUndefined()
+  })
+
+  test('still throws on a real error envelope', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false, error: 'kaboom', data: null }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await expect(apiFetch('/v0/things/boom')).rejects.toThrow('kaboom')
+  })
+})

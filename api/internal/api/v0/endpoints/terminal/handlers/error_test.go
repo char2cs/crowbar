@@ -19,7 +19,6 @@ import (
 
 type errProfiles struct{}
 
-// errDBDown is a store failure under the context a store wraps it in.
 var errDBDown = fmt.Errorf("terminal profiles: query: %w", errors.New("db down"))
 
 func (errProfiles) FindAll(_ context.Context) ([]domain.TerminalProfile, error) {

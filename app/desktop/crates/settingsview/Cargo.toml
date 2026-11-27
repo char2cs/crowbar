@@ -1,0 +1,23 @@
+[package]
+name = "settingsview"
+description = "The native settings dialog of the Crowbar shell: the GPUI modal drawn over the settings model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+chord.workspace = true
+gpui.workspace = true
+settings.workspace = true
+ui.workspace = true
+
+[dev-dependencies]
+ui = { workspace = true, features = ["test-support"] }
+gpui = { workspace = true, features = ["test-support"] }
+settings = { workspace = true, features = ["fake"] }
+
+[lints]
+workspace = true

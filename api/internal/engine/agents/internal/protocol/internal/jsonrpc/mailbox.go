@@ -2,18 +2,13 @@ package jsonrpc
 
 import "sync"
 
-// defaultMaxQueued bounds undelivered notifications. A healthy consumer keeps
-// the queue near empty; this many means it is wedged, and the connection is
-// closed rather than grown without bound.
 const defaultMaxQueued = 8192
 
-// mailbox decouples the read loop from the notification consumer: push never
-// blocks, deliver feeds out at the consumer's pace.
 type mailbox struct {
 	mu        sync.Mutex
 	queue     []Frame
-	finished  bool // the read loop ended: deliver what is queued, then close out
-	abandoned bool // Close or overflow: drop what is queued and close out
+	finished  bool
+	abandoned bool
 	overflow  bool
 	max       int
 
@@ -32,7 +27,6 @@ func newMailbox() *mailbox {
 	}
 }
 
-// push queues f, or reports false (and abandons the mailbox) when it is full.
 func (m *mailbox) push(f Frame) bool {
 	m.mu.Lock()
 	if len(m.queue) >= m.max {
@@ -75,7 +69,6 @@ func (m *mailbox) signal() {
 	}
 }
 
-// deliver runs for the connection's life and closes out when it is done.
 func (m *mailbox) deliver() {
 	defer close(m.out)
 	for {
@@ -98,8 +91,6 @@ func (m *mailbox) deliver() {
 	}
 }
 
-// next pops the head: ok=false when the queue is empty, done=true when there is
-// nothing left to ever deliver.
 func (m *mailbox) next() (f Frame, ok, done bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -113,7 +104,7 @@ func (m *mailbox) next() (f Frame, ok, done bool) {
 	m.queue[0] = Frame{}
 	m.queue = m.queue[1:]
 	if len(m.queue) == 0 {
-		m.queue = nil // release the backing array once drained
+		m.queue = nil
 	}
 	return f, true, false
 }

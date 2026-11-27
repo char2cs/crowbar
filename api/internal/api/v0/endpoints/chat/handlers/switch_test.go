@@ -18,9 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// TestSwitch_Success proves Switch decodes {provider}, calls SwitchProvider
-// with the path id and decoded provider, and responds 200 with the mutation
-// envelope carrying the new segment's id.
 func TestSwitch_Success(
 	t *testing.T,
 ) {
@@ -49,7 +46,6 @@ func TestSwitch_Success(
 	assert.Equal(t, "vendor-b", uc.switchCalls[0].provider)
 }
 
-// The surface the client shows rides the switch, so the incoming CLI starts there.
 func TestSwitch_PassesTheClientsSurface(t *testing.T) {
 	uc := &fakeAgentUsecase{switchNewSegID: "seg-2"}
 	h := newChatHandlers(uc)
@@ -79,8 +75,6 @@ func TestSwitch_RefusesAnUnknownSurface(t *testing.T) {
 	assert.Empty(t, uc.switchCalls)
 }
 
-// A switch refused because the chat is working carries the busy code, so a
-// client tells it apart from every other conflict.
 func TestSwitch_ABusyChatIsRefusedWithTheBusyCode(t *testing.T) {
 	uc := &fakeAgentUsecase{switchErr: agentusecase.ErrPromptBusy}
 	h := newChatHandlers(uc)
@@ -98,8 +92,6 @@ func TestSwitch_ABusyChatIsRefusedWithTheBusyCode(t *testing.T) {
 	assert.Equal(t, string(problem.ChatBusy), envelope.Code)
 }
 
-// TestHandoff_Success proves Handoff calls AssembleHandoff for the path id and
-// responds 200 with the handoff string under the query envelope.
 func TestHandoff_Success(
 	t *testing.T,
 ) {
@@ -123,8 +115,6 @@ func TestHandoff_Success(
 	assert.Equal(t, "=== HANDED-OFF CONTEXT ===", envelope.Data.Handoff)
 }
 
-// TestResume_Success proves Resume calls ResumeChat for the path id and responds
-// 200 with the (re)active segment id under the mutation envelope.
 func TestResume_Success(
 	t *testing.T,
 ) {
@@ -151,8 +141,6 @@ func TestResume_Success(
 	assert.Equal(t, "chat-1", uc.resumeCalls[0])
 }
 
-// TestStop_Success proves Stop calls StopChat for the path id and responds 204
-// (accepted, no body) — the chat is dormant-ized, not deleted.
 func TestStop_Success(
 	t *testing.T,
 ) {
@@ -169,8 +157,6 @@ func TestStop_Success(
 	assert.Equal(t, "chat-1", uc.stopCalls[0])
 }
 
-// TestKill_Success proves Kill calls KillChat (not StopChat) for the path id
-// and responds 204.
 func TestKill_Success(
 	t *testing.T,
 ) {
@@ -187,8 +173,6 @@ func TestKill_Success(
 	assert.Empty(t, uc.stopCalls)
 }
 
-// A by-id route 404s a chat anchored to another workspace than :wsId exactly
-// like an unknown id, before its usecase (or the tree behind it) is reached.
 func TestByIDRoutes_AChatOfAnotherWorkspaceIs404BeforeTheUsecase(t *testing.T) {
 	type calls = func(*fakeAgentUsecase, *fakeChatTree) int
 	switched := func(uc *fakeAgentUsecase, _ *fakeChatTree) int { return len(uc.switchCalls) }
@@ -228,10 +212,6 @@ func TestByIDRoutes_AChatOfAnotherWorkspaceIs404BeforeTheUsecase(t *testing.T) {
 	}
 }
 
-// A body that does not decode is 400 before the usecase is reached; a usecase
-// failure surfaces through the shared mapper with its own status, never a
-// blanket 500 or a bare success. An empty MCP message is not a notification,
-// and a selection outside the provider's catalogue is the client's error.
 func TestRoutes_RefuseBadBodiesAndMapUsecaseFailures(t *testing.T) {
 	const rpc = `{"token":"TOK","rpc":{"jsonrpc":"2.0","id":1,"method":"ping"}}`
 	type h = handlers.Handlers

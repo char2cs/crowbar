@@ -8,14 +8,9 @@ import (
 )
 
 type (
-	// Runner is one live vendor-CLI process and ChatConversation is a conversation it
-	// hosted. Both describe the PROCESS, not Crowbar's model of the chat.
 	Runner           = models.Runner
 	ChatConversation = models.ChatConversation
 
-	// Channel is the wire a delivery arrived on (api connection or hook relay POST).
-	// The caller decides it at receive time so ParseHook picks the channel-scoped
-	// field map instead of guessing from the payload's shape.
 	Channel = spec.Channel
 
 	TemplateCtx    = models.TemplateCtx
@@ -60,16 +55,10 @@ type (
 
 	Acquire = exec.Acquire
 
-	// APIEvent and APIConn are protocol's own wrappers around the api-transport
-	// connection (see protocol.go's own comment on why they exist as a second
-	// layer of indirection rather than re-exporting apidriver's types directly).
-	APIEvent = protocol.APIEvent
-	APIConn  = protocol.APIConn
-	// APISessionOrigin is how the runner layer learns every session a
-	// connection opens or enters — see protocol's own alias.
+	APIEvent         = protocol.APIEvent
+	APIConn          = protocol.APIConn
 	APISessionOrigin = protocol.APISessionOrigin
-	// APIStdio is serve's stdin and stdout, as StartServe opens them.
-	APIStdio = protocol.APIStdio
+	APIStdio         = protocol.APIStdio
 )
 
 const (
@@ -77,7 +66,6 @@ const (
 	ChannelHooks = spec.ChannelHooks
 )
 
-// Surface is which VIEW an event is worth ingesting on.
 const (
 	SurfaceChat     = spec.SurfaceChat
 	SurfaceTerminal = spec.SurfaceTerminal

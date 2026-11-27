@@ -1,0 +1,237 @@
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { useSyncExternalStore, type ReactNode } from 'react'
+import { act, renderHook } from '@testing-library/react'
+import { useHostResolved } from '@/lib/host-resolve'
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import { entityStore } from '@/core/entities/entity-store'
+import { resetEntities, seedProjects } from '@/__tests__/__fixtures__/sidebar-entities'
+import type { Project } from '@/lib/types'
+import {
+  recordWorkspaceScopeFromPath,
+  getWorkspaceScope,
+  getOwningChatId,
+  getWorkspaceIdOwnedByChat,
+  recordWorkspaceScope,
+  forgetWorkspaceScope,
+  subscribeToWorkspaceScope,
+} from '@/lib/workspace-scope'
+import { workspaceBase } from '@/lib/workspace-scope-url'
+import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
+
+beforeEach(() => {
+  useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
+})
+
+describe('recordWorkspaceScopeFromPath', () => {
+  it('records the hierarchical scope for an /ide/:p/:r/:w path so workspaceBase resolves synchronously', () => {
+    const scope = recordWorkspaceScopeFromPath('/ide/proj-1/repo-2/ws-3')
+    expect(scope).toEqual({ projectId: 'proj-1', repoId: 'repo-2', wsId: 'ws-3' })
+    expect(getWorkspaceScope('ws-3')).toEqual({
+      projectId: 'proj-1',
+      repoId: 'repo-2',
+      wsId: 'ws-3',
+    })
+    expect(workspaceBase('ws-3')).toBe('/v0/projects/proj-1/repos/repo-2/workspaces/ws-3')
+  })
+
+  it('captures exactly the three /ide segments, ignoring deeper path parts', () => {
+    const scope = recordWorkspaceScopeFromPath('/ide/p/r/w/some/deeper/route')
+    expect(scope).toEqual({ projectId: 'p', repoId: 'r', wsId: 'w' })
+    expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
+  })
+
+  it('answers nothing for an empty id, whichever workspace is in view', () => {
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-active')
+    setActiveWorkspaceId('ws-active')
+    try {
+      expect(getWorkspaceScope('ws-active')?.wsId).toBe('ws-active')
+      expect(getWorkspaceScope('')).toBeNull()
+    } finally {
+      setActiveWorkspaceId(null)
+    }
+  })
+
+  it('returns null and records nothing for a non-ide path', () => {
+    expect(recordWorkspaceScopeFromPath('/')).toBeNull()
+    expect(recordWorkspaceScopeFromPath('/chat/abc')).toBeNull()
+    expect(recordWorkspaceScopeFromPath('/workspaces/w9')).toBeNull()
+    expect(getWorkspaceScope('w9')).toBeNull()
+  })
+})
+
+describe('subscribeToWorkspaceScope', () => {
+  it('notifies a listener when recordWorkspaceScope later adds an owning chat id', () => {
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    expect(getOwningChatId('ws1')).toBeNull()
+
+    const onChange = vi.fn()
+    const unsubscribe = subscribeToWorkspaceScope('ws1', onChange)
+
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(getOwningChatId('ws1')).toBe('chat-1')
+    unsubscribe()
+  })
+
+  it('stops notifying once unsubscribed', () => {
+    recordWorkspaceScopeFromPath('/ide/p/r/ws2')
+    const onChange = vi.fn()
+    const unsubscribe = subscribeToWorkspaceScope('ws2', onChange)
+    unsubscribe()
+
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws2', owningChatId: 'chat-2' })
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('only notifies listeners registered for the written wsId, not other workspaces', () => {
+    recordWorkspaceScopeFromPath('/ide/p/r/ws3')
+    recordWorkspaceScopeFromPath('/ide/p/r/ws4')
+    const onChange3 = vi.fn()
+    const onChange4 = vi.fn()
+    subscribeToWorkspaceScope('ws3', onChange3)
+    subscribeToWorkspaceScope('ws4', onChange4)
+
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws3', owningChatId: 'chat-3' })
+
+    expect(onChange3).toHaveBeenCalledTimes(1)
+    expect(onChange4).not.toHaveBeenCalled()
+  })
+})
+
+describe('a write that records nothing new', () => {
+  it('notifies no listener', () => {
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    const onChange = vi.fn()
+    subscribeToWorkspaceScope('ws1', onChange)
+
+    recordWorkspaceScopeFromPath('/ide/p/r/ws1')
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    expect(onChange).not.toHaveBeenCalled()
+
+    recordWorkspaceScopeFromPath('/ide/p/r2/ws1')
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('re-recording the routed scope while the host answer moves', () => {
+  const project = (id: string, hostId: string): Project => ({
+    id,
+    name: id,
+    path: `/work/${id}`,
+    lastActivity: new Date(0),
+    hostId,
+  })
+  const host = (id: string) => ({
+    id,
+    name: id,
+    endpoint: `${id}.example:3737`,
+    pairedFingerprint: 'SHA256:aaaa',
+    clientId: `client-${id}`,
+  })
+
+  function RoutedShell({ children }: { children: ReactNode }) {
+    useSyncExternalStore(entityStore.subscribe, entityStore.getState)
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-1')
+    return children
+  }
+
+  const renderPhaseUpdates = (calls: unknown[][]) =>
+    calls.filter((call) =>
+      call.some((arg) => typeof arg === 'string' && arg.includes('while rendering a different')),
+    )
+
+  beforeEach(() => {
+    useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
+    resetEntities()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([
+    {
+      name: 'its host is removed',
+      before: () => {
+        useHostConfigStore.setState({ hosts: [host('h1')], remoteEverPaired: true })
+        seedProjects([project('p1', 'h1')])
+      },
+      change: () => {
+        useHostConfigStore.setState({ hosts: [] })
+        seedProjects([])
+      },
+    },
+    {
+      name: 'the project list lands on an install that paired a remote',
+      before: () => useHostConfigStore.setState({ hosts: [host('h1')], remoteEverPaired: true }),
+      change: () => seedProjects([project('p1', 'local')]),
+    },
+  ])('updates no other component mid-render when $name', ({ before, change }) => {
+    before()
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { result } = renderHook(() => useHostResolved({ wsId: 'ws-1' }), {
+      wrapper: RoutedShell,
+    })
+    const resolvedBefore = result.current
+
+    act(change)
+
+    expect(result.current).not.toBe(resolvedBefore)
+    expect(renderPhaseUpdates(errors.mock.calls)).toEqual([])
+  })
+})
+
+describe('a throwing scope listener', () => {
+  it('does not starve the listeners after it, and its error still surfaces from the write', () => {
+    const scope = { projectId: 'p', repoId: 'r', wsId: 'ws-iso' }
+    const after = vi.fn()
+    const lastAfter = vi.fn()
+    subscribeToWorkspaceScope('ws-iso', () => {
+      throw new Error('first listener broke')
+    })
+    subscribeToWorkspaceScope('ws-iso', after)
+    subscribeToWorkspaceScope('ws-iso', () => {
+      throw new Error('second listener broke')
+    })
+    subscribeToWorkspaceScope('ws-iso', lastAfter)
+
+    expect(() => recordWorkspaceScope(scope)).toThrow('first listener broke')
+    expect(after).toHaveBeenCalledTimes(1)
+    expect(lastAfter).toHaveBeenCalledTimes(1)
+    expect(getWorkspaceScope('ws-iso')).toEqual(scope)
+  })
+
+  it('leaves a write with no failing listener unchanged', () => {
+    const onChange = vi.fn()
+    subscribeToWorkspaceScope('ws-ok', onChange)
+    expect(() => recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-ok' })).not.toThrow()
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('getWorkspaceIdOwnedByChat', () => {
+  it('never matches a scope that records no owner for a missing chat id', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-unowned' })
+    expect(getWorkspaceIdOwnedByChat(undefined as unknown as string)).toBeNull()
+    expect(getWorkspaceIdOwnedByChat('')).toBeNull()
+  })
+
+  it('finds the workspace whose recorded owning chat it is, and no other', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws2', owningChatId: 'chat-2' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws3' })
+
+    expect(getWorkspaceIdOwnedByChat('chat-2')).toBe('ws2')
+    expect(getWorkspaceIdOwnedByChat('chat-sibling')).toBeNull()
+    expect(getWorkspaceIdOwnedByChat('')).toBeNull()
+  })
+
+  it('stops finding a chat once its workspace scope is forgotten or its owner changes', () => {
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
+    recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-2' })
+    expect(getWorkspaceIdOwnedByChat('chat-1')).toBeNull()
+    forgetWorkspaceScope('ws1')
+    expect(getWorkspaceIdOwnedByChat('chat-2')).toBeNull()
+  })
+})

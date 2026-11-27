@@ -17,15 +17,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// fakeRepoDeleter stands in for project.DeleteUsecase's repo delete. refuse is
-// what BeginRepoDelete answers a delete without consent with.
 type fakeRepoDeleter struct {
 	mu       sync.Mutex
 	deleted  []domain.Repository
 	err      error
 	refuse   error
 	consents []domain.DeleteConsent
-	hold     chan struct{} // when set, DeleteRepo waits for it
+	hold     chan struct{}
 }
 
 func (f *fakeRepoDeleter) BeginRepoDelete(
@@ -98,8 +96,6 @@ func doDeleteKeyed(r *gin.Engine, discard bool, key string) *httptest.ResponseRe
 	return rec
 }
 
-// A delete marks its intent and answers with its operation. The whole repo (default branch included) reaches
-// the lifecycle: that branch is the one the cascade keeps (spec §3 P0-1).
 func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	repo := domain.Repository{ID: "r1", ProjectID: "p1", Name: "alpha", Path: "/repo", DefaultBranch: "main"}
 	deleter := &fakeRepoDeleter{}
@@ -118,8 +114,6 @@ func TestDelete_AnswersWithTheOperation(t *testing.T) {
 	assert.Equal(t, []domain.Repository{marked}, deleted)
 }
 
-// A retry of a delete that finished answers with its operation, not the 404 a
-// fresh lookup of the removed repo gives.
 func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Name: "alpha"}}
 	ops := newRecordedOps(t)
@@ -134,8 +128,6 @@ func TestDelete_ARetryAfterItFinishedAnswersWithTheOperation(t *testing.T) {
 	assert.Contains(t, retry.Body.String(), first.ID)
 }
 
-// A key is one request: reusing a delete's key for another repo is a conflict,
-// not an answer with the first repo's operation while this one stays.
 func TestDelete_AKeyReusedForAnotherRepoIsAConflict(t *testing.T) {
 	store := &fakeStore{all: []domain.Repository{
 		{ID: "r1", ProjectID: "p1", Name: "alpha"}, {ID: "r2", ProjectID: "p1", Name: "beta"},
@@ -155,8 +147,6 @@ func TestDelete_AKeyReusedForAnotherRepoIsAConflict(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "operation_id_conflict")
 }
 
-// One teardown runs per repo: a second delete under another key, while the
-// first runs, is refused.
 func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Name: "alpha"}}
 	deleter := &fakeRepoDeleter{hold: make(chan struct{})}
@@ -172,7 +162,6 @@ func TestDelete_ASecondDeleteWhileOneRunsIsRefused(t *testing.T) {
 	assert.Contains(t, second.Body.String(), "operation_running")
 }
 
-// A delete that stops fails its operation with the reason.
 func TestDelete_AFailureIsTheOperations(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
 	ops := newRecordedOps(t)
@@ -183,8 +172,6 @@ func TestDelete_AFailureIsTheOperations(t *testing.T) {
 	assert.Contains(t, op.Items[0].Error.Message, errStore.Error())
 }
 
-// A delete refused over work at risk answers 409 with the list; the discard
-// header retries it with consent.
 func TestDelete_WorkAtRiskIsRefusedUntilTheDiscardHeaderConfirmsIt(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
 	deleter := &fakeRepoDeleter{refuse: domain.WorkAtRisked([]domain.WorkAtRisk{
@@ -213,7 +200,6 @@ func TestDelete_NotFound_4xx(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// Unwired, the delete refuses outright rather than accepting work it cannot do.
 func TestDelete_Unwired_Refuses(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
 	rec := doDelete(newDeleteRouter(store, nil, newRecordedOps(t)), false)

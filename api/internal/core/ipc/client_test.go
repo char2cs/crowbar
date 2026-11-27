@@ -15,7 +15,6 @@ import (
 )
 
 func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
-	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cs.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
 	defer func() { _ = os.RemoveAll(tmpDir) }()
@@ -41,7 +40,6 @@ func TestClient_PostJSON_OverUnixSocket(t *testing.T) {
 	_ = os.Remove(sock)
 }
 
-// A daemon serving on TCP (a container's `serve --host tcp://...`) is dialled there.
 func TestClient_PostJSON_OverTCP(t *testing.T) {
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -61,7 +59,6 @@ func TestClient_PostJSON_OverTCP(t *testing.T) {
 }
 
 func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
-	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cp.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
 	defer func() { _ = os.RemoveAll(tmpDir) }()
@@ -89,7 +86,6 @@ func TestClient_PatchJSON_OverUnixSocket(t *testing.T) {
 }
 
 func TestClient_Get_OverUnixSocket(t *testing.T) {
-	// Use a short temp directory to stay under macOS's 104-byte sun_path limit
 	tmpDir := filepath.Join("/tmp", "cg.sock")
 	sock := filepath.Join(tmpDir, "t.sock")
 	defer func() { _ = os.RemoveAll(tmpDir) }()

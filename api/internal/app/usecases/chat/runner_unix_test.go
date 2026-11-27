@@ -20,19 +20,12 @@ func TestSlashCatalogRejectsResultWhenTheProviderChangesDuringProbe(t *testing.T
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
 
-	// Two FIFOs, not two files. Opening one end of a FIFO blocks until the other end
-	// is opened, which makes each handoff with the helper PROCESS a real signal —
-	// there is no interval to pick and nothing to re-sample, so the test cannot be
-	// wrong about how fast this machine is.
 	started := filepath.Join(t.TempDir(), "started")
 	release := filepath.Join(t.TempDir(), "release")
 	require.NoError(t, syscall.Mkfifo(started, 0o600))
 	require.NoError(t, syscall.Mkfifo(release, 0o600))
 	t.Setenv("CROWBAR_CATALOG_HELPER_STARTED", started)
 	t.Setenv("CROWBAR_CATALOG_HELPER_RELEASE", release)
-	// If the test fails before it releases, the helper is parked on the read end.
-	// O_NONBLOCK returns ENXIO instead of blocking when it has already exited, so
-	// cleanup can never be the thing that hangs.
 	t.Cleanup(func() {
 		if w, err := os.OpenFile(release, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
 			_ = w.Close()

@@ -1,0 +1,127 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::keys::ChordCapture;
+use crate::schema::PageId;
+use crate::schema::Schema;
+use crate::schema::Scope;
+use crate::state::document::Document;
+use crate::state::navigation::Navigation;
+use crate::state::visibility::Visibility;
+use crate::values::Choice;
+use crate::values::Snapshot;
+use chord::Primary;
+
+mod document;
+mod effect;
+mod navigation;
+mod prompt;
+mod shortcuts;
+#[cfg(test)]
+mod test_support;
+mod visibility;
+
+pub use effect::Effect;
+pub use navigation::RailMove;
+pub use prompt::Prompt;
+
+#[derive(Debug, Clone)]
+pub struct State {
+    schema: Schema,
+    document: Document,
+    capabilities: BTreeSet<String>,
+    choices: BTreeMap<String, Vec<Choice>>,
+    navigation: Navigation,
+    query: String,
+    visibility: Visibility,
+    capture: ChordCapture,
+    prompt: Option<Prompt>,
+    primary: Primary,
+}
+
+impl State {
+    pub fn new(
+        schema: Schema,
+        snapshot: Snapshot,
+        page: Option<&PageId>,
+        primary: Primary,
+    ) -> Self {
+        let document = Document::new(snapshot.values, schema.defaults().clone());
+        let mut state = Self {
+            document,
+            capabilities: snapshot.capabilities,
+            choices: snapshot.choices,
+            navigation: Navigation::new(page.cloned().unwrap_or_else(|| PageId::new(""))),
+            query: String::new(),
+            visibility: Visibility::default(),
+            capture: ChordCapture::default(),
+            prompt: None,
+            primary,
+            schema,
+        };
+        state.refresh();
+        state
+    }
+
+    fn scope(&self) -> Scope<'_> {
+        Scope {
+            values: self.document.values(),
+            defaults: self.document.defaults(),
+            capabilities: &self.capabilities,
+        }
+    }
+
+    fn refresh(&mut self) {
+        self.visibility = Visibility::compute(&self.schema, &self.scope(), &self.query);
+        let visible: Vec<&PageId> = self.visibility.pages().iter().collect();
+        self.navigation.reconcile(&visible);
+        if self.query.trim().is_empty() {
+            return;
+        }
+        if let Some(&first) = visible.first() {
+            self.navigation.select(first, &visible);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::Page;
+    use crate::schema::PageId;
+    use crate::state::test_support::{schema, size_row, state};
+    use crate::values::Snapshot;
+    use chord::Primary;
+
+    #[test]
+    fn opens_on_the_requested_page_or_the_first() {
+        assert_eq!(state().page().map(Page::label), Some("Appearance"));
+        let deep = State::new(
+            schema(),
+            Snapshot::default(),
+            Some(&PageId::from("browser")),
+            Primary::Control,
+        );
+        assert_eq!(deep.page().map(Page::label), Some("Browser"));
+        let unknown = State::new(
+            schema(),
+            Snapshot::default(),
+            Some(&PageId::from("nope")),
+            Primary::Control,
+        );
+        assert_eq!(
+            unknown.page().map(Page::label),
+            Some("Appearance"),
+            "an unknown deep link falls back to the first page"
+        );
+    }
+
+    #[test]
+    fn revert_drops_the_draft() {
+        let mut state = state();
+        let row = size_row();
+        state.edit(&row, "12");
+        state.revert(&row);
+        assert!(!state.is_dirty(&row));
+        assert_eq!(state.field_text(&row), "15");
+    }
+}

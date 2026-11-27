@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// NewHomeCorrectedChats wraps a ChatUsecase so every row it returns carries its LIVE
-// Node position: a non-bubble chat's own ParentID/Order are written once at creation
-// and then ignored, since Node is the position authority.
 func NewHomeCorrectedChats(
 	chats ChatUsecase,
 	nodes TreeNodes,
@@ -18,8 +15,6 @@ func NewHomeCorrectedChats(
 	return &homeCorrectedChats{ChatUsecase: chats, nodes: nodes}
 }
 
-// homeCorrectedChats passes every method through except the four reads that
-// return domain.Chat rows.
 type homeCorrectedChats struct {
 	ChatUsecase
 	nodes TreeNodes
@@ -75,9 +70,6 @@ func (u *homeCorrectedChats) correctAll(
 	return correctHomeChats(ctx, u.nodes, rows)
 }
 
-// NewHomeCorrectedTreeChats corrects the two reads the lineage resolver makes
-// (LoadChat, ListByWorkspace) to live Node positions, and adds the folders the walk
-// must step through, so a moved thread's next spawn gets the right prior context.
 func NewHomeCorrectedTreeChats(
 	chats TreeChats,
 	nodes TreeNodes,
@@ -117,14 +109,11 @@ func (u *homeCorrectedTreeChats) ListByWorkspace(
 	}
 	folderRows, ferr := foldersReachableFrom(ctx, u.folders, u.nodes, out)
 	if ferr != nil {
-		// Degrade to the chat-only list rather than fail the lineage read: a chat
-		// directly under its ancestor (the common case) is unaffected.
 		return out, nil
 	}
 	return append(out, folderRows...), nil
 }
 
-// foldersReachableFrom is every folder between workspaceRows and the panel root.
 func foldersReachableFrom(
 	ctx context.Context, folders TreeFolders, nodes TreeNodes, workspaceRows []domain.Chat,
 ) ([]domain.Chat, error) {
@@ -135,7 +124,6 @@ func foldersReachableFrom(
 	return apptree.FoldersBelow(ctx, folders, byParent, workspaceRows)
 }
 
-// correctOne overlays row's live Node position.
 func (u *homeCorrectedChats) correctOne(
 	ctx context.Context,
 	row domain.Chat,
@@ -143,8 +131,6 @@ func (u *homeCorrectedChats) correctOne(
 	return correctHomeChat(ctx, u.nodes, row)
 }
 
-// correctHomeChat overlays row's live Node position, for every non-bubble chat. A
-// bubble, or a row with no Node yet (first placement still mid-flight), is unchanged.
 func correctHomeChat(
 	ctx context.Context,
 	nodes TreeNodes,
@@ -162,8 +148,6 @@ func correctHomeChat(
 	return row
 }
 
-// correctHomeChats is correctHomeChat for a list, from one read of the Node table; a
-// lone row keeps the cheaper by-id lookup, and a failed read leaves every row as it was.
 func correctHomeChats(
 	ctx context.Context,
 	nodes TreeNodes,
@@ -194,8 +178,6 @@ func correctHomeChats(
 	return out
 }
 
-// childrenByParent is every node under each parent, from one read of them all:
-// a walk asks for many levels, and each read decodes every project's Tree.
 func childrenByParent(ctx context.Context, nodes TreeNodes) (map[string][]tree.Node, error) {
 	all, err := nodes.ListAll(ctx)
 	if err != nil {

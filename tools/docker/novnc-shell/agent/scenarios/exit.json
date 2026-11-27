@@ -1,0 +1,14 @@
+{
+ "description": "The CLI exits with code 1 mid-turn (runner exited).",
+ "steps": [
+  {
+   "do": "text",
+   "text": "About to crash…",
+   "complete": false
+  },
+  {
+   "do": "exit",
+   "code": 1
+  }
+ ]
+}

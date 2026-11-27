@@ -1,0 +1,23 @@
+[package]
+name = "settings"
+description = "The settings model of the Crowbar shell without a window: schema, built-in pages, values and their ports, record lists, shortcut capture and the dialog's state machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# FakeBackend, the in-memory backend of the unit tests here and in settingsview.
+fake = []
+
+[dependencies]
+chord.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+settings = { workspace = true, features = ["fake"] }
+
+[lints]
+workspace = true

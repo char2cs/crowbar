@@ -1,9 +1,5 @@
 package terminal
 
-// writePump snapshot-barrier coverage: a Snapshot frame is a self-contained
-// redraw the client applies onto a RESET buffer, so it must never be merged
-// into (or split across) incremental output messages.
-
 import (
 	"sync"
 	"testing"
@@ -33,10 +29,6 @@ func decodeMsgs(t *testing.T, conn *recordConn) []wireMsg {
 	return out
 }
 
-// TestWritePump_SnapshotIsCoalescingBarrier queues raw output, a snapshot, and
-// more raw output before the pump runs: the snapshot must come through as its
-// own flagged message, with the surrounding raw bytes in separate unflagged
-// messages, in order.
 func TestWritePump_SnapshotIsCoalescingBarrier(t *testing.T) {
 	e := newEngine(defaultConfig())
 	StopMaintenanceForTest(e)
@@ -51,9 +43,6 @@ func TestWritePump_SnapshotIsCoalescingBarrier(t *testing.T) {
 	close(ch)
 
 	go e.writePump(conn, ch, notExited, done)
-	// Block on the real signal. A hand-rolled deadline here would only be a second,
-	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
-	// -timeout` reports it with the blocked stack.
 	<-done
 
 	msgs := decodeMsgs(t, conn)
@@ -66,8 +55,6 @@ func TestWritePump_SnapshotIsCoalescingBarrier(t *testing.T) {
 		"post-snapshot output must not merge into the snapshot message")
 }
 
-// TestWritePump_SnapshotAsFirstFrame covers the leading-snapshot branch (the
-// attach redraw): one flagged message, nothing merged.
 func TestWritePump_SnapshotAsFirstFrame(t *testing.T) {
 	e := newEngine(defaultConfig())
 	StopMaintenanceForTest(e)
@@ -79,9 +66,6 @@ func TestWritePump_SnapshotAsFirstFrame(t *testing.T) {
 	close(ch)
 
 	go e.writePump(conn, ch, notExited, done)
-	// Block on the real signal. A hand-rolled deadline here would only be a second,
-	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
-	// -timeout` reports it with the blocked stack.
 	<-done
 
 	msgs := decodeMsgs(t, conn)
@@ -89,9 +73,6 @@ func TestWritePump_SnapshotAsFirstFrame(t *testing.T) {
 	assert.Equal(t, wireMsg{Data: "REDRAW", Snapshot: true}, msgs[0])
 }
 
-// TestWritePump_SplitRuneIsForwardedVerbatim: output is binary, so a multi-byte rune split
-// across two frames is forwarded byte-for-byte — the client's terminal decodes UTF-8 as a
-// stream. Nothing is held back, re-encoded, or replaced with U+FFFD.
 func TestWritePump_SplitRuneIsForwardedVerbatim(t *testing.T) {
 	e := newEngine(defaultConfig())
 	StopMaintenanceForTest(e)
@@ -114,8 +95,6 @@ func TestWritePump_SplitRuneIsForwardedVerbatim(t *testing.T) {
 	assert.Equal(t, "hi🚀", msgs[0].Data+msgs[1].Data)
 }
 
-// TestWritePump_SendsExitFrameLast: once the session's channel closes because its process
-// exited, the exit frame is the last thing written, after all output.
 func TestWritePump_SendsExitFrameLast(t *testing.T) {
 	e := newEngine(defaultConfig())
 	StopMaintenanceForTest(e)
@@ -137,7 +116,6 @@ func TestWritePump_SendsExitFrameLast(t *testing.T) {
 
 func notExited() (int, bool) { return 0, false }
 
-// recordConn records every message the engine writes; waitFrames blocks until n have landed.
 type recordConn struct {
 	mu    sync.Mutex
 	msgs  [][]byte

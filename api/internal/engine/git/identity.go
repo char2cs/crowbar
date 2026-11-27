@@ -12,9 +12,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// CurrentIdentity resolves the current human's identity for worktreePath: `gh api user`
-// for login, name and avatar, else `git config user.name` for the name alone. Errors are
-// swallowed, so the result is best-effort and may be empty.
 func CurrentIdentity(
 	ctx context.Context,
 	worktreePath string,
@@ -25,21 +22,16 @@ func CurrentIdentity(
 	return identityFromGitConfig(ctx, worktreePath)
 }
 
-// ghUserJSON is the subset of `gh api user` we care about.
 type ghUserJSON struct {
 	Login     string `json:"login"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
 }
 
-// identityFromGH tries `gh api user` in worktreePath. Returns (identity, true)
-// on success, ("", false) on any failure so the caller can fall through.
 func identityFromGH(
 	ctx context.Context,
 	worktreePath string,
 ) (gitdomain.Identity, bool) {
-	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
-	// PATH, which misses Homebrew's /opt/homebrew/bin where gh usually lives.
 	//nolint:gosec // G204: fixed gh subcommand; binpath.Resolve locates the trusted gh binary.
 	cmd := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "user")
 	cmd.Dir = worktreePath
@@ -64,8 +56,6 @@ func identityFromGH(
 	}, true
 }
 
-// identityFromGitConfig reads `git config user.name` from worktreePath. It
-// never returns an error: on failure the DisplayName is simply empty.
 func identityFromGitConfig(
 	ctx context.Context,
 	worktreePath string,

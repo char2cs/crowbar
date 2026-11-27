@@ -20,12 +20,8 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// ErrWorkspaceUnprovisioned is returned when a review targets a workspace with no worktree on disk, so
-// there is nothing to diff. Handlers map it to 409: the row's state, not the request, is wrong.
 var ErrWorkspaceUnprovisioned = problem.New(problem.Conflict, "usecases: this branch has no worktree yet")
 
-// asNotFound maps an engine not-found signal to problem.ErrNotFound, leaving genuine internal failures
-// untouched so they stay 500s.
 func asNotFound(
 	err error,
 ) error {
@@ -35,38 +31,25 @@ func asNotFound(
 	return err
 }
 
-// Usecase assembles and mutates the branch-review surface (09).
 type Usecase interface {
-	// Get assembles the composite branch-review read model for a workspace.
 	Get(
 		ctx context.Context,
 		wsID string,
 	) (domain.BranchReview, error)
-	// GetFiles returns the files-only review summary (no line content), so the sidebar never fetches the
-	// diff body. A non-empty commit scopes the windowed reads to that commit against its parent: the same
-	// question about a different pair of trees (see resolveScopeRef).
 	GetFiles(
 		ctx context.Context,
 		wsID string,
 		commit string,
 	) ([]gitdomain.ReviewFileSummary, error)
-	// GetScope returns the review's ref, its changed-file summary and its hunk geometry from ONE resolution
-	// (each costs up to three git subprocesses), through GetOutline's cache key so anchors agree. It takes
-	// the already-resolved workspace because its agent-tool caller has just folded it; id callers use GetFiles.
 	GetScope(
 		ctx context.Context,
 		ws domain.Workspace,
 	) (gitdomain.ReviewScope, error)
-	// GetOutline returns the branch diff's hunk geometry with no content: O(hunks), so the client can lay
-	// out a huge diff before fetching any patch.
 	GetOutline(
 		ctx context.Context,
 		wsID string,
 		commit string,
 	) ([]gitdomain.FileOutline, error)
-	// GetPatch streams one file's unified patch into w, returning the number of
-	// patch lines written and whether it was cut short at maxLines. maxLines <= 0
-	// means unlimited; an empty path is an invalid argument.
 	GetPatch(
 		ctx context.Context,
 		wsID string,
@@ -75,9 +58,6 @@ type Usecase interface {
 		maxLines int,
 		w io.Writer,
 	) (int, bool, error)
-	// GetFileSides returns one file's full old and new text for the diff GetPatch
-	// serves, so the reader can reveal the unchanged lines between hunks. An empty
-	// path is an invalid argument; a file past the size ceiling is unprocessable.
 	GetFileSides(
 		ctx context.Context,
 		wsID string,
@@ -85,8 +65,6 @@ type Usecase interface {
 		path string,
 		oldPath string,
 	) (gitdomain.ReviewFileSides, error)
-	// SearchDiff finds query in the branch diff, one hit per matching line plus whether opts.Limit cut the
-	// results; the client holds only a window of the patch, so find runs here.
 	SearchDiff(
 		ctx context.Context,
 		wsID string,
@@ -94,24 +72,20 @@ type Usecase interface {
 		query string,
 		opts gitdomain.SearchOpts,
 	) ([]gitdomain.SearchHit, bool, error)
-	// SetMergeStrategy updates the merge strategy for a workspace.
 	SetMergeStrategy(
 		ctx context.Context,
 		wsID string,
 		strategy gitdomain.MergeStrategy,
 	) error
-	// OpenThread opens a new review thread anchored to a file location.
 	OpenThread(
 		ctx context.Context,
 		in OpenThreadInput,
 	) (domain.ReviewThread, error)
-	// Reply appends a reply message to an existing review thread.
 	Reply(
 		ctx context.Context,
 		threadID string,
 		body string,
 	) (domain.ReviewThread, error)
-	// SetThreadResolved marks a review thread resolved or reopens it.
 	SetThreadResolved(
 		ctx context.Context,
 		threadID string,
@@ -129,7 +103,6 @@ type branchReviewUsecase struct {
 	outlines   outlineCache
 }
 
-// New builds the branch-review usecase wiring all collaborators.
 func New(
 	workspaces workspace.Workspace,
 	threads reviewthread.ReviewThread,
@@ -157,8 +130,6 @@ func (u *branchReviewUsecase) Get(
 	return u.assemble(ctx, ws)
 }
 
-// resolveDiffRef returns the merge-base of the base branch's CURRENT tip and HEAD, so the diff stays
-// correct across rebases. The recorded fork point is only a fallback: it inflates once the base advances.
 func (u *branchReviewUsecase) resolveDiffRef(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -178,8 +149,6 @@ func (u *branchReviewUsecase) resolveDiffRef(
 	return u.git.MergeBase(ctx, ws.WorktreePath, base, "HEAD")
 }
 
-// mergeBaseWithBase probes both origin/<base> and <base> and returns the merge-base closest to HEAD,
-// right whichever ref the branch was built on; "" when neither yields one.
 func (u *branchReviewUsecase) mergeBaseWithBase(
 	ctx context.Context,
 	worktreePath string,
@@ -194,8 +163,6 @@ func (u *branchReviewUsecase) mergeBaseWithBase(
 	return u.closestToHead(ctx, worktreePath, bases)
 }
 
-// closestToHead returns the candidate merge-base nearest HEAD (if merge-base(best, mb) == best, mb wins);
-// divergent candidates keep the first. Identical candidates skip git, the common in-sync case.
 func (u *branchReviewUsecase) closestToHead(
 	ctx context.Context,
 	worktreePath string,
@@ -291,8 +258,6 @@ func (u *branchReviewUsecase) Reply(
 	threadID string,
 	body string,
 ) (domain.ReviewThread, error) {
-	// No ProviderID or ChatID: this is the human/UI path, and a person has neither
-	// a vendor CLI behind them nor an originating agent conversation.
 	thread, err := u.threads.Reply(ctx, reviewthread.ReplyInput{
 		ID:        threadID,
 		MessageID: uuid.NewString(),

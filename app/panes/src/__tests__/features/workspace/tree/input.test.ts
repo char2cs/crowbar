@@ -1,0 +1,416 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { deriveRows } from '@/features/workspace/tree/rows'
+import { treeInputFor, useTreeInput } from '@/features/workspace/tree/input'
+import type { Repo } from '@/core/entities/repo-types'
+import { treeUiStore, type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
+import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
+import { putLocalOperation, type Operation, type OperationItem } from '@/core/entities/operations'
+import type { Chat, Folder } from '@/core/entities/repo-types'
+import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { HOME_ROW_ID, homeRows } from '@/__tests__/__fixtures__/tree-rows'
+import {
+  loadProjects,
+  pairRemoteHost,
+  projectOn,
+  resetHostWorld,
+} from '@/__tests__/__fixtures__/remote-host'
+import {
+  chatEntity,
+  putEntities,
+  resetEntities,
+  seedHome,
+  seedHomeTree,
+  seedRepos,
+} from '@/__tests__/__fixtures__/sidebar-entities'
+
+const NOT_A_DIR = {
+  code: 'internal' as const,
+  message: 'could not create work tree: Not a directory',
+}
+
+const repo = (over: Partial<Repo> = {}): Repo => ({
+  id: 'r1',
+  projectId: 'p1',
+  name: 'crowbar',
+  avatarLabel: 'C',
+  avatarColor: 'bg-indigo-700',
+  defaultWorkspaceId: 'ws-home',
+  defaultOwningChatId: 'home-row',
+  defaultBranch: 'main',
+  workspaces: [],
+  folders: [],
+  chats: [],
+  ...over,
+})
+
+const item = (id: string, label: string, over: Partial<OperationItem> = {}): OperationItem => ({
+  ref: { kind: 'chat', id },
+  label,
+  state: 'running',
+  ...over,
+})
+
+const importOp = (over: Partial<Operation> = {}): Operation => ({
+  id: 'op-1',
+  kind: 'branch.import',
+  subject: { kind: 'repo', id: 'r1' },
+  projectId: 'p1',
+  label: 'Import 2 branches',
+  state: 'running',
+  items: [item('chat-a', 'bad/x'), item('chat-b', 'good')],
+  dismissed: false,
+  version: 2,
+  createdAt: '2026-10-29T10:00:00Z',
+  updatedAt: '2026-10-29T10:00:01Z',
+  ...over,
+})
+
+beforeEach(() => {
+  resetEntities()
+  seedRepos([repo()])
+  treeUiStore.setState(treeUiStore.getInitialState(), true)
+  resetOperations()
+})
+
+const ids = (projectId: string) => deriveRows(treeInputFor(projectId)).map((r) => r.id)
+
+describe('one project at a time', () => {
+  it("draws only the given project's repos, every repo it holds", () => {
+    seedRepos([
+      repo({ workspaces: [{ id: 'ws-1', branch: 'alpha', age: '' }] }),
+      repo({ id: 'r2', defaultWorkspaceId: 'home-2', defaultOwningChatId: 'home-2-row' }),
+      repo({
+        id: 'r3',
+        projectId: 'p2',
+        defaultWorkspaceId: 'home-3',
+        defaultOwningChatId: 'home-3-row',
+      }),
+    ])
+    expect(ids('p1')).toEqual(['home-row', 'ws-1', 'home-2-row'])
+    expect(ids('p2')).toEqual(['home-3-row'])
+    expect(ids('unknown')).toEqual([])
+  })
+
+  it('a repo with no project yet belongs to no space', () => {
+    seedRepos([repo({ projectId: undefined })])
+    expect(ids('p1')).toEqual([])
+  })
+})
+
+describe('useTreeInput', () => {
+  const homeChat = { id: 'c-1', repoId: '', workspaceId: 'home-ws', title: 'Plan', order: 0 }
+  const drawn = (derive: (projectId: string) => ReturnType<typeof treeInputFor>) =>
+    deriveRows(derive('p1')).map((r) => r.id)
+
+  it('draws every repo the projects scope carries', () => {
+    const { result } = renderHook(() => useTreeInput())
+    expect(drawn(result.current)).toEqual(['home-row'])
+  })
+
+  it('re-derives the home rows when the home workspace resolves after mount', async () => {
+    seedRepos([])
+    seedHomeTree('p1', { chats: [homeChat], folders: [] })
+    const { result } = renderHook(() => drawn(useTreeInput()))
+    expect(result.current).toEqual([])
+    act(() => seedHome('p1', 'home-ws', { owningChatId: 'home-owner' }))
+    await waitFor(() => expect(result.current).toEqual(['c-1']))
+  })
+
+  it("hides a held home row's descendants and keeps the held row, marked, on screen", async () => {
+    seedRepos([])
+    const thread = { ...homeChat, id: 'c-2', parentId: 'c-1' }
+    seedHomeTree('p1', { chats: [homeChat, thread], folders: [] })
+    seedHome('p1', 'home-ws', { owningChatId: 'home-owner' })
+    await waitFor(() => expect(ids('p1')).toEqual(['c-1', 'c-2']))
+    const held = { kind: 'chat', id: 'c-1', entryId: 'e1', deadlineAt: 1, extra: 1 }
+    treeUiStore.setState({
+      removals: [{ ...held, hiddenIds: ['c-1', 'c-2'] } as unknown as RemovalEntry],
+      hiddenIds: new Set(['c-1', 'c-2']),
+    })
+    const rows = deriveRows(treeInputFor('p1'))
+    expect(rows.map((r) => [r.id, r.removal?.entryId])).toEqual([['c-1', 'e1']])
+  })
+})
+
+const rows = (ops: Operation[]) => {
+  for (const op of ops) streamOperation(op)
+  return deriveRows(treeInputFor('p1')).filter((r) => r.operation)
+}
+
+describe('operation rows', () => {
+  it('a running import draws one creating row per branch under its repo', () => {
+    expect(rows([importOp()])).toMatchObject([
+      { id: 'chat-a', kind: 'branch', label: 'bad/x', parentId: 'home-row', working: true },
+      { id: 'chat-b', kind: 'branch', label: 'good', parentId: 'home-row', working: true },
+    ])
+    expect(rows([importOp()])[0]?.operation).toEqual({
+      opId: 'op-1',
+      state: 'running',
+      problem: null,
+    })
+  })
+
+  it('a partly failed repo add draws its failed branch under the added repo', () => {
+    const added = importOp({
+      kind: 'repo.create',
+      subject: { kind: 'project', id: 'p1' },
+      label: 'Add crowbar',
+      state: 'failed',
+      error: { code: 'partial', message: '1 of 3 failed' },
+      items: [
+        { ref: { kind: 'repo', id: 'r1' }, label: 'Add crowbar', state: 'succeeded' },
+        { ref: { kind: 'workspace', id: 'ws-home' }, label: 'main', state: 'succeeded' },
+        {
+          ref: { kind: 'workspace', id: 'ws-dev' },
+          label: 'develop',
+          state: 'failed',
+          error: NOT_A_DIR,
+        },
+      ],
+    })
+    const drawn = rows([added])
+    expect(drawn).toMatchObject([
+      { id: 'ws-dev', kind: 'branch', label: 'develop', parentId: 'home-row' },
+    ])
+    expect(drawn[0]?.operation).toEqual({ opId: 'op-1', state: 'failed', problem: NOT_A_DIR })
+  })
+
+  it('a failed item draws its reason and a Dismiss action', () => {
+    const failed = importOp({
+      state: 'failed',
+      error: { code: 'partial', message: '1 of 2 failed' },
+      items: [
+        item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR }),
+        item('chat-b', 'good', { state: 'succeeded' }),
+      ],
+    })
+    expect(rows([failed])).toMatchObject([{ id: 'chat-a', label: 'bad/x', working: false }])
+    expect(rows([failed])[0]?.operation).toEqual({
+      opId: 'op-1',
+      state: 'failed',
+      problem: NOT_A_DIR,
+    })
+  })
+
+  it('a failed item whose entity exists draws only the entity', () => {
+    seedRepos([repo({ chats: [{ id: 'chat-a', repoId: 'r1', title: '', order: 0 }] })])
+    const failed = importOp({
+      state: 'failed',
+      items: [item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR })],
+    })
+    expect(rows([failed])).toEqual([])
+  })
+
+  it('an interrupted import row says Crowbar stopped before it finished', () => {
+    const interrupted = importOp({
+      state: 'failed',
+      error: { code: 'interrupted', message: 'Crowbar stopped before this finished' },
+    })
+    expect(rows([interrupted]).map((r) => r.operation?.problem?.message)).toEqual([
+      'Crowbar stopped before this finished',
+      'Crowbar stopped before this finished',
+    ])
+  })
+
+  it('a running item disappears once its entity is present', () => {
+    expect(rows([importOp()]).map((r) => r.id)).toEqual(['chat-a', 'chat-b'])
+    seedRepos([repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })])
+    expect(rows([importOp()]).map((r) => r.id)).toEqual(['chat-a'])
+  })
+
+  it('a succeeded item whose entity was deleted since draws nothing', () => {
+    const imported = importOp({ items: [item('chat-b', 'good', { state: 'succeeded' })] })
+    seedRepos([repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })])
+    expect(rows([imported])).toEqual([])
+    seedRepos([repo()])
+    expect(rows([{ ...imported, state: 'succeeded', version: 3 }])).toEqual([])
+    const replayed = importOp({
+      id: 'op-2',
+      state: 'failed',
+      snapshot: true,
+      items: [
+        item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR }),
+        item('chat-c', 'good', { state: 'succeeded' }),
+      ],
+    })
+    expect(rows([replayed]).map((r) => r.id)).toEqual(['chat-a'])
+  })
+
+  it('a local succeeded item draws until its entity arrives', () => {
+    const local = importOp({ local: true, state: 'succeeded', items: [item('chat-b', 'good')] })
+    putLocalOperation(local)
+    expect(deriveRows(treeInputFor('p1')).filter((r) => r.operation)).toMatchObject([
+      { id: 'chat-b' },
+    ])
+  })
+
+  it('a dismissed failed operation draws nothing', () => {
+    const dismissed = importOp({ state: 'failed', dismissed: true, error: NOT_A_DIR })
+    expect(rows([dismissed])).toEqual([])
+  })
+
+  it('a failed push on the workspace shows on its chat row', () => {
+    const placeholder = repo({
+      workspaces: [
+        {
+          id: 'ws-1',
+          branch: 'feature',
+          age: '',
+          order: 0,
+          owningChatId: 'chat-1',
+          provisioning: 'placeholder',
+        },
+      ],
+      chats: [
+        {
+          id: 'chat-1',
+          repoId: 'r1',
+          workspaceId: 'ws-1',
+          ownsWorktree: true,
+          title: 't',
+          order: 0,
+        },
+      ],
+    })
+    streamOperation(
+      importOp({
+        id: 'push',
+        kind: 'workspace.retry_provision',
+        subject: { kind: 'workspace', id: 'ws-1' },
+        state: 'failed',
+        items: [],
+        error: { code: 'conflict', message: 'branch is still held' },
+      }),
+    )
+    seedRepos([placeholder])
+    const row = deriveRows(treeInputFor('p1')).find((r) => r.id === 'chat-1')
+    expect(row?.placeholderReason).toContain('branch is still held')
+    expect(rows([])).toEqual([])
+  })
+})
+
+const HOME_WS_ID = 'home-ws-1'
+
+function homeFolder(over: Partial<Folder> & { id: string; name: string }): Folder {
+  return { repoId: '', order: 0, ...over }
+}
+
+function homeChat(over: Partial<Chat> & { id: string; title: string }): Chat {
+  return { repoId: '', order: 0, ...over }
+}
+
+function homeOwningChat(): Chat {
+  return homeChat({ id: HOME_ROW_ID, title: '', workspaceId: HOME_WS_ID, ownsWorktree: true })
+}
+
+describe('a project home', () => {
+  it('draws no row for the owning branch chat itself', () => {
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat()])
+    expect(rows).toHaveLength(0)
+    expect(rows.find((r) => r.id === HOME_ROW_ID)).toBeUndefined()
+  })
+
+  it('the owner is not drawn when its wire row has no ownsWorktree marker but the resolver named it', () => {
+    const wireOwner = homeChat({ id: HOME_ROW_ID, title: '', workspaceId: HOME_WS_ID })
+    const thread = homeChat({ id: 'c-1', title: 'chat-one', workspaceId: HOME_WS_ID })
+    const rows = homeRows(HOME_WS_ID, [wireOwner, thread], [], HOME_ROW_ID)
+    expect(rows.map((r) => r.id)).toEqual(['c-1'])
+  })
+
+  it('draws a chat the resolver named but the list marks as not owning the worktree', () => {
+    const conversation = homeChat({
+      id: 'c-plan',
+      title: 'plan the release',
+      workspaceId: HOME_WS_ID,
+      ownsWorktree: false,
+    })
+    const rows = homeRows(HOME_WS_ID, [conversation, homeOwningChat()], [], 'c-plan')
+    expect(rows.map((r) => r.id)).toEqual(['c-plan'])
+  })
+
+  it('degrades to no rows, never throws, while the owning chat has not seeded yet', () => {
+    expect(() => homeRows(HOME_WS_ID, [])).not.toThrow()
+    expect(homeRows(HOME_WS_ID, [])).toEqual([])
+  })
+
+  it('a thread on the home workspace becomes a top-level chat-kind row, parentId null', () => {
+    const thread = homeChat({ id: 'c-1', title: 'Fix the thing', workspaceId: HOME_WS_ID })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat(), thread])
+    const row = rows.find((r) => r.id === 'c-1')
+    expect(row?.kind).toBe('chat')
+    expect(row?.parentId).toBeNull()
+    expect(row?.ownsWorktree).toBe(false)
+  })
+
+  it('an untitled thread falls back to the shared placeholder label', () => {
+    const thread = homeChat({ id: 'c-1', title: '', workspaceId: HOME_WS_ID })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat(), thread])
+    expect(rows.find((r) => r.id === 'c-1')?.label).toBe(UNTITLED_CHAT_LABEL)
+  })
+
+  it('a folder becomes a top-level folder-kind row, parentId null', () => {
+    const folder = homeFolder({ id: 'f-1', name: 'Notes' })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat()], [folder])
+    const row = rows.find((r) => r.id === 'f-1')
+    expect(row?.kind).toBe('folder')
+    expect(row?.parentId).toBeNull()
+  })
+
+  it('a home folder never owns a worktree, so its own "+" cannot fork', () => {
+    const folder = homeFolder({ id: 'f-1', name: 'Notes' })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat()], [folder])
+    expect(rows.find((r) => r.id === 'f-1')?.ownsWorktree).toBe(false)
+  })
+
+  it('a thread filed into a folder nests under the folder, not at the top level', () => {
+    const folder = homeFolder({ id: 'f-1', name: 'Notes' })
+    const thread = homeChat({
+      id: 'c-1',
+      title: 'Filed',
+      workspaceId: HOME_WS_ID,
+      parentId: 'f-1',
+    })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat(), thread], [folder])
+    expect(rows.find((r) => r.id === 'c-1')?.parentId).toBe('f-1')
+  })
+
+  it('defaults to no chats/folders — just the (empty) owning-chat exclusion', () => {
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat()])
+    expect(rows).toHaveLength(0)
+  })
+
+  it("a chat's rendered order is its real wire value, not a index compacted from array position", () => {
+    const chatA = homeChat({ id: 'c-a', title: 'a', workspaceId: HOME_WS_ID, order: 0 })
+    const chatB = homeChat({ id: 'c-b', title: 'b', workspaceId: HOME_WS_ID, order: 5 })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat(), chatA, chatB])
+    expect(rows.find((r) => r.id === 'c-a')?.order).toBe(0)
+    expect(rows.find((r) => r.id === 'c-b')?.order).toBe(5)
+  })
+
+  it('a chat parented onto the raw home-workspace id still renders top-level', () => {
+    const child = homeChat({ id: 'c-1', title: 'New-style child', parentId: HOME_WS_ID })
+    const rows = homeRows(HOME_WS_ID, [homeOwningChat(), child])
+    const row = rows.find((r) => r.id === 'c-1')
+    expect(row?.kind).toBe('chat')
+    expect(row?.parentId).toBeNull()
+  })
+})
+
+describe('an operation a paired host ran', () => {
+  afterEach(() => resetHostWorld())
+
+  it('counts its item present once that host streams the row it names', () => {
+    pairRemoteHost('host-1')
+    loadProjects(projectOn('p1', 'host-1'))
+    const failed = importOp({
+      state: 'failed',
+      items: [item('chat-a', 'bad/x', { state: 'failed', error: NOT_A_DIR })],
+    })
+    streamOperation(failed, 'host-1')
+    expect(rows([]).map((r) => r.id)).toEqual(['chat-a'])
+
+    putEntities('chat', [chatEntity({ id: 'chat-a', repoId: 'r1' })], 'host-1')
+    expect(rows([])).toEqual([])
+  })
+})

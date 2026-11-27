@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
 
-// GitEnv is the minimal git identity environment to avoid identity prompts.
 var GitEnv = []string{
 	"GIT_AUTHOR_NAME=test",
 	"GIT_AUTHOR_EMAIL=test@test.com",
@@ -24,7 +23,6 @@ var GitEnv = []string{
 	"GIT_COMMITTER_EMAIL=test@test.com",
 }
 
-// InitRepo creates a new git repo in a temp dir with one empty initial commit.
 func InitRepo(
 	t *testing.T,
 ) string {
@@ -62,7 +60,6 @@ func InitRepo(
 	return dir
 }
 
-// InitRepoWithFile creates a repo with a committed file at filename.
 func InitRepoWithFile(
 	t *testing.T,
 	filename string,
@@ -80,7 +77,6 @@ func InitRepoWithFile(
 	return dir
 }
 
-// CommitFile writes a file and commits it in the given repo.
 func CommitFile(
 	t *testing.T,
 	repoPath string,
@@ -110,7 +106,6 @@ func CommitFile(
 	)
 }
 
-// WriteRepoFile writes content to a path relative to repoPath.
 func WriteRepoFile(
 	t *testing.T,
 	repoPath string,
@@ -139,7 +134,6 @@ func WriteRepoFile(
 	)
 }
 
-// BranchName returns the current branch name of the given repo.
 func BranchName(
 	t *testing.T,
 	repoPath string,
@@ -155,7 +149,6 @@ func BranchName(
 	return TrimNewline(out)
 }
 
-// RevParse returns the commit SHA for the given git ref.
 func RevParse(
 	t *testing.T,
 	repoPath string,
@@ -171,8 +164,6 @@ func RevParse(
 	return TrimNewline(out)
 }
 
-// GitRun runs a git command (git <args...>) in dir and returns combined stdout+stderr.
-// Fails the test if the command exits non-zero.
 func GitRun(
 	t testing.TB,
 	dir string,
@@ -196,7 +187,6 @@ func GitRun(
 	return string(out)
 }
 
-// TrimNewline removes trailing CR/LF characters from s.
 func TrimNewline(
 	s string,
 ) string {
@@ -206,9 +196,6 @@ func TrimNewline(
 	)
 }
 
-// InitRepoWithRemoteBranch creates a repo (main, one commit) with a bare origin and
-// pushes a branch that has no local head; it returns the repo path and that branch, so
-// CreateChild can be tested fetching a remote-only branch.
 func InitRepoWithRemoteBranch(
 	t *testing.T,
 	remoteBranch string,
@@ -221,8 +208,6 @@ func InitRepoWithRemoteBranch(
 	GitRun(t, repo, "remote", "add", "origin", bare)
 	GitRun(t, repo, "push", "origin", "main")
 
-	// Create the extra branch, push it, then delete the local head so it only
-	// exists on the remote (ls-remote --heads origin sees it; local does not).
 	GitRun(t, repo, "checkout", "-b", remoteBranch)
 	CommitFile(t, repo, "remote-only.txt", "remote-only\n", "remote-only commit")
 	GitRun(t, repo, "push", "origin", remoteBranch)
@@ -231,8 +216,6 @@ func InitRepoWithRemoteBranch(
 	return repo, remoteBranch
 }
 
-// BranchExists reports whether branch exists in repoPath.
-// Fails the test immediately on unexpected exec errors.
 func BranchExists(
 	t testing.TB,
 	repoPath string,
@@ -267,8 +250,6 @@ func BranchExists(
 	return true
 }
 
-// DirExists reports whether a directory exists at path.
-// Fails the test immediately on unexpected stat errors.
 func DirExists(
 	t testing.TB,
 	path string,
@@ -285,8 +266,6 @@ func DirExists(
 	return info.IsDir()
 }
 
-// FileExists reports whether a regular file exists at path.
-// Fails the test immediately on unexpected stat errors.
 func FileExists(
 	t testing.TB,
 	path string,
@@ -303,13 +282,10 @@ func FileExists(
 	return info.Mode().IsRegular()
 }
 
-// RepoImport is the usecase input that imports repoPath under projectID.
 func RepoImport(projectID, repoPath string) project.RepoImport {
 	return project.RepoImport{ProjectID: projectID, Path: repoPath}
 }
 
-// RequireBranches is an import's progress that fails t for every protected
-// branch whose workspace could not be set up.
 func RequireBranches(tb testing.TB) project.RepoProgress {
 	tb.Helper()
 	return requireBranches{tb}

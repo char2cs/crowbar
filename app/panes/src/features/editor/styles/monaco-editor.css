@@ -1,0 +1,88 @@
+.editor-container {
+  --vscode-editor-background: var(--background);
+}
+
+.editor-container .monaco-editor .cslr.monaco-editor-background {
+  background-color: var(--background) !important;
+}
+
+.editor-container .crowbar-inline-blame {
+  color: var(--muted-foreground);
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.monaco-vim-statusbar {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  left: 10px;
+  z-index: 20;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  color: var(--foreground);
+  display: none !important;
+  font: 12px/1.45 var(--font-mono, 'Geist Mono Variable', monospace);
+  pointer-events: none;
+}
+
+.monaco-vim-statusbar:has(input),
+.monaco-vim-statusbar:has(.vim-notification:not(:empty)) {
+  display: block !important;
+}
+
+.monaco-vim-statusbar input {
+  width: min(520px, calc(100% - 20px));
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  pointer-events: auto;
+}
+
+.monaco-vim-statusbar:empty {
+  display: none !important;
+}
+
+.diff-add-comment-glyph {
+  cursor: pointer;
+}
+.diff-add-comment-glyph::after {
+  content: '+';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  margin: auto;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary);
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--primary) 18%, transparent);
+}
+.diff-comment-zone {
+  z-index: 5;
+  width: 100%;
+}
+
+.diff-line-added {
+  background: color-mix(in oklch, var(--git-added) 15%, transparent);
+}
+.diff-line-removed {
+  background: color-mix(in oklch, var(--git-deleted) 15%, transparent);
+}
+
+.diff-search-match {
+  background: color-mix(in oklch, var(--warning) 40%, transparent);
+  border-radius: 2px;
+}
+.diff-search-match-active {
+  background: color-mix(in oklch, var(--warning) 80%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--warning);
+}

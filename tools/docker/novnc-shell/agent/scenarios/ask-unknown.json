@@ -1,0 +1,21 @@
+{
+ "description": "A permission ask for a tool of an unknown family.",
+ "steps": [
+  {
+   "do": "tool",
+   "name": "Teleport",
+   "kind": "teleport",
+   "target": "moon://base",
+   "input": {
+    "to": "moon"
+   },
+   "ask": {
+    "message": "Teleport"
+   }
+  },
+  {
+   "do": "text",
+   "text": "Arrived."
+  }
+ ]
+}

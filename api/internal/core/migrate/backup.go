@@ -13,34 +13,22 @@ import (
 )
 
 const (
-	// backupHeadroom is the free space that must remain beyond the copy itself,
-	// so a backup never leaves the disk too full for the daemon to run.
 	backupHeadroom = 64 << 20
 	backupsDirName = "backups"
 	partialSuffix  = ".partial"
 	homeLockName   = ".lock"
 )
 
-// errInsufficientDisk is returned when the volume cannot hold a state backup.
 var errInsufficientDisk = errors.New("migrate: not enough free disk space for the state backup")
 
-// FreeBytesFunc reports the bytes this process can still allocate on the
-// volume holding path.
 type FreeBytesFunc func(path string) (uint64, error)
 
-// backupResult describes a finished backup: Path is its archive, Bytes what
-// it holds and Packed its size on disk. An empty Path means there was nothing
-// to back up.
 type backupResult struct {
 	Path   string
 	Bytes  int64
 	Packed int64
 }
 
-// backupState archives state/ (minus the lock file), LAYOUT, the ledger and the
-// paths extra matches under the home to migrate/backups/<runID>.tar.gz, built as
-// a .partial and renamed once it reads back as written, if the volume has room.
-// The caller holds the lock and has started its run.
 func backupState(
 	h home.Home,
 	runID string,
@@ -68,7 +56,6 @@ func backupState(
 	return writeBackup(h, runID, layout, extra)
 }
 
-// backupPath is where run's backup lives once whole.
 func backupPath(
 	h home.Home,
 	runID string,
@@ -76,8 +63,6 @@ func backupPath(
 	return filepath.Join(h.MigrateDir(), backupsDirName, runID+backupExt)
 }
 
-// cleanPartialBackups removes the half-written backups a crashed run left in
-// migrate/backups. An absent directory is not created.
 func cleanPartialBackups(
 	h home.Home,
 ) error {
@@ -107,14 +92,12 @@ func singleSegment(
 		!strings.HasSuffix(runID, partialSuffix)
 }
 
-// backupRoom is the free space a backup of size bytes needs: the copy and its headroom.
 func backupRoom(
 	size int64,
 ) uint64 {
 	return uint64(size) + backupHeadroom //nolint:gosec // G115: size sums file lengths, so it is never negative
 }
 
-// probeRoom is the free space under root, which must hold a backup of size bytes.
 func probeRoom(
 	root string,
 	size int64,
@@ -163,8 +146,6 @@ func writeBackup(
 	return backupResult{Path: final, Bytes: a.bytes, Packed: info.Size()}, nil
 }
 
-// fillBackup writes what a restore puts back, under the names it has in the
-// home: state/, LAYOUT, the ledger and whatever extra matches.
 func fillBackup(
 	h home.Home,
 	a *archiver,
@@ -199,7 +180,6 @@ func fillBackup(
 
 func noSkip(string, string, fs.DirEntry) bool { return false }
 
-// homeRel is path as a backup names it: slash-separated, under the home.
 func homeRel(
 	h home.Home,
 	path string,
@@ -211,8 +191,6 @@ func homeRel(
 	return filepath.ToSlash(rel)
 }
 
-// extraMatches expands the home-relative patterns a plan asked to back up.
-// A pattern that could reach outside the home or into state/ is refused.
 func extraMatches(
 	h home.Home,
 	patterns []string,
@@ -232,7 +210,6 @@ func extraMatches(
 	return out, nil
 }
 
-// measureBackup is what a backup would hold: state/ and the extra matches.
 func measureBackup(
 	h home.Home,
 	extra []string,
@@ -313,9 +290,6 @@ func entryKind(
 	}
 }
 
-// resolveRoot follows symlinks in dir itself, so a state dir moved behind a link is
-// copied as its target. found is false (root is dir) when nothing exists there; a
-// dangling link is an error.
 func resolveRoot(
 	dir string,
 ) (root string, found bool, err error) {
@@ -333,8 +307,6 @@ func resolveRoot(
 	return root, true, nil
 }
 
-// isHomeLock matches only <root>/.lock: a file of that name deeper in the tree
-// is user data.
 func isHomeLock(
 	root string,
 	path string,
@@ -343,8 +315,6 @@ func isHomeLock(
 	return path == filepath.Join(root, homeLockName) && !entry.IsDir()
 }
 
-// treeStats is what a scan finds. unsupported describes the first entry that is
-// neither a directory nor a regular file.
 type treeStats struct {
 	files       int
 	bytes       int64
@@ -365,8 +335,6 @@ func scanTree(
 	return stats, err
 }
 
-// measureState scans dir for what a backup would copy. An entry a backup cannot
-// take is an error, so a backup that is due and cannot be made fails here.
 func measureState(
 	dir string,
 ) (treeStats, error) {

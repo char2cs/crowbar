@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// TestNewClient_BadHost_ReturnsError forces transports.SocketPath's default
-// derivation to fail: CROWBAR_HOME is a relative path, so NewClient must wrap
-// and return the resolver's error rather than panic.
 func TestNewClient_BadHost_ReturnsError(t *testing.T) {
 	t.Setenv(home.EnvVar, "relative/home")
 
@@ -25,8 +22,6 @@ func TestNewClient_BadHost_ReturnsError(t *testing.T) {
 	require.ErrorContains(t, err, "must be an absolute path")
 }
 
-// TestClient_Get_DialFailure_ReturnsError points the client at a socket path
-// with no listener behind it: Get must surface a transport error, not panic.
 func TestClient_Get_DialFailure_ReturnsError(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "nope.sock")
 	c, err := ipc.NewClient("unix://" + sock)
@@ -38,8 +33,6 @@ func TestClient_Get_DialFailure_ReturnsError(t *testing.T) {
 	require.Nil(t, body)
 }
 
-// TestClient_PostJSON_DialFailure_ReturnsError is the PostJSON analogue of the
-// Get dial-failure case above.
 func TestClient_PostJSON_DialFailure_ReturnsError(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "nope.sock")
 	c, err := ipc.NewClient("unix://" + sock)
@@ -51,10 +44,6 @@ func TestClient_PostJSON_DialFailure_ReturnsError(t *testing.T) {
 	require.Nil(t, body)
 }
 
-// TestClient_Get_RequestCreationFailure_ReturnsError covers the request path
-// containing an invalid control character, which url.Parse rejects — the
-// http.NewRequestWithContext error branch, never exercised via a well-formed
-// path.
 func TestClient_Get_RequestCreationFailure_ReturnsError(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "unused.sock")
 	c, err := ipc.NewClient("unix://" + sock)
@@ -64,8 +53,6 @@ func TestClient_Get_RequestCreationFailure_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestClient_PostJSON_RequestCreationFailure_ReturnsError is the PostJSON
-// analogue of the Get request-creation-failure case above.
 func TestClient_PostJSON_RequestCreationFailure_ReturnsError(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "unused.sock")
 	c, err := ipc.NewClient("unix://" + sock)
@@ -75,8 +62,6 @@ func TestClient_PostJSON_RequestCreationFailure_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestClient_PostJSON_MarshalFailure_ReturnsError covers json.Marshal's error
-// branch with a body type that can never be encoded.
 func TestClient_PostJSON_MarshalFailure_ReturnsError(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "unused.sock")
 	c, err := ipc.NewClient("unix://" + sock)
@@ -86,8 +71,6 @@ func TestClient_PostJSON_MarshalFailure_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestClient_ATruncatedBodyIsReturned has the daemon promise more bytes than it
-// sends: a reply cut short is a transport failure, never a short answer.
 func TestClient_ATruncatedBodyIsReturned(t *testing.T) {
 	sock := testutil.ShortSocket(t)
 	var lc net.ListenConfig

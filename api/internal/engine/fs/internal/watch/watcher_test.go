@@ -18,16 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
-// ---------------------------------------------------------------------------
-// Test seams: every wait in this package blocks on a real signal — a dispatched
-// callback, a git provider invocation, a completed recompute — never on a clock.
-// ---------------------------------------------------------------------------
-
-// manualGitTimer is a watch.GitTimer that never fires on its own: only Fire
-// releases it. It lets a test prove the trailing git-recompute debounce
-// *coalesces* (N bursts arm the timer, one fire yields exactly one recompute)
-// without racing the real 250ms window, and lets the fanOutGit tests run a
-// recompute the instant they want one.
 type manualGitTimer struct {
 	mu   sync.Mutex
 	arms int
@@ -38,7 +28,6 @@ func newManualGitTimer() *manualGitTimer {
 	return &manualGitTimer{c: make(chan time.Time, 1)}
 }
 
-// Reset records an arm. The timer still never fires by itself.
 func (m *manualGitTimer) Reset(
 	_ time.Duration,
 ) bool {
@@ -56,8 +45,6 @@ func (m *manualGitTimer) Chan() <-chan time.Time {
 	return m.c
 }
 
-// Fire releases the debounce exactly once; the watcher's loop then runs one
-// git recompute.
 func (m *manualGitTimer) Fire() {
 	m.c <- time.Time{}
 }
@@ -96,10 +83,7 @@ func (f *fakeGit) DiffStat(
 type fakeDispatcher struct {
 	mu      sync.Mutex
 	changes []domain.FileChangeEvent
-	// pulse carries one token per dispatched callback (coalescing, buffered 1).
-	// Waiters re-scan the recorded events on every token, so no token can be
-	// missed and no waiter needs a poll interval.
-	pulse chan struct{}
+	pulse   chan struct{}
 }
 
 func newFakeDispatcher() *fakeDispatcher {
@@ -138,10 +122,6 @@ func (f *fakeDispatcher) find(
 	return domain.FileChangeEvent{}, false
 }
 
-// waitForChange blocks until a dispatched file-change event satisfies match.
-// The wait is on the watcher's own callback — the real arrival of the backend's
-// event through the debounce — with no deadline: `go test -timeout` is the only
-// backstop, and a watcher that never dispatches is a bug, not a slow machine.
 func (f *fakeDispatcher) waitForChange(
 	match func(domain.FileChangeEvent) bool,
 ) domain.FileChangeEvent {
@@ -160,7 +140,6 @@ func (f *fakeDispatcher) hasChange(
 	return ok
 }
 
-// pathIs matches a dispatched event by its workspace-relative path.
 func pathIs(
 	rel string,
 ) func(domain.FileChangeEvent) bool {
@@ -181,9 +160,6 @@ func newWatcher(
 	t.Cleanup(cancel)
 	t.Cleanup(w.Stop)
 	require.NoError(t, w.Start(ctx))
-	// No settle sleep: Start arms the backend synchronously (the inotify walk, or
-	// the FSEvents stream, is in place before Start returns), so any event emitted
-	// after this point is delivered to loop; callers wait on real observables.
 	return w, d
 }
 
@@ -241,11 +217,6 @@ func TestWatcher_IgnoresDotGitContent(
 
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("msg"), 0o600))
 
-	// Barrier, not a window. The write above can only ever surface through the
-	// same events channel and the same (single-goroutine, in-arrival-order) burst
-	// handler as the sentinel written after it. Once the sentinel has been dispatched, any COMMIT_EDITMSG
-	// event that was ever going to be dispatched already has been — so this is a
-	// real signal, not "nothing happened for 250ms".
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sentinel.txt"), []byte("s"), 0o600))
 	_ = d.waitForChange(pathIs("sentinel.txt"))
 
@@ -254,8 +225,6 @@ func TestWatcher_IgnoresDotGitContent(
 	}), "COMMIT_EDITMSG must never surface as a file-change event")
 }
 
-// Working-tree files whose names merely begin with ".git" are ordinary files:
-// only the .git entry itself and what lies under it is git-internal.
 func TestWatcher_DispatchesDotGitPrefixedWorkingTreeFiles(
 	t *testing.T,
 ) {
@@ -285,8 +254,6 @@ func TestWatcher_StopIdempotent(
 	require.NoError(t, w.Start(context.Background()))
 	w.Stop()
 	w.Stop()
-	// Stop is complete only once the loop goroutine is gone; block on its own
-	// exit signal rather than assuming it.
 	<-w.LoopDoneForTest()
 }
 
@@ -300,14 +267,9 @@ func TestWatcher_SubdirCreatedAndWatched(
 	require.NoError(t, os.MkdirAll(subdir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("x"), 0o600))
 
-	// The subdir's own CREATE event on the watched repo root is the real signal
-	// that the watcher processed the burst (and, in handleOne, added the new
-	// directory to the watch).
 	_ = d.waitForChange(pathIs("subdir"))
 }
 
-// A file in a directory created after Start is seen at any depth: the new
-// directory is followed before its own change is dispatched.
 func TestWatcher_FileInNewNestedDirIsDispatched(
 	t *testing.T,
 ) {
@@ -322,8 +284,6 @@ func TestWatcher_FileInNewNestedDirIsDispatched(
 	assert.Equal(t, domain.FileChangeCreated, evt.Type)
 }
 
-// Rewriting a file the watcher already reported as created is a modification;
-// a "created" would make every client re-list the directory.
 func TestWatcher_RewriteOfNewFileIsModified(
 	t *testing.T,
 ) {
@@ -342,7 +302,6 @@ func TestWatcher_RewriteOfNewFileIsModified(
 	})
 }
 
-// underDir matches a dispatched event inside the workspace-relative dir.
 func underDir(
 	rel string,
 ) func(domain.FileChangeEvent) bool {
@@ -351,9 +310,6 @@ func underDir(
 	}
 }
 
-// Gitignored trees (node_modules/, build output) never reach the dispatcher,
-// matched in-process. A plain directory: the retired per-directory `git
-// check-ignore` fork exited 128 there and would have watched node_modules/.
 func TestWatcher_GitignoredDirChangesAreNeverDispatched(
 	t *testing.T,
 ) {
@@ -367,14 +323,10 @@ func TestWatcher_GitignoredDirChangesAreNeverDispatched(
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "node_modules", "top.js"), []byte("x"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("x"), 0o600))
 
-	// Barrier: the watched write after the ignored ones is dispatched in arrival
-	// order, so an ignored change that was ever going to surface already has.
 	_ = d.waitForChange(pathIs(filepath.Join("src", "main.go")))
 	assert.False(t, d.hasChange(underDir("node_modules")), "a gitignored tree must never be dispatched")
 }
 
-// A gitignored directory created after Start is reported itself (its parent is
-// watched) but nothing inside it is.
 func TestWatcher_GitignoredDirCreatedAfterStartIsNotFollowed(
 	t *testing.T,
 ) {
@@ -391,7 +343,6 @@ func TestWatcher_GitignoredDirCreatedAfterStartIsNotFollowed(
 	assert.False(t, d.hasChange(underDir("dist")), "a gitignored directory created after Start must not be followed")
 }
 
-// openDescriptors counts the process's open file descriptors.
 func openDescriptors(
 	t *testing.T,
 ) int {
@@ -399,14 +350,11 @@ func openDescriptors(
 	f, err := os.Open("/dev/fd")
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
-	// Names only: statting an entry races descriptors other goroutines close.
 	names, err := f.Readdirnames(-1)
 	require.NoError(t, err)
 	return len(names)
 }
 
-// Endpoint security inspects every open, so a watcher must not hold a
-// descriptor per file (kqueue opens each file in every watched directory).
 func TestWatcher_HeldDescriptorsDoNotGrowWithFileCount(
 	t *testing.T,
 ) {
@@ -428,8 +376,6 @@ func TestWatcher_HeldDescriptorsDoNotGrowWithFileCount(
 	assert.Less(t, held, 16, "a watcher's descriptors must not scale with the files it watches")
 }
 
-// countingGit counts ComputeStatus invocations and signals each one, so tests
-// can block on "the recompute ran" instead of polling a counter.
 type countingGit struct {
 	mu          sync.Mutex
 	statusCalls int
@@ -476,15 +422,6 @@ func (g *countingGit) calls() int {
 	return g.statusCalls
 }
 
-// Git recomputes are trailing-debounced: several fs-event bursts in quick
-// succession must coalesce into a single fanOutGit run (one ComputeStatus).
-// Without the debounce, each of the four bursts below would shell out to git on
-// its own (the ~6Hz churn observed with linked worktrees sharing one .git).
-//
-// The debounce timer is replaced by one this test fires by hand, so coalescing
-// is proven exactly — four bursts arm it, zero recomputes run, one fire yields
-// exactly one recompute — instead of asserting "not too many recomputes within
-// 400ms", which is a race against the scheduler, not a test of the watcher.
 func TestWatcher_GitRecomputeDebounced_CoalescesBursts(
 	t *testing.T,
 ) {
@@ -505,24 +442,18 @@ func TestWatcher_GitRecomputeDebounced_CoalescesBursts(
 	for i := range bursts {
 		rel := fmt.Sprintf("burst%d.txt", i)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, rel), []byte("x"), 0o600))
-		// Sequencing signal: handleBurst dispatches a burst's file events and only
-		// then arms the git timer, so a dispatched event for this write proves its
-		// burst was processed (and armed the debounce).
 		_ = d.waitForChange(pathIs(rel))
 	}
 
 	assert.Equal(t, 0, git.calls(), "no git recompute may run while the debounce keeps being re-armed")
 
 	timer.Fire()
-	<-git.called // the coalesced recompute actually ran
+	<-git.called
 
 	assert.GreaterOrEqual(t, timer.armCount(), bursts, "every burst must re-arm the trailing debounce")
 	assert.Equal(t, 1, git.calls(), "the bursts must coalesce into exactly one git recompute")
 }
 
-// The trailing recompute is never dropped: with the production timer in place a
-// quiet period after a burst really does drive one git recompute. The test
-// blocks on the git provider's own invocation signal — no polling, no window.
 func TestWatcher_GitRecompute_TrailingRunFiresOnProductionTimer(
 	t *testing.T,
 ) {

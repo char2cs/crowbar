@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// SetChatPermissionLevel handles
-// PUT .../repos/:repoId/chats/:id/permission-level.
 func (h *Handlers) SetChatPermissionLevel(
 	ctx *gin.Context,
 ) {

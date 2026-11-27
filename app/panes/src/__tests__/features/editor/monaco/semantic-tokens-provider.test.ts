@@ -1,0 +1,144 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { editor, languages, CancellationToken, Range } from 'monaco-editor'
+import type { StateStack } from 'shiki/textmate'
+
+vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({
+  editor: {},
+  languages: { registerDocumentRangeSemanticTokensProvider: vi.fn() },
+}))
+vi.mock('@/features/editor/lsp/semantic-tokens', () => ({ lspViewportTokens: vi.fn(() => null) }))
+
+const shiki = vi.hoisted(() => {
+  const tokenizeLine = vi.fn()
+  return {
+    ready: new Set<string>(),
+    grammar: { tokenizeLine },
+    tokenizeLine,
+    readyListeners: new Set<(languageId: string) => void>(),
+  }
+})
+
+vi.mock('@/features/editor/lib/shiki-grammars', () => ({
+  grammarFor: (languageId: string) => (shiki.ready.has(languageId) ? shiki.grammar : null),
+  onGrammarReady: (listener: (languageId: string) => void) => {
+    shiki.readyListeners.add(listener)
+    return () => shiki.readyListeners.delete(listener)
+  },
+}))
+
+import { lspViewportTokens } from '@/features/editor/lsp/semantic-tokens'
+import { languages as monacoLanguages } from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { registerViewportSemanticTokens } from '@/features/editor/monaco/semantic-tokens-provider'
+import { SEMANTIC_TOKEN_LEGEND } from '@/features/editor/monaco/semantic-tokens-legend'
+
+registerViewportSemanticTokens()
+const viewportSemanticTokensProvider = vi.mocked(
+  monacoLanguages.registerDocumentRangeSemanticTokensProvider,
+).mock.calls[0][1] as languages.DocumentRangeSemanticTokensProvider
+
+const typeIndex = (type: string) => SEMANTIC_TOKEN_LEGEND.tokenTypes.indexOf(type)
+
+function fakeGrammar(line: string) {
+  const tokens: { startIndex: number; endIndex: number; scopes: string[] }[] = []
+  for (const match of line.matchAll(/\S+/g)) {
+    const word = match[0]
+    const scope = word.startsWith('#')
+      ? 'comment.line.fake'
+      : /^[A-Z]/.test(word)
+        ? 'entity.name.type.fake'
+        : 'source.fake'
+    tokens.push({
+      startIndex: match.index,
+      endIndex: match.index + word.length,
+      scopes: ['source.fake', scope],
+    })
+  }
+  return { tokens, ruleStack: null as unknown as StateStack }
+}
+
+function fakeModel(path: string, value: string): editor.ITextModel {
+  const lines = value.split('\n')
+  return {
+    uri: { path, toString: () => `mock://${path}` },
+    getVersionId: () => 1,
+    getLineCount: () => lines.length,
+    getLineContent: (n: number) => lines[n - 1] ?? '',
+  } as unknown as editor.ITextModel
+}
+
+const range = { startLineNumber: 1, endLineNumber: 10 } as unknown as Range
+const cancelToken = { isCancellationRequested: false } as unknown as CancellationToken
+
+function provide(model: editor.ITextModel): languages.SemanticTokens {
+  return viewportSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+    model,
+    range,
+    cancelToken,
+  ) as languages.SemanticTokens
+}
+
+async function warm(model: editor.ITextModel): Promise<void> {
+  const changed = vi.fn()
+  const subscription = viewportSemanticTokensProvider.onDidChange?.(changed)
+  provide(model)
+  await vi.waitFor(() => expect(changed).toHaveBeenCalled())
+  subscription?.dispose()
+}
+
+describe('viewportSemanticTokensProvider', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    shiki.ready.clear()
+    shiki.tokenizeLine.mockImplementation(fakeGrammar)
+  })
+
+  it('answers synchronously before the grammar is ready', () => {
+    const result = viewportSemanticTokensProvider.provideDocumentRangeSemanticTokens(
+      fakeModel('/cold.go', 'Foo()\n'),
+      range,
+      cancelToken,
+    )
+    expect(result).not.toBeInstanceOf(Promise)
+    expect((result as languages.SemanticTokens).data).toHaveLength(0)
+  })
+
+  it('asks Monaco to re-request once a grammar lands', () => {
+    const changed = vi.fn()
+    const subscription = viewportSemanticTokensProvider.onDidChange?.(changed)
+
+    for (const listener of shiki.readyListeners) listener('go')
+
+    expect(changed).toHaveBeenCalledOnce()
+    subscription?.dispose()
+  })
+
+  it('colors identifiers from shiki once the grammar is warm', async () => {
+    shiki.ready.add('go')
+    const model = fakeModel('/warm.go', 'Widget thing # note\n')
+    await warm(model)
+
+    const data = provide(model).data
+    expect(Array.from(data)).toEqual([0, 0, 6, typeIndex('type'), 0])
+  })
+
+  it('also colors comments where Monaco has no grammar at all', async () => {
+    shiki.ready.add('nix')
+    const model = fakeModel('/flake.nix', 'Widget # note\n')
+    await warm(model)
+
+    const types = Array.from(provide(model).data).filter((_, i) => i % 5 === 3)
+    expect(types).toEqual([typeIndex('type'), typeIndex('comment')])
+  })
+
+  it("prefers the language server's tokens when it has them", () => {
+    const fromServer = { data: Uint32Array.from([0, 0, 3, 12, 0]) }
+    vi.mocked(lspViewportTokens).mockReturnValueOnce(fromServer)
+
+    expect(provide(fakeModel('/served.go', 'Foo()\n'))).toBe(fromServer)
+    expect(shiki.tokenizeLine).not.toHaveBeenCalled()
+  })
+
+  it('returns empty for an unknown file type', () => {
+    expect(provide(fakeModel('/x.unknownext', 'Foo()\n')).data).toHaveLength(0)
+  })
+})

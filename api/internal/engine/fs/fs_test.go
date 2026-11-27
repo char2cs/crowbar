@@ -25,7 +25,6 @@ func writeFile(t *testing.T, dir, name, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 }
 
-// nullProvider satisfies tree.StatusProvider returning an empty GitStatus.
 type nullProvider struct{}
 
 func (nullProvider) GitStatus(_ string) (gitdomain.GitStatus, error) {
@@ -81,7 +80,6 @@ func TestWriteContent_Persists(t *testing.T) {
 
 func TestWriteContent_CreatesParentDirs(t *testing.T) {
 	dir := initDir(t)
-	// Write creates intermediate directories automatically.
 	require.NoError(t, fs.New().WriteContent(dir, filepath.Join("sub", "dir", "file.txt"), "hello\n", ""))
 	got, err := os.ReadFile(filepath.Join(dir, "sub", "dir", "file.txt"))
 	require.NoError(t, err)
@@ -130,7 +128,6 @@ func TestCreateDir_AlreadyExists_IsIdempotent(t *testing.T) {
 	dir := initDir(t)
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "existing"), 0o755))
 
-	// CreateDir uses MkdirAll — existing directory is not an error.
 	require.NoError(t, fs.New().CreateDir(dir, "existing"))
 }
 
@@ -162,7 +159,6 @@ func TestDelete_RemovesFile(t *testing.T) {
 }
 
 func TestDelete_MissingFile_IsIdempotent(t *testing.T) {
-	// Delete uses RemoveAll — missing path is not an error.
 	require.NoError(t, fs.New().Delete(t.TempDir(), "ghost.txt"))
 }
 

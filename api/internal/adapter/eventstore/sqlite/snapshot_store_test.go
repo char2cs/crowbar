@@ -45,8 +45,6 @@ func TestNewSnapshotStore_InvalidPath_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestNewSnapshotStore_ReadonlyDB_FailsToOpen mirrors the event store's: an
-// unwritable store refuses to open.
 func TestNewSnapshotStore_ReadonlyDB_FailsToOpen(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; permission denial has no effect")
@@ -106,9 +104,6 @@ func TestSnapshotStore_Put_Twice_Upserts_SingleRow(t *testing.T) {
 		"upsert must keep exactly one row per aggregate")
 }
 
-// TestSnapshotStore_Put_OlderVersion_DoesNotOverwrite proves the monotonicity
-// guard (ON CONFLICT ... WHERE excluded.version > snapshots.version). Removing
-// the guard's WHERE clause makes this test fail.
 func TestSnapshotStore_Put_OlderVersion_DoesNotOverwrite(t *testing.T) {
 	s := newTestSnapshotStore(t)
 	ctx := context.Background()

@@ -308,7 +308,6 @@ func TestStore_ForgetErasesAChat(t *testing.T) {
 	assert.Equal(t, []int64{1}, seqs(again), "a forgotten chat starts over from seq 1")
 }
 
-// boundS is provider's CLI announcing session "S".
 func boundS(t *testing.T, provider string) ledger.Row {
 	t.Helper()
 	return mustRow(t, ledger.KindSessionBound, "", ledger.SessionBound{
@@ -316,8 +315,6 @@ func boundS(t *testing.T, provider string) ledger.Row {
 	})
 }
 
-// Chats racing to bind one new session: exactly one claim lands, and every other
-// chat is refused rather than told it holds the session too.
 func TestStore_ConcurrentClaimsOfOneSessionHaveOneWinner(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
@@ -369,7 +366,6 @@ func TestStore_ASessionCanBeBoundToOneChatOnly(t *testing.T) {
 	assert.False(t, ok, "a forgotten chat owns nothing")
 }
 
-// movedS is a chat taking session "S" from chat from; gaveUpS, a chat giving it up to to.
 func movedS(t *testing.T, provider, from string) ledger.Row {
 	t.Helper()
 	return mustRow(t, ledger.KindSessionBound, "", ledger.SessionBound{
@@ -384,8 +380,6 @@ func gaveUpS(t *testing.T, provider, to string) ledger.Row {
 	})
 }
 
-// A session moves between chats only by the chat that held it giving it up,
-// or by a move naming it: a third chat's claim is never taken.
 func TestStore_AMovedSessionIsOwnedByTheChatThatTookIt(t *testing.T) {
 	cases := map[string][]struct {
 		chatID string
@@ -415,7 +409,6 @@ func TestStore_AMovedSessionIsOwnedByTheChatThatTookIt(t *testing.T) {
 	}
 }
 
-// fired reports whether ch is already closed; a commit closes it before Do returns.
 func fired(ch <-chan struct{}) bool {
 	select {
 	case <-ch:

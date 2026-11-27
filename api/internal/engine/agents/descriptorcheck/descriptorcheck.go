@@ -1,6 +1,3 @@
-// Package descriptorcheck validates a provider descriptor before Crowbar runs it: static rules
-// over the document (Validate) and a live conformance run against the real CLI (Conform). A
-// descriptor with an error-severity finding is never enabled.
 package descriptorcheck
 
 import (
@@ -13,39 +10,29 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 )
 
-// Severity says whether a finding blocks the descriptor.
 type Severity string
 
 const (
-	// SeverityError blocks enabling the descriptor.
-	SeverityError Severity = "error"
-	// SeverityWarning is shown but does not block.
+	SeverityError   Severity = "error"
 	SeverityWarning Severity = "warning"
 )
 
-// Finding is one problem with a descriptor document.
 type Finding struct {
 	Rule     string   `json:"rule"`
 	Severity Severity `json:"severity"`
-	// Path is the YAML path the finding is about, e.g. "session.refused.needles[0]".
-	Path    string `json:"path"`
-	Line    int    `json:"line"`
-	Message string `json:"message"`
-	Hint    string `json:"hint,omitempty"`
+	Path     string   `json:"path"`
+	Line     int      `json:"line"`
+	Message  string   `json:"message"`
+	Hint     string   `json:"hint,omitempty"`
 }
 
-// Report is every finding for one descriptor document.
 type Report struct {
-	ID string `json:"id"`
-	// Source is the override file validated, or "" for the embedded default.
+	ID       string    `json:"id"`
 	Source   string    `json:"source,omitempty"`
 	Findings []Finding `json:"findings"`
-	// FellBack says the override at Source was refused for its error
-	// findings and the shipped descriptor runs in its place.
-	FellBack bool `json:"fellBack,omitempty"`
+	FellBack bool      `json:"fellBack,omitempty"`
 }
 
-// OK reports whether nothing blocks the descriptor.
 func (r Report) OK() bool {
 	for _, f := range r.Findings {
 		if f.Severity == SeverityError {
@@ -55,8 +42,6 @@ func (r Report) OK() bool {
 	return true
 }
 
-// Validate runs every static rule over one descriptor document of the current
-// schema; one written for another schema is reported as that alone.
 func Validate(raw []byte) Report {
 	var root yaml.Node
 	if err := yaml.Unmarshal(raw, &root); err != nil {
@@ -67,7 +52,7 @@ func Validate(raw []byte) Report {
 	}
 	doc := document{root: &root}
 	d, failures := protocol.CheckDescriptor(raw)
-	rep := Report{ID: probeID(&root)}
+	rep := Report{ID: probeID(&root), Findings: []Finding{}}
 	rep.Findings = append(rep.Findings, unknownFields(raw, doc)...)
 	for _, f := range failures {
 		rep.Findings = append(rep.Findings, loadFinding(doc, f))
@@ -86,12 +71,8 @@ func Validate(raw []byte) Report {
 	return rep
 }
 
-// Source is one descriptor document Crowbar would load: ID, Path (the
-// override file, "" for the shipped default) and Raw.
 type Source = protocol.DescriptorSource
 
-// Sources lists every descriptor document under homeDir, overrides shadowing
-// the shipped defaults exactly as the daemon resolves them.
 func Sources(homeDir string) ([]Source, error) {
 	sources, err := protocol.DescriptorSources(homeDir)
 	if err != nil {
@@ -100,9 +81,6 @@ func Sources(homeDir string) ([]Source, error) {
 	return sources, nil
 }
 
-// ValidateAll validates every descriptor Crowbar would load from homeDir. An
-// override refused in favour of the shipped default reports its own findings,
-// marked FellBack, so the user sees why their file is not the one running.
 func ValidateAll(homeDir string) ([]Report, error) {
 	sources, err := Sources(homeDir)
 	if err != nil {
@@ -121,15 +99,10 @@ func ValidateAll(homeDir string) ([]Report, error) {
 	return out, nil
 }
 
-// AcceptOverride admits an override the daemon may run: one with no
-// error-severity finding. It is the predicate agents.WithOverrideCheck loads
-// descriptors through, so what runs and what the gate checks agree.
 func AcceptOverride(raw []byte) bool {
 	return Validate(raw).OK()
 }
 
-// fallsBack reports whether src is a refused override with a shipped default
-// to run instead.
 func fallsBack(src Source, rep Report) bool {
 	if src.Path == "" || rep.OK() {
 		return false
@@ -155,8 +128,6 @@ func syntaxFinding(err error) Finding {
 	}
 }
 
-// unknownFields decodes strictly: an unknown key is a typo that the lenient
-// load would silently ignore (a misspelt hooks_injection wires no hooks).
 func unknownFields(raw []byte, doc document) []Finding {
 	keys := protocol.UnknownDescriptorKeys(raw)
 	out := make([]Finding, 0, len(keys))

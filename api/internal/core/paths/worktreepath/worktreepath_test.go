@@ -35,8 +35,6 @@ func TestProjectDir(t *testing.T) {
 	assert.Equal(t, "/crow/projects/proj-1", dir)
 }
 
-// --- Human-readable worktree path derivation ---
-
 func TestDerive(t *testing.T) {
 	home := "/h"
 	cases := []struct{ project, slug, branch, want string }{
@@ -52,7 +50,6 @@ func TestDerive(t *testing.T) {
 			"feature/login",
 			"/h/projects/proj/github.com/char2cs/crowbar/feature/login/worktree",
 		},
-		// no-remote single-leaf name occupies the whole slug position.
 		{
 			"proj",
 			"localrepo",
@@ -80,10 +77,6 @@ func TestDerive_RejectsEmptyComponent(t *testing.T) {
 	}
 }
 
-// Derive splices caller-supplied slug and branch straight into filepath.Join,
-// which CLEANS the result — so a traversal component in either escapes the
-// crowbar home entirely. A workspace out there can never be reclaimed: every
-// removal guard refuses to touch anything that is not strictly under home.
 func TestDerive_RejectsPathsThatEscapeHome(t *testing.T) {
 	cases := []struct{ name, project, slug, branch string }{
 		{"traversal in slug", "proj", "../../../../tmp/pwned", "main"},
@@ -103,7 +96,7 @@ func TestDerive_RejectsPathsThatEscapeHome(t *testing.T) {
 func TestDetectClash_CaseInsensitive(t *testing.T) {
 	existing := []string{"/h/projects/p/github.com/o/Repo/main"}
 	err := DetectClash(existing, "/h/projects/p/github.com/o/repo/main")
-	require.Error(t, err) // rejected on a case-insensitive FS
+	require.Error(t, err)
 	require.ErrorIs(t, err, ErrPathClash)
 }
 
@@ -135,23 +128,11 @@ func TestChatsAndRunnerDirs_SiblingOfWorktree(t *testing.T) {
 	if want := root + "/chats"; chats != want {
 		t.Fatalf("ChatsDir = %q, want %q", chats, want)
 	}
-	// RunnerDir takes the resolved chats dir (Task 7): the caller decides where
-	// chats live (sibling of a managed worktree, or rerooted under home for an
-	// adopted checkout), and this helper only hangs the leaf off it.
-	//
-	// The runner's tmp dir hangs off the CHATS dir, not off a chat: it is keyed by the
-	// runner id + provider, the two things a Displace cannot erase, so boot
-	// reconciliation can still find it for a runner that is placed nowhere.
 	if got, want := RunnerDir(chats, "run1", "claude"), root+"/chats/runners/run1-claude"; got != want {
 		t.Fatalf("RunnerDir = %q, want %q", got, want)
 	}
 }
 
-// TestRunnerDir_DoesNotDependOnTheChat is the whole point of the layout, pinned: two
-// runners of the same chat get distinct dirs, and one runner's dir is the SAME string
-// however its chat pointer changes (or is erased). A path that varied with the chat could
-// not be derived from a displaced runner's row at all — and a displaced runner whose kill
-// failed is exactly the crash orphan boot reconciliation has to reap.
 func TestRunnerDir_DoesNotDependOnTheChat(t *testing.T) {
 	chats := "/home/.crowbar/projects/p/slug/branch/chats"
 
@@ -166,11 +147,6 @@ func TestRunnerDir_DoesNotDependOnTheChat(t *testing.T) {
 	}
 }
 
-// TestHomeDefaultChatsDir pins the rerooted-under-home layout for an adopted
-// checkout (repo-home / project-home) whose worktree is the user's REAL dir
-// OUTSIDE crowbar home: its agent chats go under a `default/` folder at the
-// human-readable repo directory, so no plaintext ledger ever lands on the user's
-// filesystem (Task 7).
 func TestHomeDefaultChatsDir(t *testing.T) {
 	got := HomeDefaultChatsDir("/home/.crowbar", "proj1", "github.com/acme/repo")
 	want := "/home/.crowbar/projects/proj1/github.com/acme/repo/default/chats"
@@ -179,9 +155,6 @@ func TestHomeDefaultChatsDir(t *testing.T) {
 	}
 }
 
-// TestHomeDefaultChatsDir_NoSlug covers the project-home (no repo, so no slug):
-// its chats still root strictly under crowbar home at the project directory, never
-// beside the user's real project folder.
 func TestHomeDefaultChatsDir_NoSlug(t *testing.T) {
 	got := HomeDefaultChatsDir("/home/.crowbar", "proj1", "")
 	want := "/home/.crowbar/projects/proj1/default/chats"
@@ -190,10 +163,6 @@ func TestHomeDefaultChatsDir_NoSlug(t *testing.T) {
 	}
 }
 
-// TestLedgerChatsDir_IgnoresWorkspaceEntirely pins spec §1.5: a chat's own
-// ledger root takes crowbar home and NOTHING else — no worktree path, no
-// workspace id — because WorkspaceID is optional and mutable and must never
-// move it.
 func TestLedgerChatsDir_IgnoresWorkspaceEntirely(t *testing.T) {
 	got := LedgerChatsDir("/home/.crowbar")
 	want := "/home/.crowbar/chats"
@@ -202,8 +171,6 @@ func TestLedgerChatsDir_IgnoresWorkspaceEntirely(t *testing.T) {
 	}
 }
 
-// A target that stays on disk comes back with the reason, so a caller can
-// tell a refused or failed removal from one that happened.
 func TestRemoveUnderHome_SaysWhyATargetStays(t *testing.T) {
 	home := t.TempDir()
 	outside := t.TempDir()
@@ -230,11 +197,6 @@ func TestRemoveUnderHome_ReportsARemovalThatFailed(t *testing.T) {
 	assert.DirExists(t, stuck)
 }
 
-// TestUnderHome is the shared predicate the chats-dir seam uses to tell a
-// Crowbar-managed worktree (chats stay beside it) from an adopted checkout at the
-// user's real dir (chats reroot under home). Only a path STRICTLY nested under
-// home counts; home itself, a blank path, or a sibling that merely shares a
-// prefix string does not.
 func TestUnderHome(t *testing.T) {
 	home := "/home/.crowbar"
 	cases := []struct {
@@ -242,9 +204,9 @@ func TestUnderHome(t *testing.T) {
 		want bool
 	}{
 		{"/home/.crowbar/projects/p/slug/branch/worktree", true},
-		{"/home/.crowbar", false},           // home itself is not strictly under home
-		{"/home/.crowbar-sibling/x", false}, // prefix-string match but not nested
-		{"/Users/me/real-repo", false},      // an adopted checkout outside home
+		{"/home/.crowbar", false},
+		{"/home/.crowbar-sibling/x", false},
+		{"/Users/me/real-repo", false},
 		{"", false},
 	}
 	for _, c := range cases {
@@ -263,8 +225,6 @@ func TestFreePathBranch_UsesTheBranchWhenTheNameIsFree(t *testing.T) {
 	assert.Equal(t, "main", got)
 }
 
-// A name frozen by a workspace created under it — which never follows that
-// workspace's later branch renames — must not block a new workspace.
 func TestFreePathBranch_SuffixesAFrozenName(t *testing.T) {
 	home := t.TempDir()
 	slug := "github.com/o/r"
@@ -290,17 +250,12 @@ func TestFreePathBranch_KeepsCountingPastAnOccupiedSuffix(t *testing.T) {
 	assert.Equal(t, "main-3", got)
 }
 
-// TestRegression_FreePathBranch_SeesANestedBranch pins the gap the sibling scan
-// alone leaves: siblingWorktreePaths lists only the TOP-LEVEL entries under the
-// slug, so a nested root like feature/x is never in it and DetectClash can never
-// match. The directory test is what covers that depth.
 func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
 	home := t.TempDir()
 	slug := "github.com/o/r"
 	nested := filepath.Join(home, "projects", "p1", filepath.FromSlash(slug), "feature", "x")
 	require.NoError(t, os.MkdirAll(nested, 0o755))
 
-	// The sibling list is what the real scanner would produce: top level only.
 	siblings := []string{filepath.Join(home, "projects", "p1", filepath.FromSlash(slug), "feature")}
 
 	got, err := FreePathBranch(home, "p1", slug, "feature/x", siblings)
@@ -308,8 +263,6 @@ func TestRegression_FreePathBranch_SeesANestedBranch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "feature/x-2", got)
 }
-
-// --- Attachment durable store (Task 1) ---
 
 func TestAttachmentsDir(t *testing.T) {
 	dir := AttachmentsDir("/crow", "chat-1")
@@ -338,7 +291,6 @@ func TestRestoreDurableAttachmentRefs_MultipleReferences(t *testing.T) {
 	assert.Equal(t, "![a](chats/chat-1/attachments/one.png) and ![b](chats/chat-1/attachments/two.png)", out)
 }
 
-// Only the leaf shape names a directory that is one workspace's alone.
 func TestOwnRoot_AcceptsOnlyTheLeafShapeInsideAProject(t *testing.T) {
 	home := "/crow"
 	root, ok := OwnRoot("/crow/projects/p/github.com/acme/app/main/worktree", home)
@@ -346,13 +298,13 @@ func TestOwnRoot_AcceptsOnlyTheLeafShapeInsideAProject(t *testing.T) {
 	assert.Equal(t, "/crow/projects/p/github.com/acme/app/main", root)
 
 	for _, path := range []string{
-		"/crow/projects/p/github.com/acme/app/develop", // pre-leaf
-		"/crow/projects/p/worktree",                    // root is the project dir
-		"/crow/projects/worktree",                      // root is projects/
-		"/crow/worktree",                               // root is the home
-		"/elsewhere/projects/p/x/worktree",             // outside the home
-		"/crow/projects/p/a/develop/../main/worktree",  // unclean
-		"crow/projects/p/a/main/worktree",              // relative
+		"/crow/projects/p/github.com/acme/app/develop",
+		"/crow/projects/p/worktree",
+		"/crow/projects/worktree",
+		"/crow/worktree",
+		"/elsewhere/projects/p/x/worktree",
+		"/crow/projects/p/a/develop/../main/worktree",
+		"crow/projects/p/a/main/worktree",
 		"",
 	} {
 		_, ok := OwnRoot(path, home)
@@ -360,8 +312,6 @@ func TestOwnRoot_AcceptsOnlyTheLeafShapeInsideAProject(t *testing.T) {
 	}
 }
 
-// A pre-leaf row keeps the <slug>/chats tree its attachments already live in,
-// unless that tree is a sibling's checkout; a leaf row keeps its own.
 func TestManagedChatsDir_KeepsAPreLeafRowsTreeUnlessItIsACheckout(t *testing.T) {
 	home := t.TempDir()
 	slug := filepath.Join(home, "projects", "p", "app")
@@ -381,8 +331,6 @@ func TestManagedChatsDir_KeepsAPreLeafRowsTreeUnlessItIsACheckout(t *testing.T) 
 		"a path outside the project never resolves beside it")
 }
 
-// A checkout that is, or holds, another row's checkout or chats tree holds
-// that row's files; a checkout beside them does not.
 func TestHoldsAnother(t *testing.T) {
 	others := []string{"/h/p/app/dev", "/h/p/app/main/worktree", ""}
 	assert.True(t, HoldsAnother("/h/p/app/chats", others), "dev's chats tree is <slug>/chats")

@@ -19,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// legacyPaths are the files legacyHome leaves that the retire step owns.
 var legacyPaths = []string{
 	"state/store/" + chatledger.ActivityDB,
 	"state/store/" + chatledger.RunnerDB,
@@ -30,8 +29,6 @@ var legacyPaths = []string{
 	"bin/crowbar",
 }
 
-// legacyHome is a pre-ledger home: one chat known only by its prompt journal,
-// the old databases beside it, a stray marker and the old binary copy.
 func legacyHome(
 	t *testing.T,
 ) home.Home {
@@ -51,8 +48,6 @@ func legacyHome(
 	return h
 }
 
-// bootLedgerSteps boots h through the catalog's chat-ledger, layout and retire
-// steps alone, as the daemon's pre-open half runs them.
 func bootLedgerSteps(
 	t *testing.T,
 	h home.Home,
@@ -111,8 +106,6 @@ func TestRetireLegacy_DeletesTheLegacyFilesOnTheBootAfterTheMigratedHomeBooted(t
 	assert.Len(t, migratetest.Applied(t, h)[StepRetireLegacy], before, "with nothing left the step does not run again")
 }
 
-// A legacy file written after the backup was taken is not in it as it is: it
-// stays, and is not looked at again until it changes.
 func TestRetireLegacy_KeepsAFileTheBackupDoesNotHoldAsItIs(t *testing.T) {
 	h := legacyHome(t)
 	bootLedgerSteps(t, h)
@@ -130,8 +123,6 @@ func TestRetireLegacy_KeepsAFileTheBackupDoesNotHoldAsItIs(t *testing.T) {
 	assert.Len(t, migratetest.Applied(t, h)[StepRetireLegacy], len(retired), "an unchanged kept file is not hashed again")
 }
 
-// The engine halts a build whose catalog stops at layout 0 on a migrated home,
-// so it can never re-create the retired files empty.
 func TestLedgerLayout_ABuildThatKnowsOnlyLayoutZeroHaltsOnAMigratedHome(t *testing.T) {
 	h := legacyHome(t)
 	bootLedgerSteps(t, h)

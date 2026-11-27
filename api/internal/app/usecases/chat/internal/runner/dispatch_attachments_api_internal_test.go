@@ -71,13 +71,6 @@ func TestRewritePromptTextForDispatch_HomeLookupFailure_IsWrapped(t *testing.T) 
 	require.ErrorContains(t, err, "boom")
 }
 
-// apiPushAttachmentTestDescriptor mirrors apiTransportTestDescriptor's shape
-// (apiconn_internal_test.go) plus a prompt: event whose fresh step is a bare
-// {text} passthrough — the minimal shape that exercises pushPromptOverAPI's
-// real Dispatch("prompt", ...) call over a real (fake-server-backed)
-// *engineagents.APIConn, so this test proves the REWRITTEN text is what
-// actually reaches the wire, not just what materializeAttachmentsForDispatch
-// returns in isolation.
 const apiPushAttachmentTestDescriptor = `
 id: api-push-test
 spawn:
@@ -119,12 +112,6 @@ func apiPushAttachmentTestAgent(t *testing.T) engineagents.Agent {
 	return a
 }
 
-// TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing is Task 8's
-// end-to-end pin: a chat with a live api connection and an attachment
-// reference in its prompt text gets the SAME absolute-path rewrite the
-// spawnRunner/restart_tui path already gets, and the CLI on the wire
-// receives the file's real absolute path, never the durable logical
-// chats/<id>/attachments reference.
 func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T) {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "worktree")
@@ -134,7 +121,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 
 	received := make(chan string, 1)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		msg, err := conn.Read() // turn/start
+		msg, err := conn.Read()
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -149,7 +136,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 		received <- params.Text
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{}})
 		require.NoError(t, conn.Write(resp))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	agent := apiPushAttachmentTestAgent(t)
@@ -192,10 +179,6 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	assert.NotContains(t, dispatched, "]("+"chats/chat-1/attachments/"+fileName+")")
 }
 
-// TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePrompt
-// proves a materialized attachment reference still reaches the wire, and a
-// wire-level failure after it settles the recorded prompt as undelivered while
-// telling the client the outcome is unknown.
 func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePrompt(t *testing.T) {
 	home := t.TempDir()
 	worktree := filepath.Join(home, "worktree")
@@ -205,7 +188,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 
 	received := make(chan string, 1)
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
-		msg, err := conn.Read() // turn/start
+		msg, err := conn.Read()
 		require.NoError(t, err)
 		var req struct {
 			ID     json.RawMessage `json:"id"`
@@ -223,7 +206,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 			"error": map[string]any{"code": 1, "message": "boom: the CLI refused turn/start"},
 		})
 		require.NoError(t, conn.Write(resp))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	agent := apiPushAttachmentTestAgent(t)
@@ -273,9 +256,6 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_SettlesThePro
 	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
 }
 
-// TestSubmitPromptOverAPI_MaterializeFailure_RecordsNothing: attachments are
-// materialized before the prompt is recorded, so a failure there reached no CLI
-// and leaves no prompt behind — the same request may simply be sent again.
 func TestSubmitPromptOverAPI_MaterializeFailure_RecordsNothing(t *testing.T) {
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
@@ -283,8 +263,6 @@ func TestSubmitPromptOverAPI_MaterializeFailure_RecordsNothing(t *testing.T) {
 		ledger:        newTestLedger(t),
 		conversations: stubConversationsForPromptRestart{},
 	}
-	// A dummy entry is enough: materialization fails before pushPromptOverAPI
-	// ever dereferences the connection.
 	rs.apiConns.set("runner-1", &apiconn{})
 
 	chat := domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}

@@ -219,9 +219,6 @@ func TestFileUsecase_Reads_AllowLockedWorkspace(t *testing.T) {
 	assert.Len(t, nodes, 1)
 }
 
-// The cases below cover each method's fs-engine error branch (the workspace
-// resolves but the underlying filesystem op fails); a mutation must not resync.
-
 func okWorkspace(
 	syncer *mocks.WorkspaceSyncer,
 ) {

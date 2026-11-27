@@ -1,6 +1,3 @@
-// Package semtok rewrites each language server's semantic-token legend into Crowbar's
-// one canonical legend, since Monaco fixes a provider's legend once. Only the type and
-// modifier slots change; an uncanonical type gets an out-of-legend index, left unstyled.
 package semtok
 
 import (
@@ -10,8 +7,6 @@ import (
 	"sort"
 )
 
-// TokenTypes is the canonical legend's types: the LSP 3.18 set plus tag and attribute.
-// The web legend (semantic-tokens-legend.ts) mirrors it index for index, pinned by tests.
 var TokenTypes = []string{
 	"namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
 	"parameter", "variable", "property", "enumMember", "event", "function",
@@ -19,16 +14,11 @@ var TokenTypes = []string{
 	"regexp", "operator", "decorator", "label", "tag", "attribute",
 }
 
-// TokenModifiers is the canonical legend's modifiers. readonly is first because Monaco
-// matches "type.mod1.mod2" by longest dotted prefix, so "variable.readonly" needs it first.
 var TokenModifiers = []string{
 	"readonly", "declaration", "definition", "static", "deprecated", "abstract",
 	"async", "modification", "documentation", "defaultLibrary",
 }
 
-// typeAliases maps well-known non-standard server token types to their nearest
-// canonical type (rust-analyzer, clangd, jdtls). Anything absent from both
-// TokenTypes and this table is left unstyled.
 var typeAliases = map[string]string{
 	"builtinType":      "type",
 	"typeAlias":        "type",
@@ -49,20 +39,13 @@ var typeAliases = map[string]string{
 	"toolModule":       "namespace",
 }
 
-// modifierAliases maps well-known non-standard modifiers to canonical ones.
 var modifierAliases = map[string]string{
 	"constant": "readonly",
 	"library":  "defaultLibrary",
 }
 
-// ErrMisalignedDelta reports a delta whose edits move surviving tokens off
-// their 5-int boundaries, so its slots cannot be rewritten element-wise; the
-// caller asks the server for a full result instead.
 var ErrMisalignedDelta = errors.New("semtok: delta edits are not token-aligned")
 
-// Support is what one language server offers for semantic tokens, with the
-// index tables that rewrite its legend into the canonical one. The zero value
-// supports nothing.
 type Support struct {
 	full   bool
 	delta  bool
@@ -71,17 +54,12 @@ type Support struct {
 	modMap []uint32
 }
 
-// Full reports whether the server answers textDocument/semanticTokens/full.
 func (s Support) Full() bool { return s.full }
 
-// Delta reports whether the server answers textDocument/semanticTokens/full/delta.
 func (s Support) Delta() bool { return s.delta }
 
-// Range reports whether the server answers textDocument/semanticTokens/range.
 func (s Support) Range() bool { return s.rng }
 
-// FromCapabilities reads semanticTokensProvider from a server's initialize
-// result capabilities. Anything malformed or absent yields the zero Support.
 func FromCapabilities(
 	capabilities json.RawMessage,
 ) Support {
@@ -109,7 +87,6 @@ func FromCapabilities(
 	}
 }
 
-// enabled reads an LSP `boolean | {}` option: true or any object means on.
 func enabled(
 	raw json.RawMessage,
 ) bool {
@@ -124,7 +101,6 @@ func enabled(
 	return json.Unmarshal(raw, &obj) == nil && obj != nil
 }
 
-// parseFull reads the `full: boolean | { delta?: boolean }` option.
 func parseFull(
 	raw json.RawMessage,
 ) (full, delta bool) {
@@ -179,30 +155,22 @@ func modifierTable(
 	return table
 }
 
-// Tokens is a full or range result: 5 ints per token (deltaLine,
-// deltaStartChar, length, tokenType, tokenModifiers).
 type Tokens struct {
 	ResultID string   `json:"resultId,omitempty"`
 	Data     []uint32 `json:"data"`
 }
 
-// Edit is one edit of a delta result, addressed into the previous result's
-// data array.
 type Edit struct {
 	Start       uint32   `json:"start"`
 	DeleteCount uint32   `json:"deleteCount"`
 	Data        []uint32 `json:"data,omitempty"`
 }
 
-// Delta is a full/delta result: edits against the previous result.
 type Delta struct {
 	ResultID string `json:"resultId,omitempty"`
 	Edits    []Edit `json:"edits"`
 }
 
-// Remap decodes a full, range or delta result, rewrites it into the canonical
-// legend and re-encodes it. A null result stays nil. A delta that cannot be
-// rewritten element-wise fails with ErrMisalignedDelta.
 func (s Support) Remap(
 	raw json.RawMessage,
 ) (json.RawMessage, error) {
@@ -240,17 +208,12 @@ func encode(
 	return encoded, nil
 }
 
-// remapTokens rewrites data (a full or range result's array) into the
-// canonical legend in place.
 func (s Support) remapTokens(
 	data []uint32,
 ) {
 	s.remapFrom(data, 0)
 }
 
-// remapDelta rewrites each edit's inserted data into the canonical legend in place. A
-// slot is its index in the new array mod 5, so offsets shift by earlier edits' growth;
-// kept elements are already canonical unless shifted off slot (ErrMisalignedDelta).
 func (s Support) remapDelta(
 	edits []Edit,
 ) error {
@@ -274,8 +237,6 @@ func (s Support) remapDelta(
 	return nil
 }
 
-// remapFrom rewrites data whose first element sits at index offset of a token
-// array.
 func (s Support) remapFrom(
 	data []uint32,
 	offset int,

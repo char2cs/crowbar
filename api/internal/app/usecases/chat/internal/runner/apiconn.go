@@ -1,6 +1,3 @@
-// Package runner (file apiconn.go) is the api-transport half of spawning: fork `serve`,
-// handshake, pump its events through the hook door, answer its permissions. It goes only
-// through engineagents.Agent: the protocol packages sit behind an internal/ boundary.
 package runner
 
 import (
@@ -19,28 +16,17 @@ import (
 )
 
 type apiconn struct {
-	// serve is nil for a dialed connection (websocket, http), whose end is gone closing.
-	serve  *serveProcess
-	gone   chan struct{}
-	driver *engineagents.APIConn
-	// ctx/cancel are the connection's OWN lifetime, never a request's: a reply can
-	// arrive minutes after the triggering HTTP call returned. drop cancels it, where
-	// serve is killed.
-	ctx    context.Context
-	cancel context.CancelFunc
-	// agent/tctx are this connection's descriptor and template context, set once
-	// establish succeeds; SwitchToTerminal reads them to render attach and re-establish.
-	agent engineagents.Agent
-	tctx  engineagents.TemplateCtx
-	// detached marks a connection killed without its runner ending (handed to its
-	// native view, or daemon shutdown). Read by watchExit after the entry is gone.
+	serve    *serveProcess
+	gone     chan struct{}
+	driver   *engineagents.APIConn
+	ctx      context.Context
+	cancel   context.CancelFunc
+	agent    engineagents.Agent
+	tctx     engineagents.TemplateCtx
 	detached atomic.Bool
-	// lost is why the connection died on its own, kept here because only a
-	// watched connection's death is its runner's exit (watchAPIConnExit).
-	lost atomic.Pointer[string]
+	lost     atomic.Pointer[string]
 }
 
-// lostReason is why c died on its own; "" while it lives or was taken down.
 func (c *apiconn) lostReason() string {
 	if reason := c.lost.Load(); reason != nil {
 		return *reason
@@ -48,8 +34,6 @@ func (c *apiconn) lostReason() string {
 	return ""
 }
 
-// apiConnRegistry is the live api connections by runnerID. In memory only: it
-// describes live processes, so it cannot survive a restart.
 type apiConnRegistry struct {
 	mu    sync.Mutex
 	byRun map[string]*apiconn
@@ -65,9 +49,6 @@ func (r *apiConnRegistry) set(runnerID string, c *apiconn) {
 	r.byRun[runnerID] = c
 }
 
-// get returns runnerID's live connection, if it has one. ok=false is the
-// common case for a hooks-channel runner. Nil-safe: test doubles build a
-// Runners without a registry.
 func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
 	if r == nil {
 		return nil, false
@@ -78,8 +59,6 @@ func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
 	return c, ok
 }
 
-// drop closes and forgets runnerID's connection, if any. Safe on a nil registry:
-// pumpAPIConn's loss handler can outlive whatever built it.
 func (r *apiConnRegistry) drop(runnerID string) {
 	if r == nil {
 		return
@@ -105,9 +84,6 @@ func (r *apiConnRegistry) drop(runnerID string) {
 	}
 }
 
-// closeAll detaches and drops every connection at daemon shutdown — the only path that
-// stops `serve` processes outliving the daemon; the next boot reconciles each row.
-// Ids are snapshotted under r.mu and dropped after it is released: drop takes it too.
 func (r *apiConnRegistry) closeAll() {
 	r.mu.Lock()
 	ids := make([]string, 0, len(r.byRun))
@@ -121,9 +97,6 @@ func (r *apiConnRegistry) closeAll() {
 	}
 }
 
-// startAPIConn forks `serve` for an api-transport descriptor, ready once it answers
-// the handshake. A descriptor with no connection to start is a nil conn and nil error;
-// a connection that would not come up is its error.
 func (rs *Runners) startAPIConn(
 	ctx context.Context,
 	runnerID string,
@@ -155,7 +128,6 @@ func (rs *Runners) startAPIConn(
 	return rs.registerAPIConn(runnerID, serve, driver), nil
 }
 
-// dialAPIConn connects a websocket or http descriptor, which has no process to fork.
 func (rs *Runners) dialAPIConn(
 	ctx context.Context, runnerID string, agent engineagents.Agent, tctx engineagents.TemplateCtx,
 ) (*apiconn, error) {
@@ -175,10 +147,6 @@ func (rs *Runners) registerAPIConn(runnerID string, serve *serveProcess, driver 
 	return conn
 }
 
-// applyAPITransport connects an api-transport descriptor and establishes its
-// session first, so a hotswap attach argv names the session prompts act on. It
-// returns the provider's refusal of that session. Any other failure degrades to hooks,
-// unless the connection is the chat's only channel (connectionOnly): then it is the error.
 func (rs *Runners) applyAPITransport(
 	ctx context.Context,
 	runnerID, providerID string,
@@ -202,9 +170,6 @@ func (rs *Runners) applyAPITransport(
 		return nil, rs.noConnection(ctx, tctx.ChatID, agent, err, connectionOnly)
 	}
 	tctx.Session = session
-	// The only channel that reaches an already-resumed session with the gap
-	// (the resume call's own send: has nowhere to put it). Best effort: a failed
-	// inject leaves the resumed session running without the gap, not unresumed.
 	if resumeContext != "" {
 		if err := conn.driver.InjectAt(ctx, "context", map[string]string{
 			"session_id": tctx.Session,
@@ -215,8 +180,6 @@ func (rs *Runners) applyAPITransport(
 	}
 	conn.agent, conn.tctx = agent, tctx
 
-	// Only a HOTSWAP provider auto-attaches at spawn; attach without hotswap is on
-	// demand once idle (SwitchToTerminal), since its session may not exist yet.
 	var attach []string
 	if agent.Capabilities().Hotswap {
 		if attachArgv, ok := agent.APIAttachArgv(tctx); ok {
@@ -227,8 +190,6 @@ func (rs *Runners) applyAPITransport(
 	return attach, nil
 }
 
-// noConnection is the outcome of a connection that never came up: the spawn's failure
-// when no other channel exists, else a note and a degrade to hooks.
 func (rs *Runners) noConnection(
 	ctx context.Context, chatID string, agent engineagents.Agent, err error, connectionOnly bool,
 ) error {
@@ -239,16 +200,12 @@ func (rs *Runners) noConnection(
 	return nil
 }
 
-// noteNoConnection tells the chat its CLI's connection never came up, so the
-// chat it falls back to is not mistaken for the one the user asked for.
 func (rs *Runners) noteNoConnection(ctx context.Context, chatID string, agent engineagents.Agent, err error) {
 	rs.divide(ctx, chatID, ledger.MarkerWarning, fmt.Sprintf(
 		"Crowbar could not connect to %s (%v). Stop the chat and send again to retry.",
 		agent.Display().Name, err))
 }
 
-// refusedSession is err when it is the provider refusing the session; any other
-// establish failure is nil, leaving the spawn to hooks.
 func refusedSession(err error) error {
 	if errors.Is(err, engineagents.ErrAPISessionLost) {
 		return err
@@ -256,8 +213,6 @@ func refusedSession(err error) error {
 	return nil
 }
 
-// establishAPISession opens or resumes tctx's session on conn. A session the
-// provider refuses is lost, and any failure drops the connection.
 func (rs *Runners) establishAPISession(
 	ctx context.Context,
 	conn *apiconn,
@@ -265,22 +220,15 @@ func (rs *Runners) establishAPISession(
 	tctx engineagents.TemplateCtx,
 ) (string, error) {
 	values := map[string]string{
-		"session_id": tctx.Session,
-		"cwd":        tctx.Cwd,
-		// Only Fresh renders {context}; a resumed session gets the same document
-		// through applyAPITransport's resumeContext inject.
-		"context": tctx.Context,
-		// What a session call that hands the provider Crowbar's MCP server reads. Only
-		// what survives a new runner and a move: the provider pins this block.
-		// Never {relay_token}: bodies are logged, so the relay reads the file instead.
+		"session_id":       tctx.Session,
+		"cwd":              tctx.Cwd,
+		"context":          tctx.Context,
 		"crowbar":          tctx.CrowbarBin,
 		"relay_id":         tctx.RelayID,
 		"relay_token_file": tctx.RelayTokenFile(),
 		"daemon_host":      tctx.DaemonHost,
 		"crowbar_home":     tctx.CrowbarHome,
 	}
-	// A fresh session renders the chat's permission level from the same vars a
-	// restart_tui spawn's argv does, or it launches with none.
 	for k, v := range tctx.PermissionVars {
 		values["permission."+k] = v
 	}
@@ -300,9 +248,6 @@ func (rs *Runners) establishAPISession(
 	return established["session_id"], nil
 }
 
-// pointPlanAtAttach redirects a spawn plan's PTY at applyAPITransport's attach
-// argv. binpath.Resolve for the same reason spawnRunner resolves its own
-// argv[0]: exec.Command looks a bare name up against the DAEMON's PATH.
 func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 	if len(attachArgv) == 0 {
 		return
@@ -311,9 +256,6 @@ func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 	plan.Argv = attachArgv[1:]
 }
 
-// pumpAPIConn places every event the driver resolves through the hook door, on the
-// connection's own ctx. An unplaceable event never stops those behind it; an
-// unplaceable ask is refused at once.
 func (rs *Runners) pumpAPIConn(
 	runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
 ) {
@@ -331,38 +273,29 @@ func (rs *Runners) pumpAPIConn(
 				continue
 			}
 			if ev.AskID != nil && len(reply) > 0 {
-				// Answered by Crowbar itself, before any person is asked.
 				if err := conn.driver.Reply(ev.AskID, reply); err != nil {
 					slog.WarnContext(ctx, "agent: api transport: write reply", "err", err, "runner_id", runnerID)
 				}
 				continue
 			}
 			if ev.AskID != nil {
-				// Off the pump: a human's decision can take minutes, and every
-				// event behind the ask must keep flowing.
 				go rs.awaitAndReply(ctx, runnerID, agent, ev, conn, ask)
 			}
 		}
 	}()
 }
 
-// HasLiveAPIConnection reports whether runnerID's channel right now is an api
-// connection — false for a hooks-channel runner and for one handed over to its
-// native view (SwitchToTerminal).
 func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 	_, ok := rs.apiConns.get(runnerID)
 	return ok
 }
 
-// awaitAndReply is the api channel's hook relay. Every ask gets a reply — an api
-// provider has no TUI to fall back to — so an expired budget sends the descriptor's
-// refusal and the desk closes the question as refused.
 func (rs *Runners) awaitAndReply(
 	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn, ask string,
 ) {
 	answer, err := rs.answers.Await(ctx, ask, domain.ChoiceResolutionRefused)
 	if err != nil {
-		return // the connection is closing: the provider's ask dies with it
+		return
 	}
 	if len(answer.Stdout) == 0 {
 		rs.refuseAsk(ctx, runnerID, agent, ev, conn, "No answer from Crowbar in time.")
@@ -373,7 +306,6 @@ func (rs *Runners) awaitAndReply(
 	}
 }
 
-// refuseAsk answers ev with its descriptor's refusal, for reason.
 func (rs *Runners) refuseAsk(
 	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn, reason string,
 ) {

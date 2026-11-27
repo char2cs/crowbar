@@ -21,8 +21,6 @@ func (u *Usecase) attachmentsDir(ctx context.Context, chatID string) (string, er
 	return worktreepath.AttachmentsDir(home, chat.ID), nil
 }
 
-// BeginAttachmentUpload starts, or resumes, a chunked upload of fileName and answers the bytes the
-// daemon already holds for id.
 func (u *Usecase) BeginAttachmentUpload(ctx context.Context, chatID, id, fileName string, size int64) (int64, error) {
 	dir, err := u.attachmentsDir(ctx, chatID)
 	if err != nil {
@@ -31,7 +29,6 @@ func (u *Usecase) BeginAttachmentUpload(ctx context.Context, chatID, id, fileNam
 	return repoattachments.BeginUpload(dir, id, fileName, size)
 }
 
-// AppendAttachmentUpload writes one chunk at offset and answers the bytes held afterwards.
 func (u *Usecase) AppendAttachmentUpload(ctx context.Context, chatID, id string, offset int64, chunk io.Reader) (int64, error) {
 	dir, err := u.attachmentsDir(ctx, chatID)
 	if err != nil {
@@ -40,7 +37,6 @@ func (u *Usecase) AppendAttachmentUpload(ctx context.Context, chatID, id string,
 	return repoattachments.AppendUpload(dir, id, offset, chunk)
 }
 
-// CompleteAttachmentUpload stores the staged bytes as the attachment, the same record UploadAttachment makes.
 func (u *Usecase) CompleteAttachmentUpload(ctx context.Context, chatID, id, fileName string, size int64) (StoredAttachment, error) {
 	dir, err := u.attachmentsDir(ctx, chatID)
 	if err != nil {
@@ -53,7 +49,6 @@ func (u *Usecase) CompleteAttachmentUpload(ctx context.Context, chatID, id, file
 	return storedAttachment(chatID, stored, contentType, int(size)), nil
 }
 
-// AbortAttachmentUpload deletes a chunked upload's staged bytes.
 func (u *Usecase) AbortAttachmentUpload(ctx context.Context, chatID, id string) error {
 	dir, err := u.attachmentsDir(ctx, chatID)
 	if err != nil {

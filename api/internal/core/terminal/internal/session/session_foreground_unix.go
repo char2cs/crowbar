@@ -2,9 +2,6 @@
 
 package session
 
-// checkForegroundResetLocked fires the model's OnForegroundReset once when the PTY's
-// foreground group returns to the shell's (a foreground app exited, even by SIGKILL), so
-// its stale alt-screen/mouse modes never leak into the prompt. Caller must hold s.mu.
 func (s *Session) checkForegroundResetLocked() {
 	if s.ptmx == nil || s.cmd == nil || s.cmd.Process == nil || s.model == nil {
 		return
@@ -28,8 +25,6 @@ func (s *Session) checkForegroundResetLocked() {
 	s.lastForegroundPgid = fg
 }
 
-// latchForeground records a fresh PTY's own process group as its foreground: nothing ran
-// before it, so its first sample is no app's exit and must not clear the modes it set.
 func (s *Session) latchForeground() {
 	if pgid, err := getpgidFn(s.cmd.Process.Pid); err == nil {
 		s.lastForegroundPgid = pgid

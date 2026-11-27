@@ -17,9 +17,6 @@ import (
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
 
-// Allowed reports whether want is acceptable against a resolved catalogue. An empty known list
-// rejects everything only when nothing could resolve it (!discovered); while discovery is pending
-// or failed, rejecting would wedge selection.
 func Allowed(known []string, discovered bool, want string) bool {
 	if len(known) > 0 {
 		return slices.Contains(known, want)
@@ -34,21 +31,12 @@ type Agents interface {
 
 	RecordInjection(runnerID string, docs ...string)
 
-	// ConsumeInjectedPrefix reports whether text carries a document runnerID was handed, and returns
-	// text without it: a real prompt can ride the same positional, and the remainder is what the user
-	// typed.
 	ConsumeInjectedPrefix(runnerID, text string) (remainder string, found bool)
 
 	ForgetRunner(runnerID string)
 
-	// SetManifestFetchEnabled installs the getter a model.manifest refresh asks before hitting the
-	// network. Until it is called fetching is disabled, so resolving a descriptor never makes a
-	// network call as a side effect.
 	SetManifestFetchEnabled(enabled func() bool)
 
-	// Close stops every background model-discovery refresh and blocks until each, with any disk write
-	// it owes, has returned: cancelling the lifecycle context cannot stop one past its last ctx check.
-	// Idempotent.
 	Close()
 }
 
@@ -66,29 +54,17 @@ type Agent interface {
 
 	Efforts(model string) []string
 
-	// DefaultModel is the model the provider itself states is its default, empty when it states none
-	// or nothing has resolved yet; never inferred from Models()'s order.
 	DefaultModel() string
 
-	// DefaultEffort is the effort model runs at when none is chosen, as the provider states it; empty
-	// when it states none.
 	DefaultEffort(model string) string
 
-	// PermissionLevels reports which of Crowbar's own guarded/trusted/
-	// full-auto names this provider can actually reach. A level absent here
-	// must never be offered for this provider — never clamped to one that is.
 	PermissionLevels() []string
 
-	// PermissionVars is level's named values for a transport that takes them as request data rather
-	// than an argv flag, narrowed for a chat that left a folder; empty for an undeclared level.
 	PermissionVars(level string, left bool) map[string]string
-	// ModelParts is a composed model id's named parts, nil for any other id.
 	ModelParts(model string) map[string]string
 
 	SelectionSteps(sel Selection) []InjectStep
 
-	// SelectionAPISteps is SelectionSteps for the api channel's `serve` process, so a caller can ask
-	// which fields a carrier takes without launching anything.
 	SelectionAPISteps(sel Selection) []InjectStep
 
 	SelectionRestart(launched, desired Selection) bool
@@ -97,50 +73,24 @@ type Agent interface {
 
 	PromptSteps(resume bool) ([]InjectStep, error)
 
-	// PromptLeadingSigils is presentation.prompt_submit.leading_sigils: the
-	// characters that open a control gesture rather than text, and the escape
-	// that makes one text again. Empty chars when none are declared.
 	PromptLeadingSigils() (chars []string, escape string)
 
-	// PromptSteer renders text as the turn-end hook stdout that delivers it
-	// into a RUNNING turn (presentation.prompt_submit.steer); ok is false when
-	// the provider declares none or text is a command the descriptor excludes.
 	PromptSteer(text string) (stdout string, ok bool)
-	// PromptType is presentation.prompt_submit.type: how a prompt is typed into
-	// an idle CLI's composer; ok is false when the provider declares none.
 	PromptType() (typing PromptTyping, ok bool)
-	// CanType reports whether text may be typed: the provider declares a type
-	// block, text opens with none of its skip_prefixes or ends in none of its
-	// skip_suffixes, and holds no control character. When false the caller restarts.
 	CanType(text string) bool
-	// PromptTypeWrites renders text as the PTY writes that type it: chunks of at
-	// most ChunkBytes, then the submit key as a write of its own. ok is CanType(text).
 	PromptTypeWrites(text string) (writes [][]byte, ok bool)
-	// ComposerEmpty reports whether the composer holds no draft: the cursor sits
-	// right after the type block's row prefix and the rest of the row is blank or
-	// ghost. False when no type block is declared or the row is out of range.
 	ComposerEmpty(screen ComposerScreen) bool
-	// ToolDenial renders the reply that refuses one tool call before it runs,
-	// with reason shown to the model; ok is false when the provider declares none.
 	ToolDenial(reason string) (stdout string, ok bool)
-	// PromptIsCommand reports whether text is a command the CLI runs itself
-	// (presentation.prompt_submit.steer.skip_prefixes), which may open no turn.
 	PromptIsCommand(text string) bool
 
 	ContextSteps(resuming bool) []InjectStep
 
 	ResumeArg() (string, bool)
 	SessionAssignArg() (string, bool)
-	// SessionPinsRelay is whether a session's calls carry {relay_id}: the provider
-	// keeps that block for the session, so a launch must repeat it byte for byte.
 	SessionPinsRelay() bool
-	// RefusedResume is the line by which the CLI refused a resume, even wrapped.
 	RefusedResume(exitCode int, output string) (line string, refused bool)
-	// SessionPersists is session.persists: "turn_start" (or "") or "turn_end".
 	SessionPersists() string
 
-	// ParseHook turns one raw payload into a canonical event, reading the block of the channel the
-	// delivery actually arrived on, never the event's declared transport (see spec.Channel).
 	ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error)
 
 	ParseTelemetry(raw []byte, now time.Time, channel Channel) (Telemetry, error)
@@ -155,55 +105,28 @@ type Agent interface {
 
 	MatchTerminalPrompt(screen string) (TerminalPrompt, bool)
 
-	// OutboundCall resolves a canonical event Crowbar drives — compact_start,
-	// interrupt, prompt — into this provider's own call and payload. The bool is the
-	// capability: a provider that declares the event cannot be asked to do it.
 	OutboundCall(canonical string, values map[string]string) (wire string, payload map[string]string, ok bool)
 
-	// StartAPIConn completes the declared handshake over serve's stdio, closing
-	// it on any error; ErrAPITransportNotDeclared for a hooks-only descriptor.
-	// origin (nil-able) learns the sessions the conn produces.
 	StartAPIConn(ctx context.Context, stdio APIStdio, origin APISessionOrigin) (*APIConn, error)
 
-	// APIDialed is whether runtime.api reaches its server by dialing (delivery
-	// websocket or http) instead of by a serve process; StartAPIEndpoint then
-	// connects it, with the same refusal and cleanup as StartAPIConn.
 	APIDialed() bool
-	// APIOnlyPrompts is a descriptor whose connection is the only carrier of a
-	// prompt: it declares no prompt_submit argv to restart a CLI with.
 	APIOnlyPrompts() bool
 	StartAPIEndpoint(ctx context.Context, tctx TemplateCtx, origin APISessionOrigin) (*APIConn, error)
 
-	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
-	// template-expanded against ctx, mirroring PromptSteps's (x, bool) shape: ok
-	// is false when this descriptor declares no such field.
 	APIServeArgv(ctx TemplateCtx) ([]string, bool)
 	APIAttachArgv(ctx TemplateCtx) ([]string, bool)
 
-	// TransportFor is spec.Descriptor.TransportFor, exposed narrowly: callers outside this package
-	// reach a provider only through this interface, never through *spec.Descriptor.
 	TransportFor(canonical string) string
 
-	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
-	// way.
 	EventSurfaces(canonical string) []string
 
-	// AnswerEndsAtAction is message_delta's ends_at_action: the text streamed
-	// before a call, a subagent or an ask is that message's whole text.
 	AnswerEndsAtAction() bool
 
-	// SurfaceChannel is spec.Descriptor.SurfaceChannel, exposed the same
-	// narrow way: which delivery channel drives one SURFACE's facts
-	// (the descriptor's surfaces.<name>.channel), "" for an undeclared surface.
 	SurfaceChannel(surface string) string
 
-	// TelemetryChannel is where usage reports arrive; TelemetryOnSurface asks whether a chat on one
-	// surface can receive them, since a provider-wide flag cannot tell two of its chats apart.
 	TelemetryChannel() string
 	TelemetryOnSurface(surface string) bool
 
-	// SurfaceStartHere is whether a brand-new chat may launch directly onto surface, the per-surface
-	// form of Capabilities.TerminalStartHere.
 	SurfaceStartHere(surface string) bool
 }
 
@@ -212,9 +135,7 @@ func Expand(s string, ctx TemplateCtx) string {
 }
 
 type agent struct {
-	spec *spec.Descriptor
-	// discovery is nil for an agent built without New; Models/Efforts then read the descriptor's
-	// static catalogue.
+	spec      *spec.Descriptor
 	discovery *modeldiscovery.Cache
 }
 
@@ -262,8 +183,6 @@ func (a *agent) WithTools(enabled bool) Agent {
 	return &agent{spec: &stripped, discovery: a.discovery}
 }
 
-// discoversModels reports whether Models/Efforts/DefaultModel read the shared discovery cache: for a
-// live probe or a manifest catalogue, which a descriptor never declares together.
 func (a *agent) discoversModels() bool {
 	m := a.spec.Model
 	return m != nil && (m.Discover != nil || m.Manifest != nil) && a.discovery != nil

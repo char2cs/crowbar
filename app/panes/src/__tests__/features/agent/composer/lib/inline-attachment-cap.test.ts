@@ -1,0 +1,25 @@
+import { describe, expect, it } from 'vitest'
+import { exceedsInlineSizeCap } from '@/features/agent/composer/lib/inline-attachment-cap'
+
+const INLINE_ATTACHMENT_MAX_BYTES = 32 * 1024
+
+describe('exceedsInlineSizeCap', () => {
+  it('is false for text well under the cap', () => {
+    expect(exceedsInlineSizeCap('hello')).toBe(false)
+  })
+
+  it('is false for text exactly at the cap', () => {
+    expect(exceedsInlineSizeCap('x'.repeat(INLINE_ATTACHMENT_MAX_BYTES))).toBe(false)
+  })
+
+  it('is true for text one byte over the cap', () => {
+    expect(exceedsInlineSizeCap('x'.repeat(INLINE_ATTACHMENT_MAX_BYTES + 1))).toBe(true)
+  })
+
+  it('measures UTF-8 bytes, not UTF-16 code units', () => {
+    const charCount = Math.floor(INLINE_ATTACHMENT_MAX_BYTES / 3) + 1
+    const text = '€'.repeat(charCount)
+    expect(text.length).toBeLessThanOrEqual(INLINE_ATTACHMENT_MAX_BYTES)
+    expect(exceedsInlineSizeCap(text)).toBe(true)
+  })
+})

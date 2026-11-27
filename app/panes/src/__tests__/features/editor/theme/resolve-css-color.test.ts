@@ -1,0 +1,123 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  cssColorToHex,
+  readSyntaxPalette,
+  readTerminalPalette,
+  resolveCssVar,
+  withAlpha,
+} from '@/features/editor/theme/resolve-css-color'
+
+describe('withAlpha', () => {
+  it('appends an alpha byte to an opaque hex', () => {
+    expect(withAlpha('#2a2a2a', 0.5)).toBe('#2a2a2a80')
+  })
+
+  it('replaces an existing alpha byte rather than stacking it', () => {
+    expect(withAlpha('#33445566', 0.1)).toBe('#3344551a')
+  })
+
+  it('clamps to a fully transparent or fully opaque byte at the extremes', () => {
+    expect(withAlpha('#2a2a2a', 0)).toBe('#2a2a2a00')
+    expect(withAlpha('#2a2a2a', 1)).toBe('#2a2a2aff')
+  })
+})
+
+describe('cssColorToHex', () => {
+  it('passes through and expands hex', () => {
+    expect(cssColorToHex('#aabbcc')).toBe('#aabbcc')
+    expect(cssColorToHex('#abc')).toBe('#aabbcc')
+    expect(cssColorToHex('  #ABCDEF ')).toBe('#abcdef')
+  })
+
+  it('converts rgb/rgba', () => {
+    expect(cssColorToHex('rgb(255, 0, 0)')).toBe('#ff0000')
+    expect(cssColorToHex('rgba(0, 0, 0, 0.5)')).toBe('#00000080')
+  })
+
+  it('converts oklch endpoints exactly', () => {
+    expect(cssColorToHex('oklch(1 0 0)')).toBe('#ffffff')
+    expect(cssColorToHex('oklch(0 0 0)')).toBe('#000000')
+  })
+
+  it('handles oklch alpha', () => {
+    expect(cssColorToHex('oklch(1 0 0 / 50%)')).toBe('#ffffff80')
+  })
+
+  it('converts a known chromatic oklch within tolerance of sRGB red', () => {
+    const hex = cssColorToHex('oklch(0.6279 0.2577 29.23)')
+    expect(hex).not.toBeNull()
+    const r = Number.parseInt((hex as string).slice(1, 3), 16)
+    const g = Number.parseInt((hex as string).slice(3, 5), 16)
+    const b = Number.parseInt((hex as string).slice(5, 7), 16)
+    expect(r).toBeGreaterThan(250)
+    expect(g).toBeLessThan(20)
+    expect(b).toBeLessThan(20)
+  })
+
+  it('passes through 8-digit hex (rrggbbaa)', () => {
+    expect(cssColorToHex('#aabbccdd')).toBe('#aabbccdd')
+  })
+
+  it('converts space-separated rgb', () => {
+    expect(cssColorToHex('rgb(255 0 0)')).toBe('#ff0000')
+  })
+
+  it('returns null for unparseable input', () => {
+    expect(cssColorToHex('')).toBeNull()
+    expect(cssColorToHex('not-a-color')).toBeNull()
+  })
+})
+
+describe('DOM resolver', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      getPropertyValue: (name: string) => (name.startsWith('--') ? 'oklch(1 0 0)' : ''),
+    } as unknown as CSSStyleDeclaration)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('resolveCssVar converts the computed value to hex', () => {
+    expect(resolveCssVar('--syntax-keyword')).toBe('#ffffff')
+  })
+
+  it('resolveCssVar returns null for an unset var', () => {
+    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      getPropertyValue: () => '',
+    } as unknown as CSSStyleDeclaration)
+    expect(resolveCssVar('--nope')).toBeNull()
+  })
+
+  it('resolveCssVar resolves var() chains via a temporary element', () => {
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+      if (el === document.documentElement) {
+        return {
+          getPropertyValue: (name: string) =>
+            name === '--syntax-comment' ? 'var(--muted-foreground)' : '',
+        } as unknown as CSSStyleDeclaration
+      }
+      return {
+        color: 'rgb(105, 105, 105)',
+        getPropertyValue: () => '',
+      } as unknown as CSSStyleDeclaration
+    })
+    const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n as never)
+    const removeSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((n) => n as never)
+    expect(resolveCssVar('--syntax-comment')).toBe('#696969')
+    expect(appendSpy).toHaveBeenCalledOnce()
+    expect(removeSpy).toHaveBeenCalledOnce()
+  })
+
+  it('readSyntaxPalette returns a hex for every syntax key', () => {
+    const palette = readSyntaxPalette()
+    expect(palette.keyword).toBe('#ffffff')
+    expect(Object.values(palette).every((hex) => hex === '#ffffff')).toBe(true)
+    expect(Object.keys(palette)).toContain('markdown-quote')
+  })
+
+  it('readTerminalPalette returns a hex for every ANSI key', () => {
+    const palette = readTerminalPalette()
+    expect(palette.red).toBe('#ffffff')
+    expect(Object.values(palette).every((hex) => hex === '#ffffff')).toBe(true)
+    expect(Object.keys(palette)).toContain('bright-white')
+  })
+})

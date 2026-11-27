@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// DeleteCascade erases rootID and its unlocked descendants, refusing what the
-// Chats panel's delete would refuse; a locked descendant it keeps is re-hung so
-// no lineage names a workspace that is gone.
 func (u *hierarchyUsecase) DeleteCascade(
 	ctx context.Context,
 	rootID string,
@@ -37,9 +34,6 @@ func (u *hierarchyUsecase) DeleteCascade(
 	return u.rehangSurvivors(ctx, doomed, all)
 }
 
-// DeletionPlan answers what DeleteCascade(rootID) would remove, or the refusal
-// it would answer, without touching anything — so a caller deleting several
-// aggregates can refuse before its first effect.
 func (u *hierarchyUsecase) DeletionPlan(
 	ctx context.Context,
 	rootID string,
@@ -59,8 +53,6 @@ func (u *hierarchyUsecase) DeletionPlan(
 	return ids, nil
 }
 
-// planCascade applies DeleteCascade's guards and returns its root and the
-// live rows it takes, deepest first.
 func (u *hierarchyUsecase) planCascade(
 	ctx context.Context,
 	rootID string,
@@ -68,8 +60,6 @@ func (u *hierarchyUsecase) planCascade(
 ) (domain.Workspace, []domain.Workspace, error) {
 	index := indexByID(all)
 	root, ok := index[rootID]
-	// A tombstone awaiting its reactor is already gone: a second delete
-	// event would run the teardown twice.
 	if !ok || root.Status == domain.WorkspaceStatusDeleted {
 		return root, nil, fmt.Errorf("delete cascade: workspace %s: %w", rootID, problem.ErrNotFound)
 	}
@@ -87,9 +77,6 @@ func (u *hierarchyUsecase) planCascade(
 	return root, liveRows(cascade.Plan(rootID, nodesFrom(all)), index), nil
 }
 
-// rehangSurvivors moves each kept workspace whose fork parent the cascade took
-// under that parent's nearest surviving ancestor, so no lineage names a
-// workspace that is gone.
 func (u *hierarchyUsecase) rehangSurvivors(
 	ctx context.Context,
 	doomed []domain.Workspace,
@@ -115,9 +102,6 @@ func (u *hierarchyUsecase) rehangSurvivors(
 	return nil
 }
 
-// WorkAtRisk reports what deleting each of rootIDs (with its cascade) would
-// destroy that exists nowhere else — the list a delete without consent refuses
-// over. Unknown or already-deleted roots contribute nothing.
 func (u *hierarchyUsecase) WorkAtRisk(
 	ctx context.Context,
 	rootIDs []string,
@@ -150,7 +134,6 @@ func (u *hierarchyUsecase) WorkAtRisk(
 	return risks, nil
 }
 
-// liveRows resolves ids to their rows in order, skipping tombstones.
 func liveRows(
 	ids []string,
 	index map[string]domain.Workspace,

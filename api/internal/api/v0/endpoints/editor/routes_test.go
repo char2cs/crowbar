@@ -228,8 +228,6 @@ func (stubGit) Blame(
 	return nil, nil
 }
 
-// editorSurface is the method+relative-path set editor.Register mounts,
-// written once. The relative half is deliberately prefix-free.
 func editorSurface() []struct {
 	method string
 	path   string
@@ -260,9 +258,6 @@ func editorSurface() []struct {
 	}
 }
 
-// registerChatScoped wires editor.Register the way router.go does: on the
-// flat chat-scoped group alone (spec §8 step 6 retired the old
-// workspace-scoped mount).
 func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
@@ -277,8 +272,6 @@ func registerChatScoped(
 	return r
 }
 
-// TestRegisterMountsChatScopedRoutes is the route half of this step: every
-// editor route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
 func TestRegisterMountsChatScopedRoutes(t *testing.T) {
 	r := registerChatScoped(t)
 
@@ -291,10 +284,6 @@ func TestRegisterMountsChatScopedRoutes(t *testing.T) {
 	}
 }
 
-// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
-// real for editor/LSP: the old /v0/workspaces/:wsId/{blame,lsp/*} mount, kept
-// alive alongside the chat-scoped one through the rest of this refactor,
-// answers nothing any more.
 func TestRegisterDropsWorkspaceScopedRoutes(t *testing.T) {
 	r := registerChatScoped(t)
 

@@ -14,8 +14,6 @@ import (
 
 var errBoom = errors.New("boom")
 
-// fakeWorkspace is a full workspace.Workspace double driven by function fields;
-// only the fields a given test sets are exercised by the usecase under test.
 type fakeWorkspace struct {
 	CreateFn           func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
 	GetFn              func(ctx context.Context, id string) (domain.Workspace, error)
@@ -123,7 +121,6 @@ func (f *fakeWorkspace) Delete(
 	return f.DeleteFn(ctx, id)
 }
 
-// ObserveWorkingTreeState is the watcher's; the hierarchy's syncs are awaited.
 func (f *fakeWorkspace) ObserveWorkingTreeState(context.Context, workspace.SyncInput, time.Time) (domain.Workspace, error) {
 	panic("hierarchy: a working-tree sync must be awaited")
 }
@@ -215,9 +212,6 @@ func (f *fakeRepoStore) FindByKey(
 	if f.missing {
 		return nil, nil
 	}
-	// Give the fallback slug a stable identity when neither remote nor name is set,
-	// so worktree-path derivation (spec §3.9) has a non-empty leaf in tests that
-	// don't exercise slug specifics.
 	name := f.name
 	if name == "" && f.remoteURL == "" {
 		name = "repo"
@@ -238,9 +232,6 @@ func fakeHome() func() (string, error) {
 	return func() (string, error) { return "/tmp/crowbar-test", nil }
 }
 
-// fakeChatObserver is a hierarchy.ChatWorkObserver double: chats lists every
-// chat row across every workspace, and working reports Working per chat id
-// (absent means idle).
 type fakeChatObserver struct {
 	chats   []domain.Chat
 	working map[string]bool

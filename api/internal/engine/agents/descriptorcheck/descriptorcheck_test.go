@@ -2,6 +2,7 @@ package descriptorcheck_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// The shipped descriptors are the reference: every rule passes on them.
 func TestValidateAll_TheShippedDescriptorsAreClean(t *testing.T) {
 	reports, err := descriptorcheck.ValidateAll("")
 	require.NoError(t, err)
@@ -31,6 +31,17 @@ func TestValidateAll_TheShippedDescriptorsAreClean(t *testing.T) {
 		want = append(want, a.ID())
 	}
 	assert.ElementsMatch(t, want, ids)
+}
+
+func TestValidateAll_ACleanReportSerialisesItsFindingsAsAnEmptyArray(t *testing.T) {
+	reports, err := descriptorcheck.ValidateAll("")
+	require.NoError(t, err)
+	require.NotEmpty(t, reports)
+	for _, rep := range reports {
+		encoded, err := json.Marshal(rep)
+		require.NoError(t, err)
+		assert.Contains(t, string(encoded), `"findings":[]`, rep.ID)
+	}
 }
 
 func TestValidateAll_AnOverrideShadowsTheShippedDescriptor(t *testing.T) {
@@ -59,8 +70,6 @@ func errorRules(rep descriptorcheck.Report) []string {
 	return out
 }
 
-// shippedAs is the shipped claude descriptor as a user's file: renamed so a test
-// can tell which document runs, under id, then edited.
 func shippedAs(t *testing.T, id string, edit func(string) string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
@@ -80,9 +89,6 @@ func writeDescriptor(t *testing.T, home, id string, raw []byte) string {
 	return path
 }
 
-// The schema is pre-release and nothing is carried over: an override written for
-// another schema is refused, says so, and the shipped descriptor runs. The file
-// stays exactly as the user wrote it.
 func TestValidateAll_AnOverrideForAnotherSchemaFallsBackUntouched(t *testing.T) {
 	home := t.TempDir()
 	doc := shippedAs(t, "claude", func(s string) string {
@@ -106,8 +112,6 @@ func TestValidateAll_AnOverrideForAnotherSchemaFallsBackUntouched(t *testing.T) 
 	assert.Equal(t, doc, got, "the user's file is never rewritten")
 }
 
-// A custom descriptor in an older shape is blocked, never dropped: it is
-// reported at the retired key with what to do, and the gate refuses it.
 func TestValidateAll_ACustomDescriptorOfAnOlderShapeIsBlockedWithItsFix(t *testing.T) {
 	home := t.TempDir()
 	doc := shippedAs(t, "mine", func(s string) string {
@@ -146,8 +150,6 @@ func reportFor(t *testing.T, home, id string) descriptorcheck.Report {
 	return descriptorcheck.Report{}
 }
 
-// The real migration case: an override in today's vocabulary whose hooks still
-// run the retired relay is refused once, by the finding that names the replacement.
 func TestValidate_AShippedDescriptorStillWiredToTheRelayIsRefused(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "internal", "protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
 	require.NoError(t, err)
@@ -165,7 +167,6 @@ func TestValidate_AShippedDescriptorStillWiredToTheRelayIsRefused(t *testing.T) 
 	assert.False(t, descriptorcheck.AcceptOverride([]byte(relayed)))
 }
 
-// An override with no shipped default to fall back to is still blocked.
 func TestGate_AnOverrideWithNoShippedDefaultIsStillBlocked(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
@@ -198,8 +199,6 @@ func TestValidate_ASyntaxErrorIsOneFindingWithItsLine(t *testing.T) {
 	assert.False(t, rep.OK())
 }
 
-// A typo in a key the lenient load ignores is exactly the silent failure the
-// validator exists to catch.
 func TestValidate_AnUnknownKeyIsAnErrorAtItsPath(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal("hooks_injecton:\n  - pass_arg: { arg: x }\n"))
 	f := findingFor(t, rep, "yaml.unknown_field")
@@ -207,8 +206,6 @@ func TestValidate_AnUnknownKeyIsAnErrorAtItsPath(t *testing.T) {
 	assert.Equal(t, lineOf(t, minimal("hooks_injecton:\n  - pass_arg: { arg: x }\n"), "hooks_injecton:"), f.Line)
 }
 
-// One channel per process: hook wiring in config_injection reaches the
-// app-server too, and every event would arrive twice.
 func TestValidate_FindingsAreOrderedByLine(t *testing.T) {
 	rep := descriptorcheck.Validate(minimal(
 		"session:\n  resume: { arg: \"--resume\" }\nmcp_injection:\n  - pass_arg: { arg: \"{nope}\" }\n"))
@@ -218,12 +215,10 @@ func TestValidate_FindingsAreOrderedByLine(t *testing.T) {
 	}
 }
 
-// minimal is the smallest descriptor every load rule accepts, plus extra.
 func minimal(extra string) []byte {
 	return []byte("id: mini\nspawn:\n  cmd: mini\n  interactive_required: true\nruntime:\n  transport: hooks\n  hooks: { format: json, delivery: http }\n" + extra)
 }
 
-// complete is minimal plus a wired lifecycle, so only extra can fail it.
 func complete(extra string) []byte {
 	return minimal(completeLifecycle + extra)
 }

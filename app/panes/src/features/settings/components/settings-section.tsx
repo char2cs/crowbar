@@ -1,0 +1,293 @@
+import { ArrowCounterClockwise as RotateCcw } from '@phosphor-icons/react'
+import React from 'react'
+import { settingRowMatchesQuery } from '@/features/settings/lib/settings-row-search'
+import { useSettingsStore } from '@/features/settings/store'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/utils/cn'
+import { IS_MOBILE } from '@/utils/platform'
+
+const SectionRowVisibilityContext = React.createContext<
+  ((rowId: string, visible: boolean | null) => void) | null
+>(null)
+
+export function SettingsCard({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  if (!IS_MOBILE) return <div className={cn('space-y-2', className)}>{children}</div>
+  return (
+    <div
+      data-settings-card=""
+      className={cn('divide-y divide-border overflow-hidden rounded-xl bg-muted', className)}
+    >
+      {children}
+    </div>
+  )
+}
+
+interface SectionProps {
+  title: string
+  description?: string
+  children: React.ReactNode
+  className?: string
+  plain?: boolean
+}
+
+export default function Section({ title, description, children, className, plain }: SectionProps) {
+  const isSearchActive = useSettingsStore((state) => state.search.query.trim().length > 0)
+  const rowVisibilityRef = React.useRef(new Map<string, boolean>())
+  const [visibleRowCount, setVisibleRowCount] = React.useState(0)
+
+  const reportRowVisibility = React.useCallback((rowId: string, visible: boolean | null) => {
+    if (visible === null) {
+      rowVisibilityRef.current.delete(rowId)
+    } else {
+      rowVisibilityRef.current.set(rowId, visible)
+    }
+    let count = 0
+    rowVisibilityRef.current.forEach((isVisible) => {
+      if (isVisible) count += 1
+    })
+    setVisibleRowCount(count)
+  }, [])
+
+  const isHiddenBySearch = isSearchActive && visibleRowCount === 0
+
+  return (
+    <SectionRowVisibilityContext.Provider value={reportRowVisibility}>
+      <section
+        hidden={isHiddenBySearch}
+        className={cn(
+          IS_MOBILE ? 'py-2' : 'px-1 py-0.5',
+          'first:[&>.settings-section-header]:hidden',
+          className,
+        )}
+        data-settings-section={title}
+      >
+        <div
+          className={cn('settings-section-header', IS_MOBILE ? 'mb-1.5 px-4' : 'mb-2 px-1 py-1.5')}
+        >
+          <Label
+            className={cn(
+              'font-heading',
+              IS_MOBILE
+                ? 'text-[17px] sm:text-[17px] text-muted-foreground'
+                : 'text-[length:var(--settings-section-title,32px)] sm:text-[length:var(--settings-section-title,32px)] text-foreground',
+            )}
+          >
+            {title}
+          </Label>
+          {description && <p className="ui-font ui-text-sm text-muted-foreground">{description}</p>}
+        </div>
+        {plain ? (
+          <div className="space-y-2">{children}</div>
+        ) : (
+          <SettingsCard>{children}</SettingsCard>
+        )}
+      </section>
+    </SectionRowVisibilityContext.Provider>
+  )
+}
+
+interface SettingRowProps {
+  label: string
+  labelAccessory?: React.ReactNode
+  description?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+  onReset?: () => void
+  canReset?: boolean
+  resetLabel?: string
+  layout?: 'inline' | 'stacked'
+}
+
+export function SettingRow({
+  label,
+  labelAccessory,
+  description,
+  children,
+  className,
+  onReset,
+  canReset = !!onReset,
+  resetLabel,
+  layout = 'inline',
+}: SettingRowProps) {
+  const controlRef = React.useRef<HTMLDivElement>(null)
+  const rowId = React.useId()
+  const labelId = `${rowId}-label`
+  const descriptionId = `${rowId}-description`
+
+  const searchQuery = useSettingsStore((state) => state.search.query)
+  const matchesSearch = settingRowMatchesQuery(searchQuery, label, description)
+  const reportRowVisibility = React.useContext(SectionRowVisibilityContext)
+
+  React.useEffect(() => {
+    if (!reportRowVisibility) return
+    reportRowVisibility(rowId, matchesSearch)
+    return () => reportRowVisibility(rowId, null)
+  }, [reportRowVisibility, rowId, matchesSearch])
+
+  const interactiveSelector =
+    "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [role='button'], [role='switch'], [tabindex]:not([tabindex='-1'])"
+  const passthroughSelector =
+    "button, input, select, textarea, a, label, [role='button'], [role='switch'], [data-slot='button'], [data-setting-interactive-root='true']"
+
+  const getPrimaryInteractive = React.useCallback(() => {
+    const controlRoot = controlRef.current
+    if (!controlRoot) return null
+
+    const primaryInteractive =
+      controlRoot.querySelector<HTMLElement>(
+        "[data-setting-primary-control='true'], [data-setting-interactive-root='true']",
+      ) ?? controlRoot.querySelector<HTMLElement>(interactiveSelector)
+
+    if (!primaryInteractive) return null
+
+    return primaryInteractive.matches(interactiveSelector)
+      ? primaryInteractive
+      : primaryInteractive.querySelector<HTMLElement>(interactiveSelector)
+  }, [interactiveSelector])
+
+  React.useLayoutEffect(() => {
+    const control = getPrimaryInteractive()
+    if (!control) return
+
+    if (!control.getAttribute('aria-labelledby') && !control.getAttribute('aria-label')) {
+      control.setAttribute('aria-labelledby', labelId)
+    }
+
+    if (description && !control.getAttribute('aria-describedby')) {
+      control.setAttribute('aria-describedby', descriptionId)
+    }
+  }, [description, descriptionId, getPrimaryInteractive, labelId])
+
+  const handleRowClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement
+
+    if (target.closest(passthroughSelector)) {
+      return
+    }
+
+    const segmentedControl = controlRef.current?.querySelector<HTMLElement>(
+      "[data-setting-segmented-control='true']",
+    )
+    if (segmentedControl) {
+      const segmentedItems = Array.from(
+        segmentedControl.querySelectorAll<HTMLElement>("[role='button']"),
+      ).filter((item) => !item.hasAttribute('disabled'))
+      const activeIndex = segmentedItems.findIndex(
+        (item) => item.getAttribute('data-setting-segmented-active') === 'true',
+      )
+
+      if (segmentedItems.length > 0) {
+        const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % segmentedItems.length : 0
+        const nextItem = segmentedItems[nextIndex]
+        nextItem?.focus()
+        nextItem?.click()
+        return
+      }
+    }
+
+    const firstInteractive = getPrimaryInteractive()
+    if (!firstInteractive) return
+
+    if (firstInteractive.getAttribute('role') === 'combobox') {
+      firstInteractive.focus()
+      firstInteractive.click()
+      return
+    }
+
+    if (firstInteractive.getAttribute('aria-expanded') != null) {
+      firstInteractive.focus()
+      firstInteractive.click()
+      return
+    }
+
+    if (
+      firstInteractive instanceof HTMLInputElement &&
+      firstInteractive.type !== 'checkbox' &&
+      firstInteractive.type !== 'radio'
+    ) {
+      firstInteractive.focus()
+      firstInteractive.select?.()
+      return
+    }
+
+    firstInteractive.focus()
+    firstInteractive.click()
+  }
+
+  if (!matchesSearch) return null
+
+  return (
+    <div
+      role="presentation"
+      data-setting-layout={IS_MOBILE ? layout : undefined}
+      className={cn(
+        'flex justify-between select-none',
+        IS_MOBILE
+          ? cn(
+              'px-4 py-3',
+              layout === 'inline' ? 'items-center gap-3' : 'flex-col items-stretch gap-2',
+            )
+          : 'items-center gap-3 rounded-lg px-1 py-2 transition-colors hover:bg-muted/50 focus-within:bg-muted/50 max-[640px]:flex-col max-[640px]:items-stretch max-[640px]:gap-2',
+        className,
+      )}
+      onClick={handleRowClick}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <Label
+            id={labelId}
+            className={cn(
+              'ui-font cursor-default font-normal text-foreground',
+              IS_MOBILE ? 'ui-text-base' : 'ui-text-sm',
+            )}
+          >
+            {label}
+          </Label>
+          {labelAccessory}
+          {onReset ? (
+            <span className="flex size-5 items-center justify-center">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onReset}
+                disabled={!canReset}
+                aria-label={resetLabel || `Reset ${label}`}
+                tooltip={canReset ? resetLabel || `Reset ${label}` : undefined}
+                className={cn(!canReset && 'pointer-events-none invisible')}
+                compact
+              >
+                <RotateCcw />
+              </Button>
+            </span>
+          ) : null}
+        </div>
+        {description && (
+          <div
+            id={descriptionId}
+            className="ui-font ui-text-sm cursor-default text-muted-foreground"
+          >
+            {description}
+          </div>
+        )}
+      </div>
+      <div
+        ref={controlRef}
+        className={cn(
+          'ui-font ui-text-sm select-auto [--app-ui-badge-height:1.5rem] [--app-ui-button-compact-height:1.5rem] [--app-ui-button-compact-min-width:1.5rem] [--app-ui-button-height:1.5rem] [--app-ui-button-min-width:1.5rem] [--app-ui-control-font-size:var(--ui-text-sm)]',
+          IS_MOBILE && layout === 'inline'
+            ? 'flex max-w-[55%] min-w-0 shrink-0 justify-end [&_[data-slot=number-input]]:w-36 [&_[data-slot=select-trigger]]:w-40 [&_[data-slot=select-trigger]]:max-w-full'
+            : 'shrink-0 max-[640px]:w-full max-[640px]:shrink max-[640px]:[&>input]:w-full max-[640px]:[&>textarea]:w-full max-[640px]:[&_[data-slot=select-trigger]]:w-full',
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}

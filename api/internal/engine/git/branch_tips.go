@@ -11,16 +11,10 @@ import (
 	"time"
 )
 
-// racyWindow is how recently a ref may have been written and still be distrusted:
-// a coarse filesystem clock can give two writes one timestamp, and a ref's size
-// never changes, so the same rule git applies to its index applies here.
 const racyWindow = 2 * time.Second
 
-// tipMemoryCap bounds how many clones' tips are remembered.
 const tipMemoryCap = 64
 
-// tipMemory remembers each clone's branch tips under a stamp of its ref store, compared
-// on every read, so the ref store stays the owner: nothing expires or needs invalidating.
 type tipMemory struct {
 	mu sync.Mutex
 	m  map[string]stampedTips
@@ -31,9 +25,6 @@ type stampedTips struct {
 	tips  map[string]string
 }
 
-// branchTips is every local branch's commit, by short name; empty when the read
-// fails, which sends every pair down the by-name path. The caller holds the
-// repo's read lock.
 func (e *engine) branchTips(
 	ctx context.Context,
 	repoPath string,
@@ -88,9 +79,6 @@ func (m *tipMemory) put(common, stamp string, tips map[string]string) {
 	m.m[common] = stampedTips{stamp: stamp, tips: tips}
 }
 
-// refStoreStamp fingerprints a clone's loose refs and packed-refs by name, size
-// and modification time. It reports untrusted for a layout it cannot read this
-// way (reftable), for a ref written inside racyWindow, and on any read error.
 func refStoreStamp(common string) (string, bool) {
 	if _, err := os.Stat(filepath.Join(common, "reftable")); err == nil {
 		return "", false

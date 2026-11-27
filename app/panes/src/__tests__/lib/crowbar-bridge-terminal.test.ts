@@ -1,0 +1,312 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const tauri = vi.hoisted(() => ({
+  instances: [] as Array<{ path: string; options?: { idleTimeoutMs?: number; hostId?: string } }>,
+  refuse: false,
+}))
+
+vi.mock('@/lib/ws/tauri-transport', () => ({
+  TauriWebSocket: class {
+    onopen: (() => void) | null = null
+    onmessage: ((e: { data: unknown }) => void) | null = null
+    onclose: (() => void) | null = null
+    send = vi.fn()
+    close = vi.fn()
+    constructor(path: string, options?: { idleTimeoutMs?: number; hostId?: string }) {
+      if (tauri.refuse) throw new Error('dial refused')
+      tauri.instances.push({ path, options })
+    }
+  },
+}))
+
+import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
+import {
+  openTerminal,
+  terminalKill,
+  terminalListLive,
+  TerminalConnection,
+  type TerminalFrame,
+} from '@/lib/crowbar-bridge'
+
+function fakeSocket() {
+  const socket = {
+    onopen: null as (() => void) | null,
+    onmessage: null as ((e: { data: string | ArrayBuffer }) => void) | null,
+    onclose: null as (() => void) | null,
+    sent: [] as string[],
+    send(data: string) {
+      socket.sent.push(data)
+    },
+    close: vi.fn(),
+    open() {
+      socket.onopen?.()
+    },
+    output(tag: number, text: string) {
+      const bytes = new TextEncoder().encode(text)
+      const buf = new Uint8Array(bytes.length + 1)
+      buf[0] = tag
+      buf.set(bytes, 1)
+      socket.onmessage?.({ data: buf.buffer })
+    },
+    exit(code: number) {
+      socket.onmessage?.({ data: JSON.stringify({ type: 'exit', code }) })
+    },
+    drop() {
+      socket.onclose?.()
+    },
+  }
+  return socket
+}
+
+const text = (frame: TerminalFrame) =>
+  frame.exit ? `exit:${frame.code}` : new TextDecoder().decode(frame.data)
+
+describe('TerminalConnection', () => {
+  it('decodes binary output and snapshot frames, holding them for the first listener', () => {
+    const socket = fakeSocket()
+    const conn = new TerminalConnection('s1', '/x', socket)
+    socket.open()
+    socket.output(1, 'REDRAW')
+    socket.output(0, 'tail ✓')
+
+    const frames: TerminalFrame[] = []
+    conn.listen((f) => frames.push(f))
+    expect(frames.map(text)).toEqual(['REDRAW', 'tail ✓'])
+    expect(frames.map((f) => !f.exit && f.snapshot)).toEqual([true, false])
+  })
+
+  it('delivers the exit frame in order and does not report the following close as a drop', () => {
+    const socket = fakeSocket()
+    const conn = new TerminalConnection('s1', '/x', socket)
+    const frames: TerminalFrame[] = []
+    conn.listen((f) => frames.push(f))
+    const drop = vi.fn()
+    conn.onDrop(drop)
+    socket.open()
+    socket.output(0, 'bye')
+    socket.exit(3)
+    socket.drop()
+
+    expect(frames.map(text)).toEqual(['bye', 'exit:3'])
+    expect(drop).not.toHaveBeenCalled()
+    expect(conn.state).toBe('exited')
+    expect(conn.alive).toBe(false)
+  })
+
+  it('a close with no exit frame is a transport drop, reported once', () => {
+    const socket = fakeSocket()
+    const conn = new TerminalConnection('s1', '/x', socket)
+    const drop = vi.fn()
+    conn.onDrop(drop)
+    socket.open()
+    socket.drop()
+    socket.drop()
+    expect(drop).toHaveBeenCalledOnce()
+    expect(conn.state).toBe('dropped')
+  })
+
+  it('queues input sent before the socket opens and flushes it in order; a theme coalesces', () => {
+    const socket = fakeSocket()
+    const conn = new TerminalConnection('s1', '/x', socket)
+    conn.write('a')
+    conn.resize(40, 120)
+    conn.setTheme({ background: '#000', foreground: '#fff', dark: true })
+    conn.setTheme({ background: '#fff', foreground: '#000', dark: false })
+    conn.write('b')
+    expect(socket.sent).toEqual([])
+
+    socket.open()
+    expect(socket.sent.map((s) => JSON.parse(s))).toEqual([
+      { data: 'a' },
+      { type: 'resize', cols: 120, rows: 40 },
+      { data: 'b' },
+      { type: 'theme', bg: '#fff', fg: '#000', dark: false },
+    ])
+  })
+
+  it('close() detaches: the socket closes, nothing is reported, later frames are ignored', () => {
+    const socket = fakeSocket()
+    const conn = new TerminalConnection('s1', '/x', socket)
+    const drop = vi.fn()
+    const frames: TerminalFrame[] = []
+    conn.listen((f) => frames.push(f))
+    conn.onDrop(drop)
+    socket.open()
+    conn.close()
+    socket.drop()
+    socket.output(0, 'late')
+    conn.write('ignored')
+
+    expect(socket.close).toHaveBeenCalledOnce()
+    expect(drop).not.toHaveBeenCalled()
+    expect(frames).toEqual([])
+    expect(socket.sent).toEqual([])
+  })
+})
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  binaryType = 'blob'
+  onopen: (() => void) | null = null
+  onmessage: ((e: { data: unknown }) => void) | null = null
+  onclose: (() => void) | null = null
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this)
+  }
+  send = vi.fn()
+  close = vi.fn()
+}
+
+describe('openTerminal / terminalKill / terminalListLive', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    tauri.instances = []
+    tauri.refuse = false
+    vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  })
+
+  it('dials the session under its base, receiving binary frames as ArrayBuffers', () => {
+    openTerminal('s 1', '/v0/chats/c1/terminals')
+    expect(FakeWebSocket.instances[0].url).toContain('/v0/chats/c1/terminals/s%201/ws')
+    expect(FakeWebSocket.instances[0].binaryType).toBe('arraybuffer')
+  })
+
+  it('each view gets its own transport, so closing one never touches another', () => {
+    const a = openTerminal('s1', '/b')
+    const b = openTerminal('s1', '/b')
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    a.close()
+    expect(FakeWebSocket.instances[0].close).toHaveBeenCalled()
+    expect(FakeWebSocket.instances[1].close).not.toHaveBeenCalled()
+    expect(b.alive).toBe(true)
+  })
+
+  it('on desktop, dials through the Rust bridge with the half-open idle timeout armed', () => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    openTerminal('s1', '/v0/chats/c1/terminals')
+    expect(FakeWebSocket.instances).toHaveLength(0)
+    expect(tauri.instances[0].path).toBe('/v0/chats/c1/terminals/s1/ws')
+    expect(tauri.instances[0].options?.idleTimeoutMs).toBeGreaterThan(45_000)
+  })
+
+  it('on desktop, a local terminal dials the local daemon', () => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    openTerminal('s1', '/v0/chats/c1/terminals')
+    expect(tauri.instances[0].options?.hostId).toBe('local')
+  })
+
+  describe('on a remote host', () => {
+    beforeEach(() => {
+      ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+      useHostConfigStore.setState({
+        hosts: [
+          {
+            id: 'h1',
+            name: 'Box',
+            endpoint: 'box:3737',
+            pairedFingerprint: 'ff',
+            clientId: 'c1',
+          },
+        ],
+      })
+    })
+    afterEach(() => useHostConfigStore.setState({ hosts: [] }))
+
+    it('dials that host with the prefix stripped, keeping the half-open timeout', () => {
+      openTerminal('s1', 'crowbar://h1/v0/chats/c1/terminals')
+      expect(tauri.instances[0].path).toBe('/v0/chats/c1/terminals/s1/ws')
+      expect(tauri.instances[0].options).toMatchObject({ hostId: 'h1' })
+      expect(tauri.instances[0].options?.idleTimeoutMs).toBeGreaterThan(45_000)
+    })
+
+    it('kills on the same host the session was opened on', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 202,
+        json: async () => ({ success: true, error: null, data: { id: 's9' } }),
+      })
+      vi.stubGlobal('fetch', fetchSpy)
+      openTerminal('s9', 'crowbar://h1/v0/chats/c9/terminals')
+      await terminalKill('s9')
+      expect(fetchSpy.mock.calls[0][0]).toBe('crowbar://h1/v0/chats/c9/terminals/s9')
+      expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    })
+
+    it('cannot be opened from the browser', () => {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+      expect(() => openTerminal('s1', 'crowbar://h1/v0/chats/c1/terminals')).toThrow(/desktop app/)
+      expect(FakeWebSocket.instances).toHaveLength(0)
+    })
+  })
+
+  it('remembers no base for a terminal whose transport could not be built', async () => {
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+    tauri.refuse = true
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    expect(() => openTerminal('s7', '/v0/chats/c7/terminals')).toThrow('dial refused')
+    await terminalKill('s7')
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('kills under the base the session was opened on; an unknown session sends nothing', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ success: true, error: null, data: { id: 's9' } }),
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    openTerminal('s9', '/v0/chats/c9/terminals')
+    await terminalKill('s9')
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('/v0/chats/c9/terminals/s9')
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+
+    fetchSpy.mockClear()
+    await terminalKill('never-seen')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('a kill of a session that already exited succeeds; any other failure rejects', async () => {
+    const refuse = (status: number, error: string) => ({
+      ok: false,
+      status,
+      json: async () => ({ success: false, error, data: null }),
+    })
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(refuse(404, 'no such session'))
+      .mockResolvedValueOnce(refuse(500, 'pty: kill: permission denied'))
+    vi.stubGlobal('fetch', fetchSpy)
+    openTerminal('gone', '/v0/chats/c9/terminals')
+    openTerminal('stuck', '/v0/chats/c9/terminals')
+
+    await expect(terminalKill('gone')).resolves.toBeUndefined()
+    await expect(terminalKill('stuck')).rejects.toThrow('permission denied')
+  })
+
+  it('lists live session ids from the one DTO shape every terminals route serves', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          error: null,
+          data: [
+            { id: 'a', status: 'active' },
+            { id: 'b', status: 'ended' },
+            { id: 'c', status: 'suspended' },
+          ],
+        }),
+      }),
+    )
+    await expect(terminalListLive('/v0/chats/c1/terminals')).resolves.toEqual(['a', 'c'])
+  })
+})

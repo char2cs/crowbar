@@ -1,0 +1,5 @@
+[package]
+name = "newcrate"
+
+[lints]
+workspace = true

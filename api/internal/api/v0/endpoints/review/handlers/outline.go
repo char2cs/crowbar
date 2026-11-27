@@ -14,14 +14,10 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// outlineResponse is the data payload of GET /review/outline: every changed
-// file's hunk geometry and nothing else.
 type outlineResponse struct {
 	Files []gitdomain.FileOutline `json:"files"`
 }
 
-// GetOutline handles GET /v0/chats/:chatId/review/outline, returning the branch diff's hunk
-// geometry so the client can reserve scroll space for every file before fetching any patch.
 func (h *Handlers) GetOutline(
 	ctx *gin.Context,
 ) {
@@ -36,9 +32,6 @@ func (h *Handlers) GetOutline(
 	writeOutline(ctx, outlineResponse{Files: files})
 }
 
-// writeOutline encodes straight into the writer (gzip when accepted) instead of libs.WriteQueryOK:
-// the outline is large by design (megabytes for a huge branch), and gin's render would hold it all.
-// Its repeated field names compress well, so they stay unabbreviated.
 func writeOutline(
 	ctx *gin.Context,
 	data outlineResponse,
@@ -58,9 +51,6 @@ func writeOutline(
 	}
 }
 
-// encodeOutline records an encode failure on the context rather than replacing
-// the response: by the time one can happen the status line is committed and the
-// only honest thing left is to stop writing.
 func encodeOutline(
 	ctx *gin.Context,
 	w io.Writer,
@@ -72,8 +62,6 @@ func encodeOutline(
 	}
 }
 
-// acceptsGzip reports whether the client offered gzip. An explicit refusal
-// ("gzip;q=0") is honoured; any other weight is still an offer.
 func acceptsGzip(
 	header string,
 ) bool {

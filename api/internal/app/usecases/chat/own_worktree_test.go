@@ -13,12 +13,6 @@ import (
 
 var errOwnWorktreeBoom = errors.New("own worktree: boom")
 
-// seedPlacedBubble mints a workspace-less chat and threads it under parentID —
-// via a direct repository write, exactly like promote_test.go's own
-// seedBubbleChat, so it has a real fork parent to resolve — WITHOUT starting a
-// runner on it. That is the state CreateChat's createOwnWorktreeChat itself
-// produces right before calling SpawnChatWithOwnWorktree (chat/internal/tree/
-// chats.go): minted, placed, no CLI yet.
 func seedPlacedBubble(
 	t *testing.T,
 	f testFixture,
@@ -28,8 +22,6 @@ func seedPlacedBubble(
 	return seedPlacedBubbleOn(t, f, parentID, "", "")
 }
 
-// seedPlacedBubbleOn is seedPlacedBubble minted as CreateChat mints it, for
-// providerID on surface: a terminal one is the create that launches its CLI.
 func seedPlacedBubbleOn(t *testing.T, f testFixture, parentID, providerID, surface string) string {
 	t.Helper()
 	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", providerID, surface)
@@ -40,9 +32,6 @@ func seedPlacedBubbleOn(t *testing.T, f testFixture, parentID, providerID, surfa
 	return bubbleID
 }
 
-// TestSpawnChatWithOwnWorktree_FillsWorkspaceAndLeavesTheChatDormant mirrors
-// TestPromote_FillsWorkspaceKeepsIdentity for a chat that never had a runner: on
-// the chat surface none is started, its first prompt launches the one CLI.
 func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndLeavesTheChatDormant(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -65,8 +54,6 @@ func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndLeavesTheChatDormant(t *testi
 	require.Error(t, err, "the new chat is dormant")
 }
 
-// A chat created on the terminal has nothing to show without its CLI, so the
-// create launches it, on the REQUESTED provider.
 func TestSpawnChatWithOwnWorktree_OnTheTerminalStartsTheCLI(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -82,11 +69,6 @@ func TestSpawnChatWithOwnWorktree_OnTheTerminalStartsTheCLI(t *testing.T) {
 	assert.Equal(t, "claude", live.ProviderID, "starts the REQUESTED provider — there is no prior one to preserve")
 }
 
-// TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName pins
-// the sidebar's "type the branch name before it forks" flow (2026-09-09): the
-// caller-supplied name must reach CreateChildWorkspace verbatim, not be
-// silently dropped in favour of the server-generated one every caller before
-// this got.
 func TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -99,8 +81,6 @@ func TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName(t *t
 		"the typed branch name must reach the worktree creator, not the auto-generated fallback")
 }
 
-// A chat with no ancestor carrying a workspace has nothing to fork from, the
-// same refusal Promote makes for the identical shape (TestPromote_NoForkParent_Refuses).
 func TestSpawnChatWithOwnWorktree_NoForkParent_Refuses(t *testing.T) {
 	f := newFixture(t)
 	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "", "")
@@ -113,8 +93,6 @@ func TestSpawnChatWithOwnWorktree_NoForkParent_Refuses(t *testing.T) {
 	assert.Empty(t, f.wt.calls(), "must refuse before ever reaching the worktree usecase")
 }
 
-// A workspace-create failure must abort before the chat is ever told about a
-// workspace — mirroring TestPromote_CreateWorkspaceFailure_AbortsBeforeSettingTheWorkspace.
 func TestSpawnChatWithOwnWorktree_CreateWorkspaceFailure_AbortsBeforeSettingTheWorkspace(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -128,9 +106,6 @@ func TestSpawnChatWithOwnWorktree_CreateWorkspaceFailure_AbortsBeforeSettingTheW
 	assert.Empty(t, chat.WorkspaceID, "a failed create must leave the chat exactly as it was")
 }
 
-// The workspace is minted BEFORE the row that would own it, so a failure
-// setting it leaves a real worktree on disk nothing points at — taken back out
-// rather than logged, mirroring TestPromote_SetWorkspaceFailure_DiscardsTheOrphanedWorkspace.
 func TestSpawnChatWithOwnWorktree_SetWorkspaceFailure_DiscardsTheOrphanedWorkspace(t *testing.T) {
 	f, chats := newFaultFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -145,12 +120,6 @@ func TestSpawnChatWithOwnWorktree_SetWorkspaceFailure_DiscardsTheOrphanedWorkspa
 	assert.Empty(t, f.chat(t, bubbleID).WorkspaceID)
 }
 
-// A CLI that fails to start leaves the chat pointing at a brand-new worktree
-// with nothing running in it — rolled all the way back (clear the slot, then
-// discard the workspace) so the retry the caller makes is the same call they
-// just made (a terminal chat: the one a create launches). Mirrors TestPromote_RespawnFailure_RollsTheWholePromotionBack,
-// with the CLI failure forced at the create site (f.term.err) rather than at
-// the outgoing-CLI teardown Promote's respawn has and this path does not.
 func TestSpawnChatWithOwnWorktree_LaunchFailure_RollsTheWholeCreateBack(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -166,18 +135,6 @@ func TestSpawnChatWithOwnWorktree_LaunchFailure_RollsTheWholeCreateBack(t *testi
 		"the workspace a failed create made must not survive it")
 }
 
-// TestSpawnChatWithOwnWorktree_LaunchFailureAndClearFailure_StillDiscardsTheWorkspace
-// is the fix for the double fault a review caught: on a launch failure,
-// Promote's own unpromote (promote.go) deliberately KEEPS the workspace when
-// the slot-clear write itself also fails, because Promote's chat SURVIVES a
-// failed promotion and that surviving row still names it. This path has no
-// surviving row — CreateChat's ownWorktree branch (tree/chats.go) purges
-// chatID outright on ANY error this method returns, clear-failure included —
-// so "leave it, a row still points at it" is false here even when the clear
-// fails, and the old code (reusing unpromote verbatim) orphaned the workspace
-// exactly this way: nothing could ever reach it again, since the only door to
-// a workspace is the row that owns it, and that row was about to be gone
-// either way.
 func TestSpawnChatWithOwnWorktree_LaunchFailureAndClearFailure_StillDiscardsTheWorkspace(t *testing.T) {
 	f, chats := newFaultFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
@@ -193,8 +150,6 @@ func TestSpawnChatWithOwnWorktree_LaunchFailureAndClearFailure_StillDiscardsTheW
 			"nothing survives this path to still claim it")
 }
 
-// createDormantChat is CreateChat's fork path for providerID on the chat
-// surface, returning the chat and the forks made before it.
 func createDormantChat(t *testing.T, f testFixture, providerID string) (string, int) {
 	t.Helper()
 	rootChatID, _ := f.spawn(t, "claude")
@@ -207,8 +162,6 @@ func createDormantChat(t *testing.T, f testFixture, providerID string) (string, 
 	return bubbleID, forks
 }
 
-// The first prompt of a new chat launches its CLI exactly once, carrying the
-// prompt: the create no longer forks an idle one for the prompt to displace.
 func TestRegression_FirstPromptLaunchesCLIOnce(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
@@ -230,8 +183,6 @@ func TestRegression_FirstPromptLaunchesCLIOnce(t *testing.T) {
 	}
 }
 
-// Opening the terminal of a chat nothing ever ran on launches its CLI there,
-// once; a second open is the same view.
 func TestRegression_TerminalOpenedBeforeAnyPromptLaunchesThere(t *testing.T) {
 	f := newFixture(t)
 	chatID, forks := createDormantChat(t, f, "claude")
@@ -250,8 +201,6 @@ func TestRegression_TerminalOpenedBeforeAnyPromptLaunchesThere(t *testing.T) {
 	assert.Equal(t, termSessID, live.TerminalSession)
 }
 
-// A dormant chat that already ran only records the move: its CLI comes back
-// with a send or an explicit start, as before.
 func TestSwitchToTerminal_ADormantChatThatRanOnlyRecordsTheMove(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -267,9 +216,6 @@ func TestSwitchToTerminal_ADormantChatThatRanOnlyRecordsTheMove(t *testing.T) {
 	assert.Equal(t, "terminal", f.chat(t, chatID).Surface)
 }
 
-// seedBubbleChat mints a workspace-less chat ("bubble") threaded under a
-// workspace-anchored one and starts a runner on it: placed first, since the
-// spawn resolves a bubble's cwd through its ancestors.
 func seedBubbleChat(
 	t *testing.T,
 	f testFixture,

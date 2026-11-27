@@ -13,13 +13,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// installFakeGH puts a fake `gh` script first on PATH so identityFromGH's
-// `exec.CommandContext(ctx, binpath.Resolve("gh"), ...)` finds it via the plain
-// PATH lookup — binpath.Resolve tries exec.LookPath before ever consulting its
-// hardcoded well-known dirs (/opt/homebrew/bin, /usr/local/bin, /usr/bin), so a
-// hit on PATH is never shadowed by whatever real `gh` happens to be installed
-// on the machine running the test. That is what makes these tests deterministic
-// regardless of whether the host has `gh` installed or authenticated.
 func installFakeGH(t *testing.T, script string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -61,11 +54,6 @@ func TestIdentityFromGH_MalformedJSONFallsThrough(t *testing.T) {
 	assert.Zero(t, id)
 }
 
-// gitConfigOnlyEnv points HOME and every git config search path at an empty
-// directory so `git config user.name` cannot pick up the real developer's
-// global config (which is set on most machines this test could run on) —
-// without this, a "no user.name configured" test would only pass by accident
-// of whoever's machine or CI image runs it.
 func gitConfigOnlyEnv(t *testing.T) {
 	t.Helper()
 	empty := t.TempDir()

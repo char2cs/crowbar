@@ -28,8 +28,6 @@ func TestValidate_AShellWithAFixedScriptIsOnlyAWarning(t *testing.T) {
 	assert.True(t, rep.OK(), "%+v", rep.Findings)
 }
 
-// A hook command runs through the CLI's shell, so a value the user or the
-// provider controls must never be spliced into one.
 func TestValidate_AUserValueInACurlHookCommandIsAnError(t *testing.T) {
 	rep := descriptorcheck.Validate(complete(
 		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{hook_curl} {hook_url}/a?cwd={cwd}\"' }\n"))
@@ -73,8 +71,6 @@ func TestValidate_AVersionRangeNothingCanPassIsAnError(t *testing.T) {
 	assert.True(t, descriptorcheck.Validate(complete("protocol_version: { min: \"0.150\", max: \"0.156.1\" }\n")).OK())
 }
 
-// An icon that is not plain SVG is reported where it is, as a warning: the
-// daemon drops it at load and the provider still runs, without an icon.
 func TestValidate_AnUnsafeIconIsAWarningAtTheIcon(t *testing.T) {
 	doc := complete(`icon: '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'` + "\n")
 	rep := descriptorcheck.Validate(doc)

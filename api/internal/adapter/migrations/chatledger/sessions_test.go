@@ -56,8 +56,6 @@ func TestConvertChat_ASessionAnotherChatOwnsIsAConflictMarker(t *testing.T) {
 	}
 }
 
-// A chat the session index already names as the owner is this chat itself: an
-// import retried over its own claim binds as before.
 func TestConvertChat_ASessionThisChatOwnsStaysBound(t *testing.T) {
 	owner := func(string, string) (string, bool) { return "chat-b", true }
 

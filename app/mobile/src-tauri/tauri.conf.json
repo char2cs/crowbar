@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Crowbar",
+  "version": "0.0.0",
+  "identifier": "software.rabbyte.crowbar",
+  "build": {
+    "frontendDist": "../../panes/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../panes && npm run dev -- --port 5173 --strictPort"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null,
+      "dangerousDisableAssetCspModification": true,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/**"
+        ]
+      }
+    },
+    "windows": [
+      {
+        "title": "Crowbar"
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ]
+  }
+}

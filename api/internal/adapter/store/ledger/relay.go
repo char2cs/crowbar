@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// RelayOwner answers which chat a relay id was bound in. It only locates the chat:
-// whether the id still names a bound session is that chat's own State to say.
 func (s *Store) RelayOwner(ctx context.Context, relayID string) (chatID string, ok bool, err error) {
 	var owners []string
 	err = s.db.WithContext(ctx).Raw(
@@ -25,8 +23,6 @@ func (s *Store) RelayOwner(ctx context.Context, relayID string) (chatID string, 
 	return owners[0], true, nil
 }
 
-// indexRelay keeps the relay index with a binding: the first chat to bind an id
-// holds it, and only a move hands it on, as the session itself moves.
 func indexRelay(tx *gorm.DB, chatID string, body ledger.SessionBound) error {
 	if body.RelayID == "" {
 		return nil

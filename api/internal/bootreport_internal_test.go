@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// A session no step has started on yet has no progress to name, so the gate
-// still says Crowbar is starting.
 func TestBootReport_IsStartingUntilAStepStarts(t *testing.T) {
 	sess, err := migrations.Begin(t.Context(), testutil.FixtureHome(t), migrate.Options{})
 	require.NoError(t, err)

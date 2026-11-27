@@ -1,6 +1,3 @@
-// Package runner (file chatlock.go) is how a user-initiated path holds a chat: by the
-// lock every hook of the chat records under, held to decide and record runner_started,
-// released around every wait, since what it waits for needs the CLI's hooks recorded.
 package runner
 
 import (
@@ -10,25 +7,19 @@ import (
 	"sync"
 )
 
-// ChatLock serialises one chat's hooks and its user-initiated paths. A waiter
-// gives up when its ctx ends.
 type ChatLock interface {
 	Lock(ctx context.Context, chatID string) (unlock func(), err error)
 }
 
-// errPreempted is the cause a parked wait is cancelled with by a stop.
 var errPreempted = errors.New("agent: preempted by a stop")
 
-// parks are the waits user-initiated paths sit in outside their chat's lock. A
-// stop cancels them, so it is never queued behind a wait on the turn it ends.
 type parks struct {
 	mu     sync.Mutex
 	byChat map[string]*chatParks
 }
 
 type chatParks struct {
-	cancels map[*context.CancelCauseFunc]struct{}
-	// stopping counts stops under way; stopped closes when the last one ends.
+	cancels  map[*context.CancelCauseFunc]struct{}
 	stopping int
 	stopped  chan struct{}
 }
@@ -50,9 +41,6 @@ func (p *parks) dropIfIdle(chatID string, e *chatParks) {
 	}
 }
 
-// open returns a context derived from ctx that a stop on chatID cancels, and
-// its close. A request waits out the stops under way when it arrives, and a
-// stop begun after it arrived abandons it; simultaneous waiters run in no set order.
 func (p *parks) open(ctx context.Context, chatID string) (context.Context, func()) {
 	park, cancel := context.WithCancelCause(ctx)
 	p.mu.Lock()
@@ -75,8 +63,6 @@ func (p *parks) open(ctx context.Context, chatID string) (context.Context, func(
 	}
 }
 
-// preempt cancels every wait parked on chatID; one opened before the returned
-// release waits until every stop under way has ended.
 func (p *parks) preempt(chatID string) (release func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -98,8 +84,6 @@ func (p *parks) preempt(chatID string) (release func()) {
 	})
 }
 
-// parkErr reports a wait a stop abandoned as ErrStopped, and passes every
-// other failure through.
 func parkErr(park context.Context, err error) error {
 	if errors.Is(context.Cause(park), errPreempted) {
 		return ErrStopped
@@ -107,8 +91,6 @@ func parkErr(park context.Context, err error) error {
 	return err
 }
 
-// hold is one user-initiated path's claim on a chat: its lock, and a park a
-// stop cancels.
 type hold struct {
 	lock   ChatLock
 	chatID string
@@ -117,8 +99,6 @@ type hold struct {
 	close  func()
 }
 
-// acquire opens a park on chatID and takes the chat's lock on it: a stop that
-// begins while this path queues turns it away (ErrStopped).
 func (rs *Runners) acquire(ctx context.Context, chatID string) (*hold, error) {
 	park, closePark := rs.parks.open(ctx, chatID)
 	unlock, err := rs.chatLock.Lock(park, chatID)
@@ -129,14 +109,11 @@ func (rs *Runners) acquire(ctx context.Context, chatID string) (*hold, error) {
 	return &hold{lock: rs.chatLock, chatID: chatID, park: park, unlock: unlock, close: closePark}, nil
 }
 
-// release lets go of the chat.
 func (h *hold) release() {
 	h.unlock()
 	h.close()
 }
 
-// outside runs wait with the chat's lock released and retakes it; the caller must
-// re-decide from fresh reads. On an error the lock may not be held: return.
 func (h *hold) outside(wait func(park context.Context) error) error {
 	h.unlock()
 	h.unlock = func() {}
@@ -151,8 +128,6 @@ func (h *hold) outside(wait func(park context.Context) error) error {
 	return nil
 }
 
-// HoldChat preempts chatID's parked waits and takes its lock, for a path that
-// must not interleave with a spawn and never waits under it.
 func (rs *Runners) HoldChat(ctx context.Context, chatID string) (release func(), err error) {
 	stopping := rs.parks.preempt(chatID)
 	unlock, err := rs.chatLock.Lock(ctx, chatID)

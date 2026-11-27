@@ -10,7 +10,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// nestedChat is a chat whose agent opened the conversation "child" in turn turnID.
 func nestedChat(t *testing.T) (*chatRows, string) {
 	t.Helper()
 	c := liveChatRows(t)
@@ -44,7 +43,6 @@ func TestMap_ANestedConversationsFactsAreItsScopes(t *testing.T) {
 	assert.Empty(t, none, "its parent talking to it opens no turn")
 }
 
-// Its reply is its stop's result, said once: the card shows it as that.
 func TestMap_ANestedConversationsEndIsItsStopWithItsReply(t *testing.T) {
 	c, turnID := nestedChat(t)
 
@@ -60,8 +58,6 @@ func TestMap_ANestedConversationsEndIsItsStopWithItsReply(t *testing.T) {
 	assert.Empty(t, rows, "it stops once")
 }
 
-// A nested conversation whose opening the ledger no longer holds still has
-// its end recorded, in the turn its runner ran.
 func TestMap_ANestedEndOfAnUnknownScopeIsStillRecorded(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("delegate")
@@ -75,7 +71,6 @@ func TestMap_ANestedEndOfAnUnknownScopeIsStillRecorded(t *testing.T) {
 	}
 }
 
-// A conversation a turn end outlived still blocks on what it asks.
 func TestMap_ANestedAskAfterTheTurnClosedIsHeldOpen(t *testing.T) {
 	c, _ := nestedChat(t)
 	c.mapped(engineagents.CanonicalEvent{Kind: engineagents.HookTurnStop, Message: "delegated"}, hooksSource())

@@ -13,24 +13,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// maxRequestBodyBytes caps any single request body (64 MiB). It sits above the
-// 25 MiB file-read cap so legitimate file saves and the 2 MiB icon upload pass,
-// while a malicious unbounded upload is cut off long before it can exhaust memory.
 const maxRequestBodyBytes = 64 << 20
 
-// maxMultipartMemory bounds how much of a multipart upload gin buffers in memory
-// before spilling to a temp file. The only multipart route is the 2 MiB-capped
-// repo-icon upload, so 8 MiB is ample headroom without a large per-request buffer.
 const maxMultipartMemory = 8 << 20
 
-// Container owns the configured gin engine with the v0 surface mounted.
 type Container struct {
 	router *gin.Engine
 }
 
-// New builds the HTTP layer: middleware, the v0 surface at /v0, and optional static
-// assets. access (the device listener) feeds the pairing and access routes; preAuthReadTimeout
-// bounds a TLS request's reads until its bearer is verified.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,
@@ -45,8 +35,6 @@ func New(
 	router.UnescapePathValues = true
 	router.MaxMultipartMemory = maxMultipartMemory
 	router.Use(
-		// First, so every route an anonymous TLS peer can reach is bounded:
-		// pairing, pprof, static, a CORS refusal, and the drain after a 401.
 		middleware.PreAuthReadDeadline(preAuthReadTimeout),
 		middleware.Logger(),
 		middleware.Timing(),
@@ -66,7 +54,6 @@ func New(
 	return &Container{router: router}, nil
 }
 
-// Handler returns the underlying http.Handler.
 func (c *Container) Handler() http.Handler {
 	return c.router
 }

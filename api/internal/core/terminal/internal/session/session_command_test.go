@@ -11,13 +11,6 @@ import (
 
 func TestNewCommand_RunsArgv(t *testing.T) {
 	dir := t.TempDir()
-	// `sh -c 'printf MARKER; sleep …'` — a real argv with args, not a bare shell.
-	//
-	// The trailing sleep is a LIVENESS vehicle, not a wait: Attach errors on a session whose
-	// child has already exited, so the child must outlive the Attach below. The old `sleep 0.2`
-	// made that a race — a 200ms bet that this test goroutine gets scheduled in time. Sleeping
-	// effectively forever instead removes the bet entirely; the child is reaped by Kill, and
-	// the marker is observed through the frames, not through the sleep's length.
 	s, err := NewCommand(t.Context(), "cmd-id", []string{"/bin/sh", "-c", "printf CMDMARKER; sleep 9999"}, dir, os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
@@ -26,21 +19,15 @@ func TestNewCommand_RunsArgv(t *testing.T) {
 	ch, err := s.Attach()
 	require.NoError(t, err)
 
-	// Block on the frames until the marker shows. It reaches this client either live (the pump
-	// fanned it out after the attach) or inside the attach snapshot serialized from the model —
-	// both are real deliveries of the command's output, and neither needs a deadline.
 	waitFrameContaining(t, ch, "CMDMARKER")
 }
 
-// A fresh command's first output is no foreground app's exit: the paste mode it
-// sets at startup survives the pump's first foreground sample.
 func TestNewCommand_KeepsTheBracketedPasteItsAppSetsAtStartup(t *testing.T) {
 	s, err := NewCommand(t.Context(), "cmd-paste", []string{"/bin/sh", "-c", `printf '\033[?2004hPASTEREADY'; sleep 9999`},
 		t.TempDir(), os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	// No attach: its own foreground sample would run before the output does.
 	notify := s.PumpNotifyForTest()
 	for {
 		st, ok := s.ScreenState()
@@ -62,15 +49,8 @@ func TestNewCommand_EmptyArgvErrors(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestNewCommand_IsCommandAndNeverSuspendEligible guards the fatal agentic-CLI bug: a
-// command session must report IsCommand()==true and must be rejected by BOTH suspend
-// entry points regardless of its idle/attached state — Suspend's PTY teardown would
-// kill the vendor process outright, and restore cannot bring it back (it would
-// exec.Command the joined argv string, not the original binary).
 func TestNewCommand_IsCommandAndNeverSuspendEligible(t *testing.T) {
 	dir := t.TempDir()
-	// A long-running, definitely-detached, definitely-idle-looking process: even so,
-	// the command guard must short-circuit before any idle/client check.
 	s, err := NewCommand(t.Context(), "cmd-suspend-guard", []string{"/bin/sh", "-c", "sleep 30"}, dir, os.Environ(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
@@ -80,10 +60,6 @@ func TestNewCommand_IsCommandAndNeverSuspendEligible(t *testing.T) {
 	assert.False(t, s.SuspendEligible(true), "a command session must never be force-suspend eligible")
 }
 
-// TestNew_ShellSession_IsNotCommand_StillSuspendEligible is the regression guard for the
-// command-session carve-out: a plain login-shell session (New, not NewCommand) must
-// report IsCommand()==false and must remain suspend-eligible once idle+detached, exactly
-// as before this fix.
 func TestNew_ShellSession_IsNotCommand_StillSuspendEligible(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "shell-suspend-guard", dir)

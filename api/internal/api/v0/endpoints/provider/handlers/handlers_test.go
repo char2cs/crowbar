@@ -50,9 +50,6 @@ func (stubReader) List(
 	}, nil
 }
 
-// newRouter wires provider's handlers onto the flat chat-scoped group and the
-// repo-scoped group the way router.go does, with a stand-in for chatScoped's
-// resolveChatWorktree middleware for State's route.
 func newRouter(
 	eng handlers.ProviderEngine,
 	r handlers.WorkspaceReader,
@@ -69,9 +66,6 @@ func newRouter(
 	return router
 }
 
-// newRouterNoWorkspace wires the same State route WITHOUT resolveChatWorktree's
-// stand-in ever running — the wiring-bug case Handlers.workspace guards
-// against.
 func newRouterNoWorkspace(
 	eng handlers.ProviderEngine,
 	r handlers.WorkspaceReader,

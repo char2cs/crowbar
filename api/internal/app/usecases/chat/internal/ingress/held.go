@@ -13,15 +13,10 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// heldPerChat is how many frames of not-yet-bound subagents a chat holds.
 const heldPerChat = 256
 
-// reasonUnclaimedScope is a held frame no bind claimed: its parent turn ended,
-// or the chat held too many.
 const reasonUnclaimedScope = "unclaimed_scope"
 
-// heldFrame is one event of a subagent's own conversation that arrived before
-// the call that spawned it was bound to it.
 type heldFrame struct {
 	runner  engineagents.Runner
 	agent   engineagents.Agent
@@ -30,8 +25,6 @@ type heldFrame struct {
 	channel engineagents.Channel
 }
 
-// held is each chat's frames of subagents not yet bound, in arrival order.
-// Every frame leaves it drained on its bind or dead-lettered.
 type held struct {
 	mu     sync.Mutex
 	byChat map[string][]heldFrame
@@ -39,8 +32,6 @@ type held struct {
 
 func newHeld() *held { return &held{byChat: map[string][]heldFrame{}} }
 
-// hold keeps f for chatID and returns the frame it pushed out, if the chat
-// already held as many as it may.
 func (h *held) hold(chatID string, f heldFrame) (heldFrame, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -53,7 +44,6 @@ func (h *held) hold(chatID string, f heldFrame) (heldFrame, bool) {
 	return frames[0], true
 }
 
-// claim takes chatID's frames of scope, in arrival order.
 func (h *held) claim(chatID, scope string) []heldFrame {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -69,7 +59,6 @@ func (h *held) claim(chatID, scope string) []heldFrame {
 	return claimed
 }
 
-// releaseRunner takes chatID's frames runnerID sent.
 func (h *held) releaseRunner(chatID, runnerID string) []heldFrame {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -85,7 +74,6 @@ func (h *held) releaseRunner(chatID, runnerID string) []heldFrame {
 	return out
 }
 
-// release takes every frame chatID holds.
 func (h *held) release(chatID string) []heldFrame {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -102,9 +90,6 @@ func (h *held) setLocked(chatID string, frames []heldFrame) {
 	h.byChat[chatID] = frames
 }
 
-// placeScope places f when it names another conversation than the chat's: in
-// the subagent bound to it, else held while one is starting (held), else foreign.
-// A hand-back of an unbound scope is held the same way.
 func (r *Recorder) placeScope(ctx context.Context, chatID string, st ledger.State, f heldFrame, src *Source) (bool, error) {
 	switch {
 	case handsBackUnbound(st, f.ev):
@@ -122,16 +107,12 @@ func (r *Recorder) placeScope(ctx context.Context, chatID string, st ledger.Stat
 	return false, fmt.Errorf("agent: hook: session %s: %w", f.ev.SessionID, engineagents.ErrForeignConversation)
 }
 
-// holdFrame keeps an event of a subagent not yet bound until its bind, and
-// dead-letters the oldest frame a full chat pushes out.
 func (r *Recorder) holdFrame(ctx context.Context, chatID string, f heldFrame) {
 	if out, full := r.unbound.hold(chatID, f); full {
 		r.unclaimed(ctx, chatID, []heldFrame{out})
 	}
 }
 
-// drain records the frames held for scope now that it is bound. The caller
-// holds the chat's lock; each frame is dispatched as if it had just arrived.
 func (r *Recorder) drain(ctx context.Context, chatID, scope string) {
 	for _, f := range r.unbound.claim(chatID, scope) {
 		if _, _, err := r.Dispatch(ctx, f.runner, f.agent, f.ev, f.raw, f.channel); err != nil {
@@ -142,16 +123,12 @@ func (r *Recorder) drain(ctx context.Context, chatID, scope string) {
 	}
 }
 
-// unclaimed dead-letters frames no bind claimed.
 func (r *Recorder) unclaimed(ctx context.Context, chatID string, frames []heldFrame) {
 	for _, f := range frames {
 		r.deadLetter(ctx, chatID, f, reasonUnclaimedScope)
 	}
 }
 
-// settleUnclaimed records the hand-backs no bind claimed, as subagents of
-// their own now that nothing starting can be theirs, and dead-letters the
-// rest. The caller holds the chat's lock.
 func (r *Recorder) settleUnclaimed(ctx context.Context, chatID string, frames []heldFrame) {
 	var rest []heldFrame
 	for _, f := range frames {
@@ -168,8 +145,6 @@ func (r *Recorder) settleUnclaimed(ctx context.Context, chatID string, frames []
 	r.unclaimed(ctx, chatID, rest)
 }
 
-// heldScope is the scope a held frame waits on: a hand-back names it, any
-// other frame is of the scope's own session.
 func heldScope(ev engineagents.CanonicalEvent) string {
 	if ev.Kind == engineagents.HookSubagentResult && ev.Subagent != nil {
 		return ev.Subagent.ID
@@ -187,8 +162,6 @@ func (r *Recorder) deadLetter(ctx context.Context, chatID string, f heldFrame, r
 	}
 }
 
-// drainReason is why a drained frame could not be recorded, as the ingress
-// would have dead-lettered it on arrival.
 func drainReason(err error) string {
 	switch {
 	case errors.Is(err, engineagents.ErrForeignConversation):

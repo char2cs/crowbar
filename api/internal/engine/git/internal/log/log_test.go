@@ -160,8 +160,6 @@ func TestList_CommitWithDescription(t *testing.T) {
 	assert.Contains(t, commits[0].Description, "This is the body.")
 }
 
-// --- Error paths ---
-
 func TestList_InvalidRepo(t *testing.T) {
 	_, err := log.List(context.Background(), "/nonexistent/path/that/does/not/exist", 50, 0)
 
@@ -169,8 +167,6 @@ func TestList_InvalidRepo(t *testing.T) {
 	assert.Contains(t, err.Error(), "log: list")
 }
 
-// TestList_EmptyOutput exercises parseRecords with an empty string (skip≥total
-// commits means git outputs nothing with exit 0).
 func TestList_SkipBeyondHistory(t *testing.T) {
 	dir := initRepo(t)
 	addCommit(t, dir, "a.txt", "a\n", "only commit")
@@ -181,7 +177,6 @@ func TestList_SkipBeyondHistory(t *testing.T) {
 	assert.Empty(t, commits)
 }
 
-// TestList_LimitZeroDefaultsTo50 covers the limit<=0 branch with negative input.
 func TestList_NegativeLimit(t *testing.T) {
 	dir := initRepo(t)
 	addCommit(t, dir, "a.txt", "a\n", "only commit")
@@ -192,15 +187,6 @@ func TestList_NegativeLimit(t *testing.T) {
 	require.Len(t, commits, 1)
 }
 
-// TestList_MalformedRecord verifies that a record missing the \x1f separator
-// causes parseRecords to return an error. We cannot inject raw git output
-// through the public API, so we confirm that a valid repo never produces such
-// output and the happy-path is covered by other tests.  The malformed-record
-// error path in parseRecord is an internal invariant; we verify it indirectly
-// by confirming that all normal commits parse without error and that the only
-// way to hit it is through corrupted output (which we cannot produce from a
-// real repo).  This test documents that the package handles the empty-skip case
-// cleanly and does not regress.
 func TestList_SkipAll(t *testing.T) {
 	dir := initRepo(t)
 	addCommit(t, dir, "a.txt", "a\n", "commit one")
@@ -212,8 +198,6 @@ func TestList_SkipAll(t *testing.T) {
 	assert.Empty(t, commits)
 }
 
-// --- White-box tests using exported internal helpers ---
-
 func TestParseRecords_EmptyInput(t *testing.T) {
 	commits, err := log.ExportedParseRecords("")
 	require.NoError(t, err)
@@ -221,15 +205,12 @@ func TestParseRecords_EmptyInput(t *testing.T) {
 }
 
 func TestParseRecords_EmptyAfterTrimSep(t *testing.T) {
-	// Only the record separator char — trimmed left leaves empty string.
 	commits, err := log.ExportedParseRecords("\x1e")
 	require.NoError(t, err)
 	assert.Nil(t, commits)
 }
 
 func TestParseRecords_SkipsEmptyRecords(t *testing.T) {
-	// Two consecutive separators produce an empty record that should be skipped.
-	// We can only test this if the real records around them are valid; supply none.
 	commits, err := log.ExportedParseRecords("\x1e\x1e")
 	require.NoError(t, err)
 	assert.Empty(t, commits)
@@ -242,14 +223,12 @@ func TestParseRecord_MissingFieldSeparator(t *testing.T) {
 }
 
 func TestParseRecord_TooFewBodyLines(t *testing.T) {
-	// Has \x1f but body section has fewer than 3 lines.
 	_, err := log.ExportedParseRecord("hash\nshort\x1fauthor\nemail\n2024-01-01T00:00:00Z")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "malformed record")
 }
 
 func TestParseRecord_TooFewMetaLines(t *testing.T) {
-	// Has \x1f and enough body lines but too few meta lines.
 	_, err := log.ExportedParseRecord("hash\nshort\nsubject\n\x1fonly-one-line")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "malformed record")
@@ -262,7 +241,6 @@ func TestParseRecord_InvalidDate(t *testing.T) {
 }
 
 func TestParseRecords_PropagatesParseRecordError(t *testing.T) {
-	// A record with no \x1f separator should propagate the error from parseRecord.
 	_, err := log.ExportedParseRecords("\x1emalformed-no-separator")
 	require.Error(t, err)
 }

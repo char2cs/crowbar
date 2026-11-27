@@ -52,15 +52,12 @@ func TestCodeOf_ForeignErrors(t *testing.T) {
 	}
 }
 
-// The fs engine hands up the os error itself; its errno is what says "missing".
 func TestCodeOf_AnOSPathErrorIsNotFound(t *testing.T) {
 	_, err := os.Lstat(t.TempDir() + "/ghost")
 
 	assert.Equal(t, problem.NotFound, problem.CodeOf(fmt.Errorf("mutate: copy: %w", err)))
 }
 
-// Every sentinel the old libs status union named answers the status it did,
-// bare and wrapped: the usecases annotate before a handler sees them.
 func TestCodeOf_EverySentinelKeepsItsStatus(t *testing.T) {
 	cases := []struct {
 		err    error
@@ -134,7 +131,6 @@ func TestCodeOf_EverySentinelKeepsItsStatus(t *testing.T) {
 			assert.Equal(t, tc.status, problem.CodeOf(tc.err).Status())
 			wrapped := fmt.Errorf("agent chat folder: move f1: %w", tc.err)
 			assert.Equal(t, tc.status, problem.CodeOf(wrapped).Status())
-			// A declared sentinel speaks for itself; a bare category through its wrap.
 			want := tc.err.Error()
 			if isCategory(tc.err) {
 				want = wrapped.Error()
@@ -144,8 +140,6 @@ func TestCodeOf_EverySentinelKeepsItsStatus(t *testing.T) {
 	}
 }
 
-// The reparent and retry refusals the old union missed are conflicts, the
-// family of the other reparent and branch refusals; they answered 500.
 func TestCodeOf_SelfParentIsAConflict(t *testing.T) {
 	for _, err := range []error{
 		workspace.ErrSelfParent, workspace.ErrBranchStillHeld, workspace.ErrBranchHeldByManagedWorkspace,
@@ -154,8 +148,6 @@ func TestCodeOf_SelfParentIsAConflict(t *testing.T) {
 	}
 }
 
-// The usecases that wrap two sentinels at once order them arbitrarily; each
-// keeps the status the old union gave it.
 func TestCodeOf_PriorityAtTheMultiWrapSites(t *testing.T) {
 	raw := errors.New("raw")
 	cases := []struct {

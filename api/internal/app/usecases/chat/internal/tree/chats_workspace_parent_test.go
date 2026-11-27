@@ -11,10 +11,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The sidebar ids a CHATLESS workspace's row (a repo's default checkout, an
-// untouched locked branch — PR #181's whole subject) by the WORKSPACE id, and
-// its Thread "+" posts that id as parentId (space-content-actions.ts
-// handleCreate: `createChat(wsId, uc, provider, parentId)`).
 func TestRegression_ThreadUnderAChatlessWorkspaceWithItsNodeRow(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	_, err := nodes.Create(context.Background(), workspaceID, dtree.KindWorkspace, "", 0)
@@ -25,9 +21,6 @@ func TestRegression_ThreadUnderAChatlessWorkspaceWithItsNodeRow(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A workspace created before the Node forest existed (every pre-existing
-// production workspace — no backfill by design) has NO Node row and no
-// owning chat: the exact row the user's nightly shows.
 func TestRegression_ThreadUnderALegacyChatlessWorkspaceWithoutANodeRow(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
@@ -55,9 +48,6 @@ func TestRegression_ForkUnderAChatlessWorkspaceWithItsNodeRow(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A fork cut through the workspace usecase (import, locked-branch provision)
-// mints its owning row under the PARENT workspace's anchor Node. A legacy
-// parent with no Node row dropped that row at the panel root instead.
 func TestRegression_MintOwningChat_UnderALegacyWorkspaceWithoutANodeRow(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	chats.NextID = "owner-new"

@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// channelSplitYAML mirrors the design spec's own tool_pre example
-// (docs/plans/2026-09-22-descriptor-channel-split.md, 2.1): one canonical
-// event, two channel blocks, each with its own wire name and map.
 const channelSplitYAML = `
 events:
   tool_pre:
@@ -76,9 +73,6 @@ func TestEventSpec_WhenForSelectsTheBlockByChannel(t *testing.T) {
 	assert.Empty(t, ev.WhenFor(spec.ChannelHooks), "the hooks block declares no when:")
 }
 
-// A legacy event (no channel blocks at all) answers the SAME on every
-// channel — the whole compatibility guarantee: P2 must not change behaviour
-// for an event that has not opted into the split.
 func TestEventSpec_LegacyEventAnswersTheSameOnEveryChannel(t *testing.T) {
 	var d spec.Descriptor
 	require.NoError(t, yaml.Unmarshal([]byte(`
@@ -99,9 +93,6 @@ events:
 	}
 }
 
-// A channel-scoped event declaring only ONE block is absent on the other —
-// EventFieldsFor's ok=false is what lets the caller refuse it with a named
-// error instead of silently mapping to nothing (design spec 2.1).
 func TestEventSpec_AChannelTheEventDoesNotDeclareIsAbsent(t *testing.T) {
 	d := parseChannelSplit(t)
 	ev := d.Events["tool_pre"]
@@ -110,7 +101,7 @@ func TestEventSpec_AChannelTheEventDoesNotDeclareIsAbsent(t *testing.T) {
 	assert.Empty(t, wire)
 	assert.Empty(t, dir)
 
-	_ = d // EventFieldsFor is exercised in TestDescriptor_EventFieldsFor below
+	_ = d
 }
 
 func TestDescriptor_EventFieldsFor(t *testing.T) {
@@ -184,11 +175,6 @@ func TestEventSpec_AnyWireEventFindsAChannelBlocksWireName(t *testing.T) {
 	assert.Equal(t, "in", dir)
 }
 
-// askChannelSplitYAML mirrors permission's real shape (codex.yaml, since
-// docs/plans/2026-09-22-descriptor-channel-split.md P3's own gap report): an
-// ASK-direction event, channel-split, each block naming its own wire method(s)
-// under ask: rather than in:. Reply stays flat on the event — see
-// ChannelBlock's own doc comment on why it is not per-block.
 const askChannelSplitYAML = `
 events:
   permission:
@@ -225,10 +211,6 @@ func TestEventSpec_AskChannelBlocksParse(t *testing.T) {
 	assert.True(t, ev.API.In.Empty(), "an ask block declares ask:, not in:")
 }
 
-// TestEventSpec_WireEventForResolvesAskDirectionFromChannelBlock is the
-// direct reproduction of the P3 gap report: "WireEventFor always returns
-// direction 'in' for a channel-scoped event" — an ask-direction channel block
-// must report direction "ask" and its own wire name, on EACH channel.
 func TestEventSpec_WireEventForResolvesAskDirectionFromChannelBlock(t *testing.T) {
 	d := parseAskChannelSplit(t)
 	ev := d.Events["permission"]

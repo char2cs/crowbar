@@ -15,8 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// watchList returns the directories the inotify backend has registered: the
-// deterministic signal for "was this directory added to the watch?".
 func watchList(
 	t *testing.T,
 	be backend,
@@ -43,8 +41,6 @@ func newTestBackend(
 	return be
 }
 
-// inotify watches cost a kernel slot each, so skipped trees are never added,
-// on the initial walk or when they appear later.
 func TestFsnotifyBackend_SkippedDirsAreNeverWatched(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o700))
@@ -71,12 +67,8 @@ func TestFsnotifyBackend_SkippedDirsAreNeverWatched(t *testing.T) {
 	assert.Contains(t, watched, filepath.Join(dir, "lib", "x"), "a new directory is watched at every depth")
 }
 
-// A linked worktree's git dir and common dir are watched one level deep and
-// their ref trees in full; the gitlink file is not a directory to watch.
 func TestFsnotifyBackend_WatchesResolvedGitDirsAndRefTrees(t *testing.T) {
 	worktree, commonDir := newLinkedWorktree(t)
-	// Whether `git worktree add` creates the private refs/ dir up front depends on
-	// the git version (2.43 does not); a per-worktree ref makes it exist on all.
 	git(t, worktree, "update-ref", "refs/bisect/bad", "HEAD")
 	w := NewWatcher("ws-refs", worktree, "", &minimalGit{}, &recordingDispatcher{})
 	gitDir := w.gitDir()
@@ -101,8 +93,6 @@ func TestFsnotifyBackend_WatchesResolvedGitDirsAndRefTrees(t *testing.T) {
 	assert.NotContains(t, watched, rebase, "git-internal directories outside the ref trees are not")
 }
 
-// A stop must not wait out the walk of a large tree: the walk checks ctx between
-// directories and gives up with ctx's error, watching nothing.
 func TestFsnotifyBackend_WalkStopsAtTheNextDirectoryOnceCancelled(t *testing.T) {
 	dir := t.TempDir()
 	for _, sub := range []string{"a", "b", "c"} {
@@ -123,8 +113,6 @@ func TestFsnotifyBackend_WalkStopsAtTheNextDirectoryOnceCancelled(t *testing.T) 
 	assert.Equal(t, []string{dir}, visited, "no directory is visited after the cancel")
 }
 
-// One followed file costs one inotify watch, on its directory: nothing below
-// it is walked, and a directory made there later is not followed.
 func TestFsnotifyBackend_FileSpecWatchesOnlyTheParentDirectory(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub", "deeper"), 0o700))
@@ -136,8 +124,6 @@ func TestFsnotifyBackend_FileSpecWatchesOnlyTheParentDirectory(t *testing.T) {
 	assert.Equal(t, []string{dir}, watchList(t, be))
 }
 
-// The kernel's inotify limits (instances per user, watches per user, open
-// files) surface as ErrWatchLimit, so a refusal can say what ran out.
 func TestFileBackend_AnExhaustedInotifyLimitIsTheWatchLimit(t *testing.T) {
 	for _, errno := range []syscall.Errno{syscall.EMFILE, syscall.ENFILE, syscall.ENOSPC} {
 		err := watchLimit(fmt.Errorf("new fsnotify watcher: %w", errno))

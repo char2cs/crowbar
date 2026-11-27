@@ -41,9 +41,6 @@ func (e *engine) ExecuteCommand(
 	return out, nil
 }
 
-// commandRequest issues a request whose result carries commands (code lenses,
-// code actions) and passes it through toClient with the server's own
-// command set, so the editor is only offered commands the server can run.
 func (e *engine) commandRequest(
 	ctx context.Context,
 	wsID string,

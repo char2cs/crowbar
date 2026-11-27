@@ -9,20 +9,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// hierarchyOwningChats adapts the chat tree usecase to the hierarchy's OwningChats seam so every
-// imported worktree is born under a chat, translating ImportedBranch to ImportSpec so neither imports
-// the other. Written out, not embedded: embedding would expose a second ImportBranchAsChat.
 type hierarchyOwningChats struct {
 	tree  agentusecase.TreeUsecase
 	chats chatsByWorkspace
 }
 
-// chatsByWorkspace lists the chat rows naming a workspace.
 type chatsByWorkspace interface {
 	ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Chat, error)
 }
 
-// OwnerOf implements workspace.OwningChats.
 func (h hierarchyOwningChats) OwnerOf(
 	ctx context.Context,
 	workspaceID string,
@@ -35,7 +30,6 @@ func (h hierarchyOwningChats) OwnerOf(
 	return owner.ID, nil
 }
 
-// ImportBranchAsChat implements workspace.OwningChats.
 func (h hierarchyOwningChats) ImportBranchAsChat(
 	ctx context.Context,
 	in workspace.ImportedBranch,
@@ -52,7 +46,6 @@ func (h hierarchyOwningChats) ImportBranchAsChat(
 	})
 }
 
-// MintOwningChat implements workspace.OwningChats.
 func (h hierarchyOwningChats) MintOwningChat(
 	ctx context.Context,
 	chatID string,
@@ -61,7 +54,6 @@ func (h hierarchyOwningChats) MintOwningChat(
 	return h.tree.MintOwningChat(ctx, chatID, parentWorkspaceID)
 }
 
-// AttachOwningWorkspace implements workspace.OwningChats.
 func (h hierarchyOwningChats) AttachOwningWorkspace(
 	ctx context.Context,
 	chatID string,
@@ -70,7 +62,6 @@ func (h hierarchyOwningChats) AttachOwningWorkspace(
 	return h.tree.AttachOwningWorkspace(ctx, chatID, ws)
 }
 
-// DiscardOwningChat implements workspace.OwningChats.
 func (h hierarchyOwningChats) DiscardOwningChat(
 	ctx context.Context,
 	chatID string,

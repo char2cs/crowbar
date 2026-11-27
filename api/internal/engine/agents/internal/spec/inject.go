@@ -26,8 +26,6 @@ func (s *InjectStep) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-// InjectSteps is a descriptor's step list. yaml finds UnmarshalYAML by
-// reflection, which deadcode cannot follow; a static call keeps it reachable.
 type InjectSteps []InjectStep
 
 func (s *InjectSteps) UnmarshalYAML(node *yaml.Node) error {

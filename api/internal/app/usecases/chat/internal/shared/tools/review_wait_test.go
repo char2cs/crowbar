@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// listSignalReader tells the test each time the tool has listed, which happens only
-// after it subscribed — so a notification sent after the signal cannot be lost.
 type listSignalReader struct {
 	*stubThreadReader
 	listed chan struct{}
@@ -124,8 +122,6 @@ func TestWaitForReviewComments_BlocksThenWakesOnANotification(t *testing.T) {
 	require.Contains(t, res.out, "last t1")
 }
 
-// ListByWorkspace reads a read model projected independently of the notification,
-// so it can still show the old state when the wake arrives.
 func TestWaitForReviewComments_TheNotificationOverridesAStaleReadModel(t *testing.T) {
 	stale := waitThread("t1", "ws-a", domain.ReviewThreadStatusOpen, true)
 	f := waitOn(t, stale)

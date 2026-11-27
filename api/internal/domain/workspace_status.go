@@ -1,6 +1,5 @@
 package domain
 
-// WorkspaceStatus is the base lifecycle badge; "" means "has commits, no PR".
 type WorkspaceStatus string
 
 const (

@@ -1,0 +1,39 @@
+[package]
+name = "supervisor"
+description = "Finds, spawns, health-checks, recovers and stops the Crowbar daemon sidecar."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+test-daemon = []
+
+[[bin]]
+name = "fake_daemon"
+path = "src/bin/fake_daemon/main.rs"
+required-features = ["test-daemon"]
+
+[dependencies]
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+journal.workspace = true
+rustix = { version = "1", features = ["process", "param", "fs"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt", "signal", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing.workspace = true
+
+[dev-dependencies]
+supervisor = { path = ".", features = ["test-daemon"] }
+tempfile = "3"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true

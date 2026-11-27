@@ -1,0 +1,16 @@
+{
+ "description": "An alert (notification).",
+ "steps": [
+  {
+   "do": "post",
+   "event": "notification",
+   "body": {
+    "message": "Scripted needs your attention"
+   }
+  },
+  {
+   "do": "text",
+   "text": "Sent a notification."
+  }
+ ]
+}

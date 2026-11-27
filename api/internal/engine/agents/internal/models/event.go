@@ -5,13 +5,8 @@ type CanonicalEvent struct {
 	SessionID string
 	Message   string
 
-	// TurnID is the provider's own turn identifier, when its descriptor maps
-	// one: a turn end can belong to a compaction's own turn, and only the id
-	// tells it apart from a reply.
 	TurnID string
 
-	// TurnStatus is the provider-reported terminal state when its completion
-	// event distinguishes completed from interrupted. Descriptors normalize it.
 	TurnStatus string
 
 	Model string
@@ -26,21 +21,16 @@ type CanonicalEvent struct {
 
 	Delta *MessageDelta
 
-	// Complete is the whole text of one finished message.
 	Complete *MessageComplete
 
 	Failure *TurnFailure
 
 	Choice *ChoicePrompt
 
-	// Plan is the agent's own running to-do list for this turn, newest state
-	// wholesale. Nil when the event carries none.
 	Plan []PlanStep
 
-	// Step is one step of the plan, changed alone (plan_step).
 	Step *PlanStepEvent
 
-	// Shells are the background commands a harness-injected prompt reports on.
 	Shells []ShellEvent
 
 	Raw map[string]any
@@ -50,9 +40,6 @@ type MessageDelta struct {
 	TurnID    string
 	MessageID string
 
-	// Index is the increment's position, meaningful only when Sequenced is
-	// true: with no index: field mapped every increment reads zero, so the
-	// chat shows such a stream live in arrival order and records no chunk.
 	Index     int
 	Sequenced bool
 
@@ -61,7 +48,6 @@ type MessageDelta struct {
 	Text string
 }
 
-// MessageComplete is one finished assistant message, whole.
 type MessageComplete struct {
 	TurnID    string
 	MessageID string
@@ -72,14 +58,11 @@ type MessageComplete struct {
 type TurnFailure struct {
 	Reason string
 
-	// Kind is the trouble in Crowbar's words (auth, limit, overloaded), by the
-	// event's status_map; empty when the descriptor names none.
 	Kind string
 
 	Detail string
 }
 
-// PatchHunk is one unified-diff hunk: Lines carry the " ", "-", "+" prefixes.
 type PatchHunk struct {
 	OldStart int
 	NewStart int
@@ -97,49 +80,31 @@ type ToolEvent struct {
 	Result []byte
 	Status string
 
-	// Title is the agent's own one-line description of the call.
-	Title string
-	// MCPServer and MCPTool name the server and tool of a call into one.
-	MCPServer string
-	MCPTool   string
-	// ExitCode is a command's exit status; nil when the payload carries none, so 0 is an answer.
+	Title       string
+	MCPServer   string
+	MCPTool     string
 	ExitCode    *int
 	Interrupted bool
 
-	// EditBefore/EditAfter are the text an edit replaced and its replacement,
-	// when the descriptor maps them; a new file has an empty EditBefore.
 	EditBefore string
 	EditAfter  string
-	// Output is what a finished call printed, when the descriptor maps it.
-	Output string
-	// Cwd is the session's directory when the call ran: a diff names its files from there.
-	Cwd string
-	// Diff is a unified preview of this tool call's own changed files.
-	Diff string
-	// Patch is the provider's own hunks for the change a completed tool made,
-	// with true line numbers; it supersedes the EditBefore/EditAfter snippet.
-	Patch []PatchHunk
+	Output     string
+	Cwd        string
+	Diff       string
+	Patch      []PatchHunk
 
 	Error      string
 	DurationMS int
 
-	// SpawnsScope names the subagent this call spawned, AddressesScope one it
-	// waits on or closes; a subagent's events are recorded in its scope.
 	SpawnsScope    string
 	AddressesScope string
 
-	// SpawnsShell names the background command this call left running, StopsShell
-	// one it stopped.
-	SpawnsShell string
-	StopsShell  string
-	// ShellKind is Crowbar's word (shell, monitor) for what SpawnsShell started;
-	// ShellPersistent and ShellTimeoutMS say how long a monitor was set to run.
+	SpawnsShell     string
+	StopsShell      string
 	ShellKind       string
 	ShellPersistent bool
 	ShellTimeoutMS  int
-	// ShellRef is the provider's handle on the call's process, which the call
-	// names before it is known to have outlived the call.
-	ShellRef string
+	ShellRef        string
 }
 
 type ToolLocation struct {
@@ -147,28 +112,20 @@ type ToolLocation struct {
 	Line int
 }
 
-// SubagentEvent is what a subagent's own event says of it. Status is
-// Crowbar's word, by the event's status_map.
 type SubagentEvent struct {
 	ID, AgentType, Title, Status, Result string
 	Usage                                *SubagentUsage
 }
 
-// SubagentUsage is what a subagent spent; nil fields were not reported.
 type SubagentUsage struct {
 	Tokens, ToolUses, DurationMs int64
 }
 
-// ShellEvent is what a harness-injected prompt reports of a background command:
-// Status is Crowbar's word (finished, failed, stopped) by the injected prompt's
-// status_map, empty for a report that gives none; ExitCode is how it exited, when
-// the report says. Summary is the provider's account and Note a line it printed.
 type ShellEvent struct {
 	ID, Status, Summary, Note string
 	ExitCode                  *int
 }
 
-// PlanStepEvent is one step of a plan changed alone, in the scope that keeps it.
 type PlanStepEvent struct {
 	ScopeID, StepID, Text, Detail, Status string
 }
@@ -224,8 +181,6 @@ type ChoicePrompt struct {
 
 	Schema []byte
 
-	// ToolTarget, ToolInput and MCPServer say which call a tool question or
-	// permission is about, so it can be matched to that call's row.
 	ToolTarget string
 	ToolInput  []byte
 	MCPServer  string
@@ -245,24 +200,17 @@ type ChoiceOption struct {
 	Kind        string
 	Label       string
 	Description string
-	// Reason: the reply to this option carries the person's reason to the agent.
-	Reason bool
+	Reason      bool
 }
 
-// PlanStep is one entry of an agent's running plan. Status is Crowbar's word: the
-// descriptor maps its own vocabulary via `steps.status_map`, so Go never learns it.
 type PlanStep struct {
 	Text   string
 	Status string
 }
 
-// The step statuses Crowbar renders. A descriptor whose status_map produces
-// anything else leaves the step unstyled rather than failing — an unknown status
-// is still a step worth showing.
 const (
 	PlanStepPending = "pending"
 	PlanStepActive  = "active"
 	PlanStepDone    = "done"
-	// PlanStepRemoved is a step that leaves the plan.
 	PlanStepRemoved = "removed"
 )

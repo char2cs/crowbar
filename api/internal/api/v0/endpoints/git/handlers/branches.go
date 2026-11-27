@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// CreateBranch POST /v0/chats/:chatId/git/branches
 func (h *Handlers) CreateBranch(
 	ctx *gin.Context,
 ) {
@@ -36,7 +35,6 @@ func (h *Handlers) CreateBranch(
 	ctx.Status(http.StatusCreated)
 }
 
-// RenameBranch PATCH /v0/chats/:chatId/git/branches
 func (h *Handlers) RenameBranch(
 	ctx *gin.Context,
 ) {
@@ -68,7 +66,6 @@ func (h *Handlers) RenameBranch(
 	ctx.Status(http.StatusOK)
 }
 
-// DeleteBranch DELETE /v0/chats/:chatId/git/branches
 func (h *Handlers) DeleteBranch(
 	ctx *gin.Context,
 ) {
@@ -94,7 +91,6 @@ func (h *Handlers) DeleteBranch(
 	ctx.Status(http.StatusNoContent)
 }
 
-// Switch POST /v0/chats/:chatId/git/switch
 func (h *Handlers) Switch(
 	ctx *gin.Context,
 ) {

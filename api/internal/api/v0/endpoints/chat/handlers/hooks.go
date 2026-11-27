@@ -11,12 +11,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// runnerTokenHeader carries the per-runner token an HTTP hook proves itself with.
 const runnerTokenHeader = "X-Crowbar-Runner-Token"
 
-// HTTPHook handles POST .../chats/runners/:segid/hooks/:provider/:event, the one hook ingress,
-// authenticated by the runner token. A hook that opened a prompt a human can decide is held open and
-// answered with the decision; the CLI closing the request means it was decided at the terminal.
 func (h *Handlers) HTTPHook(
 	ctx *gin.Context,
 ) {
@@ -47,7 +43,6 @@ func (h *Handlers) HTTPHook(
 	ctx.Status(http.StatusOK)
 }
 
-// holdForAnswer parks the request, outside the chat's lock, until askID is decided.
 func (h *Handlers) holdForAnswer(
 	ctx *gin.Context,
 	askID string,

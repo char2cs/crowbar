@@ -17,19 +17,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/translate/outbound"
 )
 
-// Request is one named HTTP call. Path and every string leaf of Body may hold
-// {placeholders}, filled from the call's params and earlier captures.
 type Request struct {
 	Method   string
 	Path     string
 	Body     any
-	Capture  map[string]string // var -> path into the JSON response
-	OKStatus []int             // empty means any 2xx
+	Capture  map[string]string
+	OKStatus []int
 }
 
 var placeholder = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 
-// missing returns the first placeholder in tmpl that has no value.
 func missing(tmpl string, values map[string]string) string {
 	for _, m := range placeholder.FindAllStringSubmatch(tmpl, -1) {
 		if _, ok := values[m[1]]; !ok {
@@ -39,7 +36,6 @@ func missing(tmpl string, values map[string]string) string {
 	return ""
 }
 
-// expandPath fills tmpl with path-escaped values and joins it to the base URL.
 func (c *Client) expandPath(tmpl string, values map[string]string) (string, error) {
 	if name := missing(tmpl, values); name != "" {
 		return "", fmt.Errorf("no value for {%s}", name)
@@ -51,7 +47,6 @@ func (c *Client) expandPath(tmpl string, values map[string]string) (string, erro
 	return strings.TrimRight(c.cfg.BaseURL, "/") + outbound.Substitute(tmpl, escaped), nil
 }
 
-// paramValues flattens a JSON object's scalar members into template values.
 func paramValues(raw json.RawMessage) (map[string]string, error) {
 	values := map[string]string{}
 	if len(bytes.TrimSpace(raw)) == 0 {
@@ -76,7 +71,6 @@ func paramValues(raw json.RawMessage) (map[string]string, error) {
 	return values, nil
 }
 
-// do runs the named request with values layered over the remembered captures.
 func (c *Client) do(ctx context.Context, name string, params map[string]string) (json.RawMessage, error) {
 	req, ok := c.cfg.Requests[name]
 	if !ok {

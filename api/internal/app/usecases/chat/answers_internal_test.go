@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// askedLock is the chat locks, telling asked of every chat a write asks for.
 type askedLock struct {
 	*ingress.Locks
 	asked chan<- string
@@ -26,7 +25,6 @@ func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
 	return l.Locks.Lock(ctx, chatID)
 }
 
-// openAsk is a ledger holding one open ask, ask-1 of chat-1.
 func openAsk(t *testing.T) *ledgerstore.Store {
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
@@ -40,8 +38,6 @@ func openAsk(t *testing.T) *ledgerstore.Store {
 	return l
 }
 
-// An answer is written only while its relay still waits on it: one whose relay
-// was gone by its turn at the chat's lock leaves the ask to that relay's close.
 func TestAskResolver_AnAnswerNoRelayWaitsOnIsNotWritten(t *testing.T) {
 	l := openAsk(t)
 	r := askResolver{writes: ingress.NewWriter(l, ingress.NewLocks())}
@@ -56,8 +52,6 @@ func TestAskResolver_AnAnswerNoRelayWaitsOnIsNotWritten(t *testing.T) {
 	assert.Len(t, rows, 1, "the ask stays open")
 }
 
-// An ask resolves after the hook holding its chat: the resolution waits for
-// the chat's lock, so it never lands between that hook's check and its rows.
 func TestAskResolver_ResolvesAfterTheHookHoldingTheChat(t *testing.T) {
 	for name, resolve := range map[string]func(ctx context.Context, r askResolver) error{
 		"a person answers it": func(ctx context.Context, r askResolver) error {
@@ -72,7 +66,7 @@ func TestAskResolver_ResolvesAfterTheHookHoldingTheChat(t *testing.T) {
 			l := openAsk(t)
 			locks, asking := ingress.NewLocks(), make(chan string, 1)
 			r := askResolver{writes: ingress.NewWriter(l, askedLock{Locks: locks, asked: asking})}
-			unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
+			unlock, err := locks.Lock(t.Context(), "chat-1")
 			require.NoError(t, err)
 
 			done := make(chan error, 1)
@@ -100,8 +94,6 @@ func TestAskResolver_ResolvesAfterTheHookHoldingTheChat(t *testing.T) {
 	}
 }
 
-// A held ask nobody answers within its budget is released with nothing to print,
-// and its CLI asks the question itself: the ask closes as proceeded.
 func TestAwaitAnswer_ABudgetThatRunsOutClosesTheAskAsProceeded(t *testing.T) {
 	l := openAsk(t)
 	budget := make(chan time.Time)

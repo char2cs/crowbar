@@ -13,9 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestCreateChild_AdoptMainWorktreeUnchanged proves the main-worktree adoption
-// path (empty parent + branch == parent branch) is untouched by the spec-§3
-// remote decision: it resolves HEAD directly and never queries the remote.
 func TestCreateChild_AdoptMainWorktreeUnchanged(t *testing.T) {
 	g := &fakeGit{revParseSha: "headsha"}
 	var created workspace.CreateInput
@@ -28,7 +25,6 @@ func TestCreateChild_AdoptMainWorktreeUnchanged(t *testing.T) {
 			created = in
 			return domain.Workspace{ID: in.ID}, nil
 		},
-		// No workspace yet adopts the main worktree, so the first adoption proceeds.
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
 	}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
@@ -60,15 +56,6 @@ func TestCreateChild_AdoptMainWorktree_RevParseError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestCreateChild_RejectsDuplicateBranch_AdoptPath proves a second workspace on
-// the repo's default branch (empty parent + branch == default) is rejected with
-// ErrBranchWorkspaceExists before any git work — no phantom duplicate row.
-// TestCreateChild_DefaultWorkspaceDoesNotBlockImport pins the user-required rule:
-// the default workspace (the imported repo folder) is unmanaged and must NOT
-// count for the one-managed-workspace-per-branch guard — so it never blocks
-// importing its own branch as a real managed workspace. With the default already
-// adopting the repo path, creating develop again is allowed and goes to the
-// managed-worktree path; it does NOT persist a second default.
 func TestCreateChild_DefaultWorkspaceDoesNotBlockImport(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha"}
 	var created workspace.CreateInput
@@ -99,8 +86,6 @@ func TestCreateChild_DefaultWorkspaceDoesNotBlockImport(t *testing.T) {
 		"it goes to the managed-worktree path, not re-adopting the repo folder")
 }
 
-// A deleted prior adoption must NOT block re-adopting the main worktree (e.g.
-// the default workspace was removed and is being recreated).
 func TestCreateChild_AdoptMainWorktree_IgnoresDeletedAdoption(t *testing.T) {
 	g := &fakeGit{revParseSha: "headsha"}
 	var created workspace.CreateInput

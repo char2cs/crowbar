@@ -13,9 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
 
-// newOwnedImportDeps builds the smallest import that creates exactly ONE
-// workspace — the project-level home, discovering no repo at all — so a test can
-// watch the chat side of that single create with no repo-tree noise around it.
 func newOwnedImportDeps(
 	t *testing.T,
 	projects *mocks.ProjectStore,
@@ -31,23 +28,12 @@ func newOwnedImportDeps(
 		Provider:    mocks.NewProviderEngine(),
 		Discover:    func(string, int) ([]string, error) { return nil, nil },
 		RefRunner:   noRefRunner,
-		// Every workspace this usecase creates mints its own Node row now
-		// (2026-09-08 sidebar-placement-unification Task 7), so a chat-side test
-		// that never cared about Nodes still needs a working surface wired —
-		// mirrors newImportUsecase's own default.
-		Nodes: mocks.NewNodePlacements(),
-		Now:   func() time.Time { return time.Unix(1000, 0).UTC() },
-		Stat:  statExists,
+		Nodes:       mocks.NewNodePlacements(),
+		Now:         func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat:        statExists,
 	}
 }
 
-// TestImport_NoOwningChatsWired_RefusesAndPersistsNothing is the guard itself: a
-// usecase whose chat side was never wired must refuse at its first create rather
-// than fall back to the workspace-only create it used to do.
-//
-// It constructs project.NewImport DIRECTLY — the one test in this package that
-// must NOT go through newImportUsecase, whose whole job is to wire the surface
-// this test needs absent.
 func TestImport_NoOwningChatsWired_RefusesAndPersistsNothing(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
@@ -60,9 +46,6 @@ func TestImport_NoOwningChatsWired_RefusesAndPersistsNothing(t *testing.T) {
 	assert.Empty(t, projects.Saved, "the project row rolls back with the home that failed")
 }
 
-// TestImport_MintOwningChatFails_WritesNoWorkspaceRow proves the mint runs BEFORE
-// the row: when the chat cannot be minted there is nothing to roll back, because
-// the workspace was never created in the first place.
 func TestImport_MintOwningChatFails_WritesNoWorkspaceRow(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
@@ -79,11 +62,6 @@ func TestImport_MintOwningChatFails_WritesNoWorkspaceRow(t *testing.T) {
 	assert.Empty(t, chats.discards(), "an unminted chat is not a chat to discard")
 }
 
-// TestImport_AttachOwningWorkspaceFails_TakesBothHalvesBackOut covers the
-// rollback that makes an orphan unrepresentable: the row WAS written, then could
-// not be pointed at the chat minted for it, so the workspace is tombstoned and
-// the chat discarded. A row left behind here is the exact orphan the guard
-// exists to prevent.
 func TestImport_AttachOwningWorkspaceFails_TakesBothHalvesBackOut(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
@@ -103,10 +81,6 @@ func TestImport_AttachOwningWorkspaceFails_TakesBothHalvesBackOut(t *testing.T) 
 	assert.Empty(t, projects.Saved, "the project row rolls back with the home that failed")
 }
 
-// TestImport_AttachFails_WorkspaceDeleteAlsoFails_StillSurfacesTheCause proves
-// the rollback is best-effort and never masks what actually went wrong: a
-// tombstone that itself fails is logged, and the attach failure is still the
-// error the caller sees.
 func TestImport_AttachFails_WorkspaceDeleteAlsoFails_StillSurfacesTheCause(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
@@ -123,10 +97,6 @@ func TestImport_AttachFails_WorkspaceDeleteAlsoFails_StillSurfacesTheCause(t *te
 	assert.Len(t, chats.discards(), 1, "the chat is still discarded even when the row could not be")
 }
 
-// TestImport_HomeWorkspace_IsOwnedByTheChatMintedForIt is the success half: the
-// workspace a clean import creates ends up attached to a chat that was minted
-// for it, which is the whole point of routing every create through
-// createOwnedWorkspace.
 func TestImport_HomeWorkspace_IsOwnedByTheChatMintedForIt(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()

@@ -1,6 +1,3 @@
-// Package hookserver is the loopback listener for vendor CLIs that post hooks natively over HTTP.
-// It serves only the runner-keyed hook route, authenticated by the per-runner token: the rest of
-// the API is unauthenticated and must never be reachable from a TCP port.
 package hookserver
 
 import (
@@ -16,13 +13,10 @@ import (
 	"time"
 )
 
-// hookRoute is .../chats/runners/:segid/hooks/:provider/:event under a repo or
-// under the project home.
 var hookRoute = regexp.MustCompile(
 	`^/v0/projects/[^/]+/(repos/[^/]+|home)/chats/runners/[^/]+/hooks/[^/]+/[^/]+$`,
 )
 
-// Gate lets only a POST to the hook route through to next.
 func Gate(
 	next http.Handler,
 ) http.Handler {
@@ -35,13 +29,11 @@ func Gate(
 	})
 }
 
-// Server is the loopback listener.
 type Server struct {
 	listener net.Listener
 	server   *http.Server
 }
 
-// Listen binds an ephemeral port on 127.0.0.1 and gates next to the hook route.
 func Listen(
 	ctx context.Context,
 	next http.Handler,
@@ -57,25 +49,20 @@ func Listen(
 	}, nil
 }
 
-// URL is the server's base URL, e.g. http://127.0.0.1:49152.
 func (s *Server) URL() string {
 	return "http://" + s.listener.Addr().String()
 }
 
-// Serve serves until Shutdown or Close, which make it return http.ErrServerClosed.
 func (s *Server) Serve() error {
 	return s.server.Serve(s.listener)
 }
 
-// Shutdown stops accepting and waits for in-flight requests, up to ctx.
 func (s *Server) Shutdown(
 	ctx context.Context,
 ) error {
 	return s.server.Shutdown(ctx)
 }
 
-// Close closes the listener and every connection. It closes the listener itself
-// too: until Serve runs, the http.Server does not track it.
 func (s *Server) Close() error {
 	err := s.server.Close()
 	if lerr := s.listener.Close(); lerr != nil && !errors.Is(lerr, net.ErrClosed) {
@@ -90,9 +77,6 @@ func endpointFile(
 	return filepath.Join(home, "run", "hooks.url")
 }
 
-// Publish records the server's URL under home, owner-only, for the spawner to read
-// when it renders a CLI's hook configuration. It is rewritten at every daemon boot:
-// a runner is a child of the daemon, so none outlives the URL it was handed.
 func Publish(
 	home, url string,
 ) error {
@@ -110,7 +94,6 @@ func Publish(
 	return nil
 }
 
-// Read returns the URL the running daemon published under home.
 func Read(
 	home string,
 ) (string, error) {

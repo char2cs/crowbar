@@ -1,0 +1,155 @@
+pub(crate) mod close_scope;
+mod group_edit;
+mod pins;
+pub(crate) mod strip_step;
+
+use protocol::PaneId;
+use serde::{Deserialize, Serialize};
+
+use crate::layout::tab::pane_instance::PaneInstance;
+
+pub const DEFAULT_CHAT_SHARE: f32 = 0.45;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneGroup {
+    pub(crate) chat: Option<PaneId>,
+    pub(crate) tabs: Vec<PaneId>,
+    pub(crate) active: Option<PaneId>,
+    pub(crate) pinned: usize,
+    pub(crate) editor_open: bool,
+    pub(crate) chat_selected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) preview: Option<PaneId>,
+    #[serde(skip)]
+    pub(crate) chat_share: Option<f32>,
+}
+
+impl PaneGroup {
+    pub(crate) fn holding(instance: &PaneInstance) -> Self {
+        if !instance.type_id.is_chat() {
+            return Self::single(instance.pane_id.clone());
+        }
+        Self {
+            chat: Some(instance.pane_id.clone()),
+            tabs: Vec::new(),
+            active: None,
+            pinned: 0,
+            editor_open: false,
+            chat_selected: true,
+            preview: None,
+            chat_share: None,
+        }
+    }
+
+    pub(crate) fn single(pane: PaneId) -> Self {
+        Self {
+            chat: None,
+            tabs: vec![pane.clone()],
+            active: Some(pane),
+            pinned: 0,
+            editor_open: true,
+            chat_selected: false,
+            preview: None,
+            chat_share: None,
+        }
+    }
+
+    #[must_use]
+    pub fn chat(&self) -> Option<&PaneId> {
+        self.chat.as_ref()
+    }
+
+    #[must_use]
+    pub fn tabs(&self) -> &[PaneId] {
+        &self.tabs
+    }
+
+    #[must_use]
+    pub fn active_tab(&self) -> Option<&PaneId> {
+        self.active.as_ref()
+    }
+
+    #[must_use]
+    pub fn editor_open(&self) -> bool {
+        self.editor_open
+    }
+
+    #[must_use]
+    pub fn chat_selected(&self) -> bool {
+        self.chat_selected
+    }
+
+    #[must_use]
+    pub fn shown(&self) -> Option<&PaneId> {
+        let chat = self
+            .chat
+            .as_ref()
+            .filter(|_| self.chat_selected || self.active.is_none());
+        chat.or(self.active.as_ref())
+    }
+
+    #[must_use]
+    pub fn contains(
+        &self,
+        pane: &PaneId,
+    ) -> bool {
+        self.chat.as_ref() == Some(pane) || self.tabs.contains(pane)
+    }
+
+    pub(crate) fn members(&self) -> Vec<PaneId> {
+        self.chat.iter().chain(&self.tabs).cloned().collect()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.tabs.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.chat.is_none() && self.tabs.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use protocol::{PaneState, PaneTypeId, Params};
+
+    use super::*;
+
+    fn instance(
+        name: &str,
+        kind: &str,
+    ) -> PaneInstance {
+        PaneInstance {
+            pane_id: PaneId::new(name).unwrap(),
+            type_id: PaneTypeId::new(kind).unwrap(),
+            params: Params::default(),
+            state: PaneState::default(),
+        }
+    }
+
+    #[test]
+    fn a_group_shows_its_chat_until_an_editor_tab_is_selected() {
+        let chat = instance("c", PaneTypeId::CHAT);
+        let mut group = PaneGroup::holding(&chat);
+        assert_eq!(group.shown(), Some(&chat.pane_id), "a lone chat");
+        group.tabs = vec![PaneId::new("t").unwrap()];
+        group.active = group.tabs.first().cloned();
+        assert_eq!(group.shown(), Some(&chat.pane_id), "chat still selected");
+        group.chat_selected = false;
+        assert_eq!(group.shown(), group.active_tab(), "the tab once selected");
+    }
+
+    #[test]
+    fn a_pane_that_is_not_a_chat_starts_a_chatless_group_as_its_tab() {
+        let terminal = instance("t", "core.terminal");
+        let group = PaneGroup::holding(&terminal);
+        assert_eq!(group.chat(), None, "no chat");
+        assert_eq!(
+            group.tabs(),
+            std::slice::from_ref(&terminal.pane_id),
+            "the tab"
+        );
+        assert!(group.editor_open(), "its editor shows");
+    }
+}

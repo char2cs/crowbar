@@ -32,7 +32,6 @@ func (c turnChat) retract(t *testing.T, requestID string) retractAnswer {
 	return got
 }
 
-// send submits the prompt "one" as requestID and returns the launch that carries it.
 func (c turnChat) send(t *testing.T, requestID string) kit.Launch {
 	t.Helper()
 	require.Equal(t, http.StatusOK, postPrompt(t, c.h, c.imported, c.chatID, "one", requestID))
@@ -40,14 +39,11 @@ func (c turnChat) send(t *testing.T, requestID string) kit.Launch {
 	return c.fake.AwaitLaunch(t, getAgentChat(t, c.h, repoBase(c.imported), c.chatID).LiveRunnerID)
 }
 
-// feedRows is the chat's whole feed replay, in seq order.
 func (c turnChat) feedRows(t *testing.T) []stream.Frame {
 	t.Helper()
 	return chatRows(t, c.h, c.chatID)
 }
 
-// chatRows is chatID's whole feed replay, in seq order: what a client reads
-// the chat from.
 func chatRows(t *testing.T, h *harness, chatID string) []stream.Frame {
 	t.Helper()
 	h.app.Repositories.QuiesceReactors(t.Context())
@@ -59,7 +55,6 @@ func chatRows(t *testing.T, h *harness, chatID string) []stream.Frame {
 	return rows
 }
 
-// ledgerRows are chatID's feed rows as the ledger rows they carry.
 func ledgerRows(t *testing.T, h *harness, chatID string) []ledger.Row {
 	t.Helper()
 	frames := chatRows(t, h, chatID)
@@ -70,7 +65,6 @@ func ledgerRows(t *testing.T, h *harness, chatID string) []ledger.Row {
 	return rows
 }
 
-// chatState is chatID's ledger state, folded from its feed rows.
 func chatState(t *testing.T, h *harness, chatID string) ledger.State {
 	t.Helper()
 	st := ledger.State{ChatID: chatID}
@@ -80,7 +74,6 @@ func chatState(t *testing.T, h *harness, chatID string) ledger.State {
 	return st
 }
 
-// seqOf is the seq of the first row of kind that keep accepts.
 func seqOf[B any](t *testing.T, rows []stream.Frame, kind ledger.Kind, keep func(B) bool) int64 {
 	t.Helper()
 	for _, f := range rows {
@@ -93,7 +86,6 @@ func seqOf[B any](t *testing.T, rows []stream.Frame, kind ledger.Kind, keep func
 	return 0
 }
 
-// rowsOf decodes the body of every row of kind that keep accepts.
 func rowsOf[B any](t *testing.T, rows []stream.Frame, kind ledger.Kind, keep func(B) bool) []B {
 	t.Helper()
 	var out []B

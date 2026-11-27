@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// capturedStep is the step a delivered frame carries from what an earlier frame remembered.
 func capturedStep(t *testing.T, raw []byte) (string, bool) {
 	t.Helper()
 	var params struct {
@@ -83,8 +82,6 @@ func TestStart_NothingRememberedAddsNothingToAFrame(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// An outbound call fences on the running turn's own frames: the latest number a
-// remember: entry kept is sent back as a JSON number, not as text.
 func TestSend_ExpandsTheLatestRememberedFrameNumberAsANumber(t *testing.T) {
 	d, err := descriptor.ParseV0([]byte(`
 id: neutral

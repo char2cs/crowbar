@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// fakeGit has origin's branch and answers the local tip read with localErr.
 type fakeGit struct {
 	localErr error
 	added    bool

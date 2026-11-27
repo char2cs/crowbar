@@ -22,11 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// newRealAPI builds the production HTTP surface — the same middleware stack and
-// the same v0 route tree the daemon serves. The perf wiring is only worth
-// anything if it is reachable HERE: a handler that answers on a hand-built test
-// router but mounts at the wrong path in the real container fails silently, and
-// a capture run against the live daemon is what would discover it.
 func newRealAPI(
 	t *testing.T,
 ) *crowbarapi.Container {
@@ -47,8 +42,6 @@ func newRealAPI(
 	return c
 }
 
-// TestAPI_New_PerfRoutesMountedUnderV0 reads the real router's route table so
-// the assertion is about REGISTRATION, not about a request happening to 200.
 func TestAPI_New_PerfRoutesMountedUnderV0(
 	t *testing.T,
 ) {
@@ -64,8 +57,6 @@ func TestAPI_New_PerfRoutesMountedUnderV0(
 	assert.Contains(t, mounted, "POST /v0/system/perf")
 }
 
-// TestAPI_New_PerfRouteAnswersOnRealRouter walks the whole production chain —
-// every global middleware plus the v0 group's guards — to the perf handler.
 func TestAPI_New_PerfRouteAnswersOnRealRouter(
 	t *testing.T,
 ) {
@@ -90,11 +81,6 @@ func TestAPI_New_PerfRouteAnswersOnRealRouter(
 	assert.Empty(t, got.Data.Samples)
 }
 
-// TestAPI_New_CaptureRunRoundTrip walks the whole capture protocol over HTTP —
-// arm, drive a request, read the ring back, disarm — against the production
-// router. Each piece passing in isolation proves nothing about the run a perf
-// investigation actually performs: an unwired middleware still passes its own
-// unit tests, and records nothing here.
 func TestAPI_New_CaptureRunRoundTrip(
 	t *testing.T,
 ) {
@@ -132,10 +118,6 @@ func TestAPI_New_CaptureRunRoundTrip(
 		names = append(names, s.Name)
 	}
 	assert.Contains(t, names, "http.GET /v0/health")
-	// The arming request itself must NOT appear: it was disarmed when the
-	// middleware saw it, and Set clears the ring anyway. A capture window that
-	// opened with its own opening request already inside it would attribute
-	// setup cost to the scenario under measurement.
 	assert.NotContains(t, names, "http.POST /v0/system/perf")
 
 	disarm := httptest.NewRecorder()

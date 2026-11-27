@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// connectOutputLimit bounds what a connect command may print: one small JSON object.
 const connectOutputLimit = 64 << 10
 
 func (a *agent) APIDialed() bool {
@@ -21,10 +20,6 @@ func (a *agent) APIDialed() bool {
 	return d == spec.APIDeliveryWebsocket || d == spec.APIDeliveryHTTP
 }
 
-// StartAPIEndpoint connects a websocket or http descriptor: runtime.api.connect
-// (when declared) runs with the env a PTY spawn gets, and its stdout is parsed and
-// never logged, as it carries the endpoint's credential. mcp_injection's files are
-// written first, once per connection, so a fresh and a resumed session both find them.
 func (a *agent) StartAPIEndpoint(ctx context.Context, tctx TemplateCtx, origin APISessionOrigin) (*APIConn, error) {
 	if err := spawn.WriteMCPFiles(a.spec, tctx); err != nil {
 		return nil, fmt.Errorf("agents: write the mcp files: %w", err)

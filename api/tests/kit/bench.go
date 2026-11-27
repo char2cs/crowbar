@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-// BenchmarkResult holds the p50 and p99 latency percentiles for a named run.
 type BenchmarkResult struct {
 	Name string
 	P50  time.Duration
@@ -30,7 +29,6 @@ type benchBaselineRow struct {
 	P99NS int64 `json:"p99ns"`
 }
 
-// RunBenchmark runs fn n times, records each duration, and returns p50/p99.
 func RunBenchmark(
 	t testing.TB,
 	name string,
@@ -74,8 +72,6 @@ func RunBenchmark(
 	}
 }
 
-// AssertNoRegression checks result against the saved baseline. On UPDATE_BASELINE=1
-// it updates the baseline instead of asserting. The threshold is 1.25× p99.
 func AssertNoRegression(
 	t *testing.T,
 	result BenchmarkResult,

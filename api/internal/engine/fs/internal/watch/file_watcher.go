@@ -11,12 +11,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ErrWatchLimit is an arm the OS refused for want of watch resources (on
-// Linux, the per-user inotify instance or watch limit, or open files).
 var ErrWatchLimit = errors.New("watch: the OS has no file watches left")
 
-// FileWatcher follows one file, which need not exist yet, and reports each
-// debounced change to it. It is single-use, like Watcher.
 type FileWatcher struct {
 	path string
 	emit func(change domain.FileChangeType)
@@ -28,8 +24,6 @@ type FileWatcher struct {
 	loopDone chan struct{}
 }
 
-// NewFileWatcher builds a FileWatcher on path; emit runs on the watcher's own
-// goroutine. Call Start to begin.
 func NewFileWatcher(
 	path string,
 	emit func(change domain.FileChangeType),
@@ -37,8 +31,6 @@ func NewFileWatcher(
 	return &FileWatcher{path: path, emit: emit, loopDone: make(chan struct{})}
 }
 
-// Start arms the OS watch and returns once it is armed: a change made after
-// Start returns is reported.
 func (w *FileWatcher) Start(
 	ctx context.Context,
 ) error {
@@ -64,8 +56,6 @@ func (w *FileWatcher) Start(
 	return nil
 }
 
-// Stop ends the watch and joins its loop, so no emit follows it. It is
-// idempotent, and before Start it makes Start refuse.
 func (w *FileWatcher) Stop() {
 	w.mu.Lock()
 	w.stopped = true
@@ -99,7 +89,6 @@ func (w *FileWatcher) loop(
 			if !ok {
 				return
 			}
-			// One file under whatever spelling the OS reports it.
 			pending.add(w.path, evt.Op)
 		case _, ok := <-errs:
 			if !ok {

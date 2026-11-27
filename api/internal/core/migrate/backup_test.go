@@ -72,8 +72,6 @@ func readTree(
 	return out
 }
 
-// readBackup lists the archive at path as readTree lists a directory, by the
-// paths its entries have under the home.
 func readBackup(
 	tb testing.TB,
 	path string,
@@ -102,7 +100,6 @@ func readBackup(
 	}
 }
 
-// archived is tree as a backup holds it under prefix: every file 0600.
 func archived(
 	tree map[string]treeEntry,
 	prefix string,
@@ -117,7 +114,6 @@ func archived(
 	return out
 }
 
-// only is the entries of tree under prefix.
 func only(
 	tree map[string]treeEntry,
 	prefix string,
@@ -131,7 +127,6 @@ func only(
 	return out
 }
 
-// backedUpView is state/view.db as the backup at path holds it.
 func backedUpView(
 	tb testing.TB,
 	path string,
@@ -142,8 +137,6 @@ func backedUpView(
 	return entry.Content
 }
 
-// startedRun leaves h's ledger as a run leaves it just before its backup, and
-// returns the ledger's bytes.
 func startedRun(
 	tb testing.TB,
 	h home.Home,
@@ -218,9 +211,6 @@ func TestBackupState_ArchivesTheTreeByteForByteAsOwnerOnly(t *testing.T) {
 	assert.NoFileExists(t, got.Path+".partial")
 }
 
-// A restore puts state/, LAYOUT and the ledger back together, so the backup holds
-// all three as they stood: a restored state/ alone would sit under a ledger that
-// says its steps already ran.
 func TestBackupState_HoldsTheLayoutAndLedgerItRewindsWith(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/view.db", "rows")
@@ -238,8 +228,6 @@ func TestBackupState_HoldsTheLayoutAndLedgerItRewindsWith(t *testing.T) {
 	}, readBackup(t, got.Path))
 }
 
-// A step that reads files outside state/ names them, so a restore puts back
-// its whole input; a pattern reaching out of the home is refused.
 func TestBackupState_HoldsThePathsAPlanBacksUp(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/view.db", "rows")

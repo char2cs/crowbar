@@ -16,7 +16,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// oneVerdict asks the batch whether merging theirs into main would conflict.
 func oneVerdict(ctx context.Context, dir, theirs string) git.MergeVerdict {
 	return git.New().WouldMergeConflicts(ctx, dir, []git.MergePair{{Ours: "main", Theirs: theirs}})[0]
 }
@@ -53,10 +52,6 @@ func TestWouldMergeConflicts_OverlappingEditsConflict(t *testing.T) {
 	assert.True(t, got.Conflict, "diverging edits to the same line conflict")
 }
 
-// Critical regression: git merge-tree exits 1 for a conflict AND for an
-// unresolvable ref, but the latter writes no tree to stdout. The unresolvable
-// case must return an ERROR (so the caller fails OPEN and allows the merge),
-// never be misread as a conflict that wrongly blocks a clean branch.
 func TestWouldMergeConflicts_UnknownRefErrors(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepo(t)
@@ -67,8 +62,6 @@ func TestWouldMergeConflicts_UnknownRefErrors(t *testing.T) {
 	assert.False(t, got.Conflict, "an unresolvable ref must not be reported as a conflict")
 }
 
-// Critical regression: a missing worktree directory must error (fail open), not
-// be misread as a conflict.
 func TestWouldMergeConflicts_MissingRepoErrors(t *testing.T) {
 	ctx := context.Background()
 	got := oneVerdict(ctx, "/no/such/repo/path/xyz123", "feature")
@@ -76,8 +69,6 @@ func TestWouldMergeConflicts_MissingRepoErrors(t *testing.T) {
 	assert.False(t, got.Conflict, "a missing worktree must not be reported as a conflict")
 }
 
-// The batch answers each pair — clean, conflicting, and unresolvable (an error,
-// so the caller fails open) — in input order.
 func TestWouldMergeConflicts_AnswersEachPairInOrder(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepo(t)
@@ -105,8 +96,6 @@ func TestWouldMergeConflicts_AnswersEachPairInOrder(t *testing.T) {
 	assert.False(t, got[2].Conflict)
 }
 
-// A verdict is a fact about two commits, so moving a branch must change the
-// answer on the very next call: nothing may be remembered by branch NAME.
 func TestWouldMergeConflicts_FollowsABranchThatMoves(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepo(t)
@@ -127,10 +116,6 @@ func TestWouldMergeConflicts_FollowsABranchThatMoves(t *testing.T) {
 	assert.True(t, e.WouldMergeConflicts(ctx, dir, pairs)[0].Conflict)
 }
 
-// agedRefs backdates every ref file and directory, as a repo whose branches have
-// not moved for a while looks. Refs touched within the last moment are never
-// trusted by the tip memory (git's own racy-timestamp rule), so a test that
-// wants it engaged has to say they are old.
 func agedRefs(tb testing.TB, dir string) {
 	tb.Helper()
 	old := time.Now().Add(-time.Hour)
@@ -142,8 +127,6 @@ func agedRefs(tb testing.TB, dir string) {
 	}))
 }
 
-// The branch tips are read once while no ref moves: a repeated list costs no git
-// process at all, and a ref that moves is seen on the very next read.
 func TestWouldMergeConflicts_ReadsTheTipsOnlyWhenARefMoved(t *testing.T) {
 	ctx := context.Background()
 	dir := initRepo(t)

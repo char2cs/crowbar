@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// AwaitOperation decodes the operation a 202 answered with (closing resp's body)
-// and holds the stream's projects scope until it settles. The scope's snapshot
-// carries its current row, so an operation that settled before the dial is seen.
 func (e *Env) AwaitOperation(
 	t *testing.T,
 	resp *http.Response,

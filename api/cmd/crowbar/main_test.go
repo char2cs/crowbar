@@ -31,8 +31,6 @@ func TestCLIHelp(
 	}
 }
 
-// A daemon that cannot start says why, not how to spell its flags: the usage
-// text made a full disk or a locked home read like a mistyped command.
 func TestServe_AFailedStartPrintsTheErrorWithoutUsage(t *testing.T) {
 	t.Setenv("PATH", os.Getenv("PATH"))
 	root := newRootCmd()
@@ -48,7 +46,6 @@ func TestServe_AFailedStartPrintsTheErrorWithoutUsage(t *testing.T) {
 	assert.NotContains(t, out.String(), "Usage:")
 }
 
-// healthStatus is the status the daemon on sock reports on its health route.
 func healthStatus(
 	t *testing.T,
 	sock string,
@@ -68,8 +65,6 @@ func healthStatus(
 	return health.Data.Status
 }
 
-// A signal during the migration interrupts it; the next boot resumes, so the
-// process exits cleanly rather than as a failed start, and logs what New said.
 func TestServe_ACancelledBootExitsCleanly(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	interrupted := testutil.CaptureLog(t, testutil.Message("daemon: boot interrupted"))
@@ -91,8 +86,6 @@ func TestServe_ACancelledBootExitsCleanly(t *testing.T) {
 	assert.Contains(t, logged.Error(), "internal: migrate: ")
 }
 
-// A halted daemon says so in one error line and keeps serving its health route
-// until it is stopped, which is a clean exit: a supervisor must not respawn it.
 func TestServe_AHaltedDaemonLogsWhyAndServesUntilStopped(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")

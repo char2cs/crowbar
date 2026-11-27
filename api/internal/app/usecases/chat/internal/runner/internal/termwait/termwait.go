@@ -15,8 +15,6 @@ type Runners interface {
 	AllLive(ctx context.Context) ([]engineagents.Runner, error)
 }
 
-// Work reports what a chat's ledger folds: whether it is working, and whether
-// a prompt still awaits its provider.
 type Work interface {
 	ChatWork(ctx context.Context, chatID string) (busy, awaiting bool, err error)
 }
@@ -47,8 +45,6 @@ type Notices interface {
 
 type Publish func(chatID, workspaceID string, wait domain.AgentTerminalWait)
 
-// OnNotice is told of a notice that ends a turn, the moment it appears on
-// the screen of a runner whose chat is busy or awaiting a prompt.
 type OnNotice func(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice)
 
 type Deps struct {
@@ -69,7 +65,6 @@ type Detector interface {
 
 	Run(ctx context.Context, publish Publish)
 
-	// Wake resumes a Run loop parked because no runner was live.
 	Wake()
 }
 

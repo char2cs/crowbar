@@ -1,0 +1,4 @@
+[Behavior]
+# Every input context starts with pinyin active, and switching it applies to all of them.
+ActiveByDefault=True
+ShareInputState=All

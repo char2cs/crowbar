@@ -1,6 +1,3 @@
-// Package catalog bounds the slash-command probes run against a vendor CLI. A probe forks the
-// provider's binary, so a newer one supersedes an older one per chat and the daemon caps how many
-// run. Results are never cached: a stale list (edited command files) is worse than a slow one.
 package catalog
 
 import (
@@ -8,7 +5,6 @@ import (
 	"sync"
 )
 
-// maxProcesses is the daemon-wide budget of concurrently forked probes.
 const maxProcesses = 4
 
 type run struct {
@@ -16,8 +12,6 @@ type run struct {
 	cancel context.CancelFunc
 }
 
-// Runs owns cancellation for in-flight probes: one current probe per chat, and a
-// shared process budget across every chat.
 type Runs struct {
 	mu           sync.Mutex
 	nextID       uint64
@@ -25,7 +19,6 @@ type Runs struct {
 	processSlots chan struct{}
 }
 
-// New returns an empty run registry with a full process budget.
 func New() *Runs {
 	return &Runs{
 		runs:         map[string]run{},
@@ -33,8 +26,6 @@ func New() *Runs {
 	}
 }
 
-// Start opens a probe for chatID, cancelling the chat's previous one. finish cancels
-// and retires this probe only while it is current, so it never evicts its replacement.
 func (r *Runs) Start(parent context.Context, chatID string) (context.Context, func()) {
 	r.mu.Lock()
 	if old, ok := r.runs[chatID]; ok {
@@ -55,9 +46,6 @@ func (r *Runs) Start(parent context.Context, chatID string) (context.Context, fu
 	}
 }
 
-// AcquireProcess takes one slot of the daemon-wide fork budget, blocking until
-// one is free or ctx is done. The returned release is idempotent, so a caller may
-// defer it and still release early.
 func (r *Runs) AcquireProcess(ctx context.Context) (func(), error) {
 	select {
 	case r.processSlots <- struct{}{}:

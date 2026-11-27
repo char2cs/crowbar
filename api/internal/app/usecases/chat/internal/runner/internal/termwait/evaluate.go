@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// evaluate is runner's verdict and screen this sweep, and whether a notice
-// that ends its work has just appeared on the screen of a chat running a turn
-// or awaiting a prompt. A choice the person has yet to make holds either.
 func (d *detector) evaluate(
 	ctx context.Context,
 	runner agents.Runner,
@@ -33,15 +30,12 @@ func (d *detector) evaluate(
 	if ends && busy && d.choicePending(ctx, runner.CurrentChatID) {
 		return domain.AgentTerminalWait{}, prev, false
 	}
-	// A dialog over a running turn holds it too, unless it is one the chat already asks about.
 	if busy && screen.matched.Waiting && d.choicePending(ctx, runner.CurrentChatID) {
 		return domain.AgentTerminalWait{}, screen, ends
 	}
 	return screen.matched, screen, ends
 }
 
-// choicePending reports whether chatID holds a choice the person has yet to
-// make; an unreadable answer holds it too, until the next sweep.
 func (d *detector) choicePending(ctx context.Context, chatID string) bool {
 	pending, err := d.deps.Choices.PendingChoices(ctx, chatID)
 	return err != nil || len(pending) > 0

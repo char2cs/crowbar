@@ -16,8 +16,6 @@ func (d document) finding(rule string, sev Severity, path, msg, hint string) Fin
 	return Finding{Rule: rule, Severity: sev, Path: path, Line: d.line(path), Message: msg, Hint: hint}
 }
 
-// sessionRules check what a chat's session needs: resume and assign argv that
-// name the session, and a refusal Crowbar can recognise.
 func sessionRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	s := d.Session
@@ -32,7 +30,6 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 			`write the assign argv with {id} where the CLI takes the session, e.g. "<flag> {id}"`))
 	}
 	if s.Resume != nil && s.Refused == nil {
-		// Over an api connection the refusal is an error reply on the asked-for turn.
 		sev := SeverityWarning
 		if d.Runtime.Transport == string(spec.ChannelAPI) {
 			sev = SeverityError
@@ -58,8 +55,6 @@ func sessionRules(doc document, d *spec.Descriptor) []Finding {
 	return append(out, refusalRules(doc, d)...)
 }
 
-// refusalRules check that a refused resume is recognised on the channel the
-// provider speaks.
 func refusalRules(doc document, d *spec.Descriptor) []Finding {
 	s := d.Session
 	if s.Refused == nil {
@@ -71,7 +66,6 @@ func refusalRules(doc document, d *spec.Descriptor) []Finding {
 			"an api provider's refused resume names no rpc_code: a refusal over the connection is never recognised",
 			"set session.refused.rpc_code to the JSON-RPC error code the server answers a lost session with"))
 	}
-	// Only a CLI resumed by argv refuses by exiting; a connection's refusal is its rpc rule.
 	if s.Resume != nil && s.Refused.ExitCode == 0 {
 		out = append(out, doc.finding("session.refused_exit", SeverityError, "session.refused",
 			"session.refused.exit_code is 0, the code of a CLI that succeeded", "set the code the CLI exits with when it refuses"))
@@ -83,8 +77,6 @@ func refusalRules(doc document, d *spec.Descriptor) []Finding {
 	return out
 }
 
-// connectionResume is the first event, by name, that resumes a session over the
-// api connection.
 func connectionResume(d *spec.Descriptor) (string, bool) {
 	for _, name := range sortedKeys(d.Events) {
 		if len(d.Events[name].Resume) > 0 {
@@ -96,14 +88,11 @@ func connectionResume(d *spec.Descriptor) (string, bool) {
 
 var templateVarRE = regexp.MustCompile(`\{([a-z_][a-z0-9_.]*)\}`)
 
-// argvField is one templated string in a process's argv, with its YAML path.
 type argvField struct {
 	path  string
 	value string
 }
 
-// templateRules refuse an argv template naming a variable Crowbar never
-// fills, which would reach the CLI as a literal "{typo}".
 func templateRules(doc document, d *spec.Descriptor) []Finding {
 	known := models.TemplateVars()
 	var out []Finding
@@ -114,7 +103,7 @@ func templateRules(doc document, d *spec.Descriptor) []Finding {
 				continue
 			}
 			if name == "crowbar_hook" && strings.Contains(f.value, relayHookCommand) {
-				continue // hooks.relay_retired names this one and its replacement
+				continue
 			}
 			out = append(out, doc.finding("template.unknown_var", SeverityError, f.path,
 				fmt.Sprintf("{%s} is not a template variable Crowbar fills", name),
@@ -178,8 +167,6 @@ func verbRules(doc document, d *spec.Descriptor) []Finding {
 	return out
 }
 
-// channelRules keep one channel per process: hook wiring belongs to the PTY
-// (hooks_injection), and an api-transport provider needs a serve argv.
 func channelRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	if usesHooks(d) && len(d.HooksInjection) == 0 && !wiresHooks(d.ConfigInjection) {
@@ -199,7 +186,6 @@ func channelRules(doc document, d *spec.Descriptor) []Finding {
 		out = append(out, doc.finding("runtime.api_serve", SeverityError, "runtime.api",
 			"runtime.transport is api but runtime.api.serve is empty", "declare the argv that starts the provider's api serve process"))
 	}
-	// http opens no connection: its first request is the handshake.
 	if d.Runtime.Transport == string(spec.ChannelAPI) && d.Runtime.API.Handshake.Call == "" &&
 		d.Runtime.API.Delivery != spec.APIDeliveryHTTP {
 		out = append(out, doc.finding("runtime.api_handshake", SeverityError, "runtime.api",

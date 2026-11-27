@@ -23,32 +23,19 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// errChatGone is a hook from a runner placed on no chat, or on one deleted
-// under it: nothing records it, and a CLI's turn is never resurrected by one.
 var errChatGone = fmt.Errorf("agent: hook: the runner's chat is gone: %w", problem.ErrNotFound)
 
-// RecorderRunners is what a hook needs from the runner lifecycle. Nothing here
-// may take the chat's lock: a hook is recorded under it already.
 type RecorderRunners interface {
-	// TurnRunner runs open on the runner a hook names, held against its end,
-	// and reports false without running it once that end is under way.
 	TurnRunner(runnerID string, open func(engineagents.Runner) error) (opened bool, err error)
-	// HandleSessionStart applies a CLI's session announcement to its chat.
 	HandleSessionStart(ctx context.Context, runner engineagents.Runner, ev engineagents.CanonicalEvent) error
-	// TelemetryOnChatSurface reports whether the chat's surface carries its
-	// provider's usage report at all.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
-	// ShowingNativeView reports whether runnerID is handed over to its
-	// provider's own view right now.
 	ShowingNativeView(runnerID string) bool
 }
 
-// Titles retitles a chat; a hook only ever supplies a derived title.
 type Titles interface {
 	RenameChat(ctx context.Context, chatID, title, source string) error
 }
 
-// RecorderDeps is everything the Recorder is built over.
 type RecorderDeps struct {
 	Chats     agentchat.EventStore
 	Agents    engineagents.Agents
@@ -62,15 +49,12 @@ type RecorderDeps struct {
 	Frames    Frames
 }
 
-// Frames shows a chat's clients what no row says: the text streamed so far,
-// what each frame of it added, and the provider's usage reports.
 type Frames interface {
 	FeedDelta(chatID string, d ledger.FeedDelta)
 	Telemetry(chatID, workspaceID string, report engineagents.Telemetry)
 	TelemetryGone(chatID string)
 }
 
-// Recorder records what a CLI's hooks report as rows of its chat's ledger.
 type Recorder struct {
 	chats     agentchat.EventStore
 	agents    engineagents.Agents
@@ -82,14 +66,12 @@ type Recorder struct {
 	answers   *answerdesk.Desk
 	titles    Titles
 	frames    Frames
-	// runners is bound after construction: the two sides call each other.
-	runners RecorderRunners
-	live    *live
-	manual  *manualCompactions
-	unbound *held
+	runners   RecorderRunners
+	live      *live
+	manual    *manualCompactions
+	unbound   *held
 }
 
-// NewRecorder builds the Recorder. The runner port is bound by SetRunners.
 func NewRecorder(d RecorderDeps) *Recorder {
 	return &Recorder{
 		chats: d.Chats, agents: d.Agents, ws: d.Workspace, home: d.Home, ledger: d.Ledger,
@@ -98,17 +80,14 @@ func NewRecorder(d RecorderDeps) *Recorder {
 	}
 }
 
-// SetRunners binds the runner lifecycle.
 func (r *Recorder) SetRunners(runners RecorderRunners) { r.runners = runners }
 
-// ForgetChat drops what the Recorder holds of chatID: the chat is being erased.
 func (r *Recorder) ForgetChat(chatID string) {
 	r.live.forgetChat(chatID)
 	r.manual.consume(chatID)
 	r.unbound.release(chatID)
 }
 
-// Descriptor resolves the descriptor runner's hooks are parsed with.
 func (r *Recorder) Descriptor(ctx context.Context, runner engineagents.Runner) (engineagents.Agent, error) {
 	crowbarHome, _, _, _, err := r.ws.WorktreeDir(ctx, runner.WorkspaceID)
 	if err != nil {
@@ -121,9 +100,6 @@ func (r *Recorder) Descriptor(ctx context.Context, runner engineagents.Runner) (
 	return agent, nil
 }
 
-// Dispatch records ev, one hook of runner's parsed by agent, on runner's chat.
-// The caller holds the chat's lock. It returns once the rows are committed,
-// with the stdout the hook's sender must print and the ask its answer is held on.
 func (r *Recorder) Dispatch(
 	ctx context.Context,
 	runner engineagents.Runner,
@@ -177,8 +153,6 @@ func (r *Recorder) Dispatch(
 	return fx.Reply, fx.HoldAsk, nil
 }
 
-// withRunnerDir names a call whose payload names no directory from the folder runner's
-// process runs in, as a payload's own cwd would.
 func (r *Recorder) withRunnerDir(
 	ctx context.Context, runner engineagents.Runner, ev engineagents.CanonicalEvent,
 ) engineagents.CanonicalEvent {
@@ -195,7 +169,6 @@ func (r *Recorder) withRunnerDir(
 	return ev
 }
 
-// chatState is runner's chat and its ledger as it stands.
 func (r *Recorder) chatState(ctx context.Context, runner engineagents.Runner) (domain.Chat, ledger.State, error) {
 	chat, err := r.chatForRunner(ctx, runner)
 	if err != nil {
@@ -208,16 +181,10 @@ func (r *Recorder) chatState(ctx context.Context, runner engineagents.Runner) (d
 	return chat, st, nil
 }
 
-// acknowledgedOnly reports whether ev records nothing: a runner's end is
-// recorded from its process exit, and a child's thread start says nothing its
-// bind did not.
 func acknowledgedOnly(ev engineagents.CanonicalEvent, src Source) bool {
 	return ev.Kind == engineagents.HookSessionEnd || src.Scope != "" && ev.Kind == engineagents.HookSessionStart
 }
 
-// prepare reads into src what the mapper cannot know itself: whose words a
-// prompt is, whether an ask's reply can be held, how a compaction is asked
-// for, and the text streamed so far. It returns the ask's answer capability.
 func (r *Recorder) prepare(
 	ctx context.Context, chat domain.Chat, runner engineagents.Runner, agent engineagents.Agent,
 	ev engineagents.CanonicalEvent, raw []byte, src *Source,
@@ -238,7 +205,6 @@ func (r *Recorder) prepare(
 	case engineagents.HookPermission, engineagents.HookElicitation:
 		var ok bool
 		capability, ok = agent.AnswerCapability(ev.Kind)
-		// Handed over to the provider's own view, the CLI asks there itself.
 		src.Answerable = ok && len(raw) <= answerdesk.MaxPayloadBytes && !r.runners.ShowingNativeView(runner.ID)
 	case engineagents.HookCompactPre, engineagents.HookCompactPost:
 		wire, _, ok := agent.OutboundCall(compactStartEvent, nil)
@@ -250,12 +216,8 @@ func (r *Recorder) prepare(
 	return capability
 }
 
-// compactStartEvent is the outbound event a provider asks to compact with.
 const compactStartEvent = "compact_start"
 
-// promptOf reads whose words a user_prompt carries. Crowbar's own injected
-// context is nobody's; the provider's harness speaking is its own; what is
-// left is a person's, restored to the text Crowbar recorded for it.
 func (r *Recorder) promptOf(
 	ctx context.Context, chat domain.Chat, runner engineagents.Runner, agent engineagents.Agent, text string,
 ) Prompt {
@@ -283,8 +245,6 @@ func harnessSaid(agent engineagents.Agent, text string) bool {
 	return ok
 }
 
-// commit decides and commits ev's rows. A turn opens only on a runner held
-// against its end; one whose end is under way records its event unheld.
 func (r *Recorder) commit(
 	ctx context.Context, chat domain.Chat, runnerID string, ev engineagents.CanonicalEvent, src Source, refs BlobRefs,
 ) (Effects, error) {
@@ -328,7 +288,6 @@ func (r *Recorder) commit(
 		r.drain(ctx, chat.ID, fx.Bound)
 	}
 	if !startingSubagent(after) {
-		// Nothing still starting can claim what is held.
 		r.settleUnclaimed(ctx, chat.ID, r.unbound.release(chat.ID))
 	}
 	if fx.Unbound != "" {
@@ -338,8 +297,6 @@ func (r *Recorder) commit(
 	return fx, nil
 }
 
-// held runs do with runnerID held against its end, or unheld when its end is
-// under way.
 func (r *Recorder) held(runnerID string, src *Source, do func() error) error {
 	opened, err := r.runners.TurnRunner(runnerID, func(engineagents.Runner) error {
 		src.Held = true
@@ -352,8 +309,6 @@ func (r *Recorder) held(runnerID string, src *Source, do func() error) error {
 	return do()
 }
 
-// surfaceGated reports whether canonical opts out of the surface in front of
-// the user. An event that declares no surfaces is on every one.
 func (r *Recorder) surfaceGated(runnerID string, descriptor engineagents.Agent, canonical string) bool {
 	surfaces := descriptor.EventSurfaces(canonical)
 	if len(surfaces) == 0 {
@@ -366,8 +321,6 @@ func (r *Recorder) surfaceGated(runnerID string, descriptor engineagents.Agent, 
 	return !slices.Contains(surfaces, surface)
 }
 
-// chatForRunner is the chat runner is on, errChatGone when it is on none or
-// that chat was deleted under it (the CLI is still dying).
 func (r *Recorder) chatForRunner(ctx context.Context, runner engineagents.Runner) (domain.Chat, error) {
 	if runner.CurrentChatID == "" {
 		return domain.Chat{}, errChatGone
@@ -382,7 +335,6 @@ func (r *Recorder) chatForRunner(ctx context.Context, runner engineagents.Runner
 	return chat, nil
 }
 
-// Mark appends row to runner's chat; a chat gone is errChatGone.
 func (r *Recorder) Mark(ctx context.Context, runner engineagents.Runner, row ledger.Row) error {
 	chat, err := r.chatForRunner(ctx, runner)
 	if err != nil {
@@ -394,13 +346,8 @@ func (r *Recorder) Mark(ctx context.Context, runner engineagents.Runner, row led
 	return nil
 }
 
-// ArmManualCompaction records that chatID's next compaction was asked for by
-// a person, for a provider whose own report never says so.
 func (r *Recorder) ArmManualCompaction(chatID string) { r.manual.arm(chatID) }
 
-// manualCompactions are the chats whose next compaction a person asked for.
-// A request that never reaches its provider leaves its chat armed, and the
-// next compaction reads as asked for: the provider says no better.
 type manualCompactions struct {
 	mu    sync.Mutex
 	chats map[string]bool

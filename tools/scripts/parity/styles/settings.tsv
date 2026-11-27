@@ -1,0 +1,8 @@
+dialog	[role=dialog]
+backdrop	[data-slot=dialog-backdrop],[data-testid=dialog-backdrop]
+rail-tab	[role=dialog] [role=tab]
+search	input[type=search],[role=dialog] input
+switch	[role=dialog] [role=switch]
+select-trigger	[role=dialog] [data-slot=select-trigger]
+close	[role=dialog] button[aria-label=Close]
+h-icons	[role=dialog] h2,[role=dialog] h3

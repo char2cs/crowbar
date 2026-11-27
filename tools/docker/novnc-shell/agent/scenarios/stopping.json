@@ -1,0 +1,17 @@
+{
+ "description": "Holds until stopped, then takes 8 s to exit, so \"Stopping…\" stays up.",
+ "steps": [
+  {
+   "do": "slow-exit",
+   "ms": 8000
+  },
+  {
+   "do": "text",
+   "text": "Working slowly…",
+   "complete": false
+  },
+  {
+   "do": "hang"
+  }
+ ]
+}

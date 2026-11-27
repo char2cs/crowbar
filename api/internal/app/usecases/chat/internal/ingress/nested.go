@@ -5,9 +5,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// mapNested decides the rows of an event from a nested conversation the
-// chat's agent opened: its tool calls, its asks and its end, recorded in its
-// own scope. Its streamed text is not part of the chat's record.
 func mapNested(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
 	scope := src.Scope
 	switch ev.Kind {
@@ -23,9 +20,6 @@ func mapNested(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs
 	return nil, Effects{}, nil
 }
 
-// nestedEnd is a nested conversation's turn ending: the stop of the scope it
-// ran as, with what it said, in the turn that opened it or else its runner's.
-// A subagent the book cannot end keeps what it said as text of its scope.
 func nestedEnd(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
 	turnID, ok := turnFor(st, src, scope, "")
 	if !ok {

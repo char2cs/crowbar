@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// A replacement launches only once the CLI it replaces is gone: the wait is on
-// the old process's exit, never a clock.
 func TestRegression_AReplacementNeverLandsBesideTheCLIItReplaces(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)

@@ -21,17 +21,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// newWorkspaceRepo builds the singleton-backed workspace repository over the
-// adapter's per-type event store + read-model DB, shutting
-// the asynx down before the adapter closes (it sits on the ES handle). Shared by
-// the worktree bench + integration harnesses.
-//
-// It also returns quiesce: asynx WaitPublish (dispatcher WaitIdle + bus
-// WaitForHandlers), the repo's read-your-writes barrier. A workspace mutation is
-// a Send, so the store projection lands asynchronously; quiesce blocks until every
-// queued command has been dispatched and every projection handler has run. That is
-// the REAL convergence signal — a test that polls the read model on a deadline is
-// only guessing how long the projection takes.
 func newWorkspaceRepo(
 	tb testing.TB,
 	adapters *adapter.Container,
@@ -52,7 +41,6 @@ func newWorkspaceRepo(
 	return repo, ax.WaitPublish
 }
 
-// benchHarness holds the wired-up usecase and handles needed per benchmark run.
 type benchHarness struct {
 	uc         hierarchy.Usecase
 	workspaces workspace.Workspace
@@ -130,8 +118,6 @@ func benchInitRepo(
 	benchGitRun(b, dir, "config", "user.email", "t@t")
 	benchGitRun(b, dir, "config", "user.name", "t")
 	benchGitRun(b, dir, "commit", "--allow-empty", "-m", "init")
-	// Bare `origin` so the usecase's RemoteBranchExists check has a remote to
-	// query; bench branches are never pushed, so CreateChild stays create-local.
 	bare := filepath.Join(b.TempDir(), "origin.git")
 	benchGitRun(b, b.TempDir(), "init", "--bare", bare)
 	benchGitRun(b, dir, "remote", "add", "origin", bare)
@@ -203,10 +189,6 @@ func (h *benchHarness) createChild(
 	return child
 }
 
-// BenchmarkMergeIntoParent measures the local child→parent merge hot path
-// (07 §6 — a broadcast fires on every mutation). Each iteration creates a fresh
-// child branch with one commit then runs MergeIntoParent; setup is excluded from
-// the timed window via b.StopTimer/b.StartTimer.
 func BenchmarkMergeIntoParent(b *testing.B) {
 	ctx := context.Background()
 
@@ -225,9 +207,6 @@ func BenchmarkMergeIntoParent(b *testing.B) {
 	}
 }
 
-// BenchmarkReparent measures the leaf re-parent hot path (07 §4, §6). Each
-// iteration creates a target parent-b branch and a leaf child, then re-parents
-// the child onto parent-b; setup is excluded from the timed window.
 func BenchmarkReparent(b *testing.B) {
 	ctx := context.Background()
 

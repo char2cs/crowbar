@@ -23,8 +23,6 @@ import (
 
 const stepNumber = 7
 
-// ports opens the Trees under l's home, placed by l's facts as the live
-// Locator places them.
 func (l *legacy) ports(t *testing.T) *repotree.Ports {
 	t.Helper()
 	ctx := context.Background()
@@ -70,7 +68,6 @@ func (l *legacy) ports(t *testing.T) *repotree.Ports {
 	return p
 }
 
-// boot runs the step alone through the engine, as a daemon's post-open half.
 func (l *legacy) boot(t *testing.T, ports *repotree.Ports) error {
 	t.Helper()
 	plan := func(context.Context, migrate.Env) (migrate.Plan, error) { return migrate.Plan{}, nil }
@@ -83,8 +80,6 @@ func (l *legacy) boot(t *testing.T, ports *repotree.Ports) error {
 	return sess.RunPostOpen(context.Background(), migrate.Impls{stepNumber: PlacementTreeImpl(ports, l.sources())})
 }
 
-// pinned is a home holding every legacy placement shape: two projects (p1 the
-// older), a repo with a branch and a fork, and folders of every vintage.
 func pinned(t *testing.T) *legacy {
 	t.Helper()
 	l := newLegacy(t)
@@ -145,7 +140,6 @@ func treeOf(t *testing.T, p *repotree.Ports, id string) tree.Tree {
 	return got
 }
 
-// Review Focus 1: every legacy shape survives verbatim.
 func TestPlacementTreeStep_CopiesEveryLegacyPlacement(t *testing.T) {
 	l := pinned(t)
 	ports := l.ports(t)
@@ -253,8 +247,6 @@ func TestPlacementTreeStep_ANodeUnderAParentNothingNamesHangsAtTheRoot(t *testin
 		migratetest.Applied(t, l.h)[stepNumber])
 }
 
-// A row is copied only with the record it positions, and a folder only with its
-// scope: a delete that finished before the step ran leaves nothing in any Tree.
 func TestPlacementTreeStep_ARowOfARecordAlreadyGoneIsNotCopied(t *testing.T) {
 	l := newLegacy(t)
 	l.project("p1", "h1", time.Unix(100, 0))
@@ -283,7 +275,6 @@ func TestPlacementTreeStep_ARowOfARecordAlreadyGoneIsNotCopied(t *testing.T) {
 		migratetest.Applied(t, l.h)[stepNumber])
 }
 
-// breakHistory makes chatID's second event one no replay can apply.
 func (l *legacy) breakHistory(t *testing.T, chatID string) {
 	t.Helper()
 	db, err := storesqlite.OpenDB(filepath.Join(l.h.Events(), "agent_chat.db"))
@@ -306,8 +297,6 @@ func (l *legacy) breakHistory(t *testing.T, chatID string) {
 		broken, "events:"+chatID).Error)
 }
 
-// A chat whose history does not replay still exists: the sidebar lists it from
-// its row, so its position row is copied as written.
 func TestPlacementTreeStep_AChatWhoseHistoryDoesNotReplayKeepsItsRow(t *testing.T) {
 	l := newLegacy(t)
 	l.project("p1", "h1", time.Unix(100, 0))

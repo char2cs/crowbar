@@ -18,7 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// deleteKeyed sends DELETE path under Idempotency-Key key.
 func deleteKeyed(t *testing.T, h *harness, path, key string) (int, []byte) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, h.url+path, http.NoBody)
@@ -32,8 +31,6 @@ func deleteKeyed(t *testing.T, h *harness, path, key string) (int, []byte) {
 	return resp.StatusCode, raw
 }
 
-// TestRegression_RepoAddFailureIsVisible: adding a repository that cannot be set up reports
-// why; the client used to wait 30 s for a repo that had been rolled back.
 func TestRegression_RepoAddFailureIsVisible(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -47,8 +44,6 @@ func TestRegression_RepoAddFailureIsVisible(t *testing.T) {
 	h.QuiesceReactors()
 	f.pushBranchToOrigin(t, "develop", "main", "develop\n")
 	runGit(t, f.repoPath, "fetch", "origin")
-	// The re-add has to create <slug> again for develop's worktree; a file there
-	// is what it cannot get past. main stays the repo's own checkout.
 	require.NoError(t, os.RemoveAll(slugDir))
 	require.NoError(t, os.WriteFile(slugDir, []byte("in the way\n"), 0o600))
 
@@ -81,8 +76,6 @@ func TestRegression_RepoAddFailureIsVisible(t *testing.T) {
 	require.True(t, home, "with its repo-home workspace")
 }
 
-// TestRegression_AddingARepoWithOnlyMainSucceeds: a default protected name
-// (main, develop, master) the repo does not have must not fail the add.
 func TestRegression_AddingARepoWithOnlyMainSucceeds(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)

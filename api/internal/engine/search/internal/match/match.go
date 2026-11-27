@@ -1,4 +1,3 @@
-// Package match provides pattern compilation and line-level search primitives.
 package match
 
 import (
@@ -7,14 +6,11 @@ import (
 	"unicode/utf16"
 )
 
-// MatchSpan holds UTF-16 column offsets for a single match within a line.
 type MatchSpan struct {
 	Start int
 	End   int
 }
 
-// BuildPattern compiles the search regexp: a fixed string is QuoteMeta-escaped,
-// WholeWord adds \b boundaries, and case-insensitive prepends (?i).
 func BuildPattern(
 	query string,
 	caseSensitive bool,
@@ -46,7 +42,6 @@ func BuildPattern(
 	return re, nil
 }
 
-// FindMatches returns all match spans within lineText as UTF-16 column offsets.
 func FindMatches(
 	re *regexp.Regexp,
 	lineText string,
@@ -68,8 +63,6 @@ func FindMatches(
 	return spans
 }
 
-// IsBinary reports whether data looks like binary content.
-// A null byte anywhere in the sample is sufficient evidence.
 func IsBinary(
 	sample []byte,
 ) bool {
@@ -81,12 +74,10 @@ func IsBinary(
 	return false
 }
 
-// byteToUTF16Col converts a byte offset in a UTF-8 string to a UTF-16 code unit offset.
 func byteToUTF16Col(
 	runes []rune,
 	byteOffset int,
 ) int {
-	// Count bytes consumed by each rune until we reach byteOffset.
 	col := 0
 	consumed := 0
 	for _, r := range runes {
@@ -95,7 +86,6 @@ func byteToUTF16Col(
 		}
 		runeLen := len(string(r))
 		consumed += runeLen
-		// A surrogate pair in UTF-16 counts as 2 code units.
 		if r >= 0x10000 {
 			encoded := utf16.Encode([]rune{r})
 			col += len(encoded)

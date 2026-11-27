@@ -34,7 +34,6 @@ func shellRowsOf(t *testing.T, rows []ledger.Row) []ledger.ShellBody {
 	return out
 }
 
-// A command that went to the background starts a shell; a CLI's retry starts none twice.
 func TestMap_ABackgroundedCommandStartsAShellOnce(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("serve it")
@@ -74,8 +73,6 @@ func TestMap_ASubagentsBackgroundCommandIsNotTheMainAgents(t *testing.T) {
 	assert.Empty(t, shellRowsOf(t, rows))
 }
 
-// The agent stopping a shell, and the provider reporting one ended, each close
-// it once; a task that is no shell of the chat's is a subagent's and closes nothing.
 func TestMap_AShellEndsByItsStopOrItsNotificationAndByNothingElse(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("serve it")
@@ -109,7 +106,6 @@ func TestMap_AnUnknownEndStatusReadsFinished(t *testing.T) {
 		shellRowsOf(t, rows))
 }
 
-// A monitor is a shell of its own kind, and says how long it was set to watch.
 func TestMap_AMonitorIsAShellOfItsOwnKind(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("watch the log")
@@ -156,7 +152,6 @@ func TestMap_ANotificationsSummaryRidesItsEnd(t *testing.T) {
 		shellRowsOf(t, rows))
 }
 
-// One notice can end several shells; a bare exit code ends each as its status, a given status wins.
 func TestMap_ANoticeNamingManyTasksEndsEachWithItsExitCode(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("serve them")
@@ -192,8 +187,6 @@ func terminalInput(id, ref string) engineagents.CanonicalEvent {
 	return engineagents.CanonicalEvent{Kind: engineagents.HookTerminalInput, Tool: &engineagents.ToolEvent{ID: id, ShellRef: ref}}
 }
 
-// A command that returned is no shell until input reaches its process: only then
-// is it known to have outlived the call. It ends with the call, and says how.
 func TestMap_ACommandBecomesAShellOnlyOnceItsProcessGetsInputAndEndsWithItsCall(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("serve it")
@@ -243,7 +236,6 @@ func TestMap_InputToACommandThatIsNotOpenStartsNoShell(t *testing.T) {
 	assert.Empty(t, rows, "a command that ended is no shell")
 }
 
-// Input names the process, not only the call: the open command holding it is the one.
 func TestMap_InputThatNamesOnlyTheProcessFindsItsOpenCommand(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("serve it")

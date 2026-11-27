@@ -21,9 +21,6 @@ func TestMetrics_CountsCallsAndFailuresPerTool(t *testing.T) {
 	require.Equal(t, tools.ToolStat{Calls: 1, Failures: 0}, snap["list_workspaces"])
 }
 
-// TestMetrics_IsSafeUnderConcurrentCalls drives Record from many goroutines at
-// once — a sequential loop would pass even with no locking at all, so this
-// must run under `go test -race` to mean anything.
 func TestMetrics_IsSafeUnderConcurrentCalls(t *testing.T) {
 	m := tools.NewMetrics()
 	const goroutines = 50
@@ -55,9 +52,6 @@ func TestMetrics_IsSafeUnderConcurrentCalls(t *testing.T) {
 	require.Equal(t, wantFailures, stat.Failures)
 }
 
-// TestMetrics_SnapshotReturnsACopy guards against a caller's mutation of the
-// returned map reaching back into the live counters — Snapshot must hand back
-// a copy, not the internal map itself.
 func TestMetrics_SnapshotReturnsACopy(t *testing.T) {
 	m := tools.NewMetrics()
 	m.Record("set_chat_title", true)
@@ -71,9 +65,6 @@ func TestMetrics_SnapshotReturnsACopy(t *testing.T) {
 	require.NotContains(t, fresh, "injected")
 }
 
-// TestMetrics_NilReceiverIsANoOp proves the fail-open contract Metrics itself
-// must uphold: a nil *Metrics — the zero value of Deps.Metrics — must never
-// panic, unlike every other port in Deps where nil means "not registered".
 func TestMetrics_NilReceiverIsANoOp(t *testing.T) {
 	var m *tools.Metrics
 	require.NotPanics(t, func() { m.Record("set_chat_title", true) })

@@ -13,11 +13,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The repo's DEFAULT checkout is locked (an adopted protected branch), so it
-// RendersAsBranch, and it has its own Node{Kind:workspace} anchor at the bare
-// root. The sidebar draws that workspace as the repo HEADER, never as a root
-// sibling — so the repo-root level the header's threads share must not count
-// the default's own anchor as a member.
 func TestRegression_CreateChat_RepoRootLevelNeverCountsTheDefaultCheckoutAnchor(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
 	gitStatus.SetRepo(workspaceID, repoID)
@@ -42,10 +37,6 @@ func TestRegression_CreateChat_RepoRootLevelNeverCountsTheDefaultCheckoutAnchor(
 	assert.False(t, writesTo(nodes, "c1"), "an already dense level is not renumbered by a create")
 }
 
-// The same phantom, on a drag: the sidebar computes a drop index over the
-// rows it draws under the header ([c1, c2]); the daemon inserts at that index
-// into a level that also holds the default's anchor, so "after c1" (index 1)
-// lands BEFORE c1.
 func TestRegression_PlaceChat_RepoRootDropIndexIsNotShiftedByTheDefaultCheckoutAnchor(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
 	gitStatus.SetRepo(workspaceID, repoID)
@@ -62,7 +53,6 @@ func TestRegression_PlaceChat_RepoRootDropIndexIsNotShiftedByTheDefaultCheckoutA
 		{ID: "c2", Kind: dtree.KindChat, ParentID: "owner", Order: 2},
 	}
 
-	// Drop c2 "after c1": index 1 among the rendered siblings [c1, c2] minus c2.
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name("owner"), Order: index(1)})
 	require.NoError(t, err)
 	c1, c2 := nodeRowFor(t, nodes, "c1"), nodeRowFor(t, nodes, "c2")

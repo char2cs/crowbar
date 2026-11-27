@@ -20,7 +20,6 @@ import (
 
 var knownRef = "sha256:" + strings.Repeat("ab", 32)
 
-// fakeBlobs holds one payload, under knownRef of chat-1.
 type fakeBlobs struct{}
 
 func (fakeBlobs) ReadBlob(_ context.Context, chatID, ref string) ([]byte, error) {
@@ -33,7 +32,6 @@ func (fakeBlobs) ReadBlob(_ context.Context, chatID, ref string) ([]byte, error)
 	return []byte(`{"command":"ls"}`), nil
 }
 
-// blobAnswer is what GET /chats/:chatId/blobs/:ref answered.
 type blobAnswer struct {
 	status      int
 	contentType string

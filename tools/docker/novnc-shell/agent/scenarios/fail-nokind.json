@@ -1,0 +1,9 @@
+{
+ "description": "The turn fails with no failure kind.",
+ "steps": [
+  {
+   "do": "fail",
+   "reason": "The provider gave no reason."
+  }
+ ]
+}

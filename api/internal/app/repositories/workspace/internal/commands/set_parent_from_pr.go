@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetParentFromPR assigns ParentID based on an open PR's target branch without
-// recomputing ForkPointSha. Only intended for provider-sync auto-wiring; the
-// existing Reparent command is the user-facing reparent path.
 type SetParentFromPR struct {
 	ID       string
 	ParentID string

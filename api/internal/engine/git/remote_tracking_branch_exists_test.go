@@ -10,9 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestRemoteTrackingBranchExists_True proves the local remote-tracking ref
-// refs/remotes/origin/<branch> is detected — the same universe `git branch -r`
-// reads — after the branch is pushed and fetched, regardless of live reachability.
 func TestRemoteTrackingBranchExists_True(
 	t *testing.T,
 ) {
@@ -30,8 +27,6 @@ func TestRemoteTrackingBranchExists_True(
 	assert.True(t, exists)
 }
 
-// TestRemoteTrackingBranchExists_FalseWhenAbsent proves a missing ref is a clean
-// (false, nil), not an error — exit 1 from `show-ref --verify --quiet`.
 func TestRemoteTrackingBranchExists_FalseWhenAbsent(
 	t *testing.T,
 ) {
@@ -45,9 +40,6 @@ func TestRemoteTrackingBranchExists_FalseWhenAbsent(
 	assert.False(t, exists)
 }
 
-// TestRemoteTrackingBranchExists_ErrorOnBrokenRepo proves a failure that is
-// neither "present" nor a clean "absent" (a non-repo dir, exit 128) surfaces as
-// an error rather than being silently reported as absent.
 func TestRemoteTrackingBranchExists_ErrorOnBrokenRepo(
 	t *testing.T,
 ) {

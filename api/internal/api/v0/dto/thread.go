@@ -6,9 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ThreadReplyDTO is the wire shape of a reply on a review thread. ProviderID and ChatID
-// attribute an agent reply to its CLI and chat; absent on human and unattributed agent
-// replies, where a client falls back to its generic rendering.
 type ThreadReplyDTO struct {
 	ID         string    `json:"id"`
 	ThreadID   string    `json:"threadId"`
@@ -20,9 +17,6 @@ type ThreadReplyDTO struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
-// ThreadDTO is a workspace-scoped review thread with its root message flattened on
-// (MessageID, Body, attribution) so the root is editable like a reply. Replies is
-// never nil; Deleted marks the tombstone frame broadcast when a thread is forgotten.
 type ThreadDTO struct {
 	ID          string           `json:"id"`
 	ProjectID   string           `json:"projectId"`
@@ -45,9 +39,6 @@ type ThreadDTO struct {
 	Deleted     bool             `json:"deleted,omitempty"`
 }
 
-// ThreadDTOFrom converts a ReviewThread into ThreadDTO: its first message is the root,
-// the rest become replies. projectID and repoID come from the caller, since the
-// aggregate carries only its WsID.
 func ThreadDTOFrom(
 	rt domain.ReviewThread,
 	projectID string,
@@ -76,9 +67,6 @@ func ThreadDTOFrom(
 	}
 }
 
-// rootMessage is the thread's first message, or the zero message when it has
-// none — which flattens to the empty root fields a message-less thread has always
-// serialised, rather than panicking on an empty aggregate.
 func rootMessage(
 	rt domain.ReviewThread,
 ) domain.ReviewMessage {
@@ -88,8 +76,6 @@ func rootMessage(
 	return rt.Messages[0]
 }
 
-// threadReplies converts every message AFTER the root, in order, always
-// returning a non-nil slice so the envelope carries [] rather than null.
 func threadReplies(
 	rt domain.ReviewThread,
 ) []ThreadReplyDTO {
@@ -112,9 +98,6 @@ func threadReplies(
 	return out
 }
 
-// ThreadDTOList converts a slice of ReviewThread aggregates into wire ThreadDTOs
-// sharing the same project/repo scope, returning a non-nil slice so the envelope
-// carries [] rather than null when the workspace has no threads.
 func ThreadDTOList(
 	threads []domain.ReviewThread,
 	projectID string,

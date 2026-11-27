@@ -1,0 +1,36 @@
+mod drag_subject;
+mod error;
+mod ide;
+mod layout;
+mod space_id;
+mod tab_id;
+#[cfg(test)]
+mod test_support;
+mod tree;
+
+pub use drag_subject::DragSubject;
+pub use error::{Error, Result};
+pub use ide::pane_group::close_scope::CloseScope;
+pub use ide::pane_group::strip_step::StripStep;
+pub use ide::pane_group::{DEFAULT_CHAT_SHARE, PaneGroup};
+pub use ide::presentation::editor_view::EditorView;
+pub use ide::presentation::sidebar_side::SidebarSide;
+pub use ide::presentation::view_mode::ViewMode;
+pub use ide::presentation::{Presentation, SIDE_BY_SIDE_MIN, TOP_ROW_HEIGHT};
+pub use layout::command::Command;
+pub use layout::layout_history::{LayoutHistory, MAX_PARKED_PANES, MAX_UNDO_STEPS};
+pub use layout::stored::model::{load, store};
+pub use layout::stored::schema::SCHEMA_VERSION;
+pub use layout::tab::pane_instance::PaneInstance;
+pub use layout::tab::{MAX_PANES_PER_TAB, Tab};
+pub use layout::{Layout, MAX_TABS};
+pub use space_id::SpaceId;
+pub use tab_id::TabId;
+pub use tree::axis::Axis;
+pub use tree::branch::Branch;
+pub use tree::edge::Edge;
+pub use tree::geometry::pane_slot::PaneSlot;
+pub use tree::geometry::rect::Rect;
+pub use tree::geometry::sash::Sash;
+pub use tree::placement::Placement;
+pub use tree::split_node::{MIN_PANE_EXTENT, SASH_THICKNESS, SplitNode};

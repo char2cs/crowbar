@@ -14,7 +14,6 @@ type handler struct {
 	attrs  []slog.Attr
 }
 
-// Enabled reports whether the wrapped handler wants records at level.
 func (h *handler) Enabled(
 	ctx context.Context,
 	level slog.Level,
@@ -22,9 +21,6 @@ func (h *handler) Enabled(
 	return h.next.Enabled(ctx, level)
 }
 
-// Handle stores the record in the ring, then passes it to the wrapped handler
-// and returns that handler's error. The ring keeps the record even when the
-// wrapped handler fails to write it.
 func (h *handler) Handle(
 	ctx context.Context,
 	rec slog.Record,
@@ -45,8 +41,6 @@ func (h *handler) Handle(
 	return h.next.Handle(ctx, rec)
 }
 
-// WithAttrs returns a handler that adds attrs, under the current group, to
-// every record it stores, and passes them on to the wrapped handler.
 func (h *handler) WithAttrs(
 	attrs []slog.Attr,
 ) slog.Handler {
@@ -60,8 +54,6 @@ func (h *handler) WithAttrs(
 	return &derived
 }
 
-// WithGroup returns a handler that prefixes the keys of every later attribute
-// with name and a dot, and opens the group on the wrapped handler.
 func (h *handler) WithGroup(
 	name string,
 ) slog.Handler {

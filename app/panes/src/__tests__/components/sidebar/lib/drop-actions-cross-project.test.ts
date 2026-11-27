@@ -1,0 +1,79 @@
+import { describe, expect, it, beforeEach, vi } from 'vitest'
+
+vi.mock('@/lib/persistence/workspace-layout', () => ({
+  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+}))
+const { resolveChatProjectId } = vi.hoisted(() => ({ resolveChatProjectId: vi.fn() }))
+vi.mock('@/features/panes/lib/chat-project', () => ({
+  resolveChatProjectId: (...args: unknown[]) => resolveChatProjectId(...args),
+}))
+
+import { toast } from '@/features/window/stores/toast-store'
+import { performSidebarPaneDrop } from '@/components/sidebar/lib/pane-drop-actions'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
+import { showingLayout } from '@/features/panes/lib/view-state'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+const chatRow = (id: string, wsId: string): SidebarRow => ({
+  id,
+  kind: 'chat',
+  parentId: null,
+  order: 0,
+  label: id,
+  ownsWorktree: false,
+  workspaceId: wsId,
+  working: false,
+  hasView: false,
+})
+
+function showChatUnderProject(project: string, chatId: string): string {
+  const actions = windowPaneStore.getState().paneActions
+  actions.setActiveProject(project)
+  actions.openChat(chatId, { projectId: project })
+  return chatPaneIndex(windowPaneStore.getState().panes).get(chatId)!
+}
+
+beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  vi.mocked(toast.error).mockClear()
+  resolveChatProjectId.mockReset()
+})
+
+describe('performSidebarPaneDrop — law 4', () => {
+  it("refuses a chat whose project is not the target view's", () => {
+    const paneId = showChatUnderProject('project-a', 'chat-a')
+    resolveChatProjectId.mockReturnValue('project-b')
+
+    performSidebarPaneDrop([chatRow('chat-b', 'ws-b')], paneId, 'right')
+
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toEqual([paneId])
+    expect(toast.error).toHaveBeenCalledWith('That chat belongs to a different space')
+  })
+
+  it('lets a chat of the SAME project through — the refusal is not a blanket', () => {
+    const paneId = showChatUnderProject('project-a', 'chat-a')
+    resolveChatProjectId.mockReturnValue('project-a')
+
+    performSidebarPaneDrop([chatRow('chat-b', 'ws-b')], paneId, 'right')
+
+    const leaves = getAllLeafIds(showingLayout(windowPaneStore.getState()))
+    expect(leaves).toHaveLength(2)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('lets an UNRESOLVABLE chat through rather than refusing on a guess', () => {
+    const paneId = showChatUnderProject('project-a', 'chat-a')
+    resolveChatProjectId.mockReturnValue(null)
+
+    performSidebarPaneDrop([chatRow('chat-b', 'ws-b')], paneId, 'right')
+
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(2)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+})

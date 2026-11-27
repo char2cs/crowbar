@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// The frame types a chat feed sends. A feed ends after a resync, a deleted or
-// a failed: a resync is answered by asking again, a failed read is not.
 const (
 	feedRow     = "row"
 	FeedReady   = "ready"
@@ -25,17 +23,12 @@ const (
 	FeedFailed  = "failed"
 )
 
-// feedCapacity is how many frames a feed's client may leave unread before it
-// is told to resync.
 const feedCapacity = 1024
 
-// feedReplayPage is how many rows one read of a replay takes.
 const feedReplayPage = 512
 
-// FeedFrame is one frame on a chat feed. Row is set on "row", Delta on "delta",
-// Seq on "ready" and "resync"; From on a window's first row, the seq it follows.
 type FeedFrame struct {
-	Type  string            `json:"type"` // "row" | "ready" | "delta" | "resync" | "deleted"
+	Type  string            `json:"type"`
 	Row   *ledger.Row       `json:"row,omitempty"`
 	Seq   int64             `json:"seq,omitempty"`
 	From  int64             `json:"from,omitempty"`
@@ -44,15 +37,8 @@ type FeedFrame struct {
 
 func rowFrame(r ledger.Row) FeedFrame { return FeedFrame{Type: feedRow, Row: &r} }
 
-// errFeedEnded is an attach that sent the frame its feed ends on.
 var errFeedEnded = errors.New("chat feed: ended while attaching")
 
-// OpenFeed is chatID's feed: rows after since, ready, a snapshot of its live
-// streams, then live frames. A since below 0 is a window of about the newest
-// -since rows in whole turns, whose first row says where it begins. A
-// windowBytes above 0 also bounds the window by wire size and sends the replay
-// as previews (see ledger.Preview). It registers before reading the head, so a
-// row committed meanwhile is sent once; an unknown chat is problem.ErrNotFound.
 func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since, windowBytes int64) (<-chan FeedFrame, error) {
 	if _, err := u.chats.GetChat(ctx, chatID); err != nil {
 		if errors.Is(err, agentchat.ErrNotFound) {
@@ -65,9 +51,6 @@ func (u *Usecase) OpenFeed(ctx context.Context, chatID string, since, windowByte
 	}), nil
 }
 
-// ReadBlob is a payload a row of chatID names by ref: problem.ErrNotFound for an
-// unknown chat or a ref no blob is stored under, problem.ErrInvalidArgument for
-// a ref no row could carry.
 func (u *Usecase) ReadBlob(ctx context.Context, chatID, ref string) ([]byte, error) {
 	if !ledgerstore.ValidRef(ref) {
 		return nil, fmt.Errorf("chat blob: %q: %w", ref, problem.ErrInvalidArgument)
@@ -88,9 +71,6 @@ func (u *Usecase) ReadBlob(ctx context.Context, chatID, ref string) ([]byte, err
 	return data, nil
 }
 
-// attachFeed replays chatID's rows after since up to its head, then sends the
-// ready frame and the snapshot of what no row up to the head holds. A purge
-// that ran before the feed registered is told as deleted.
 func (u *Usecase) attachFeed(ctx context.Context, chatID string, since, windowBytes int64, emit func(FeedFrame) bool) error {
 	if _, err := u.chats.GetChat(ctx, chatID); errors.Is(err, agentchat.ErrNotFound) {
 		emit(FeedFrame{Type: FeedDeleted})
@@ -104,7 +84,6 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since, windowBy
 	}
 	head := st.Head()
 	if since > head {
-		// A since this ledger never reached: the client rebuilds from the head.
 		emit(FeedFrame{Type: FeedResync, Seq: head})
 		return errFeedEnded
 	}
@@ -135,8 +114,6 @@ func (u *Usecase) attachFeed(ctx context.Context, chatID string, since, windowBy
 	return nil
 }
 
-// openTurns are the turns st still has work open in: a window that cut one
-// would lose the running turn, an ask, a subagent or a prompt it holds.
 func openTurns(st ledger.State) []string {
 	var ids []string
 	if t, ok := st.RunningTurn(); ok {
@@ -154,8 +131,6 @@ func openTurns(st ledger.State) []string {
 	return ids
 }
 
-// feeds is every open chat feed. Publishing never blocks: each feed queues
-// what it is sent, and one goroutine per feed writes it out.
 type feeds struct {
 	capacity int
 	mu       sync.Mutex
@@ -166,19 +141,14 @@ func newFeeds(capacity int) *feeds {
 	return &feeds{capacity: capacity, byChat: map[string]map[*feedSub]struct{}{}}
 }
 
-// feedSub is one feed's queue. Unread counts the frame its writer holds, so a
-// client is never more than capacity frames behind without being told.
 type feedSub struct {
 	wake    chan struct{}
 	mu      sync.Mutex
 	queue   []FeedFrame
 	holding bool
-	end     string // the frame it ends on once the queue before it is sent
+	end     string
 }
 
-// open registers a feed of chatID, then runs attach on its own goroutine: what
-// attach emits comes first, then what was published meanwhile, without the
-// rows the client was already sent (since counts as sent).
 func (f *feeds) open(
 	ctx context.Context, chatID string, since int64, attach func(emit func(FeedFrame) bool) error,
 ) <-chan FeedFrame {
@@ -217,7 +187,6 @@ func (f *feeds) subs(chatID string) []*feedSub {
 	return subs
 }
 
-// rows sends chatID's committed rows to its feeds. It is a ledger subscriber.
 func (f *feeds) rows(chatID string, rows []ledger.Row) {
 	for _, s := range f.subs(chatID) {
 		for _, r := range rows {
@@ -226,14 +195,12 @@ func (f *feeds) rows(chatID string, rows []ledger.Row) {
 	}
 }
 
-// delta sends a frame of streamed text to chatID's feeds.
 func (f *feeds) delta(chatID string, d ledger.FeedDelta) {
 	for _, s := range f.subs(chatID) {
 		s.offer(FeedFrame{Type: feedDelta, Delta: &d}, f.capacity)
 	}
 }
 
-// deleted ends chatID's feeds: the chat is erased.
 func (f *feeds) deleted(chatID string) {
 	for _, s := range f.subs(chatID) {
 		s.finish(FeedDeleted)
@@ -274,8 +241,6 @@ func (s *feedSub) notify() {
 	}
 }
 
-// next takes the next queued frame, or reports the frame the feed ends on
-// once nothing is queued ahead of it ("" while it goes on).
 func (s *feedSub) next() (FeedFrame, string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -293,7 +258,6 @@ func (s *feedSub) sent() {
 	s.holding = false
 }
 
-// pump writes the feed out: attach's frames, then the queue, then its end.
 func (s *feedSub) pump(
 	ctx context.Context, chatID string, out chan<- FeedFrame, since int64, attach func(emit func(FeedFrame) bool) error,
 ) {
@@ -309,8 +273,6 @@ func (s *feedSub) pump(
 	}
 }
 
-// step writes the queue's next frame, waiting for one; false once the feed is
-// over. A row the client was already sent is skipped.
 func (s *feedSub) step(w *feedWriter) bool {
 	fr, end, ok := s.next()
 	switch {
@@ -333,7 +295,6 @@ func (s *feedSub) step(w *feedWriter) bool {
 	}
 }
 
-// feedWriter sends a feed's frames, remembering the last row it sent.
 type feedWriter struct {
 	ctx  context.Context
 	out  chan<- FeedFrame

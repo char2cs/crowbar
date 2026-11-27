@@ -14,24 +14,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// converterVersion is raised by a build that converts records an older one
-// refused, so the chats those builds skipped are tried again.
 const converterVersion = 6
 
-// importAttempts is how many boots try a chat whose import fails before it is
-// skipped until a newer converter.
 const importAttempts = 3
 
-// legacyRecords is the count label under which a chat's checkpoint and notes
-// keep how many legacy records it had.
 const legacyRecords = "legacy_records"
 
-// The note keys of a chat that was skipped, or changed after its conversion.
 func skippedKey(chatID string) string { return "skipped/" + chatID }
 
 func changedKey(chatID string) string { return "changed/" + chatID }
 
-// duty is what a boot owes one legacy chat.
 type duty int
 
 const (
@@ -40,15 +32,11 @@ const (
 	dutyCatchUp
 )
 
-// recorded is what the step's earlier attempts left about the chats.
 type recorded struct {
 	marked func(key string) (migrate.Counts, bool)
 	noted  func(key string) (migrate.Note, bool)
 }
 
-// owed decides a chat of n legacy records: convert unless converted or skipped by
-// this converter. A converted chat whose count an older build has since changed is
-// caught up once per count; counting misses edits in place.
 func (r recorded) owed(chatID string, n int64) duty {
 	counts, converted := r.marked(chatID)
 	if !converted {
@@ -65,9 +53,6 @@ func (r recorded) owed(chatID string, n int64) duty {
 	return dutyCatchUp
 }
 
-// Plan counts the legacy chats a boot still owes work. The step recurs, so
-// this runs at every boot: while the legacy files are as the last run left
-// them it only stats them, else it counts records, never reading one.
 func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 	stamp, err := legacyStamp(env.Home)
 	if err != nil || stamp == "" {
@@ -94,11 +79,8 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 	ranBefore := len(env.Earlier)+len(env.Notes) > 0
 	if n := owed[dutyConvert]; n > 0 {
 		plan.Actions = append(plan.Actions, migrate.Action{Kind: migrate.Convert, Subject: "legacy chats → chat ledger", Count: n})
-		// A later run only imports chats the ledger has no row of: nothing a
-		// backup would restore, so the upgrade's backup stays the only one.
 		plan.RewritesState = !ranBefore
 		if plan.RewritesState {
-			// The prompt journals are input too, and they live outside state/.
 			plan.BacksUp = []string{"chats/*/" + PromptsDir}
 		}
 	}
@@ -107,17 +89,12 @@ func Plan(ctx context.Context, env migrate.Env) (migrate.Plan, error) {
 			Kind: migrate.Convert, Subject: "converted chats an older build added to", Count: n,
 		})
 	}
-	// Once a run has recorded anything, a stamp it did not see is recorded too,
-	// so the next boot is back to stats alone.
 	if plan.Empty() && ranBefore && !seen {
 		plan.Actions = []migrate.Action{{Kind: migrate.Record, Subject: "legacy files changed since the last run", Count: 1}}
 	}
 	return plan, nil
 }
 
-// Settled reports whether the step's ledger record, its marks and notes, says
-// every legacy chat is in the chat ledger: it ran, owes no chat a retry, and
-// every chat it skipped was converted since. Only then is a legacy file spare.
 func Settled(marks migrate.Marks, notes map[string]migrate.Note) bool {
 	stamp, ran := notes[stampKey]
 	if !ran || stamp.Counts[retryingChats] > 0 {
@@ -132,15 +109,10 @@ func Settled(marks migrate.Marks, notes map[string]migrate.Note) bool {
 	return true
 }
 
-// retryingChats counts the chats a run left owed a retry of their import.
 const retryingChats = "retrying_chats"
 
-// stampKey is the note under which a run keeps the legacyStamp it saw.
 const stampKey = "legacy-files"
 
-// legacyStamp names the converter and the size and modification time of every
-// legacy database and prompt journal: an older build writing any of them, or a
-// newer converter, changes it. It is "" when the home has no legacy file.
 func legacyStamp(h home.Home) (string, error) {
 	paths := []string{
 		filepath.Join(h.Store(), ActivityDB), filepath.Join(h.Store(), ActivityDB+"-wal"),
@@ -174,8 +146,6 @@ func legacyStamp(h home.Home) (string, error) {
 	return b.String(), nil
 }
 
-// census counts each chat's legacy records as the source reads them, from the
-// chat id indexes and the journal listing alone.
 func census(ctx context.Context, h home.Home) (map[string]int64, error) {
 	out := map[string]int64{}
 	count := func(rows *sql.Rows) error {

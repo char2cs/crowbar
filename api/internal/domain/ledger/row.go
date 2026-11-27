@@ -1,5 +1,3 @@
-// Package ledger is a chat's append-only record: every fact about a
-// conversation is a Row, and a chat's State is the fold of its rows.
 package ledger
 
 import (
@@ -10,7 +8,6 @@ import (
 	"time"
 )
 
-// Kind names what a row records; it selects the shape of its body.
 type Kind string
 
 const (
@@ -33,27 +30,21 @@ const (
 	KindPlan          Kind = "plan"
 )
 
-// ErrMalformedRow is a row the ledger refuses to record.
 var ErrMalformedRow = errors.New("ledger: malformed row")
 
-// ErrUnreadableRow is a stored row the ledger cannot read back: its chat's
-// history cannot be folded, and asking again fails the same way.
 var ErrUnreadableRow = errors.New("ledger: unreadable row")
 
-// Row is the envelope every ledger fact travels in.
 type Row struct {
-	ChatID string          `json:"chatId"`
-	Seq    int64           `json:"seq"`              // assigned by the store, 1-based, contiguous per chat
-	Kind   Kind            `json:"kind"`             // selects Body's shape
-	TurnID string          `json:"turnId,omitempty"` // Crowbar-minted (uuid v4); "" for chat-level rows
-	Scope  string          `json:"scope,omitempty"`  // "" = main agent, else a subagent scope id
-	At     time.Time       `json:"at"`               // stamped by the store's clock
-	Body   json.RawMessage `json:"body"`
-	// Trimmed names the body fields a preview cut; the full row is read by its seq.
-	Trimmed []string `json:"trimmed,omitempty"`
+	ChatID  string          `json:"chatId"`
+	Seq     int64           `json:"seq"`
+	Kind    Kind            `json:"kind"`
+	TurnID  string          `json:"turnId,omitempty"`
+	Scope   string          `json:"scope,omitempty"`
+	At      time.Time       `json:"at"`
+	Body    json.RawMessage `json:"body"`
+	Trimmed []string        `json:"trimmed,omitempty"`
 }
 
-// NewRow encodes body into a row of kind; the store assigns chat, seq and time.
 func NewRow[B any](kind Kind, turnID, scope string, body B) (Row, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -62,7 +53,6 @@ func NewRow[B any](kind Kind, turnID, scope string, body B) (Row, error) {
 	return Row{Kind: kind, TurnID: turnID, Scope: scope, Body: raw}, nil
 }
 
-// DecodeBody decodes r's body as B.
 func DecodeBody[B any](r Row) (B, error) {
 	var body B
 	if err := json.Unmarshal(r.Body, &body); err != nil {
@@ -71,7 +61,6 @@ func DecodeBody[B any](r Row) (B, error) {
 	return body, nil
 }
 
-// checks refuse a malformed row of their kind.
 var checks = map[Kind]func(Row) error{
 	KindUserMessage:   func(r Row) error { return checkTurnNamed(r, func(UserMessage) bool { return true }) },
 	KindTurnStarted:   func(r Row) error { return checkTurnNamed(r, func(TurnStarted) bool { return true }) },
@@ -128,9 +117,6 @@ var checks = map[Kind]func(Row) error{
 	KindShell: checkShell,
 }
 
-// Check refuses only malformed rows: an unknown kind, a turn-scoped kind
-// without a turn, an undecodable body. A row the State has moved past is
-// late, not malformed, and Apply ignores it.
 func Check(_ State, r Row) error {
 	check, ok := checks[r.Kind]
 	if !ok {
@@ -161,7 +147,6 @@ func checkSessionBound(r Row) error {
 	})
 }
 
-// checkNamed refuses a body that does not decode or that named rejects.
 func checkNamed[B any](r Row, named func(B) bool) error {
 	body, err := DecodeBody[B](r)
 	if err != nil {

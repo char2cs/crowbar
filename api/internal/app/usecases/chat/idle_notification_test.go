@@ -12,15 +12,11 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// The two Notification messages claude actually sends, both verbatim. The same
-// hook carries both, so only the idle one may read as claude saying it is idle.
 const (
 	idleNotice       = "Claude is waiting for your input"
 	permissionNotice = "Claude needs your permission to use Bash"
 )
 
-// claudeTurnWithAToolOpen is a claude turn running a tool call that never
-// reports its end.
 func claudeTurnWithAToolOpen(t *testing.T, f testFixture) (chatID, runnerID string) {
 	t.Helper()
 	chatID, runnerID = f.spawn(t, "claude")
@@ -34,13 +30,10 @@ func claudeTurnWithAToolOpen(t *testing.T, f testFixture) (chatID, runnerID stri
 	return chatID, runnerID
 }
 
-// claude's Notification hook is its authoritative "I am waiting on the human":
-// it ends the running turn, however much of it never reported an end.
 func TestRegression_ClaudesIdleNotificationEndsItsTurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := claudeTurnWithAToolOpen(t, f)
 
-	// claude.yaml wires two relay commands to the one Notification hook.
 	notice := map[string]any{"message": idleNotice}
 	hook(t, f, runnerID, "claude", engineagents.HookNotification, notice)
 	hook(t, f, runnerID, "claude", engineagents.HookIdle, notice)
@@ -50,8 +43,6 @@ func TestRegression_ClaudesIdleNotificationEndsItsTurn(t *testing.T) {
 	assert.NotErrorIs(t, err, agentusecase.ErrPromptBusy)
 }
 
-// A permission notice is claude waiting on a decision inside a live turn: it
-// ends nothing, and is still recorded as the interruption it is.
 func TestRegression_APermissionNotificationNeverEndsClaudesTurn(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := claudeTurnWithAToolOpen(t, f)
@@ -68,9 +59,6 @@ func TestRegression_APermissionNotificationNeverEndsClaudesTurn(t *testing.T) {
 	assert.Equal(t, permissionNotice, ints[0].Detail)
 }
 
-// TestRegression_TheIdleNoticeIsStillRecordedAsAnInterruption pins the other
-// side of "one hook, two canonical events": adding the idle reading must not
-// cost the interruption row the activity ledger already showed for it.
 func TestRegression_TheIdleNoticeIsStillRecordedAsAnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")

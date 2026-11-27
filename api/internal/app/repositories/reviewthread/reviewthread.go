@@ -15,13 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// BroadcastFunc is an alias for the store-layer broadcast type, exposed so the
-// repositories container can wire it without importing the internal store package.
 type BroadcastFunc = store.BroadcastFunc
 
-// OpenInput carries the anchor + first message for a new thread. ProviderID and
-// ChatID attribute the message to the agent and chat that wrote it; a human
-// leaves both empty.
 type OpenInput struct {
 	ID         string
 	WsID       string
@@ -38,9 +33,6 @@ type OpenInput struct {
 	Body       string
 }
 
-// ReplyInput carries the message appended to an existing thread; a struct so two
-// transposed optional strings cannot compile and file a finding under the wrong
-// chat. ProviderID and ChatID mean what they do on OpenInput.
 type ReplyInput struct {
 	ID         string
 	MessageID  string
@@ -51,7 +43,6 @@ type ReplyInput struct {
 	Body       string
 }
 
-// ReviewThread is the review-thread aggregate repository.
 type ReviewThread interface {
 	Open(
 		ctx context.Context,
@@ -99,19 +90,13 @@ type ReviewThread interface {
 	) ([]domain.ReviewThread, error)
 }
 
-// reviewThread is the singleton-backed review-thread aggregate repository. One
-// axReviewThread routes every thread id to a shard by hash; there is no writeMu
-// (asynx serializes each aggregate's commands).
 type reviewThread struct {
 	ax    asynx.Asynx[domain.ReviewThread]
 	store store.Store
 }
 
-// ReadModel is the read model's write side (state/store/review_thread.db). It is opened before the
-// asynx instance so it can be that instance's durable subscriber.
 type ReadModel = store.Projection
 
-// OpenReadModel opens the read model over storeDB.
 func OpenReadModel(
 	storeDB *gormdb.DB,
 ) (*ReadModel, error) {
@@ -122,16 +107,12 @@ func OpenReadModel(
 	return rm, nil
 }
 
-// Subscriber is the builder option that makes rm the instance's durable subscriber.
 func Subscriber(
 	rm *ReadModel,
 ) func(*asynx.Builder[domain.ReviewThread]) {
 	return store.Subscriber(rm)
 }
 
-// New builds the repository over ax, which must have been built with
-// Subscriber(rm), and the hub broadcast fan-out. es is the log ax wraps,
-// kept so the read model can heal itself by lazy Replay.
 func New(
 	ax asynx.Asynx[domain.ReviewThread],
 	es asynxModels.Store,
@@ -225,14 +206,11 @@ func (r *reviewThread) DeleteMessage(
 	return evt.Aggregate, nil
 }
 
-// DeleteThread purges the thread aggregate via Forget, whose synchronous OnForget
-// deletes the read-model row. A thread has no cascade, so it needs no tombstone.
 func (r *reviewThread) DeleteThread(
 	ctx context.Context,
 	id string,
 ) error {
 	err := r.ax.Forget(ctx, id)
-	// Forget's one refusal is an aggregate it does not hold.
 	if errors.Is(err, asynxModels.ErrValidation) {
 		return domain.ReviewThreadNotFound(asynxModels.ErrValidation)
 	}
@@ -268,8 +246,6 @@ func (r *reviewThread) Get(
 	ctx context.Context,
 	id string,
 ) (domain.ReviewThread, error) {
-	// Per-id reads fold the aggregate directly from the event log, so Get is
-	// always current and needs no read-model rebuild.
 	got, err := r.ax.Get(ctx, id)
 	if errors.Is(err, asynxModels.ErrNotFound) {
 		return domain.ReviewThread{}, domain.ReviewThreadNotFound(err)

@@ -49,14 +49,14 @@ targets:
         steps:
           - type: run
             title: "Run the Crowbar daemon as a login service"
-            command: "curl -fsSL https://raw.githubusercontent.com/char2cs/crowbar/${REF}/scripts/service-install.sh | sh -s -- ${REF}"
+            command: "curl -fsSL https://raw.githubusercontent.com/char2cs/crowbar/${REF}/tools/scripts/service-install.sh | sh -s -- ${REF}"
             timeout: 5m
       remove_service:
         available_in: [ready]
         steps:
           - type: run
             title: "Remove the Crowbar daemon login service"
-            command: "curl -fsSL https://raw.githubusercontent.com/char2cs/crowbar/${REF}/scripts/service-uninstall.sh | sh"
+            command: "curl -fsSL https://raw.githubusercontent.com/char2cs/crowbar/${REF}/tools/scripts/service-uninstall.sh | sh"
             timeout: 2m
 
   _linux:

@@ -14,16 +14,12 @@ type ringBuffer struct {
 	redact      *regexp.Regexp
 }
 
-// Wrap returns a slog.Handler that stores each record next handles and then
-// passes it to next.
 func (r *ringBuffer) Wrap(
 	next slog.Handler,
 ) slog.Handler {
 	return &handler{next: next, ring: r}
 }
 
-// Stream opens a gap-free Stream of the records at or above level, replaying
-// after since or the last 500 records.
 func (r *ringBuffer) Stream(
 	since uint64,
 	level slog.Level,

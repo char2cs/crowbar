@@ -19,9 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// steerStubDescriptorYAML is a hooks-only CLI that appends a line to a launch
-// log every time it starts, so a respawn is countable, then runs the fake CLI,
-// and declares steering.
 const steerStubDescriptorYAML = `id: %s
 spawn:
   cmd: "sh"
@@ -88,7 +85,6 @@ func newSteerFixture(t *testing.T) steerFixture {
 	writeProviderDescriptor(t, h, f.provider, fmt.Sprintf(steerStubDescriptorYAML, f.provider, f.launches, kit.FakeCLIPath(t)))
 	f.imported = importWritableWorkspace(t, h)
 	f.chatID, f.runnerID = createStubChat(t, h, f.imported, f.provider)
-	// The CLI logs its launch on its own schedule; one quit before then never logs.
 	require.Eventually(t, f.launchedTimes(1), 10*time.Second, 5*time.Millisecond)
 	return f
 }
@@ -100,8 +96,6 @@ func (f steerFixture) launchCount(t *testing.T) int {
 	return n
 }
 
-// launched is how many times the CLI logged its launch; it never fails the
-// test itself, so an Eventually condition can call it off the test goroutine.
 func (f steerFixture) launched() (int, error) {
 	raw, err := os.ReadFile(f.launches)
 	if errors.Is(err, os.ErrNotExist) {
@@ -110,7 +104,6 @@ func (f steerFixture) launched() (int, error) {
 	return strings.Count(string(raw), "launched"), err
 }
 
-// launchedTimes is an Eventually condition: the CLI has launched n times.
 func (f steerFixture) launchedTimes(n int) func() bool {
 	return func() bool {
 		got, err := f.launched()
@@ -118,8 +111,6 @@ func (f steerFixture) launchedTimes(n int) func() bool {
 	}
 }
 
-// hook posts one provider hook and returns the daemon's reply, what the CLI
-// is handed for it.
 func (f steerFixture) hook(t *testing.T, event, payload string) string {
 	t.Helper()
 	return string(postHook(t, f.h, repoBase(f.imported), f.provider, f.runnerID, event, payload))
@@ -135,7 +126,6 @@ func (f steerFixture) submitBody(t *testing.T, body map[string]string, want int)
 	_ = f.h.raw(http.MethodPost, repoBase(f.imported)+"/chats/"+f.chatID+"/prompts", body, want).Body.Close()
 }
 
-// pendingState is the status of the chat's oldest unacknowledged prompt.
 func (f steerFixture) pendingState(t *testing.T) string {
 	t.Helper()
 	pending := chatState(t, f.h, f.chatID).PendingPrompts()
@@ -151,11 +141,6 @@ func (f steerFixture) liveRunner(t *testing.T) string {
 	return getAgentChat(t, f.h, repoBase(f.imported), f.chatID).LiveRunnerID
 }
 
-// TestRegression_PromptSentMidTurnReachesTheRunningCLI is the reported "we
-// cannot send messages while the agent is working": a prompt sent during a
-// turn used to wait for the turn to end and then QUIT the CLI to respawn it
-// with the text in argv. It must instead ride the turn-end hook into the SAME
-// process, and land in the ledger once, after the reply it followed.
 func TestRegression_PromptSentMidTurnReachesTheRunningCLI(t *testing.T) {
 	f := newSteerFixture(t)
 	f.hook(t, "session_start", `{"session_id":"sid-1"}`)
@@ -187,9 +172,6 @@ func TestRegression_PromptSentMidTurnReachesTheRunningCLI(t *testing.T) {
 	}, order, "the steered message appears exactly once, between the reply it followed and the one it caused")
 }
 
-// A turn that ends without its end hook ever reaching the daemon strands the
-// parked message; it must be failed (so the client keeps its text and the chat
-// is not left busy), never delivered into the next turn.
 func TestRegression_SteeredPromptIsRefusedWhenTheTurnFails(t *testing.T) {
 	f := newSteerFixture(t)
 	f.hook(t, "session_start", `{"session_id":"sid-1"}`)
@@ -203,7 +185,6 @@ func TestRegression_SteeredPromptIsRefusedWhenTheTurnFails(t *testing.T) {
 	f.submit(t, "retry after failure", uuid.NewString(), http.StatusOK)
 }
 
-// Commands are not messages: a slash command mid-turn stays busy as before.
 func TestRegression_CommandSentMidTurnIsNotSteered(t *testing.T) {
 	f := newSteerFixture(t)
 	f.hook(t, "session_start", `{"session_id":"sid-1"}`)
@@ -214,19 +195,15 @@ func TestRegression_CommandSentMidTurnIsNotSteered(t *testing.T) {
 	assert.Equal(t, 1, f.launchCount(t))
 }
 
-// An idle chat still restarts the CLI with the prompt in argv.
 func TestRegression_PromptSentWhileIdleStillRestartsTheCLI(t *testing.T) {
 	f := newSteerFixture(t)
 	f.hook(t, "session_start", `{"session_id":"sid-1"}`)
 
 	f.submit(t, "hello", uuid.NewString(), http.StatusOK)
 
-	// The respawned CLI logs its launch on its own schedule, after the 200.
 	require.Eventually(t, f.launchedTimes(2), 10*time.Second, 5*time.Millisecond)
 }
 
-// Stop retires the runner; the message parked on its turn was never delivered
-// and must not leave the chat busy or be replayed into a later turn.
 func TestRegression_StopRefusesAParkedPromptInsteadOfWedgingTheChat(t *testing.T) {
 	f := newSteerFixture(t)
 	f.hook(t, "session_start", `{"session_id":"sid-1"}`)
@@ -238,10 +215,6 @@ func TestRegression_StopRefusesAParkedPromptInsteadOfWedgingTheChat(t *testing.T
 	assert.Empty(t, f.pendingState(t), "a refused delivery is over, not pending")
 }
 
-// The composer posts the provider, model and effort picked in its selector with
-// EVERY prompt, and the CLI reports its own resolved model id on session_start.
-// Neither is a request to change anything mid-turn, so the message must still
-// ride the running turn; only a pick that differs from the chat's own stays busy.
 func TestRegression_ComposerBodyWithSelectionIsSteeredMidTurn(t *testing.T) {
 	f := newSteerFixture(t)
 	f.hook(t, "session_start", `{"session_id":"sid-1","model":"stub-sonnet-resolved-1"}`)
@@ -269,9 +242,6 @@ func TestRegression_ComposerBodyWithSelectionIsSteeredMidTurn(t *testing.T) {
 	}, http.StatusConflict)
 }
 
-// A selection changed through the standalone PATCH route is not a request the
-// running process can honour: the next send must restart it, never steer into
-// the model it was launched with.
 func TestRegression_SelectionChangedMidTurnThroughPatchIsNotSteered(t *testing.T) {
 	f := newSteerFixture(t)
 	f.submitBody(t, map[string]string{

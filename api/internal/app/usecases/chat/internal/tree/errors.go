@@ -5,7 +5,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The placement refusals are the Tree's own, one code per rule (domain/tree).
 var (
 	ErrCycle          = dtree.ErrCycle
 	ErrCrossWorkspace = dtree.ErrCrossWorkspace
@@ -16,20 +15,11 @@ var (
 	ErrSubtreeWorking = dtree.ErrSubtreeWorking
 )
 
-// ErrWorkspaceUnprovisioned is returned when a create names a placeholder workspace with no worktree on
-// disk (held by another checkout, or failed to materialise): the chat would have nowhere to run, so it is
-// refused before anything is minted. Handlers map it to 409.
 var ErrWorkspaceUnprovisioned = problem.New(problem.Conflict, "usecases: this branch has no worktree yet")
 
-// ErrNowhereToRun is a plain chat create naming neither a workspace nor a row
-// to run under: refused before anything is minted.
 var ErrNowhereToRun = problem.New(problem.InvalidArgument, "A new chat needs a workspace or a row to run under")
 
-// ErrThreadNeedsWorkspace is a plain chat create under a chat that runs in a
-// workspace, naming none: the thread runs in that workspace, so it names it.
 var ErrThreadNeedsWorkspace = problem.New(problem.InvalidArgument,
 	"A thread runs in its chat's workspace: name it in workspaceId")
 
-// ErrForkNeedsProvider is a fork create naming no provider: it starts a CLI in
-// the worktree it cuts, so it is refused before anything is minted.
 var ErrForkNeedsProvider = problem.New(problem.InvalidArgument, "A chat on a new branch needs a provider to start")

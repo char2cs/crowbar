@@ -655,10 +655,6 @@ func withAPITransport(d *spec.Descriptor) *spec.Descriptor {
 	return d
 }
 
-// An api-transport spawn whose connection comes up forks NO process, so
-// apply: — an argv — reaches nothing. Declaring a selection with no api
-// carrier is that silent drop, made at descriptor-load time instead of at
-// the third chat that quietly ran the wrong model.
 func TestSelection_RejectsAnAPITransportSelectionWithNoAPICarrier(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -700,9 +696,6 @@ func TestSelection_AcceptsAnAPITransportSelectionThatDeclaresBothCarriers(t *tes
 	assert.NoError(t, rules.Apply(d))
 }
 
-// A hooks-transport spawn always forks the vendor's own PTY, so apply: is
-// carrier enough and api_apply: is meaningless there — claude must not be
-// dragged into declaring one.
 func TestSelection_AHooksTransportSelectionNeedsNoAPICarrier(t *testing.T) {
 	assert.NoError(t, rules.Apply(withSelection(valid())))
 }
@@ -994,8 +987,6 @@ func TestSelection_ReportsTheSameBadKeyEveryRun(t *testing.T) {
 	}
 }
 
-// A descriptor that declares only the two required events still passes every rule:
-// message_delta and turn_failed are optional capabilities, not obligations.
 func TestApply_ADescriptorWithOnlyTheRequiredEventsIsValid(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
 }

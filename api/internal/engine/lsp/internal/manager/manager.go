@@ -1,5 +1,3 @@
-// Package manager maintains a per-workspace pool of language-server processes: at most
-// one per (wsID, languageID), spawned lazily and refcounted; the last Release tears it down.
 package manager
 
 import (
@@ -18,79 +16,52 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
-// initializeTimeout bounds the LSP initialize handshake, which can be slow on a
-// language server's cold start (module loading, indexing).
 const initializeTimeout = 30 * time.Second
 
-// lookPathFunc resolves a command name to an absolute path, mirroring
-// exec.LookPath. Tests inject a fake to simulate a missing binary.
 type lookPathFunc func(
 	command string,
 ) (string, error)
 
-// SpawnFunc creates a running language-server process for the given spec in the
-// given worktree directory. Tests inject a fake to avoid real binaries.
 type SpawnFunc func(
 	ctx context.Context,
 	spec registry.ServerSpec,
 	worktreePath string,
 ) (server.Server, error)
 
-// Manager maintains a pool of language servers keyed by (wsID, languageID).
-// All methods are safe for concurrent use.
 type Manager interface {
-	// ServerForFile resolves the spec for filePath from the registry, spawns a
-	// server for (wsID, languageID) if none is running, increments its refcount,
-	// and returns it. Returns ErrNoServer when no spec covers the extension.
 	ServerForFile(
 		ctx context.Context,
 		wsID string,
 		worktreePath string,
 		filePath string,
 	) (server.Server, error)
-	// RunningServerForFile returns the running server for filePath's language without
-	// spawning or touching the refcount, or ErrNoServer. didClose uses it so closing a
-	// document never acquires a new ref.
 	RunningServerForFile(
 		wsID string,
 		filePath string,
 	) (server.Server, error)
-	// Status reports which server serves filePath's language in wsID and
-	// whether it is running, without spawning or touching the refcount.
 	Status(
 		wsID string,
 		filePath string,
 	) domlsp.ServerStatus
-	// Acquire increments the refcount for the (wsID, languageID) entry without
-	// spawning. It is a no-op when no entry exists.
 	Acquire(
 		wsID string,
 		languageID string,
 	)
-	// Release decrements the refcount for (wsID, languageID). When the count
-	// reaches zero the server is closed and removed from the pool.
 	Release(
 		ctx context.Context,
 		wsID string,
 		languageID string,
 	)
-	// ReleaseWorkspace closes every server for wsID regardless of refcount, for the
-	// workspace topic's last unsubscribe when per-document Release never ran.
 	ReleaseWorkspace(
 		ctx context.Context,
 		wsID string,
 	)
-	// OnDiagnostics registers the callback that receives diagnostics events from
-	// every server in the pool, present and future.
 	OnDiagnostics(
 		fn func(domlsp.DiagnosticsEvent),
 	)
-	// OnReleaseEmpty registers the callback invoked when a Release drops the last
-	// running server for a workspace, so callers can evict per-workspace state.
 	OnReleaseEmpty(
 		fn func(wsID string),
 	)
-	// Shutdown closes all running servers regardless of refcount.
 	Shutdown(
 		ctx context.Context,
 	)
@@ -111,15 +82,10 @@ type manager struct {
 	onRelEmpty func(wsID string)
 }
 
-// Option customizes a Manager at construction. Options are an internal seam:
-// production code passes none and gets exec.LookPath binary resolution; tests
-// inject a fake LookPath to simulate present or missing server binaries.
 type Option func(
 	m *manager,
 )
 
-// WithLookPath overrides the exec.LookPath used to verify a server binary is
-// installed before spawning. Intended for tests.
 func WithLookPath(
 	lookPath func(command string) (string, error),
 ) Option {
@@ -130,9 +96,6 @@ func WithLookPath(
 	}
 }
 
-// New returns a Manager backed by reg and spawn. Pass a nil SpawnFunc only in
-// tests that never call ServerForFile. The server binary is resolved on PATH
-// via exec.LookPath before spawning; a missing binary yields ErrNoServer.
 func New(
 	reg registry.Registry,
 	spawn SpawnFunc,
@@ -263,7 +226,6 @@ func (m *manager) getOrSpawn(
 	}
 
 	m.mu.Lock()
-	// Re-check after the lock gap: another goroutine may have raced us.
 	if existing, ok := m.pool[key]; ok {
 		m.mu.Unlock()
 		closeServer(srv)
@@ -298,13 +260,8 @@ func (m *manager) spawnAndWire(
 		srv.OnDiagnostics(stampWorkspace(wsID, worktreePath, cb))
 	}
 
-	// When the process exits on its own, evict it so the next request respawns rather than
-	// waiting on a corpse until the request timeout. A deliberate Close does not fire this.
 	srv.OnExit(func() { m.onServerExit(wsID, spec.LanguageID) })
 
-	// The LSP handshake must complete before any document sync, and gopls cold
-	// starts can take several seconds, so give it its own timeout rather than
-	// inheriting a short request deadline.
 	initCtx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
 	if err := srv.Initialize(initCtx, worktreePath); err != nil {
@@ -381,9 +338,6 @@ func (m *manager) Release(
 	}
 }
 
-// onServerExit evicts the pool entry of a server that exited on its own and closes it,
-// failing in-flight waiters immediately; the next ServerForFile respawns. If it was the
-// workspace's last server, the empty callback evicts per-workspace state, as Release does.
 func (m *manager) onServerExit(
 	wsID string,
 	languageID string,
@@ -408,8 +362,6 @@ func (m *manager) onServerExit(
 	}
 }
 
-// ReleaseWorkspace closes and removes every server running for wsID regardless
-// of refcount, then fires the empty callback once if any server was torn down.
 func (m *manager) ReleaseWorkspace(
 	_ context.Context,
 	wsID string,
@@ -460,8 +412,6 @@ func (m *manager) Shutdown(
 	}
 }
 
-// closeServer tears down a server nobody awaits; a failing teardown is logged
-// because there is no caller to return it to.
 func closeServer(srv server.Server) {
 	if err := srv.Close(); err != nil {
 		slog.Warn("lsp manager: close server", "err", err)

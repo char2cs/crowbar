@@ -12,12 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 )
 
-// A project icon is an uploaded image, an emoji, or the sidebar's default glyph.
-// Unlike a repo there is no GitHub-avatar variant (a project has no origin remote)
-// and no generated letter tile, so "no icon" needs nothing stored.
-
-// Icon handles GET /v0/projects/:projectId/icon, serving the on-disk icon bytes
-// with the content-type sniffed from them. 404 when the project has no icon.
 func (h *Handlers) Icon(
 	c *gin.Context,
 ) {
@@ -34,9 +28,6 @@ func (h *Handlers) Icon(
 	icons.Serve(c, path)
 }
 
-// PutIcon handles PUT /v0/projects/:projectId/icon from a multipart "icon" field
-// (web) or a JSON {"path"} the daemon reads (desktop: the WKWebView crowbar://
-// scheme cannot carry a multipart body).
 func (h *Handlers) PutIcon(
 	c *gin.Context,
 ) {
@@ -61,8 +52,6 @@ func (h *Handlers) PutIcon(
 		libs.Fail(c, err)
 		return
 	}
-	// An image replaces an emoji, and new bytes behind the stable icon URL need
-	// the version bumped so the DTO's ?v= param changes and clients refetch.
 	hasIcon, emoji := true, ""
 	h.saveIcon(c, projectID, project.Update{
 		AvatarHasIcon:     &hasIcon,
@@ -71,8 +60,6 @@ func (h *Handlers) PutIcon(
 	})
 }
 
-// PutIconEmoji handles PUT /v0/projects/:projectId/icon/emoji.
-// Body: {"emoji":"🦊"}.
 func (h *Handlers) PutIconEmoji(
 	c *gin.Context,
 ) {
@@ -93,8 +80,6 @@ func (h *Handlers) PutIconEmoji(
 		libs.WriteErr(c, http.StatusBadRequest, "emoji must be a single character")
 		return
 	}
-	// An emoji replaces an image: clear the flag and best-effort remove the file
-	// behind it, so a later "reset" has nothing stale to fall back to.
 	if path, ok := h.iconPath(c); ok {
 		icons.Remove(c.Request.Context(), path)
 	}
@@ -105,9 +90,6 @@ func (h *Handlers) PutIconEmoji(
 	})
 }
 
-// DeleteIcon handles DELETE /v0/projects/:projectId/icon. It removes the
-// on-disk icon and clears the emoji, resetting the project to the sidebar's
-// default glyph.
 func (h *Handlers) DeleteIcon(
 	c *gin.Context,
 ) {
@@ -123,8 +105,6 @@ func (h *Handlers) DeleteIcon(
 	h.saveIcon(c, projectID, project.Update{AvatarHasIcon: &hasIcon, AvatarEmoji: &emoji})
 }
 
-// saveIcon persists an icon change and answers 204, like every icon mutation:
-// the updated project arrives on the Projects stream, not in this response.
 func (h *Handlers) saveIcon(
 	c *gin.Context,
 	projectID string,
@@ -137,8 +117,6 @@ func (h *Handlers) saveIcon(
 	c.Status(http.StatusNoContent)
 }
 
-// iconPath resolves the project's icon file from the :projectId param and the
-// configured crowbar home. ok is false when the home cannot be resolved.
 func (h *Handlers) iconPath(
 	c *gin.Context,
 ) (string, bool) {
@@ -149,8 +127,6 @@ func (h *Handlers) iconPath(
 	return projectIconPath(home, c.Param("projectId")), true
 }
 
-// projectIconPath is <crowbarHome>/projects/<projectId>/icon, beside the repo
-// directories; repo ids are uuids, so "icon" can never collide with one.
 func projectIconPath(
 	crowbarHome string,
 	projectID string,

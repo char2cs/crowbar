@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// logFailure keeps the whole chain the operation's reason leaves out.
 func logFailure(ctx context.Context, op domain.Operation, err error) {
 	if err != nil {
 		slog.ErrorContext(ctx, "operation failed", "op", op.ID, "kind", op.Kind, "err", err)
@@ -46,9 +45,6 @@ func failedItems(items []domain.OperationItem) int {
 	return n
 }
 
-// settleItems ends with op the items its work left open: no item runs on once
-// its operation has settled. Work that returned finished them; work that
-// failed or was cut short failed them with its own reason.
 func settleItems(op *domain.Operation) {
 	if !settled(op.State) {
 		return

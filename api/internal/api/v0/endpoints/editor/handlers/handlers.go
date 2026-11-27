@@ -1,6 +1,3 @@
-// Package handlers backs the editor endpoint: git blame, LSP feature requests, document sync,
-// the language-server lifecycle and diagnostics. A missing language server is not an error
-// (empty results, 200); a nil LSP or git engine yields a 503.
 package handlers
 
 import (
@@ -17,9 +14,6 @@ import (
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// LSPEngine is the LSP host surface the editor handlers consume. It mirrors the
-// live enginelsp.Engine feature, document-sync, and diagnostics-snapshot
-// methods so the engine satisfies it directly.
 type LSPEngine interface {
 	Completion(
 		ctx context.Context,
@@ -161,8 +155,6 @@ type LSPEngine interface {
 	) []domlsp.Diagnostic
 }
 
-// GitEngine is the git surface the editor handlers consume: the per-line blame
-// annotation. It mirrors enginegit.Engine so the engine satisfies it directly.
 type GitEngine interface {
 	Blame(
 		ctx context.Context,
@@ -171,14 +163,11 @@ type GitEngine interface {
 	) ([]gitdomain.BlameEntry, error)
 }
 
-// Handlers serves the /v0 editor routes from the LSP host and the git engine.
-// A nil lsp or git engine surfaces as a 503 on the affected route.
 type Handlers struct {
 	lsp LSPEngine
 	git GitEngine
 }
 
-// New builds the editor Handlers from the LSP host and the git engine.
 func New(
 	lsp LSPEngine,
 	git GitEngine,
@@ -217,9 +206,6 @@ func (h *Handlers) requireGit(
 	return true
 }
 
-// workspace reads the chat's worktree that resolveChatWorktree stashed in
-// reqscope. A miss means the route is mounted outside that middleware: a wiring
-// bug, hence 500 rather than 4xx.
 func (h *Handlers) workspace(
 	c *gin.Context,
 ) (domain.Workspace, bool) {
@@ -241,8 +227,6 @@ func (h *Handlers) worktreePath(
 	return ws.WorktreePath, true
 }
 
-// lspOwnerID keys the LSP session pool by chat id, not worktree, so sibling
-// chats sharing a worktree each get their own session.
 func (h *Handlers) lspOwnerID(
 	c *gin.Context,
 ) string {

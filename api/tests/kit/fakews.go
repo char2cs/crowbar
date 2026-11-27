@@ -13,8 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// FakeWS is a WebSocket endpoint whose tickets work once. Text frames the client
-// sends arrive on Frames; Accepted gets one value per completed handshake.
 type FakeWS struct {
 	Frames   chan []byte
 	Accepted chan struct{}
@@ -22,12 +20,11 @@ type FakeWS struct {
 	t       *testing.T
 	srv     *httptest.Server
 	mu      sync.Mutex
-	tickets map[string]bool // ticket -> already used
+	tickets map[string]bool
 	conn    *websocket.Conn
 	closing chan struct{}
 }
 
-// NewFakeWS starts the server and stops it on t.Cleanup.
 func NewFakeWS(t *testing.T, protocols ...string) *FakeWS {
 	t.Helper()
 	f := &FakeWS{
@@ -61,7 +58,6 @@ func NewFakeWS(t *testing.T, protocols ...string) *FakeWS {
 	return f
 }
 
-// NewTicket returns a fresh ticket the server accepts exactly once.
 func (f *FakeWS) NewTicket() string {
 	ticket := rand.Text()
 	f.mu.Lock()
@@ -70,12 +66,10 @@ func (f *FakeWS) NewTicket() string {
 	return ticket
 }
 
-// URL is the endpoint carrying ticket as a query parameter.
 func (f *FakeWS) URL(ticket string) string {
 	return "ws" + strings.TrimPrefix(f.srv.URL, "http") + "/?ticket=" + ticket
 }
 
-// Send writes one text frame to the connected client.
 func (f *FakeWS) Send(msg []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -85,7 +79,6 @@ func (f *FakeWS) Send(msg []byte) error {
 	return f.conn.WriteMessage(websocket.TextMessage, msg)
 }
 
-// Drop cuts the connection without a close frame.
 func (f *FakeWS) Drop() {
 	f.mu.Lock()
 	defer f.mu.Unlock()

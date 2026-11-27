@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// runner returns a RefRunner that maps each expected git args call to a result.
 func runner(
 	responses map[string]string,
 ) RefRunner {
@@ -30,11 +29,9 @@ func TestResolve_SymbolicRefOriginHead(t *testing.T) {
 
 func TestResolve_FirstConfigBranchConfirmedByRevParse(t *testing.T) {
 	r := func(args ...string) (string, bool) {
-		// symbolic-ref fails
 		if args[0] == "symbolic-ref" {
 			return "", false
 		}
-		// rev-parse succeeds for "main"
 		if args[len(args)-1] == "main" {
 			return "abc123", true
 		}
@@ -63,11 +60,9 @@ func TestResolve_FallsBackToCurrentHead(t *testing.T) {
 		if args[0] == "symbolic-ref" && args[len(args)-1] == "HEAD" {
 			return "refs/heads/feature-x", true
 		}
-		// symbolic-ref for origin/HEAD fails
 		if args[0] == "symbolic-ref" {
 			return "", false
 		}
-		// rev-parse for config branches all fail
 		return "", false
 	}
 	got := Resolve(r, []string{"main", "master"})

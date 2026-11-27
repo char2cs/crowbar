@@ -165,15 +165,6 @@ func TestResolve_WorkspaceReaderErrorIsSurfacedWithContextNotSwallowed(t *testin
 	}
 }
 
-// TestResolve_AWorktreeOwningAncestorAcrossAFolderIsFound is the regression
-// test for the bug in commit 8f7ca472: chat-a owns a worktree, folder-f is
-// filed under chat-a, and chat-b is filed under folder-f. Resolving chat-b
-// must find chat-a's workspace by walking through folder-f, not stop at it.
-//
-// It goes through NewChatTreeAncestryReader — the real production adapter,
-// not a fake standing in for its answer — over a fakeChatLister that supplies
-// nothing but raw rows and real ParentID edges. Whether folder-f is crossed
-// is entirely up to the tree walk under test.
 func TestResolve_AWorktreeOwningAncestorAcrossAFolderIsFound(t *testing.T) {
 	lister := &fakeChatLister{
 		rows: []domain.Chat{
@@ -198,10 +189,6 @@ func TestResolve_AWorktreeOwningAncestorAcrossAFolderIsFound(t *testing.T) {
 	}
 }
 
-// TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound strengthens
-// the case above with two folders stacked between the chat and its
-// worktree-owning ancestor, so the walk has to actually climb rather than
-// resolve on a lucky single hop.
 func TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound(t *testing.T) {
 	lister := &fakeChatLister{
 		rows: []domain.Chat{
@@ -227,26 +214,10 @@ func TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound(t *testing.T)
 	}
 }
 
-// TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound is the SDD
-// review's own required regression, Task 8 fix round: unlike the two tests
-// above (which bake folder-f/folder-g straight into fakeChatLister.rows,
-// proving only that the WALK can cross a folder WHEN one happens to be in
-// the raw list), this fixture matches production exactly — a folder is
-// Folder/Node-backed, never a Chat row, so
-// fakeChatLister (standing in for usecases/chat.Usecase.ListChats) never
-// carries it. Before this fix, chat-b's own ParentID named "folder-f", an id
-// with NO entry in rows at all — newChatForest's walk hit that gap and
-// stopped dead, exactly as if chat-b sat at the panel root, even though
-// chat-a's real worktree sits one hop further up. This is the routine,
-// expected shape a fork/promote/git/review/files/search route hits in
-// production: a bubble chat filed under a folder nested inside a branch's
-// own subtree.
 func TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound(t *testing.T) {
 	lister := &fakeChatLister{
 		rows: []domain.Chat{
 			{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
-			// chat-b's ParentID names folder-f, which is ENTIRELY ABSENT from
-			// rows -- it lives only in folders/nodes below.
 			{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "folder-f"},
 		},
 	}
@@ -270,11 +241,6 @@ func TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne is
-// TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound's counterpart
-// for the fan-out direction (ChatsForWorkspace) — the SAME production
-// mechanism (worktree.Resolve) spec §7.4's shared bucket (git, review,
-// files, search, identity) fans a push out through.
 func TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne(t *testing.T) {
 	lister := &fakeChatLister{
 		rows: []domain.Chat{
@@ -299,8 +265,6 @@ func TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne(t *testing.T) 
 	}
 }
 
-// TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat: every node
-// read decodes the whole table, so reading once per chat costs O(chats²).
 func TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat(t *testing.T) {
 	rows := []domain.Chat{{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"}}
 	nodes := &countingNodes{NodePlacements: mocks.NewNodePlacements()}
@@ -320,7 +284,6 @@ func TestChatsForWorkspace_ReadsTheNodeTableOncePerCallNotOncePerChat(t *testing
 	}
 }
 
-// countingNodes counts every whole-or-partial read of the node table.
 type countingNodes struct {
 	*mocks.NodePlacements
 	reads int
@@ -341,9 +304,6 @@ func (c *countingNodes) ListAll(
 	return c.NodePlacements.ListAll(ctx)
 }
 
-// TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed
-// mirrors TestResolve_ChatAncestryReaderErrorIsSurfacedWithContextNotSwallowed
-// for the new adapter's own failure path.
 func TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed(t *testing.T) {
 	cause := errors.New("chat lister unavailable")
 	chats := worktree.NewChatTreeAncestryReader(&fakeChatLister{err: cause}, nil, nil)
@@ -361,11 +321,6 @@ func TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNot
 	}
 }
 
-// sharedWorktreeForest is the normal shape Step 1 made common: chat-a owns
-// ws-a, and a batch of siblings hangs off it — one direct child, one across a
-// folder, one across two stacked folders. chat-z owns an unrelated ws-z with a
-// child of its own, and chat-loose floats at the root owning no worktree
-// anywhere in its ancestry.
 func sharedWorktreeForest() []domain.Chat {
 	return []domain.Chat{
 		{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "chat-a"},
@@ -380,10 +335,6 @@ func sharedWorktreeForest() []domain.Chat {
 	}
 }
 
-// TestChatsForWorkspace_EverySiblingSharingOneWorktreeIsReturned is the whole
-// point of the inverse: a write through ANY of these chats' routes is a write
-// to one worktree, so all four must be told about it — the owner, the direct
-// child, and the two filed under folders.
 func TestChatsForWorkspace_EverySiblingSharingOneWorktreeIsReturned(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
@@ -397,9 +348,6 @@ func TestChatsForWorkspace_EverySiblingSharingOneWorktreeIsReturned(t *testing.T
 	}
 }
 
-// TestChatsForWorkspace_AFolderIsNeverReturned pins that folder-f and folder-g
-// are crossed but not counted: a folder holds chats, it is not one, and nothing
-// subscribes under a folder id.
 func TestChatsForWorkspace_AFolderIsNeverReturned(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
@@ -412,9 +360,6 @@ func TestChatsForWorkspace_AFolderIsNeverReturned(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_AnotherWorkspacesChatsAreExcluded proves the answer is
-// scoped, not "every chat this daemon knows": chat-z owns its own worktree and
-// its child inherits that one, so neither belongs on ws-a's fan-out.
 func TestChatsForWorkspace_AnotherWorkspacesChatsAreExcluded(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
@@ -428,11 +373,6 @@ func TestChatsForWorkspace_AnotherWorkspacesChatsAreExcluded(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_AChildOwningItsOwnWorktreeShadowsItsParents is the
-// case a naive "every descendant of the owner" walk gets wrong: chat-fork hangs
-// off chat-a but owns ws-fork, so it reads and writes a DIFFERENT worktree and
-// must not be told about ws-a's writes. Its own child inherits the fork, not
-// the parent.
 func TestChatsForWorkspace_AChildOwningItsOwnWorktreeShadowsItsParents(t *testing.T) {
 	lister := &fakeChatLister{rows: []domain.Chat{
 		{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
@@ -456,8 +396,6 @@ func TestChatsForWorkspace_AChildOwningItsOwnWorktreeShadowsItsParents(t *testin
 	}
 }
 
-// TestChatsForWorkspace_AWorkspaceNobodyPointsAtIsEmptyNotAnError: having no
-// subscribers is a fact, not a failure — a push for it simply reaches nobody.
 func TestChatsForWorkspace_AWorkspaceNobodyPointsAtIsEmptyNotAnError(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
@@ -470,10 +408,6 @@ func TestChatsForWorkspace_AWorkspaceNobodyPointsAtIsEmptyNotAnError(t *testing.
 	}
 }
 
-// TestChatsForWorkspace_AnEmptyWorkspaceIDMatchesNothing guards the reading
-// that would be catastrophic: chat-loose resolves to NO workspace, and its
-// resolved workspace id is "" — so an empty query must not be answered with
-// "every chat whose ancestry owns no worktree".
 func TestChatsForWorkspace_AnEmptyWorkspaceIDMatchesNothing(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
@@ -489,9 +423,6 @@ func TestChatsForWorkspace_AnEmptyWorkspaceIDMatchesNothing(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_TheForestIsReadExactlyOncePerCall pins the shape, not
-// just the answer: resolving each chat in turn through Resolve would re-list
-// the entire forest per chat, which is the same answer at N times the cost.
 func TestChatsForWorkspace_TheForestIsReadExactlyOncePerCall(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
@@ -503,9 +434,6 @@ func TestChatsForWorkspace_TheForestIsReadExactlyOncePerCall(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_IsTheExactInverseOfResolve cross-checks the two
-// directions against each other over one forest: every chat the fan-out set
-// names must Resolve to that workspace, and every chat it omits must not.
 func TestChatsForWorkspace_IsTheExactInverseOfResolve(t *testing.T) {
 	rows := sharedWorktreeForest()
 	lister := &fakeChatLister{rows: rows}
@@ -534,8 +462,6 @@ func TestChatsForWorkspace_IsTheExactInverseOfResolve(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_AParentCycleTerminates: a row whose parent chain loops
-// back on itself is corrupt data, not a reason to hang the pushing goroutine.
 func TestChatsForWorkspace_AParentCycleTerminates(t *testing.T) {
 	lister := &fakeChatLister{rows: []domain.Chat{
 		{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
@@ -552,9 +478,6 @@ func TestChatsForWorkspace_AParentCycleTerminates(t *testing.T) {
 	}
 }
 
-// TestChatsForWorkspace_ChatListerErrorIsSurfacedWithContextNotSwallowed
-// mirrors Resolve's own failure-path test: a fan-out that cannot be computed is
-// never silently an empty one, which would look exactly like "no siblings".
 func TestChatsForWorkspace_ChatListerErrorIsSurfacedWithContextNotSwallowed(t *testing.T) {
 	cause := errors.New("chat lister unavailable")
 	lister := &fakeChatLister{err: cause}
@@ -571,12 +494,6 @@ func TestChatsForWorkspace_ChatListerErrorIsSurfacedWithContextNotSwallowed(t *t
 	}
 }
 
-// fakeChatLister stands in for the container's real ChatLister
-// (usecases/chat.Usecase.ListChats): a fixed, unordered set of raw chat rows
-// carrying real ParentID edges, or a fixed error every call returns instead.
-// It bakes in no folder-crossing or ancestry logic of its own — that is
-// exactly what NewChatTreeAncestryReader, the real adapter under test, is
-// left to compute from these rows.
 type fakeChatLister struct {
 	rows  []domain.Chat
 	err   error
@@ -593,8 +510,6 @@ func (f *fakeChatLister) ListChats(
 	return f.rows, nil
 }
 
-// fakeChatAncestryReader stands in for the container's real adapter: a fixed
-// ancestry per chat id, or a fixed error every call returns instead.
 type fakeChatAncestryReader struct {
 	ancestry map[string][]domain.Chat
 	err      error
@@ -610,10 +525,6 @@ func (f *fakeChatAncestryReader) Ancestors(
 	return f.ancestry[chatID], nil
 }
 
-// fakeWorkspaceReader stands in for the real workspace usecase: a fixed row
-// per id, or a fixed error every call returns instead. It also records every
-// id it was asked for, so a test can prove Resolve short-circuits and never
-// looks up a workspace it didn't need.
 type fakeWorkspaceReader struct {
 	byID map[string]domain.Workspace
 	err  error

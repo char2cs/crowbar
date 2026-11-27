@@ -16,7 +16,6 @@ func TestValidate_ALoadRuleIsReportedWithItsRuleAndPath(t *testing.T) {
 	assert.NotEmpty(t, f.Hint)
 }
 
-// A vocabulary failure names its event, so the finding points at it.
 func TestValidate_AnEventOutsideTheVocabularyPointsAtTheEvent(t *testing.T) {
 	doc := minimal("events:\n  turn_stopped:\n    in: Stop\n    map: { session_id: session_id }\n")
 	rep := descriptorcheck.Validate(doc)

@@ -9,12 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// A row's repo is derived, never stored: it is the repo of the workspace its cwd walk
-// lands on, and a stored copy would go stale the moment the row is dragged.
-
-// ListChatsInRepo returns every conversation-typed row whose cwd walk resolves to a
-// workspace in repoID. Folders are dropped (the panel lists them separately), and so
-// is an orphan whose ancestry owns no workspace, which belongs to no repo.
 func (u *Usecase) ListChatsInRepo(
 	ctx context.Context,
 	repoID string,
@@ -28,8 +22,6 @@ func (u *Usecase) ListChatsInRepo(
 	return append([]domain.Chat{}, byRepo[repoID]...), nil
 }
 
-// chatsByRepo files every chat under the repo it runs in; one read answers
-// every repo a sidebar snapshot lists.
 func (u *Usecase) chatsByRepo(ctx context.Context) (map[string][]domain.Chat, error) {
 	rows, err := u.chats.ListChats(ctx)
 	if err != nil {
@@ -46,9 +38,6 @@ func (u *Usecase) chatsByRepo(ctx context.Context) (map[string][]domain.Chat, er
 	return out, nil
 }
 
-// repoOfRow answers the repo one row runs in, memoizing each workspace's repo
-// in resolved for the call. A folder, or a row with no workspace to run in, is
-// in no repo.
 func (u *Usecase) repoOfRow(
 	ctx context.Context,
 	row domain.Chat,
@@ -65,8 +54,6 @@ func (u *Usecase) repoOfRow(
 	return u.repoOfWorkspace(ctx, workspaceID, resolved), true
 }
 
-// repoOfWorkspace resolves one workspace's owning repo, memoized into resolved. An
-// unresolvable workspace answers "", excluding its rows without failing the list.
 func (u *Usecase) repoOfWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -83,9 +70,6 @@ func (u *Usecase) repoOfWorkspace(
 	return repoID
 }
 
-// CwdWorkspaceID answers where a row's CLI runs: the workspace of the nearest
-// ancestor-or-self carrying one — the spawn path's walk, exposed for callers like
-// the WS fan-out that must namespace a bubble's frames under its real repo.
 func (u *Usecase) CwdWorkspaceID(
 	ctx context.Context,
 	chatID string,

@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// initRepoWithBareOrigin creates a working repo with one commit on main and a
-// bare remote wired as `origin`, returning the working repo path.
 func initRepoWithBareOrigin(
 	t *testing.T,
 ) string {

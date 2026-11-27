@@ -73,7 +73,6 @@ func TestMove_ANoteForAnotherProjectNamesItsRepository(t *testing.T) {
 	assert.NotContains(t, st.MoveNote(), "set_branch_name", "a plain move names no branch of its own")
 }
 
-// A branch the conversation was cut onto is its own to name, and the note says how.
 func TestMove_ABranchOutNoteAsksForADescriptiveName(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		moveRow(t, ledger.Move{Phase: ledger.MoveDone, RequestID: "m1", FromDir: "/a", ToDir: "/wt/c", Branch: "chat-1a2b", BranchOut: true}),

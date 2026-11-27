@@ -17,13 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestTerminal_CreateStreamKill proves the PTY lifecycle end to end: create a
-// session, attach over the co-located terminal WebSocket
-// (/v0/chats/:chatId/terminals/:sessionId/ws), write a command, read its echoed
-// output through the PTY, then kill the session (202). A terminal session is
-// owned by a chat (wsBase — /v0/chats/:chatId), not addressed by the workspace
-// it resolves to; the flat prefix's own resolveChatWorktree middleware finds
-// this worktree for the PTY's CWD.
 func TestTerminal_CreateStreamKill(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -55,8 +48,6 @@ func TestTerminal_CreateStreamKill(t *testing.T) {
 	assert.Equal(t, session.SessionID, killed.ID)
 }
 
-// TestRegression_TerminalResizeKeepsWrappedLines: a width change keeps a soft-wrapped URL one line,
-// so the keyframe after each resize carries it unbroken rather than cut at the old edge.
 func TestRegression_TerminalResizeKeepsWrappedLines(t *testing.T) {
 	h := newHarness(t)
 	base := wsBase(importProject(t, h))
@@ -86,12 +77,8 @@ func TestRegression_TerminalResizeKeepsWrappedLines(t *testing.T) {
 	h.del(base+"/terminals/"+session.SessionID, nil, http.StatusOK, nil)
 }
 
-// terminalReadBound is how long a test waits for a PTY to print something.
 const terminalReadBound = 30 * time.Second
 
-// readTerminalUntil blocks reading PTY frames until their data contains want,
-// skipping control frames. Bounded by terminalReadBound: output that never
-// comes fails this test by name instead of hanging the whole package.
 func readTerminalUntil(
 	t *testing.T,
 	conn *websocket.Conn,
@@ -115,8 +102,6 @@ func readTerminalUntil(
 	}
 }
 
-// readSnapshotUntil reads PTY frames until their data contains want, and returns the first
-// snapshot frame's data read on the way ("" when none came). Bounded by terminalReadBound.
 func readSnapshotUntil(
 	t *testing.T,
 	conn *websocket.Conn,

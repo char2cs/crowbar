@@ -11,22 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// defaultPatchMaxLines caps a patch request that did not ask for one: no file a human reads is
-// cut, but a pathological generated file cannot be pulled into a browser by accident.
 const defaultPatchMaxLines = 20000
 
-// truncatedHeader reports that a patch was cut short. A leading header means holding the body
-// until the last hunk, affordable only when a cap bounds it; uncapped patches stream with no
-// header (fetch() exposes no HTTP trailers, so a trailer is not an option).
 const truncatedHeader = "X-Crowbar-Diff-Truncated"
 
-// maxBufferedPatchLines ceilings the client-supplied cap so it cannot buy an unbounded buffer.
-// Larger caps take the streaming path and get no truncation header.
 const maxBufferedPatchLines = 50000
 
-// GetPatch handles GET /v0/chats/:chatId/review/patch?path=&maxLines=, streaming ONE file's
-// unified patch as text/plain; maxLines <= 0 means unlimited. An empty path is refused because
-// ":(top,literal)" alone matches the whole tree and would read the entire branch diff.
 func (h *Handlers) GetPatch(
 	ctx *gin.Context,
 ) {
@@ -43,7 +33,6 @@ func (h *Handlers) GetPatch(
 	h.streamPatch(ctx, path, maxLines)
 }
 
-// patchContentType names a diff of repo files, which are as untrusted as any upload.
 const patchContentType = "text/plain; charset=utf-8"
 
 func (h *Handlers) streamPatch(
@@ -71,8 +60,6 @@ func (h *Handlers) streamPatch(
 	}
 }
 
-// bufferedPatch serves a capped request, holding the body until it knows whether it was cut so
-// the answer travels in a header. The hold is bounded by maxLines <= maxBufferedPatchLines.
 func (h *Handlers) bufferedPatch(
 	ctx *gin.Context,
 	path string,
@@ -102,9 +89,6 @@ func (h *Handlers) bufferedPatch(
 	}
 }
 
-// failPatch reports a streaming failure as best the response still allows: before the first byte
-// it serves the JSON error envelope; after it the 200 is committed, so the error is only noted
-// for the request log and the stream stops.
 func failPatch(
 	ctx *gin.Context,
 	err error,
@@ -117,8 +101,6 @@ func failPatch(
 	libs.Fail(ctx, err)
 }
 
-// patchMaxLines reads the cap: absent takes the default, non-numeric is a 400 rather than a
-// silent fallback, and zero or negative pass through as the engine's "unlimited".
 func patchMaxLines(
 	raw string,
 ) (int, error) {

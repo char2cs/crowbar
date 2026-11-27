@@ -74,9 +74,6 @@ func (f *fakeServer) lastNotif(
 	return protocol.Notification{}, false
 }
 
-// TestServer_ReplayResendsWellFormedDidOpen asserts that Replay re-sends the
-// exact, well-formed didOpen params (languageId/version/text) that were
-// originally forwarded — not a bare {textDocument:{uri}} synthesized one.
 func TestServer_ReplayResendsWellFormedDidOpen(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	fake1 := newFakeServer(serverConn)
@@ -121,9 +118,6 @@ func TestServer_ReplayResendsWellFormedDidOpen(t *testing.T) {
 	assert.JSONEq(t, string(want), string(got.Params))
 }
 
-// TestServer_ReplayFailsInFlightRequest asserts that a Request blocked when
-// Replay swaps the transport returns promptly with ErrReplaced instead of
-// hanging until its ctx cancels.
 func TestServer_ReplayFailsInFlightRequest(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	fake1 := newFakeServer(serverConn)
@@ -144,7 +138,7 @@ func TestServer_ReplayFailsInFlightRequest(t *testing.T) {
 		_, err := srv.Request(context.Background(), "slow", nil)
 		done <- err
 	}()
-	<-fake1.gotReq // ensure the waiter is registered before replay
+	<-fake1.gotReq
 
 	require.NoError(t, srv.Replay(context.Background()))
 
@@ -201,11 +195,6 @@ func TestServer_NotifyDidOpenWithoutURIIsIgnored(t *testing.T) {
 	assert.Empty(t, srv.OpenDocs().List())
 }
 
-// TestServer_ReplayRepeatsHandshakeAndReopensLatestText pins "restart
-// language server": the respawned process gets initialize/initialized before
-// any didOpen (a server ignores everything before initialize), and the
-// reopened text is the latest didChange, not the text the file was opened
-// with.
 func TestServer_ReplayRepeatsHandshakeAndReopensLatestText(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	fake1 := newFakeServer(serverConn)
@@ -227,7 +216,7 @@ func TestServer_ReplayRepeatsHandshakeAndReopensLatestText(t *testing.T) {
 	req := <-fake1.gotReq
 	fake1.respond(req.ID, map[string]any{"capabilities": map[string]any{}})
 	require.NoError(t, <-initDone)
-	<-fake1.gotNotif // initialized
+	<-fake1.gotNotif
 
 	ctx := context.Background()
 	require.NoError(t, srv.Notify(ctx, "textDocument/didOpen", map[string]any{

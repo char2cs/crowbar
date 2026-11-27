@@ -12,19 +12,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Ports serves id-keyed placement reads and writes over the per-project Trees,
-// indexing which tree holds each id (filled on open, kept on every write). A row
-// whose project is not yet known sits in tree.Unplaced until a write names it.
 type Ports struct {
 	repo   *Repository
 	locate Locator
 
 	mu    sync.Mutex
-	index map[string]string // id → the tree holding its records
+	index map[string]string
 	trees map[string]bool
 }
 
-// NewPorts indexes every tree in treeIDs (each project's, and tree.Unplaced).
 func NewPorts(
 	ctx context.Context,
 	repo *Repository,
@@ -42,8 +38,6 @@ func NewPorts(
 	return p, nil
 }
 
-// Seed merges t into its project's tree and indexes what it holds. It leaves
-// out every id another tree holds: a write placed it there since t was read.
 func (p *Ports) Seed(ctx context.Context, t tree.Tree) (tree.Tree, error) {
 	out, err := p.repo.Seed(ctx, p.unheld(t))
 	if err != nil {
@@ -67,7 +61,6 @@ func (p *Ports) unheld(t tree.Tree) tree.Tree {
 	return out
 }
 
-// Tree is projectID's tree as stored.
 func (p *Ports) Tree(ctx context.Context, projectID string) (tree.Tree, error) {
 	return p.repo.Get(ctx, projectID)
 }
@@ -78,7 +71,6 @@ func (p *Ports) remember(t tree.Tree) {
 	p.trees[t.ProjectID] = true
 	for _, ids := range [][]string{keys(t.Nodes), keys(t.Folders), keys(t.Chats)} {
 		for _, id := range ids {
-			// A row a project names wins over its Unplaced copy left by a cut-short move.
 			if at, ok := p.index[id]; !ok || at == tree.Unplaced {
 				p.index[id] = t.ProjectID
 			}
@@ -108,9 +100,6 @@ func (p *Ports) record(id, treeID string) {
 	p.trees[treeID] = true
 }
 
-// writeTo runs write, which may be tree at's first record of id, with id
-// indexed first: the record is readable once committed, before write returns,
-// so another write that read it must find where it is held.
 func (p *Ports) writeTo(ctx context.Context, id, at string, write func() error) error {
 	_, held := p.holder(id)
 	p.record(id, at)
@@ -124,7 +113,6 @@ func (p *Ports) writeTo(ctx context.Context, id, at string, write func() error) 
 	return err
 }
 
-// forgetIfEmpty drops id from the index once t holds nothing of it.
 func (p *Ports) forgetIfEmpty(id string, t tree.Tree) {
 	if t.Holds(id) {
 		return
@@ -136,7 +124,6 @@ func (p *Ports) forgetIfEmpty(id string, t tree.Tree) {
 	}
 }
 
-// treeOf is the tree holding id, or "" when none does.
 func (p *Ports) treeOf(ctx context.Context, id string) (tree.Tree, bool, error) {
 	at, ok := p.holder(id)
 	if !ok {
@@ -146,8 +133,6 @@ func (p *Ports) treeOf(ctx context.Context, id string) (tree.Tree, bool, error) 
 	return t, err == nil, err
 }
 
-// placeIn is the tree a write of id goes to: the one holding it, unless that is
-// Unplaced and a project can now be named, in which case its records move.
 func (p *Ports) placeIn(
 	ctx context.Context,
 	id string,
@@ -191,8 +176,6 @@ func (p *Ports) projectFor(
 	return p.locate.ProjectOf(ctx, parentID, "")
 }
 
-// move carries every record of id from one tree to another: written to the
-// target first, so a move cut short leaves a copy, never nothing.
 func (p *Ports) move(ctx context.Context, id, from, to string) error {
 	src, err := p.repo.Get(ctx, from)
 	if err != nil {
@@ -209,7 +192,6 @@ func (p *Ports) move(ctx context.Context, id, from, to string) error {
 	return nil
 }
 
-// all is every indexed tree, read once.
 func (p *Ports) all(ctx context.Context) ([]tree.Tree, error) {
 	p.mu.Lock()
 	ids := keys(p.trees)
@@ -235,7 +217,6 @@ func noRow(op, id string) error {
 	return fmt.Errorf("tree: %s: no node %s: %w", op, id, asynxModels.ErrValidation)
 }
 
-// WaitPublish waits until every placement written so far was announced.
 func (p *Ports) WaitPublish() {
 	p.repo.WaitPublish()
 }

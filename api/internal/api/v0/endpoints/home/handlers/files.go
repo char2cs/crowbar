@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// FileTree handles GET /v0/projects/:projectId/home/files/tree.
 func (h *Handlers) FileTree(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
@@ -28,7 +27,6 @@ func (h *Handlers) FileTree(c *gin.Context) {
 	libs.WriteQueryOK(c, nodes)
 }
 
-// CreateFile handles POST /v0/projects/:projectId/home/files.
 func (h *Handlers) CreateFile(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
@@ -62,8 +60,6 @@ func (h *Handlers) CreateFile(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, body.Path)
 }
 
-// CopyFile handles POST /v0/projects/:projectId/home/files/copy, duplicating
-// sourcePath to destPath server-side so binaries never round-trip through a text write.
 func (h *Handlers) CopyFile(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
@@ -88,14 +84,11 @@ func (h *Handlers) CopyFile(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, body.DestPath)
 }
 
-// RenameFile handles PATCH /v0/projects/:projectId/home/files.
 func (h *Handlers) RenameFile(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
 		return
 	}
-	// {path, newPath} is the rename contract shared with the chat-scoped files
-	// handler and the web client.
 	var body struct {
 		Path    string `json:"path"`
 		NewPath string `json:"newPath"`
@@ -115,7 +108,6 @@ func (h *Handlers) RenameFile(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusOK, body.NewPath)
 }
 
-// DeleteFile handles DELETE /v0/projects/:projectId/home/files.
 func (h *Handlers) DeleteFile(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {

@@ -1,8 +1,3 @@
-// Package tree owns the sidebar's organisation layer: folder rows, where every row hangs, and the
-// one dense sibling order all row kinds share within a ParentID. Deleting a folder promotes its
-// contents (it holds no conversation); deleting a chat takes its subtree (threads read its turns).
-// Every operation reads once, plans in memory and writes only moved rows: the chat read model is
-// an async projection, so a re-read between writes could serve the pre-write list.
 package tree
 
 import (
@@ -25,15 +20,11 @@ type chatFolderUsecase struct {
 	workspaces WorkspaceGitStatus
 	reaper     WorkspaceReaper
 	holders    WorkspaceHolders
-	// folders and nodes are the folder/chat placement surface for every scope.
-	folders Folders
-	nodes   Nodes
-	moves   moveRuns
+	folders    Folders
+	nodes      Nodes
+	moves      moveRuns
 }
 
-// New builds the tree usecase. Every port is required: reaper so a chat delete cannot strand the worktree
-// it owned, holders so it cannot tear down one that surviving chats still use; agent is the only thing
-// that can erase or mint a chat.
 func New(
 	chats Chats,
 	agent Agent,
@@ -56,8 +47,6 @@ func New(
 	}
 }
 
-// ListInRepo returns repoID's own folder rows — "" for project home, a real repo id otherwise, the
-// same convention Folder.RepoID is stored under.
 func (u *chatFolderUsecase) ListInRepo(
 	ctx context.Context,
 	repoID string,
@@ -65,9 +54,6 @@ func (u *chatFolderUsecase) ListInRepo(
 	return u.listFolders(ctx, func(f dtree.Folder) bool { return f.RepoID == repoID })
 }
 
-// ListInHome implements Usecase. A home folder written before HomeID
-// existed is adopted on this read: by the home its rows already attribute it
-// to, else by the first home that lists it — never by every home at once.
 func (u *chatFolderUsecase) ListInHome(
 	ctx context.Context,
 	homeID string,
@@ -80,8 +66,6 @@ func (u *chatFolderUsecase) ListInHome(
 	})
 }
 
-// adoptHomeFolder stamps a legacy home folder with the home it belongs to:
-// the one its ancestors or members already name, or homeID when nothing does.
 func (u *chatFolderUsecase) adoptHomeFolder(
 	ctx context.Context,
 	f dtree.Folder,
@@ -99,9 +83,6 @@ func (u *chatFolderUsecase) adoptHomeFolder(
 	return f
 }
 
-// homeOfFolder derives a home folder's home from the rows around it: a
-// chat above or beneath it names its workspace, a folder names its home, a
-// repo beneath it names its own project's home — whoever is listing.
 func (u *chatFolderUsecase) homeOfFolder(
 	ctx context.Context,
 	id string,
@@ -172,7 +153,6 @@ func (u *chatFolderUsecase) listFolders(
 	return out, nil
 }
 
-// FolderScope implements Usecase.
 func (u *chatFolderUsecase) FolderScope(
 	ctx context.Context,
 	id string,
@@ -187,8 +167,6 @@ func (u *chatFolderUsecase) FolderScope(
 	return *f, nil
 }
 
-// Create mints a new folder, home- or repo-scoped: a dtree.Folder row for identity and a dtree.Node row
-// for position, placed through the same snapshot/plan/persist densify every other placement runs.
 func (u *chatFolderUsecase) Create(
 	ctx context.Context,
 	in CreateInput,
@@ -232,9 +210,6 @@ func (u *chatFolderUsecase) Create(
 	return *snapshot.placedRow(id), without(written, id), nil
 }
 
-// discardFolder rolls back a folder whose create failed after minting it. Forget tolerates an unknown
-// id, since persist may have failed before the Node row was written; a cleanup failure never replaces
-// the cause the user is told about.
 func (u *chatFolderUsecase) discardFolder(
 	ctx context.Context,
 	id string,
@@ -249,8 +224,6 @@ func (u *chatFolderUsecase) discardFolder(
 	return cause
 }
 
-// Rename renames the folder id names in the Folders store, the only place a folder's identity lives;
-// an id that names no folder (a chat id included) is problem.ErrNotFound.
 func (u *chatFolderUsecase) Rename(
 	ctx context.Context,
 	id string,
@@ -271,7 +244,6 @@ func (u *chatFolderUsecase) Rename(
 	if err := u.folders.Save(ctx, *f); err != nil {
 		return domain.Chat{}, fmt.Errorf("agent chat folder: rename %s: save: %w", f.ID, err)
 	}
-	// A folder with no position row yet sits at its scope's root.
 	n, err := u.nodes.GetNode(ctx, f.ID)
 	if err != nil && !errors.Is(err, dtree.ErrUnknownNode) {
 		return domain.Chat{}, fmt.Errorf("agent chat folder: rename %s: position: %w", f.ID, err)
@@ -279,7 +251,6 @@ func (u *chatFolderUsecase) Rename(
 	return homeFolderView(*f, n), nil
 }
 
-// Move re-parents and/or reorders the folder id names, refusing while any chat in its subtree is working.
 func (u *chatFolderUsecase) Move(
 	ctx context.Context,
 	id string,
@@ -292,8 +263,6 @@ func (u *chatFolderUsecase) Move(
 	if f == nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: %s: %w", id, problem.ErrNotFound)
 	}
-	// A folder minted before Node rows existed has none; the plan marks it
-	// fresh and this move mints it at the decided slot.
 	n, err := u.nodes.GetNode(ctx, f.ID)
 	if err != nil && problem.CodeOf(err) != problem.NotFound {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: move %s: read node: %w", id, err)
@@ -324,8 +293,6 @@ func (u *chatFolderUsecase) Move(
 	return *snapshot.placedRow(f.ID), without(written, f.ID), nil
 }
 
-// Delete erases the folder id names, promoting what it held to its own parent (a folder holds no
-// conversation, so nothing cascades) and closing up the level it sat in.
 func (u *chatFolderUsecase) Delete(
 	ctx context.Context,
 	id string,

@@ -17,13 +17,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// blockingGit is a ReviewFiles stand-in that parks its first parkLimit
-// invocations on a gate the test opens, so a flight can be held open for
-// exactly as long as the test needs while it counts how many invocations
-// actually reached the engine. Invocations past parkLimit return immediately,
-// so a dedup failure surfaces as a wrong count rather than as a deadlock.
-// entered is buffered to the maximum number of callers so the fake never
-// blocks on an unread signal.
 type blockingGit struct {
 	invocations atomic.Int64
 	entered     chan struct{}
@@ -63,8 +56,6 @@ func (b *blockingGit) engine() *mockGitEngine {
 	return &mockGitEngine{ReviewFilesFn: b.reviewFiles}
 }
 
-// workspacesByID resolves any id to a workspace carrying that id, so one mock
-// serves a test that exercises several workspaces.
 func workspacesByID() *mockWorkspace {
 	return &mockWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
@@ -80,22 +71,12 @@ func workspacesByID() *mockWorkspace {
 	}
 }
 
-// cancelledContext is the barrier this file uses to prove a caller has reached
-// the flight registry. GetFiles registers on the flight BEFORE it observes its
-// own context, so a caller handed an already-cancelled context returns only
-// after it has provably attached to whatever flight was live at that moment.
-// That is a real signal, unlike "the goroutine has been started".
 func cancelledContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	return ctx
 }
 
-// TestGetFiles_JoinsALiveFlight is the airtight half of the single-flight
-// contract: a caller arriving while a computation is in progress attaches to it
-// instead of starting a second one. The leader is provably parked inside the
-// engine (<-entered) and stays parked for the whole assertion, and the joiner
-// cannot return without having gone through the flight registry.
 func TestGetFiles_JoinsALiveFlight(t *testing.T) {
 	git := newBlockingGit(2)
 	git.parkLimit = 1
@@ -118,30 +99,10 @@ func TestGetFiles_JoinsALiveFlight(t *testing.T) {
 	assert.Equal(t, int64(1), git.invocations.Load())
 }
 
-// TestGetFiles_SingleFlightsConcurrentCallers scales TestGetFiles_JoinsALiveFlight
-// from one joiner to N-1 and asserts the exact count, not a bound.
-//
-// It used to launch a burst of goroutines and assert only `invocations <
-// callers`, because "the caller has reached the flight registry" was thought to
-// be unobservable. It is observable, and this file already names the signal:
-// scopeOf calls DoChan — which registers under the group's lock before it
-// returns — BEFORE the select that observes ctx.Done(), so a caller handed an
-// already-cancelled context cannot return until it has provably attached. The
-// return IS the barrier.
-//
-// The old shape flaked because launched.Done() fires BEFORE GetFiles, so
-// launched.Wait() proved only that the goroutines had been scheduled. Releasing
-// the leader then deleted the key, and every caller not yet inside started a
-// fresh flight — 8 invocations under enough CPU contention. Attaching each
-// joiner one at a time on a real barrier removes the race rather than widening
-// the tolerance for it.
 func TestGetFiles_SingleFlightsConcurrentCallers(t *testing.T) {
 	const callers = 8
 
 	git := newBlockingGit(callers)
-	// Park only the leader. Should dedup ever break, the stray invocation
-	// returns immediately and is counted, rather than parking and deadlocking
-	// the test it was meant to fail.
 	git.parkLimit = 1
 	git.files = []gitdomain.ReviewFileSummary{
 		{Path: "a.go", Status: gitdomain.GitFileStatusModified, Additions: 3, Deletions: 1},
@@ -174,11 +135,6 @@ func TestGetFiles_SingleFlightsConcurrentCallers(t *testing.T) {
 		"a burst of callers for one workspace must collapse into exactly one computation")
 }
 
-// TestSharedScope_ClonesPerWaiter replaces the aliasing assertion the burst test
-// used to carry. Waiters must not alias one mutable slice — one caller editing
-// its result would silently corrupt every other caller's — but that property
-// belongs to sharedScope's slices.Clone, which is a pure function. Two calls on
-// one flight result prove it without racing anything.
 func TestSharedScope_ClonesPerWaiter(t *testing.T) {
 	files := []gitdomain.ReviewFileSummary{
 		{Path: "a.go", Status: gitdomain.GitFileStatusModified, Additions: 3, Deletions: 1},
@@ -208,8 +164,6 @@ func TestGetFiles_SeparateWorkspacesDoNotShare(t *testing.T) {
 		}()
 	}
 
-	// Both workspaces are provably inside the engine at the same time before the
-	// gate opens, so a shared flight could not have hidden one of them.
 	<-git.entered
 	<-git.entered
 	close(git.release)
@@ -251,11 +205,6 @@ func TestGetFiles_ErrorPropagatesToAllWaiters(t *testing.T) {
 	}
 }
 
-// TestGetFiles_StartingCallerCancellationDoesNotAbortSharedWork pins why the
-// shared computation runs on a detached context. The caller that happens to
-// start a flight owns it for everyone behind it, so its own disconnect must not
-// take the flight down with it — otherwise one aborted request would fail
-// unrelated live ones.
 func TestGetFiles_StartingCallerCancellationDoesNotAbortSharedWork(t *testing.T) {
 	git := newBlockingGit(2)
 	git.parkLimit = 1
@@ -269,8 +218,6 @@ func TestGetFiles_StartingCallerCancellationDoesNotAbortSharedWork(t *testing.T)
 	}()
 	<-git.entered
 
-	// The leader must return before the gate opens: with both its ctx and the
-	// result ready, scopeOf's select may pick either, so releasing first races.
 	cancelLeader()
 	require.ErrorIs(t, <-leaderErr, context.Canceled,
 		"a caller must still honour its own cancellation")
@@ -281,9 +228,6 @@ func TestGetFiles_StartingCallerCancellationDoesNotAbortSharedWork(t *testing.T)
 	assert.Equal(t, int64(1), git.invocations.Load())
 }
 
-// TestGetFiles_NewCallAfterCompletionRecomputes pins that this is deduplication
-// of in-flight work and NOT a cache: once a flight has finished, the next call
-// must run the computation again or the sidebar would serve a stale file list.
 func TestGetFiles_NewCallAfterCompletionRecomputes(t *testing.T) {
 	git := newBlockingGit(2)
 	close(git.release)

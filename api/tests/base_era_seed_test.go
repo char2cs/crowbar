@@ -16,15 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// baseEra writes aggregates into a crashed install's stores exactly as the
-// pre-audit daemon (70ec430) left them on disk: one asynx event per aggregate,
-// whose JSON patch carries the row in the shape that version marshalled, plus
-// the read-model row it projected. Nothing of the current code's write path
-// (validation, defaults, fields added since) touches it, so the next boot meets
-// the same bytes an upgrading user's home holds.
-//
-// It is opened between a harness crash and the next boot; the stores are closed
-// again before the new daemon opens them.
 type baseEra struct {
 	t        *testing.T
 	adapters *adapter.Container
@@ -35,8 +26,6 @@ func openBaseEra(
 	home string,
 ) *baseEra {
 	t.Helper()
-	// Base kept no record of migrations; the harness boot that set the
-	// install up did, so it is taken back out.
 	forgetMigrations(t, home)
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
@@ -47,8 +36,6 @@ func (b *baseEra) close() {
 	require.NoError(b.t, b.adapters.Close())
 }
 
-// workspace writes ws as base did. Base had no Provisioning or CreatedBranch
-// field; both are omitempty, so a zero value marshals to base's bytes.
 func (b *baseEra) workspace(
 	ws domain.Workspace,
 ) {
@@ -59,8 +46,6 @@ func (b *baseEra) workspace(
 		"INSERT OR REPLACE INTO read_workspaces (id, data) VALUES (?, ?)", ws.ID, data).Error)
 }
 
-// unreplayableWorkspace writes ws's read-model row over a history whose one
-// event cannot be applied, so every command on the aggregate fails its replay.
 func (b *baseEra) unreplayableWorkspace(
 	ws domain.Workspace,
 ) {
@@ -73,8 +58,6 @@ func (b *baseEra) unreplayableWorkspace(
 		"INSERT OR REPLACE INTO read_workspaces (id, data) VALUES (?, ?)", ws.ID, data).Error)
 }
 
-// baseChat is a chat in base's shape: the current one, plus the placement the
-// chat document carried before the Tree held it.
 type baseChat struct {
 	domain.Chat
 	ParentID string `json:"parentId,omitempty"`
@@ -85,7 +68,6 @@ func inBaseShape(c domain.Chat) baseChat {
 	return baseChat{Chat: c, ParentID: c.ParentID, Order: c.Order}
 }
 
-// chat writes c as base did.
 func (b *baseEra) chat(
 	c domain.Chat,
 ) {
@@ -96,8 +78,6 @@ func (b *baseEra) chat(
 		c.ID, c.WorkspaceID, data).Error)
 }
 
-// unreplayableChat writes c's read-model row over a history whose one event
-// cannot be applied, so every command on the chat fails its replay.
 func (b *baseEra) unreplayableChat(
 	c domain.Chat,
 ) {
@@ -111,8 +91,6 @@ func (b *baseEra) unreplayableChat(
 		c.ID, c.WorkspaceID, data).Error)
 }
 
-// tombstone records the delete of an existing workspace as the delete command
-// writes it — the event a crash can leave with the purge still to run.
 func (b *baseEra) tombstone(
 	id string,
 ) {
@@ -131,8 +109,6 @@ func (b *baseEra) tombstone(
 		"UPDATE read_workspaces SET data = ? WHERE id = ?", data, id).Error)
 }
 
-// appendEvent records v as the aggregate's next event: an RFC 6902 patch from
-// the zero state to v, which is what asynx's writer produces for a create.
 func (b *baseEra) appendEvent(
 	es eventLog,
 	eventName string,
@@ -153,7 +129,6 @@ func (b *baseEra) appendEvent(
 	return data
 }
 
-// appendPatch records ops as the aggregate's next event.
 func (b *baseEra) appendPatch(
 	es eventLog,
 	eventName string,
@@ -182,5 +157,4 @@ func (b *baseEra) appendPatch(
 	}))
 }
 
-// eventLog is the asynx event store the seed writes through.
 type eventLog = asynxModels.Store

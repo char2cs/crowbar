@@ -1,4 +1,3 @@
-// Package github implements the GitProvider interface via the gh CLI.
 package github
 
 import (
@@ -13,7 +12,6 @@ import (
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
-// ExecFn matches exec.CommandContext so callers can inject a test stub.
 type ExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
 type ghProvider struct {
@@ -21,8 +19,6 @@ type ghProvider struct {
 	remote string
 }
 
-// New returns a ghProvider for the repo whose origin URL is remote, running
-// every subprocess through execFn.
 func New(
 	remote string,
 	execFn ExecFn,
@@ -30,8 +26,6 @@ func New(
 	return &ghProvider{execFn: execFn, remote: remote}
 }
 
-// ProtectedBranches returns the list of protected branch names for the repo.
-// It calls the GitHub API via gh and parses the newline-delimited output.
 func (g *ghProvider) ProtectedBranches(
 	ctx context.Context,
 	repoPath string,
@@ -56,7 +50,6 @@ func (g *ghProvider) ProtectedBranches(
 	return parseLines(out), nil
 }
 
-// prJSON is the structure returned by gh pr list --json.
 type prJSON struct {
 	Number      int    `json:"number"`
 	State       string `json:"state"`
@@ -67,8 +60,6 @@ type prJSON struct {
 	HeadRefOid  string `json:"headRefOid"`
 }
 
-// PullRequestForBranch returns the most relevant PR for branch, or nil. It does not check
-// the remote branch first: GitHub deletes the head ref on merge, which would hide it.
 func (g *ghProvider) PullRequestForBranch(
 	ctx context.Context,
 	repoPath string,
@@ -108,9 +99,6 @@ func (g *ghProvider) PullRequestForBranch(
 	}, nil
 }
 
-// OpenPullRequests lists every open PR as a head→base link in one gh call.
-// Open PRs own their head ref by name, so no per-branch ownership check is
-// needed (see ownsPR) — a merged/closed PR is never returned here.
 func (g *ghProvider) OpenPullRequests(
 	ctx context.Context,
 	repoPath string,
@@ -145,9 +133,6 @@ func (g *ghProvider) OpenPullRequests(
 	return links, nil
 }
 
-// ownsPR reports whether pr is really this branch's PR. gh matches by head name alone and
-// a merged PR outlives its ref, so a reused name would match a stale, terminal PR. An open
-// PR is authoritative; a merged/closed one counts only if branch contains its commit.
 func (g *ghProvider) ownsPR(
 	ctx context.Context,
 	repoPath string,
@@ -163,9 +148,6 @@ func (g *ghProvider) ownsPR(
 	return g.branchContains(ctx, repoPath, branch, pr.HeadRefOid)
 }
 
-// branchContains reports whether sha is an ancestor of (or equal to) branch; a non-zero
-// exit or unknown object is false. A false negative only leaves the status stale, while a
-// false positive would brand the workspace with a foreign PR and retire it.
 func (g *ghProvider) branchContains(
 	ctx context.Context,
 	repoPath string,
@@ -177,7 +159,6 @@ func (g *ghProvider) branchContains(
 	return cmd.Run() == nil
 }
 
-// parsePRList parses the JSON array returned by gh pr list.
 func parsePRList(
 	data []byte,
 ) ([]prJSON, error) {
@@ -188,8 +169,6 @@ func parsePRList(
 	return prs, nil
 }
 
-// selectBestPR picks the most relevant PR from the list.
-// Open PRs take priority; within the same state, higher number wins.
 func selectBestPR(
 	prs []prJSON,
 ) *prJSON {
@@ -209,7 +188,6 @@ func selectBestPR(
 	return best
 }
 
-// betterPR returns the more relevant of two PRs.
 func betterPR(
 	a *prJSON,
 	b *prJSON,
@@ -229,7 +207,6 @@ func betterPR(
 	return a
 }
 
-// mapState maps gh CLI state strings to canonical status values.
 func mapState(
 	state string,
 ) string {
@@ -243,14 +220,11 @@ func mapState(
 	}
 }
 
-// runGH executes a gh command in repoPath and returns stdout.
 func (g *ghProvider) runGH(
 	ctx context.Context,
 	repoPath string,
 	args ...string,
 ) (string, error) {
-	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal
-	// PATH, which misses Homebrew's /opt/homebrew/bin where gh usually lives.
 	cmd := g.execFn(ctx, binpath.Resolve("gh"), args...)
 	cmd.Dir = repoPath
 
@@ -264,8 +238,6 @@ func (g *ghProvider) runGH(
 	return out.String(), nil
 }
 
-// OwnerAvatarURL returns the GitHub owner's avatar URL for the repo.
-// Returns ("", nil) on any soft failure so callers can fall back gracefully.
 func (g *ghProvider) OwnerAvatarURL(
 	ctx context.Context,
 	repoPath string,
@@ -282,7 +254,6 @@ func (g *ghProvider) OwnerAvatarURL(
 	return strings.TrimSpace(out), nil
 }
 
-// parseLines splits newline-delimited output into non-empty strings.
 func parseLines(
 	s string,
 ) []string {

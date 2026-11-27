@@ -11,17 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// legacyHome is every legacy chat, in the order to convert them, with its
-// census count; load reads one chat's records only when it is converted.
 type legacyHome struct {
 	ids    []string
 	load   func(ctx context.Context, chatID string) (LegacyChat, error)
 	counts map[string]int64
 }
 
-// convertAll imports, in order, each chat the boot owes a conversion. A chat with
-// ledger rows or unconvertible records is skipped with why; a failed import waits for
-// the next boot. A whole-store fault or every import failing stops it, charging no chat.
 func convertAll(
 	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, legacy legacyHome,
 ) (migrate.Counts, error) {
@@ -67,8 +62,6 @@ func convertAll(
 	return nonZero(unmarked), err
 }
 
-// attempt imports chat and marks it, or gives it up, and reports whether it
-// landed. An import that failed is its error, for the caller to retry or stop.
 func attempt(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, chat LegacyChat, n int64) (bool, error) {
 	res, err := importChat(ctx, log, store, chat)
 	if err != nil && (stops(ctx, err) || retried(err) != nil) {
@@ -84,14 +77,10 @@ func attempt(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkp
 	return true, nil
 }
 
-// stops reports whether err stops the step: an unreadable session index, a
-// cancelled boot, or a fault of the whole store.
 func stops(ctx context.Context, err error) bool {
 	return errors.Is(err, errSessionIndex) || interrupted(ctx, err) || storeWide(err)
 }
 
-// owes does what duty owes chatID short of converting it, and reports whether
-// it owes the conversion.
 func owes(
 	ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, legacy legacyHome, duty duty, chatID string, n int64,
 ) (bool, error) {
@@ -105,8 +94,6 @@ func owes(
 	return false, nil
 }
 
-// giveUp skips chat for good. One holding rows of its own is told, in a row
-// after them, that its legacy history was not imported, before the note.
 func giveUp(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpoints, chatID string, n int64, why error) error {
 	if errors.Is(why, ledgerstore.ErrChatNotEmpty) {
 		if err := sayNotImported(ctx, store, chatID); err != nil {
@@ -116,8 +103,6 @@ func giveUp(ctx context.Context, log *slog.Logger, store ledgerStore, cp checkpo
 	return skip(ctx, log, cp, chatID, n, why)
 }
 
-// sayNotImported appends the historyNotImported marker to chatID, unless an
-// earlier attempt already did: an attempt killed before its note says it once.
 func sayNotImported(ctx context.Context, store ledgerStore, chatID string) error {
 	held, err := store.Read(ctx, chatID, 0, 0)
 	if err != nil {
@@ -138,20 +123,14 @@ func sayNotImported(ctx context.Context, store ledgerStore, chatID string) error
 	return nil
 }
 
-// historyNotImported is what a chat that holds rows of its own says when its
-// legacy history cannot be imported under them.
 const historyNotImported = "This chat's history from before the upgrade could not be imported; the old daemon's files still hold it"
 
-// failedImport is a chat whose import failed in this run, for the next boot.
 type failedImport struct {
 	chatID string
 	n      int64
 	err    error
 }
 
-// charge notes each failed import as one attempt of its chat, and counts the
-// chats left owed a retry. Two failing and none landing is the ledger, not a
-// chat: the step fails, charging none.
 func charge(ctx context.Context, log *slog.Logger, cp checkpoints, failed []failedImport, imported int) (int64, error) {
 	if len(failed) > 1 && imported == 0 {
 		return 0, failed[0].err
@@ -168,7 +147,6 @@ func charge(ctx context.Context, log *slog.Logger, cp checkpoints, failed []fail
 	return owed, nil
 }
 
-// The SQLite result codes of a fault in the store itself, not in one chat.
 const (
 	sqliteBusy     = 5
 	sqliteLocked   = 6
@@ -180,8 +158,6 @@ const (
 	sqliteCantOpen = 14
 )
 
-// storeWide reports whether err is the ledger database failing as a whole,
-// read from its result code: no chat is to blame for it.
 func storeWide(err error) bool {
 	var coded interface{ Code() int }
 	if !errors.As(err, &coded) {
@@ -194,9 +170,6 @@ func storeWide(err error) bool {
 	return false
 }
 
-// retried is err when it is an import failure the next boot tries again: not
-// a chat whose ledger holds rows, one that cannot be converted, nor one that
-// landed other than converted.
 func retried(err error) error {
 	if errors.Is(err, ledgerstore.ErrChatNotEmpty) || errors.Is(err, errUnconvertible) || errors.Is(err, errNotAsConverted) {
 		return nil
@@ -208,9 +181,6 @@ func interrupted(ctx context.Context, err error) bool {
 	return ctx.Err() != nil && errors.Is(err, ctx.Err())
 }
 
-// skip notes why chat was not converted and by which converter, so no later boot
-// retries it until a newer converter. A failed import is noted by no converter and
-// retried on later boots, importAttempts times in all, before it is given up.
 func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64, why error) error {
 	msg, counts := "chatledger: skipped a chat that cannot be converted", migrate.Counts{legacyRecords: n, "converter": converterVersion}
 	level := slog.LevelWarn
@@ -236,8 +206,6 @@ func skip(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, 
 	return nil
 }
 
-// attempts is how many boots of this converter's line tried chatID's import
-// and failed: none once a skip names a converter, which starts it over.
 func attempts(cp checkpoints, chatID string) int64 {
 	note, ok := cp.Noted(skippedKey(chatID))
 	if !ok || note.Counts["converter"] != 0 {
@@ -246,8 +214,6 @@ func attempts(cp checkpoints, chatID string) int64 {
 	return note.Counts["attempts"]
 }
 
-// recordChange notes a converted chat an older build has since added to. The
-// ledger moved on from the conversion, so the additions are named, not merged.
 func recordChange(ctx context.Context, log *slog.Logger, cp checkpoints, chatID string, n int64) error {
 	counts, _ := cp.Marked(chatID)
 	log.WarnContext(ctx, "chatledger: an older build added to a converted chat; the additions are not in the ledger",

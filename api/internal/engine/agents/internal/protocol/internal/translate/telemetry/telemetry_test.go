@@ -24,7 +24,6 @@ func withCallback(fields map[string]string, windows ...spec.TelemetryRateLimitMa
 	}
 }
 
-// claude's documented status line: resets_at is Unix epoch seconds.
 const claudeStatusLine = `{
   "context_window":{"context_window_size":200000,"used_percentage":19,
                     "remaining_percentage":81,"total_input_tokens":37117},
@@ -236,12 +235,6 @@ func TestParseProbe_UnsupportedWhenNoProbeIsDeclared(t *testing.T) {
 	assert.ErrorIs(t, err, telemetry.ErrUnsupported)
 }
 
-// A v3 descriptor declares telemetry as an EVENT (`events.telemetry`), not as the
-// v2 top-level `telemetry.callback:` block. Reading only the v2 block meant codex —
-// whose events.telemetry maps thread/tokenUsage/updated correctly, and has done
-// since the mixed-transport work — got ErrUnsupported on every report, so
-// t.telemetry.Set was never called and the context gauge, which renders nothing
-// without a usedPercent, has never appeared on a codex chat.
 func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 	d := &spec.Descriptor{ID: "codex", Events: map[string]spec.EventSpec{
 		"telemetry": {
@@ -267,8 +260,6 @@ func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 	assert.Equal(t, 272000, *got.Context.CapacityTokens)
 }
 
-// A provider that declares events.telemetry under an api: block has an empty flat
-// map:, so reading only the flat map dropped every report as unsupported.
 func TestParseCallback_ReadsTheChannelBlockOfTheTelemetryEvent(t *testing.T) {
 	d := &spec.Descriptor{ID: "wsprovider", Events: map[string]spec.EventSpec{
 		"telemetry": {API: &spec.ChannelBlock{
@@ -301,7 +292,6 @@ func TestParseCallback_ReadsTheChannelBlockOfTheTelemetryEvent(t *testing.T) {
 	assert.ErrorIs(t, err, telemetry.ErrUnsupported, "another channel's block never stands in")
 }
 
-// The v2 block still wins where a descriptor declares one, so claude is untouched.
 func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 	d := withCallback(map[string]string{spec.FactContextUsedTokens: "v2.used"})
 	d.Events = map[string]spec.EventSpec{"telemetry": {
@@ -316,8 +306,6 @@ func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 	assert.Equal(t, 7, *got.Context.UsedTokens)
 }
 
-// A descriptor that declares telemetry NEITHER way still reports unsupported, so
-// "this provider has no telemetry" stays distinguishable from "it reported nothing".
 func TestParseCallback_UnsupportedWhenNeitherFormIsDeclared(t *testing.T) {
 	d := &spec.Descriptor{ID: "bare", Events: map[string]spec.EventSpec{
 		"turn_stop": {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": mapping.Paths("m")}},

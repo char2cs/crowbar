@@ -14,24 +14,16 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// ErrChatMoving refuses a prompt while the chat's move is about to run: it would
-// start a CLI in the folder the chat is leaving.
 var ErrChatMoving = &problem.Error{
 	Code: problem.ChatBusy, Message: "This chat is moving to its new folder; send again in a moment",
 	Err: problem.ErrConflict,
 }
 
-// ErrOwnsItsBranch refuses a branch-out of a chat that already owns its workspace, so an
-// agent asking again does not cut branch after branch.
 var ErrOwnsItsBranch = problem.New(problem.Conflict,
 	"This conversation already has its own branch; rename it with set_branch_name instead")
 
-// MoveApplier points a chat at the workspace m names and returns m as done:
-// the folder left, the one entered, and what a branch-out cut.
 type MoveApplier func(ctx context.Context, m ledger.Move) (ledger.Move, error)
 
-// RequestMove records m as chatID's pending move, replacing any other, and
-// reports whether it can run now.
 func (rs *Runners) RequestMove(ctx context.Context, chatID string, m ledger.Move) (bool, error) {
 	m.Phase = ledger.MoveRequested
 	ready := false
@@ -57,8 +49,6 @@ func (rs *Runners) RequestMove(ctx context.Context, chatID string, m ledger.Move
 	return ready, nil
 }
 
-// RequestBranchOut records that chatID becomes a branch cut from workspaceID's own
-// HEAD; a pending branch-out answers for a repeat, so an agent retrying asks once.
 func (rs *Runners) RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error) {
 	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
@@ -84,7 +74,6 @@ func (rs *Runners) RequestBranchOut(ctx context.Context, chatID, workspaceID, br
 	})
 }
 
-// CancelMove closes chatID's pending move, if any, for reason.
 func (rs *Runners) CancelMove(ctx context.Context, chatID, reason string) error {
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
 		return cancelPendingMove(st, reason)
@@ -105,8 +94,6 @@ func cancelPendingMove(st ledger.State, reason string) ([]ledger.Row, error) {
 	return []ledger.Row{row}, err
 }
 
-// closed is m ended in phase for reason: it keeps what the request named, so a transcript that
-// no longer holds the request still says where the move went, and Retry can ask for it again.
 func closed(m ledger.Move, phase, reason string) ledger.Move {
 	return ledger.Move{
 		Phase: phase, RequestID: m.RequestID, To: m.To, ParentID: m.ParentID, Order: m.Order, Label: m.Label,
@@ -114,9 +101,6 @@ func closed(m ledger.Move, phase, reason string) ledger.Move {
 	}
 }
 
-// ExecuteMove makes chatID's pending move once nothing in the chat runs: its CLI
-// ends, apply points the chat at the new workspace, and the move is recorded done
-// or failed. ran is false when no move was ready.
 func (rs *Runners) ExecuteMove(ctx context.Context, chatID string, apply MoveApplier) (_ ledger.Move, ran bool, _ error) {
 	ctx = context.WithoutCancel(ctx)
 	h, err := rs.acquire(ctx, chatID)
@@ -145,8 +129,6 @@ func (rs *Runners) ExecuteMove(ctx context.Context, chatID string, apply MoveApp
 	return done, true, errors.Join(applyErr, err)
 }
 
-// quiesceForMove is the move ready to run on h's chat once its CLI has ended:
-// a prompt that took the boundary while the lock was released keeps the move waiting.
 func (rs *Runners) quiesceForMove(ctx context.Context, h *hold, chatID string) (ledger.Move, bool, error) {
 	for {
 		st, err := rs.ledger.State(ctx, chatID)
@@ -169,8 +151,6 @@ func (rs *Runners) quiesceForMove(ctx context.Context, h *hold, chatID string) (
 	}
 }
 
-// MovesWaiting are the chats whose move can run now: a previous daemon asked
-// for it and did not finish.
 func (rs *Runners) MovesWaiting(ctx context.Context) ([]string, error) {
 	chats, err := rs.ledger.OpenChats(ctx)
 	if err != nil {
@@ -189,8 +169,6 @@ func (rs *Runners) MovesWaiting(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// MoveSite is the folder workspaceID's chats run in, resolved as a spawn
-// resolves it, and the project and repo it belongs to.
 func (rs *Runners) MoveSite(ctx context.Context, workspaceID string) (dir, projectID, repoID string, _ error) {
 	_, projectID, repoID, dir, err := rs.ws.WorktreeDir(ctx, workspaceID)
 	if err != nil {
@@ -199,7 +177,6 @@ func (rs *Runners) MoveSite(ctx context.Context, workspaceID string) (dir, proje
 	return canonicalDir(dir), projectID, repoID, nil
 }
 
-// requireNoReadyMove refuses a prompt the chat's move must run before.
 func requireNoReadyMove(st ledger.State) error {
 	if _, ready := st.MoveReady(); ready {
 		return ErrChatMoving
@@ -207,8 +184,6 @@ func requireNoReadyMove(st ledger.State) error {
 	return nil
 }
 
-// noteLevelNarrowed tells a chat that just moved when its level now runs
-// narrower than it reads, so a refused write is not taken for a fault.
 func (rs *Runners) noteLevelNarrowed(
 	ctx context.Context, chatID string, agent engineagents.Agent, level string, vars map[string]string,
 ) {

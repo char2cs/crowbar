@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// newPlacement opens the id-keyed placement ports over every project's Tree.
 func newPlacement(
 	ctx context.Context,
 	ax *aggregates,
@@ -54,9 +53,6 @@ func newPlacement(
 	return ports, nil
 }
 
-// announcePlacement tells live clients each row a Tree write moved: a chat as
-// its snapshot at the new place (and the workspace it owns, drawn beside it), a
-// workspace or a repo as its republished row, a folder as itself.
 func announcePlacement(
 	ax *aggregates,
 	chatSnapshots *agentusecase.ChatSnapshots,
@@ -86,8 +82,6 @@ func announcePlacement(
 	return nil
 }
 
-// legacySources are the stores the placement-tree step reads the retired
-// placement records and their facts from.
 func legacySources(
 	adapters *adapter.Container,
 	repos *repositories.Container,

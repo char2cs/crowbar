@@ -16,11 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// A delete never destroys work that exists nowhere else unless the user saw it
-// and said so. Found driving the real app: deleting a repo force-deleted a
-// branch Crowbar had made that held an unmerged commit, with uncommitted edits
-// in its worktree, behind a dialog that only mentioned worktrees.
-
 type workAtRiskWire struct {
 	WorkspaceID      string `json:"workspaceId"`
 	Branch           string `json:"branch"`
@@ -28,7 +23,6 @@ type workAtRiskWire struct {
 	UnmergedCommits  int    `json:"unmergedCommits"`
 }
 
-// deleteResponse issues a DELETE, with the discard consent header when discard.
 func deleteResponse(t *testing.T, h *harness, path string, discard bool, wantStatus int) *http.Response {
 	t.Helper()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, h.url+path, nil)
@@ -42,13 +36,11 @@ func deleteResponse(t *testing.T, h *harness, path string, discard bool, wantSta
 	return resp
 }
 
-// deleteAccepted issues a repo or project DELETE the daemon must accept.
 func deleteAccepted(t *testing.T, h *harness, path string, discard bool) {
 	t.Helper()
 	require.NoError(t, deleteResponse(t, h, path, discard, http.StatusAccepted).Body.Close())
 }
 
-// refusedOver sends a DELETE without consent and returns the work it was refused over.
 func refusedOver(t *testing.T, h *harness, path string) []workAtRiskWire {
 	t.Helper()
 	resp := deleteResponse(t, h, path, false, http.StatusConflict)
@@ -64,8 +56,6 @@ func refusedOver(t *testing.T, h *harness, path string) []workAtRiskWire {
 	return env.Data.WorkAtRisk
 }
 
-// crowbarBranchWithWork cuts a Crowbar workspace on branch under parentID and
-// leaves one commit only it has plus one uncommitted file in its worktree.
 func crowbarBranchWithWork(t *testing.T, h *harness, imported importedRepo, branch, parentID string) (string, string) {
 	t.Helper()
 	wsID, chatID := createWorktree(t, h, imported, branch, parentID)
@@ -80,7 +70,7 @@ func crowbarBranchWithWork(t *testing.T, h *harness, imported importedRepo, bran
 
 func TestRegression_DeleteRepo_KeepsUnmergedAndUncommittedWorkUnlessConfirmed(t *testing.T) {
 	h := newHarness(t)
-	imported := importProjectHomeHoldsDefault(t, h) // the home IS the user's main checkout
+	imported := importProjectHomeHoldsDefault(t, h)
 	worktree, _ := crowbarBranchWithWork(t, h, imported, "feature/pricing-rounding", imported.workspaceID)
 	createChildWorkspace(t, h, imported, "feature/merged", imported.workspaceID)
 	users := filepath.Join(imported.repoPath, "mine.txt")
@@ -114,8 +104,6 @@ func TestRegression_DeleteRepo_KeepsUnmergedAndUncommittedWorkUnlessConfirmed(t 
 	assert.DirExists(t, filepath.Join(imported.repoPath, ".git"))
 }
 
-// A branch Crowbar created whose commits all exist elsewhere is not at risk:
-// the default delete takes it as before.
 func TestRegression_DeleteRepo_WithoutConsentStillTakesAMergedCrowbarBranch(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -157,10 +145,6 @@ func TestRegression_DeleteWorkspace_KeepsUnmergedAndUncommittedWorkUnlessConfirm
 	assert.NoDirExists(t, worktree)
 }
 
-// A checkout Crowbar did not create is never handed to `git worktree remove`,
-// forced or not — even with consent, and even when it is clean, where git
-// itself would not refuse. A linked worktree imported as a repo is adopted in
-// place as its home.
 func TestRegression_DeleteRepo_NeverRemovesACheckoutCrowbarDidNotCreate(t *testing.T) {
 	h := newHarness(t)
 	main := gitRepoWithCommit(t)

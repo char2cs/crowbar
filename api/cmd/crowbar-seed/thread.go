@@ -16,8 +16,6 @@ type threadDTO struct {
 	Body     string `json:"body"`
 }
 
-// seedThread is a review comment anchored by a snippet of the branch source
-// rather than a line number, so the anchors survive edits to the fixture.
 type seedThread struct {
 	filePath string
 	anchor   string
@@ -46,9 +44,6 @@ func seedThreads() []seedThread {
 	}
 }
 
-// resolveAuthor asks the daemon whose comments these are, so seeded threads are
-// attributed to the developer running the seed. The identity route is addressed by
-// the worktree-owning chat's id; a failure degrades to a generic name.
 func resolveAuthor(
 	ctx context.Context,
 	d *daemon,
@@ -70,8 +65,6 @@ func resolveAuthor(
 	return fallbackReviewer
 }
 
-// ensureThreads opens the seeded review comments, skipping any a previous run
-// already left on the same file and line.
 func ensureThreads(
 	ctx context.Context,
 	d *daemon,

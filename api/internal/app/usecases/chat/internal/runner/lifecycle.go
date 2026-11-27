@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// exitRows are runner's end as rows: what it streamed that no row holds,
-// then the end itself. They commit together, so a hook recorded meanwhile
-// sees both or neither.
 func (rs *Runners) exitRows(
 	st ledger.State, chatID string, e ledger.RunnerExited, reason string,
 ) ([]ledger.Row, error) {
@@ -30,9 +27,6 @@ func (rs *Runners) exitRows(
 	return append(salvaged, ended...), err
 }
 
-// ReconcileRunnersOnBoot ends, as daemon_restart, every runner the ledger
-// still holds live: no CLI outlives the daemon that started it. The pending
-// prompt pass runs whatever the runner pass met.
 func (rs *Runners) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
@@ -73,18 +67,12 @@ func (rs *Runners) reconcileBootRunner(ctx context.Context, chatID string) error
 	return rs.settleStaleWork(ctx, chatID)
 }
 
-// Shutdown notes daemon_restart as how every live runner ends, then kills
-// every api connection, which nothing else on the shutdown path reaches. A
-// connection it detaches is recorded by the next boot.
 func (rs *Runners) Shutdown() {
 	rs.live.exitAll(domain.AgentExitDaemonRestart)
 	rs.background.stop()
 	rs.apiConns.closeAll()
 }
 
-// reconcileRunnerExit records in one ledger commit that runnerID's process is gone,
-// then frees the chat. The first exit signal to claim the runner records it and gets
-// back the reason.
 func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) string {
 	ctx = context.WithoutCancel(ctx)
 	rs.agents.ForgetRunner(runnerID)
@@ -96,7 +84,7 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) str
 	}
 	defer rs.live.remove(runnerID)
 	if !entry.started {
-		return "" // its spawn failed, and records that itself
+		return ""
 	}
 	chatID := entry.runner.CurrentChatID
 	defer rs.touch(ctx, chatID)
@@ -114,13 +102,11 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) str
 	return reason
 }
 
-// endUnheld records runnerID's exit for a path not holding its chat, under the
-// chat's lock: no hook records between its check and its commit.
 func (rs *Runners) endUnheld(ctx context.Context, runnerID string) {
 	ctx = context.WithoutCancel(ctx)
 	runner, ok := rs.live.byRunner(runnerID)
 	if !ok {
-		rs.reconcileRunnerExit(ctx, runnerID) // nothing is left to record, only to forget
+		rs.reconcileRunnerExit(ctx, runnerID)
 		return
 	}
 	unlock, err := rs.chatLock.Lock(ctx, runner.CurrentChatID)
@@ -132,16 +118,12 @@ func (rs *Runners) endUnheld(ctx context.Context, runnerID string) {
 	rs.reconcileRunnerExit(ctx, runnerID)
 }
 
-// onRunnerExit is a runner process's exit callback.
 func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatch) func(engineterminal.Exit) {
 	return func(exit engineterminal.Exit) {
 		ctx := context.Background()
 		rs.reapRunnerDir(ctx, home, tmpDir)
-		// A dead PTY takes its api connection with it.
 		rs.apiConns.drop(runnerID)
 		rs.live.noteExit(runnerID, runnerExit{Exit: exit, resume: resume})
-		// A process that died before its runner_started committed is recorded by
-		// its spawn, which holds the chat, after that row.
 		if rs.live.exitBeforeStart(runnerID) {
 			return
 		}
@@ -149,9 +131,6 @@ func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string, resume resumeWatc
 	}
 }
 
-// reapRunnerDir deletes a runner's own directory, then its runners and chats
-// parents once empty, best-effort: a reap that cannot happen leaves disk
-// behind, which must not fail the runner's teardown.
 func (rs *Runners) reapRunnerDir(
 	ctx context.Context,
 	home string,
@@ -170,9 +149,6 @@ func (rs *Runners) reapRunnerDir(
 	}
 }
 
-// RetireChatRunners records the end of chatID's runner and forgets the chat's
-// memory: it is being erased. The caller runs end after letting the lock go, so
-// a hook queued for the chat on the way down never holds up its terminate.
 func (rs *Runners) RetireChatRunners(
 	ctx context.Context,
 	chatID string,
@@ -192,8 +168,6 @@ func (rs *Runners) RetireChatRunners(
 	}
 }
 
-// reapCrashOrphanRunnerTmp removes the directory of a runner whose exit
-// callback never ran, found where its spawn put it.
 func (rs *Runners) reapCrashOrphanRunnerTmp(
 	ctx context.Context,
 	runner agents.Runner,

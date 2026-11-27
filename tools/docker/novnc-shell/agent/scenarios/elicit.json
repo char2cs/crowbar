@@ -1,0 +1,42 @@
+{
+ "description": "An MCP elicitation form (string, number, enum, boolean fields).",
+ "steps": [
+  {
+   "do": "elicit",
+   "message": "The docs server needs a few details",
+   "mcp_server": "docs",
+   "mode": "form",
+   "schema": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "title": "Page title"
+     },
+     "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+     },
+     "audience": {
+      "type": "string",
+      "enum": [
+       "internal",
+       "public"
+      ]
+     },
+     "notify": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "title"
+    ]
+   }
+  },
+  {
+   "do": "text",
+   "text": "Form received."
+  }
+ ]
+}

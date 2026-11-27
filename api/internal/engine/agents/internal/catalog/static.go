@@ -17,17 +17,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// maxCommandFileBytes bounds how much of a command file is read for its description.
 const maxCommandFileBytes = 64 << 10
 
-// staticItems are the descriptor's built-ins and the workspace's own command
-// files: known without running the CLI, so a failed probe never hides them.
 func staticItems(sc *spec.SlashCatalogSpec, cwd string) []models.SlashCatalogItem {
 	items := make([]models.SlashCatalogItem, 0, len(sc.Builtins))
 	for _, b := range sc.Builtins {
 		items = append(items, staticItem(models.CatalogItemKindBuiltin, b.Name, b.Description, "", b.Terminal))
 	}
-	// An os.Root resolves every path inside the workspace: a symlink out of it fails to open.
 	root, err := os.OpenRoot(cwd)
 	if err != nil {
 		return items
@@ -74,8 +70,6 @@ func dirNames(root *os.Root, dir string) []string {
 
 type commandMeta struct{ name, description string }
 
-// readMeta reads a command's front matter `name:` and `description:`; without a
-// description, the first line of the body stands for one, as the CLI shows it.
 func readMeta(root *os.Root, file string) (commandMeta, bool) {
 	f, err := root.Open(file)
 	if err != nil {
@@ -136,7 +130,6 @@ func staticItem(kind, name, description, source string, terminal bool) models.Sl
 	}
 }
 
-// closeRead closes what was opened only for reading: a failure loses nothing.
 func closeRead(c io.Closer) {
 	if err := c.Close(); err != nil {
 		slog.Debug("agents: catalog: close a workspace command file", "err", err)

@@ -65,9 +65,6 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// The store projection is async (Send, not SendWait): drain every asynx
-	// instance so the read model has settled, then read it synchronously — the
-	// deterministic read-your-writes barrier, with no polling and no timeout.
 	c.Repositories.WaitQuiescent()
 	rows, err := c.Usecases.Workspace.List(ctx)
 	require.NoError(t, err)
@@ -75,8 +72,6 @@ func TestApp_New_UsecasesWorkspaceListEndToEnd(t *testing.T) {
 	require.Equal(t, "w1", rows[0].ID)
 }
 
-// recordingRunner is a post-open runner that notes which steps it was handed
-// and returns err.
 type recordingRunner struct {
 	steps []int
 	err   error
@@ -106,9 +101,6 @@ func TestApp_New_HandsEveryPostOpenStepToTheRunner(t *testing.T) {
 	}, runner.steps)
 }
 
-// A halted migration fails the boot, and New stops everything it had started
-// before returning: every goroutine it spawned inherits its pprof label, so
-// none may outlive it.
 func TestApp_New_AHaltedMigrationFailsTheBoot(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -130,7 +122,6 @@ func TestApp_New_AHaltedMigrationFailsTheBoot(t *testing.T) {
 	}
 }
 
-// cancellingRunner cancels the boot as its post-open run starts.
 type cancellingRunner struct {
 	cancel context.CancelFunc
 }
@@ -143,9 +134,6 @@ func (r cancellingRunner) RunPostOpen(
 	return ctx.Err()
 }
 
-// A boot cancelled during its post-open run still drains everything it started:
-// the done context must not cut the teardown short, so the teardown reports no
-// failure of its own and no goroutine of New's outlives it.
 func TestApp_New_ACancelledBootStillDrainsWhatItStarted(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
@@ -167,8 +155,6 @@ func TestApp_New_ACancelledBootStillDrainsWhatItStarted(t *testing.T) {
 	}
 }
 
-// labelledGoroutines reports whether any running goroutine carries value under
-// the app_new label.
 func labelledGoroutines(
 	t *testing.T,
 	value string,

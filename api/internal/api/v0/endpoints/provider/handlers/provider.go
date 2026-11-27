@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// State handles GET /v0/chats/:chatId/provider (routes.go). Runs PollOnView
-// for the resolved workspace and returns its ProviderState JSON. When
-// capability is disabled, returns ProviderState{Protected: false, PR: nil}.
 func (h *Handlers) State(
 	ctx *gin.Context,
 ) {
@@ -43,9 +40,6 @@ func (h *Handlers) State(
 	libs.WriteQueryOK(ctx, state)
 }
 
-// workspace reads the chat's worktree that resolveChatWorktree stashed in
-// reqscope for the State route. A miss means the route is mounted outside that
-// middleware: a wiring bug, hence 500 rather than 4xx.
 func (h *Handlers) workspace(
 	ctx *gin.Context,
 ) (domain.Workspace, bool) {
@@ -57,9 +51,6 @@ func (h *Handlers) workspace(
 	return ws, true
 }
 
-// ProtectedBranches handles GET /v0/projects/:projectId/repos/:repoId/protected-branches.
-// It asks any workspace of the repo, since a repo has no on-disk path of its own;
-// a disabled capability yields DefaultProtectedBranches.
 func (h *Handlers) ProtectedBranches(
 	ctx *gin.Context,
 ) {
@@ -80,8 +71,6 @@ func (h *Handlers) ProtectedBranches(
 	libs.WriteQueryOK(ctx, branches)
 }
 
-// worktreeForRepo returns the worktree path of any workspace belonging to
-// repoID, the stand-in repo root for the protected-branch lookup.
 func (h *Handlers) worktreeForRepo(
 	ctx context.Context,
 	repoID string,

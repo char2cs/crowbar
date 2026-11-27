@@ -26,8 +26,6 @@ func runPaths(t *testing.T) (string, error) {
 	return out.String(), err
 }
 
-// The desktop shell reads the daemon's log where this says it is, so the home
-// alone decides that path, as it does the socket.
 func TestPathsCmd_PrintsHomeSocketAndLog(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	t.Setenv(home.EnvVar, h.Root())

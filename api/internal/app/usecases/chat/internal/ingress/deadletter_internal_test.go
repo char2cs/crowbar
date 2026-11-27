@@ -25,8 +25,6 @@ func TestDeadLetter_RecordsTheReasonAndTheRunner(t *testing.T) {
 	}, f.ledger.letters[0])
 }
 
-// Refusals counts the hooks refused to their senders, not those acknowledged
-// and kept nor those whose sender hung up: neither says anything is wrong.
 func TestRefusals_CountsTheRefusedNotTheAcknowledged(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -43,7 +41,6 @@ func TestRefusals_CountsTheRefusedNotTheAcknowledged(t *testing.T) {
 	assert.Equal(t, 2, n)
 }
 
-// A refusal stands whether or not its dead letter could be kept.
 func TestDeadLetter_ARefusalWhoseLetterFailsIsStillRefused(t *testing.T) {
 	f := newFixture()
 	f.ledger.failLetters = errors.New("disk full")

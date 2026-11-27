@@ -8,22 +8,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Locator names the project a row belongs to, from the aggregates that own the
-// fact: a chat through its workspace, a workspace and a repo directly. "" means
-// none can be named yet (a chat with no workspace); kind "" tries every kind.
 type Locator interface {
 	ProjectOf(ctx context.Context, id string, kind tree.Kind) (string, error)
 }
 
-// LocatorFacts are the reads a Locator is built from. Each answers "" or a
-// problem.NotFound error for an id it does not know.
 type LocatorFacts struct {
 	ChatWorkspace    func(ctx context.Context, chatID string) (string, error)
 	WorkspaceProject func(ctx context.Context, workspaceID string) (string, error)
 	RepoProject      func(ctx context.Context, repoID string) (string, error)
 }
 
-// NewLocator builds the Locator over f.
 func NewLocator(f LocatorFacts) Locator {
 	return factLocator(f)
 }
@@ -61,7 +55,6 @@ func (l factLocator) chatProject(ctx context.Context, chatID string) (string, er
 	return known(l.WorkspaceProject(ctx, ws))
 }
 
-// known reads a NotFound answer as "not this", which the caller goes past.
 func known(project string, err error) (string, error) {
 	if err == nil {
 		return project, nil

@@ -6,8 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// threadStream publishes a review thread a REST write produced on its
-// workspace's ws: scope; a tombstone says the thread is gone.
 type threadStream struct{ hub *appstream.Hub }
 
 func (t threadStream) Push(d dto.ThreadDTO) {
