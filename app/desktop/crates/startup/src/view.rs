@@ -7,6 +7,7 @@ use crate::actions::Actions;
 use crate::halt_panel::HaltPanel;
 use crate::report::{HaltReason, Input};
 
+const TITLEBAR_HEIGHT: f32 = 32.0;
 const STAGE_GAP: f32 = 36.0;
 const WORDMARK_SIZE: f32 = 44.0;
 const WORDMARK_LINE_HEIGHT_RATIO: f32 = 1.1;
@@ -90,6 +91,7 @@ impl Render for View {
             .child(wordmark(cx))
             .child(HaltPanel::new(reason, message.clone(), &self.actions));
         div()
+            .relative()
             .size_full()
             .flex()
             .items_center()
@@ -98,6 +100,7 @@ impl Render for View {
             .text_color(palette.foreground())
             .font_family(Theme::of(cx).ui_family())
             .child(stage)
+            .child(ui::window_drag_strip(TITLEBAR_HEIGHT))
     }
 }
 
@@ -174,6 +177,16 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_halt_screen_keeps_a_strip_along_its_top_to_move_the_window_by(cx: &mut TestAppContext) {
+        let (harness, cx) = open(cx);
+        feed(&harness, cx, halted());
+        let size = cx.update(|window, _| window.viewport_size());
+        let strip = cx.debug_bounds("window-grip").expect("a grip");
+        assert_eq!(strip.origin, gpui::point(px(0.0), px(0.0)));
+        assert_eq!(strip.size.width, size.width);
+    }
+
+    #[gpui::test]
     fn the_halt_screen_can_quit(cx: &mut TestAppContext) {
         let (harness, cx) = open(cx);
         feed(&harness, cx, halted());
@@ -182,8 +195,10 @@ mod tests {
             std::iter::successors(Some(0.0), |at| Some(at + SWEEP_STEP))
                 .take_while(move |at| *at < to)
         };
+        let under_the_strip = |y: &f32| *y > TITLEBAR_HEIGHT;
         let (width, height) = (f32::from(size.width), f32::from(size.height));
-        for (x, y) in along(height).flat_map(|y| along(width).map(move |x| (x, y))) {
+        let rows = along(height).filter(under_the_strip);
+        for (x, y) in rows.flat_map(|y| along(width).map(move |x| (x, y))) {
             cx.simulate_click(gpui::point(px(x), px(y)), gpui::Modifiers::none());
         }
         let performed = harness.actions.performed();

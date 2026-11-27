@@ -235,6 +235,7 @@ mod tests {
 
     #[gpui::test]
     fn a_row_keeps_its_wash_while_its_select_holds_focus_after_a_pick(cx: &mut TestAppContext) {
+        ui::testing::answer_menus(cx, |_| Some(vec![1]));
         let (harness, mut owner) = crate::test_support::open_floating(cx, "appearance");
         harness
             .modal
@@ -242,7 +243,6 @@ mod tests {
         owner.run_until_parked();
         assert!(owner.debug_bounds("row-within-themeMode").is_none());
         click_description(&mut owner, "row-select-themeMode");
-        click_description(&mut owner, "menu-row-1");
         owner.run_until_parked();
         assert!(owner.debug_bounds("row-within-themeMode").is_some());
     }

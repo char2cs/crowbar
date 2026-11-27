@@ -1,8 +1,9 @@
 use crate::error::Result;
 use crate::view::Bounds;
+use crate::view::Corners;
 use crate::view::Id;
 
-/// Cutting a hole out of a web view, so the window under it shows there and takes the pointer.
+/// Cutting parts out of a web view, so the window under it shows there.
 pub trait ViewCutout {
     /// Cuts `hole`, in logical pixels from the view's top-left corner, out of a web view; `None`
     /// makes the view whole again. A backend that cannot cut holes leaves the view whole.
@@ -13,6 +14,19 @@ pub trait ViewCutout {
         &self,
         _id: Id,
         _hole: Option<Bounds>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Rounds a web view's corners, so the pane frame around it shows there. A backend that
+    /// cannot round them leaves them square.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
+    fn set_corners(
+        &self,
+        _id: Id,
+        _corners: Corners,
     ) -> Result<()> {
         Ok(())
     }

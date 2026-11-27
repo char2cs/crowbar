@@ -1,5 +1,6 @@
 use crate::shell::Lock;
 use crate::shell::NewEntry;
+use crate::shell::ProjectId;
 use crate::shell::Row;
 use crate::shell::RowId;
 use crate::shell::RowKind;
@@ -55,6 +56,14 @@ impl Tree {
         path: String,
     ) {
         self.editing = Editing::RenamingFile(path);
+    }
+
+    /// Shows the input that renames a space, replacing any other inline input.
+    pub fn start_project_rename(
+        &mut self,
+        project: ProjectId,
+    ) {
+        self.editing = Editing::RenamingProject(project);
     }
 
     /// Shows the input that names a new `entry` in the directory `dir`.

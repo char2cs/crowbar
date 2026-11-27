@@ -80,7 +80,7 @@ impl RenderOnce for PaneStrip {
                 .child(add_button(name, self.add))
         });
         let more = overflowing.then(|| more_tabs(name, self.overflow, palette));
-        row(name, palette)
+        row(name)
             .track_focus(&focus)
             .on_key_down(move |event, window, cx| {
                 StripState::use_mode(&typing, InputMode::Keyboard, cx);
@@ -99,10 +99,7 @@ impl RenderOnce for PaneStrip {
     }
 }
 
-fn row(
-    name: &str,
-    palette: &Palette,
-) -> gpui::Stateful<gpui::Div> {
+fn row(name: &str) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id_of(name, "row"))
         .flex()
@@ -113,11 +110,6 @@ fn row(
         .w_full()
         .h(px(STRIP_HEIGHT))
         .overflow_hidden()
-        .bg(row_fill(palette))
-}
-
-fn row_fill(palette: &Palette) -> gpui::Hsla {
-    palette.pane_background()
 }
 
 fn ringing(
@@ -539,23 +531,14 @@ mod tests {
 
     #[gpui::test]
     fn the_more_tabs_menu_ends_where_its_caret_ends(cx: &mut TestAppContext) {
+        let popped = ui::testing::answer_menus(cx, |_| None);
         let cx = opened(cx, (12, 400.0));
         let caret = cx.debug_bounds("strip-more").unwrap_or_default();
         cx.simulate_click(caret.center(), Modifiers::none());
         cx.run_until_parked();
-        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
-        assert!(
-            (menu.right() - caret.right()).abs() < px(0.5),
-            "{menu:?} ends with {caret:?}"
-        );
-    }
-
-    #[test]
-    fn the_bar_sits_on_the_pane_s_own_ground_like_the_editor_below_it() {
-        for mode in [ui::ThemeMode::Dark, ui::ThemeMode::Light] {
-            let palette = Theme::default().with_mode(mode).palette(Surface::Window);
-            assert_eq!(row_fill(palette), palette.pane_background(), "{mode:?}");
-        }
+        let popped = popped.borrow();
+        let asked: Vec<_> = popped.iter().map(|menu| (menu.at.x, menu.edge)).collect();
+        assert_eq!(asked, [(caret.right(), ui::MenuEdge::End)]);
     }
 
     #[gpui::test]

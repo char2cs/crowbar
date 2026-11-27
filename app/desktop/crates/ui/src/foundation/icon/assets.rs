@@ -10,6 +10,15 @@ use crate::foundation::icon::files::FILES;
 pub(crate) const WORDMARK_PATH: &str = "brand/crowbar-wordmark.svg";
 const WORDMARK: &[u8] = include_bytes!("../../../assets/brand/crowbar-wordmark.svg");
 
+const KIT: &[(&str, &str)] = &[
+    ("icons/case-sensitive.svg", "icons/regular/text-aa.svg"),
+    ("icons/replace.svg", "icons/regular/swap.svg"),
+    ("icons/chevron-left.svg", "icons/regular/caret-left.svg"),
+    ("icons/chevron-right.svg", "icons/regular/caret-right.svg"),
+    ("icons/chevron-down.svg", "icons/regular/caret-down.svg"),
+    ("icons/close.svg", "icons/regular/x.svg"),
+];
+
 /// The [`AssetSource`] for `icons/<weight>/<stem>.svg` and the Crowbar wordmark; pass it to `Application::with_assets`.
 pub fn assets() -> impl AssetSource {
     Assets { files: FILES }
@@ -27,6 +36,10 @@ impl AssetSource for Assets {
         if path == WORDMARK_PATH {
             return Ok(Some(Cow::Borrowed(WORDMARK)));
         }
+        let path = KIT
+            .iter()
+            .find(|(asked, _)| *asked == path)
+            .map_or(path, |(_, drawn)| drawn);
         let found = self.files.iter().find(|file| file.path == path);
         Ok(found.map(|file| Cow::Borrowed(file.bytes)))
     }
@@ -90,6 +103,22 @@ mod tests {
             let found = assets().load(path).expect("load");
             assert_eq!(found.is_some(), embedded, "{path}");
             assert!(found.is_none_or(|svg| svg.starts_with(b"<svg")), "{path}");
+        }
+    }
+
+    #[test]
+    fn the_icons_gpui_kit_s_editor_draws_are_served() {
+        let asked = [
+            "icons/case-sensitive.svg",
+            "icons/replace.svg",
+            "icons/chevron-left.svg",
+            "icons/chevron-right.svg",
+            "icons/chevron-down.svg",
+            "icons/close.svg",
+        ];
+        for path in asked {
+            let found = assets().load(path).expect("load");
+            assert!(found.is_some_and(|svg| svg.starts_with(b"<svg")), "{path}");
         }
     }
 

@@ -9,7 +9,7 @@ mod toggle;
 
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use divider::{Axis, Sash, SashDrag, Separator};
-pub use drag::DraggedRow;
+pub use drag::{DraggedRow, drag_window, window_drag_strip};
 pub use editor::{
     TextArea, TextAreaCondition, TextAreaSize, TextInput, TextInputEvent, TextInputStyle,
 };

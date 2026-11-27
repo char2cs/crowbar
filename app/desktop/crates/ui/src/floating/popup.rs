@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, AnchoredPositionMode, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Point, Styled, Window, anchored, div, px, relative,
+    Anchor, AnyElement, App, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Styled, Window, anchored, div, px, relative,
 };
 
 use crate::floating::placement::Placement;
@@ -12,8 +12,6 @@ use crate::floating::portal::{Float, Portal};
 use crate::foundation::tokens::layer;
 
 const WINDOW_MARGIN: f32 = 8.0;
-const SUBMENU_GAP: f32 = 2.0;
-const SUBMENU_RISE: f32 = 5.0;
 
 pub(crate) type Content = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
@@ -44,69 +42,7 @@ pub(crate) fn placed(
     anchor.child(portal).into_any_element()
 }
 
-pub(crate) fn over(
-    id: ElementId,
-    (offset, reach): (Point<Pixels>, Pixels),
-    content: Content,
-) -> AnyElement {
-    let portal = Portal::here_sized(id, move |bounds, window, cx| {
-        let list = div()
-            .flex()
-            .flex_col()
-            .min_w(bounds.size.width + reach)
-            .child(content(window, cx));
-        anchored()
-            .anchor(Anchor::TopLeft)
-            .snap_to_window_with_margin(px(WINDOW_MARGIN))
-            .child(list)
-    })
-    .priority(layer::MENU)
-    .float(Float::Popover);
-    div()
-        .absolute()
-        .top(offset.y)
-        .left(offset.x)
-        .w_full()
-        .child(portal)
-        .into_any_element()
-}
-
-pub(crate) fn beside(content: impl IntoElement) -> AnyElement {
-    div()
-        .absolute()
-        .left_full()
-        .top(px(-SUBMENU_RISE))
-        .ml(px(SUBMENU_GAP))
-        .child(
-            anchored()
-                .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                .child(content),
-        )
-        .into_any_element()
-}
-
-/// A popup above the window's content with its top-left corner at `position`, in window
-/// coordinates; `content` is built in the window that paints it.
-pub fn popup_at<E: IntoElement>(
-    id: impl Into<ElementId>,
-    position: Point<Pixels>,
-    content: impl Fn(&mut Window, &mut App) -> E + 'static,
-) -> AnyElement {
-    Portal::window(id, move |window, cx| {
-        anchored()
-            .position_mode(AnchoredPositionMode::Local)
-            .position(position)
-            .snap_to_window_with_margin(px(WINDOW_MARGIN))
-            .child(content(window, cx))
-    })
-    .priority(layer::MENU)
-    .float(Float::Popover)
-    .into_any_element()
-}
-
-/// A window-sized layer behind the window's popups; a press on it, with either button, or on a
-/// native view outside them ([`crate::Cover::press_outside`]) runs `on_press`.
-pub fn click_away(
+pub(crate) fn click_away(
     id: impl Into<ElementId>,
     on_press: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {

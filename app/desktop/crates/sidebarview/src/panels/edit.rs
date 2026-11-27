@@ -1,5 +1,6 @@
 //! Inline rename, make-a-branch and fork-name inputs.
 
+mod command;
 mod field;
 mod field_look;
 mod naming;
@@ -9,23 +10,14 @@ mod settle;
 pub(crate) use field::Field;
 
 use gpui::{AppContext as _, Context, Focusable as _, Subscription, Window};
-use sidebar::{Command, Editing, Error, Expansion, FileKind, NewEntry, PathText, RowId};
+use sidebar::{Command, Editing, Error, Expansion, FileKind, NewEntry, PathText, ProjectId, RowId};
 use ui::{Surface, TextInput, TextInputEvent};
 
+use crate::panels::edit::command::command_for;
 use crate::panels::edit::outcome::Outcome;
 use crate::sidebar::Sidebar;
 
 const BRANCH_PLACEHOLDER: &str = "branch-name";
-
-fn creation(
-    path: String,
-    entry: NewEntry,
-) -> Command {
-    match entry {
-        NewEntry::File => Command::CreateFile { path },
-        NewEntry::Folder => Command::CreateDirectory { path },
-    }
-}
 
 impl Sidebar {
     pub(crate) fn start_branching(
@@ -58,6 +50,20 @@ impl Sidebar {
         let owner = RowId::from(path.as_str());
         self.tree.start_file_rename(path);
         self.open_field((owner, &name, ""), window, cx);
+    }
+
+    pub(crate) fn start_project_rename(
+        &mut self,
+        (project, name): (ProjectId, &str),
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let owner = RowId::from(project.as_str());
+        self.tree.start_project_rename(project);
+        self.open_field((owner, name, ""), window, cx);
+        if let Some(edit) = self.inline.as_ref() {
+            edit.input.update(cx, TextInput::select_all);
+        }
     }
 
     pub(crate) fn start_file_create(
@@ -145,7 +151,11 @@ impl Sidebar {
             self.close_edit(cx);
             return;
         }
-        let command = self.edit_command(&edit.row, name);
+        if self.keeps_space_name(&name) {
+            self.close_edit(cx);
+            return;
+        }
+        let command = command_for(self.tree.editing(), &edit.row, name);
         match self.sink.dispatch(command) {
             Ok(()) if matches!(self.tree.editing(), Editing::Branching(_)) => {},
             Ok(()) => self.close_edit(cx),
@@ -156,30 +166,17 @@ impl Sidebar {
         }
     }
 
-    fn edit_command(
+    fn keeps_space_name(
         &self,
-        row: &RowId,
-        name: String,
-    ) -> Command {
-        match self.tree.editing() {
-            Editing::Branching(target) => Command::MakeBranch {
-                row: target.clone(),
-                name,
-            },
-            Editing::Drafting(parent) => Command::Fork {
-                parent: parent.clone(),
-                name,
-            },
-            Editing::RenamingFile(path) => Command::RenameFile {
-                path: path.clone(),
-                new_path: PathText::new(PathText::new(path).parent()).join(&name),
-            },
-            Editing::Creating { dir, entry } => creation(PathText::new(dir).join(&name), *entry),
-            _ => Command::Rename {
-                row: row.clone(),
-                name,
-            },
-        }
+        name: &str,
+    ) -> bool {
+        let Editing::RenamingProject(project) = self.tree.editing() else {
+            return false;
+        };
+        self.data
+            .projects()
+            .iter()
+            .any(|space| &space.id == project && space.name == name)
     }
 
     fn close_edit(

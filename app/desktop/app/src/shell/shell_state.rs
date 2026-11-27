@@ -279,6 +279,7 @@ mod tests {
         let shown = panehost::VisiblePane {
             pane: pane.clone(),
             bounds,
+            corners: webview::Corners::default(),
         };
         rig.shell.sync(
             webview::ParentWindow::X11(9),

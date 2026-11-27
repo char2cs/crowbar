@@ -26,8 +26,6 @@ pub(crate) enum PlanError {
     FolderHasNoName,
     #[error("this row cannot go there")]
     CannotGoThere,
-    #[error("repositories are ordered inside their space, not by dragging")]
-    RepositoryNotDraggable,
     #[error("there is nothing to dismiss")]
     NothingToDismiss,
     #[error("start a thread from a workspace row, a folder has none to run it in")]

@@ -38,13 +38,13 @@ mod tree;
 
 pub use drag_subject::DragSubject;
 pub use error::{Error, Result};
-pub use ide::pane_group::PaneGroup;
 pub use ide::pane_group::close_scope::CloseScope;
 pub use ide::pane_group::strip_step::StripStep;
+pub use ide::pane_group::{DEFAULT_CHAT_SHARE, PaneGroup};
 pub use ide::presentation::editor_view::EditorView;
 pub use ide::presentation::sidebar_side::SidebarSide;
 pub use ide::presentation::view_mode::ViewMode;
-pub use ide::presentation::{DEFAULT_CHAT_SHARE, Presentation, SIDE_BY_SIDE_MIN, TOP_ROW_HEIGHT};
+pub use ide::presentation::{Presentation, SIDE_BY_SIDE_MIN, TOP_ROW_HEIGHT};
 pub use layout::command::Command;
 pub use layout::layout_history::{LayoutHistory, MAX_PARKED_PANES, MAX_UNDO_STEPS};
 pub use layout::stored::model::{load, store};

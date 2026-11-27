@@ -13,8 +13,9 @@ mod rows;
 
 pub(crate) use file_choices::answer_choices_with;
 pub(crate) use native_alerts::answer_alerts_with;
-pub(crate) use native_menus::{Popped, answer_menus_with, labels as menu_labels};
+pub(crate) use native_menus::{answer_menus_with, labels as menu_labels};
 pub(crate) use open::{Floating, open, open_floating};
 pub(crate) use probe::{measure, mount};
 pub(crate) use recorder::Recorder;
 pub(crate) use rows::{chat, recording_handler};
+pub(crate) use ui::testing::Popped;

@@ -1,9 +1,16 @@
+use crate::ide::pane_group::DEFAULT_CHAT_SHARE;
 use protocol::PaneId;
 
 use crate::error::{Error, Result};
 use crate::ide::pane_group::PaneGroup;
 
 impl PaneGroup {
+    /// The chat's share of the room it splits with the editor, between 0 and 1.
+    #[must_use]
+    pub fn chat_share(&self) -> f32 {
+        self.chat_share.unwrap_or(DEFAULT_CHAT_SHARE)
+    }
+
     pub(crate) fn activate(
         &mut self,
         pane: &PaneId,

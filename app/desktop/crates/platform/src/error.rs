@@ -12,6 +12,16 @@ pub enum Error {
         /// Why it was refused.
         reason: &'static str,
     },
+    /// A page's clip view was asked for off the main thread.
+    #[error("a page clip is made on the main thread only")]
+    Clip,
+    /// The blur behind a window could not be set up.
+    #[error("cannot blur behind the window: {0}")]
+    Frost(&'static str),
+    /// `AppKit` refused the blur effect.
+    #[cfg(target_os = "macos")]
+    #[error("AppKit refused the blur effect: {0}")]
+    Vibrancy(#[source] window_vibrancy::Error),
     /// The path to reveal does not exist or cannot be resolved.
     #[error("cannot resolve {path}: {source}")]
     Unresolved {

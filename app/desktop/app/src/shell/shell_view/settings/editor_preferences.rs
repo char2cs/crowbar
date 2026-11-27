@@ -1,10 +1,14 @@
 use editor::WhitespaceMode;
-use editorview::WordWrap;
+use editorview::{Assists, Highlighting, SaveFormat, WordWrap};
 use settings::Value;
 
 use crate::panes::content::single_precision::single_precision;
 
-pub(crate) const KEYS: [&str; 7] = [
+pub(crate) const KEYS: [&str; 11] = [
+    "autoCompletion",
+    "highlightOccurrences",
+    "semanticHighlighting",
+    "formatOnSave",
     "fontSize",
     "editorLineHeight",
     "tabSize",
@@ -41,6 +45,28 @@ pub(crate) fn editor_settings(read: impl Fn(&str) -> Option<Value>) -> editorvie
         line_numbers: flag("lineNumbers").unwrap_or(base.line_numbers),
         indent_guides: flag("renderIndentGuides").unwrap_or(base.indent_guides),
         whitespace: whitespace(read("renderWhitespace").as_ref()).unwrap_or(base.whitespace),
+        assists: assists(&read, base.assists),
+        save_format: match flag("formatOnSave") {
+            Some(true) => SaveFormat::Formatted,
+            Some(false) => SaveFormat::AsTyped,
+            None => base.save_format,
+        },
+    }
+}
+
+fn assists(
+    read: &impl Fn(&str) -> Option<Value>,
+    base: Assists,
+) -> Assists {
+    let stored = |key, kept| read(key).and_then(|value| value.as_bool()).unwrap_or(kept);
+    Assists {
+        completion: stored("autoCompletion", base.completion),
+        occurrences: stored("highlightOccurrences", base.occurrences),
+        highlighting: match read("semanticHighlighting").and_then(|value| value.as_bool()) {
+            Some(true) => Highlighting::Semantic,
+            Some(false) => Highlighting::Syntax,
+            None => base.highlighting,
+        },
     }
 }
 
@@ -78,6 +104,12 @@ mod tests {
 
     type Stored = BTreeMap<&'static str, Value>;
 
+    const STORED_ASSISTS: Assists = Assists {
+        completion: false,
+        occurrences: true,
+        highlighting: Highlighting::Syntax,
+    };
+
     fn read(stored: &Stored) -> impl Fn(&str) -> Option<Value> + '_ {
         |key| stored.get(key).cloned()
     }
@@ -97,6 +129,10 @@ mod tests {
             ("lineNumbers", Value::Bool(false)),
             ("renderIndentGuides", Value::Bool(false)),
             ("renderWhitespace", Value::Text("boundary".into())),
+            ("autoCompletion", Value::Bool(false)),
+            ("highlightOccurrences", Value::Bool(true)),
+            ("semanticHighlighting", Value::Bool(false)),
+            ("formatOnSave", Value::Bool(true)),
         ]);
         let expected = editorview::Settings {
             font_size: 18.0,
@@ -106,6 +142,8 @@ mod tests {
             line_numbers: false,
             indent_guides: false,
             whitespace: WhitespaceMode::Boundary,
+            assists: STORED_ASSISTS,
+            save_format: SaveFormat::Formatted,
         };
         assert_eq!(editor_settings(read(&stored)), expected);
     }

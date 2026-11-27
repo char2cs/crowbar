@@ -13,7 +13,6 @@ use crate::intent::Sink;
 
 const HEIGHT: f32 = 28.0;
 const MAX_WIDTH: f32 = 192.0;
-const MENU_MIN_WIDTH: f32 = 176.0;
 const ICON: f32 = 16.0;
 const CARET: f32 = 14.0;
 const BORDER_ALPHA: f32 = 0.7;
@@ -24,7 +23,6 @@ pub(crate) fn page_picker(
     cx: &App,
 ) -> impl IntoElement {
     DropdownMenu::new("settings-page-picker", trigger(frame, cx), items(frame))
-        .min_width(px(MENU_MIN_WIDTH))
 }
 
 fn trigger(
@@ -69,27 +67,21 @@ fn items(frame: &Frame<'_>) -> Vec<MenuItem> {
         .state
         .visible_pages()
         .into_iter()
-        .map(|page| item(frame.sink.clone(), (page, frame.state.page())))
+        .map(|page| item(frame.sink.clone(), page))
         .collect()
 }
 
 fn item(
     sink: Sink,
-    (page, shown): (&Page, Option<&Page>),
+    page: &Page,
 ) -> MenuItem {
     let id = page.id().clone();
-    let current = shown.is_some_and(|shown| shown.id() == page.id());
-    let action = MenuAction::new(page.label().to_owned(), move |window, cx| {
-        sink.deliver(Intent::Select(id.clone()), (window, cx));
-    });
-    let action = match icon_named(page.icon()) {
-        Some(icon) => action.icon(icon).icon_weight(IconWeight::Duotone),
-        None => action,
-    };
-    if current {
-        return MenuItem::Action(action.current());
-    }
-    MenuItem::Action(action)
+    MenuItem::Action(MenuAction::new(
+        page.label().to_owned(),
+        move |window, cx| {
+            sink.deliver(Intent::Select(id.clone()), (window, cx));
+        },
+    ))
 }
 
 #[cfg(test)]

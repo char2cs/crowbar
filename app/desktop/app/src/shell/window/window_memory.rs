@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::shell::window::traffic_lights;
 use gpui::{
-    App, Bounds, Pixels, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, point,
-    px, size,
+    App, Bounds, Pixels, SharedString, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowOptions, point, px, size,
 };
 use windowstate::{DEFAULT_SIZE, Placement, Rect, WindowState, WindowStore};
 
@@ -35,6 +35,8 @@ impl WindowMemory {
             window_bounds: Some(window_bounds(&placement)),
             titlebar: Some(titlebar()),
             app_id: Some(APP_ID.to_owned()),
+            window_background: background(),
+            app_owns_titlebar_drag: true,
             ..WindowOptions::default()
         }
     }
@@ -98,6 +100,14 @@ fn window_bounds(placement: &Placement) -> WindowBounds {
     WindowBounds::Windowed(bounds)
 }
 
+// PLATFORM: macos the blur behind the window shows only through a see-through one.
+const fn background() -> WindowBackgroundAppearance {
+    if cfg!(target_os = "macos") {
+        return WindowBackgroundAppearance::Transparent;
+    }
+    WindowBackgroundAppearance::Opaque
+}
+
 const MAC_OVERLAY: bool = cfg!(target_os = "macos");
 // PLATFORM: macos overlays the title bar; Linux keeps the system frame.
 fn titlebar() -> TitlebarOptions {
@@ -138,6 +148,29 @@ mod tests {
             height: px(600.0),
         },
     };
+
+    #[gpui::test]
+    fn the_shell_moves_its_window_itself_so_a_dragged_tab_stays_a_tab(
+        cx: &mut gpui::TestAppContext
+    ) {
+        let memory = WindowMemory::new(Path::new("/nowhere/window.json"));
+        assert!(cx.update(|cx| memory.options(cx).app_owns_titlebar_drag));
+    }
+
+    #[gpui::test]
+    fn only_a_macos_window_is_see_through(cx: &mut gpui::TestAppContext) {
+        let memory = WindowMemory::new(Path::new("/nowhere/window.json"));
+        let background = cx.update(|cx| memory.options(cx).window_background);
+        assert_eq!(background, seen_here());
+    }
+
+    // PLATFORM: macos blurs what is behind the sidebar; X11 and Wayland windows are opaque.
+    fn seen_here() -> WindowBackgroundAppearance {
+        if cfg!(target_os = "macos") {
+            return WindowBackgroundAppearance::Transparent;
+        }
+        WindowBackgroundAppearance::Opaque
+    }
 
     #[test]
     fn a_closed_window_is_remembered_with_its_restore_size() {

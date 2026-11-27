@@ -298,6 +298,16 @@ mod tests {
     }
 
     #[test]
+    fn a_shown_pane_s_web_view_rounds_the_corners_the_shell_gave() {
+        let mut f = fixture();
+        f.sync(&[instance("c", "core.chat")], &["c"], Some("c"));
+        let rounded = f.mock.calls().iter().any(
+            |call| matches!(call, Call::SetCorners { corners, .. } if (corners.top_left - 9.0).abs() < 0.01),
+        );
+        assert!(rounded, "{:?}", f.mock.calls());
+    }
+
+    #[test]
     fn a_native_pane_gets_no_web_view_and_no_lifecycle() {
         let mut f = fixture();
         let mut native = pane_type("core.native", PaneLifecycle::KeepAlive);

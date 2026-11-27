@@ -162,7 +162,7 @@ mod tests {
 
     fn counting_away(count: &Rc<Cell<usize>>) -> impl gpui::IntoElement {
         let count = Rc::clone(count);
-        crate::click_away("away", move |_, _| count.set(count.get() + 1))
+        crate::floating::popup::click_away("away", move |_, _| count.set(count.get() + 1))
     }
 
     fn popover(float: Float) -> Portal {

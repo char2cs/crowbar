@@ -1,33 +1,27 @@
-//! A trigger that opens a [`crate::Menu`] below it.
+//! A trigger that opens a menu below it.
 
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    AnyElement, App, DismissEvent, Div, ElementId, Entity, FocusHandle, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, RenderOnce, Stateful, StatefulInteractiveElement,
-    Styled, Window, div, px,
+    App, ElementId, FocusHandle, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
-use crate::floating::menu::RowStyle;
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::native_menu::{self, NativeMenu};
-use crate::floating::menu::trigger::dropdown_state::DropdownState;
-use crate::floating::menu::trigger::spec::Spec;
 use crate::floating::placement::Placement;
-use crate::floating::popup;
 use crate::foundation::opaque_debug;
 
 const OFFSET: f32 = 4.0;
 
-/// Wraps a trigger; clicking it opens the menu, any press outside or `Escape` closes it.
+/// Wraps a trigger; clicking it opens `items` as the desktop's menu.
 #[derive(IntoElement)]
 pub struct DropdownMenu {
     id: ElementId,
-    trigger: AnyElement,
-    spec: Spec,
+    trigger: gpui::AnyElement,
+    items: Rc<[MenuItem]>,
     placement: Placement,
-    over: Option<(Point<Pixels>, Pixels)>,
     trigger_focus: Option<FocusHandle>,
 }
 
@@ -41,14 +35,13 @@ impl DropdownMenu {
         Self {
             id: id.into(),
             trigger: trigger.into_any_element(),
-            spec: Spec::new(items.into()),
+            items: items.into(),
             placement: Placement::default(),
-            over: None,
             trigger_focus: None,
         }
     }
 
-    /// Sets where the popup opens relative to the trigger; under it, left edges aligned, by default.
+    /// Sets where the menu opens relative to the trigger; under it, left edges aligned, by default.
     #[must_use]
     pub fn placement(
         mut self,
@@ -58,34 +51,11 @@ impl DropdownMenu {
         self
     }
 
-    /// Sets the minimum width of the popup.
-    #[must_use]
-    pub fn min_width(
-        mut self,
-        width: Pixels,
-    ) -> Self {
-        self.spec.min_width = Some(width);
-        self
-    }
-}
-
-impl DropdownMenu {
     pub(crate) fn trigger_focus(
         mut self,
         focus: FocusHandle,
     ) -> Self {
         self.trigger_focus = Some(focus);
-        self
-    }
-
-    pub(crate) fn options_over(
-        mut self,
-        chosen: Option<usize>,
-        over: (Point<Pixels>, Pixels),
-    ) -> Self {
-        self.spec.row_style = RowStyle::Option;
-        self.spec.highlighted = chosen;
-        self.over = Some(over);
         self
     }
 }
@@ -96,97 +66,22 @@ impl RenderOnce for DropdownMenu {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let given = self.trigger_focus.clone();
-        let state =
-            window.use_keyed_state((self.id.clone(), "dropdown"), cx, |_, cx| DropdownState {
-                open: None,
-                trigger: given.unwrap_or_else(|| cx.focus_handle()),
-            });
-        let wrapper = div()
-            .id(self.id.clone())
-            .when_none(&self.trigger_focus, |wrapper| {
-                wrapper.track_focus(&state.read(cx).trigger)
-            })
-            .relative();
-        if let Some(native) = NativeMenu::installed(cx) {
-            return native_on(
-                wrapper.child(self.trigger),
-                (native, self.spec.items),
-                self.placement,
-            );
-        }
-        let open = state.read(cx).open.clone();
-        let (trigger_state, spec) = (state.clone(), self.spec);
-        let id = self.id.clone();
-        let wrapper = wrapper
+        let focus =
+            window.use_keyed_state((self.id.clone(), "dropdown"), cx, |_, cx| cx.focus_handle());
+        let focus = focus.read(cx).clone();
+        let (items, placement) = (self.items, self.placement);
+        let (laid_out, probe) = native_menu::trigger_probe();
+        div()
+            .id(self.id)
+            .when_none(&self.trigger_focus, |wrapper| wrapper.track_focus(&focus))
+            .relative()
             .child(self.trigger)
-            .on_click(move |_, window, cx| toggle(&trigger_state, &spec, window, cx));
-        let Some(menu) = open else {
-            return wrapper.into_any_element();
-        };
-        let content: popup::Content = Rc::new(move |_, _| menu.clone().into_any_element());
-        wrapper
-            .child(popup::click_away((id.clone(), "away"), move |_, cx| {
-                close(&state, cx);
-            }))
-            .child(match self.over {
-                Some(offset) => popup::over((id, "menu").into(), offset, content),
-                None => popup::placed((id, "menu").into(), self.placement, OFFSET, content),
+            .child(probe)
+            .on_click(move |_, window, cx| {
+                let at = placement.beside(laid_out.get(), px(OFFSET));
+                NativeMenu::open(&items, at, (window, cx));
             })
-            .into_any_element()
     }
-}
-
-fn native_on(
-    trigger: Stateful<Div>,
-    (native, items): (NativeMenu, Rc<[MenuItem]>),
-    placement: Placement,
-) -> AnyElement {
-    let (laid_out, probe) = native_menu::trigger_probe();
-    trigger
-        .child(probe)
-        .on_click(move |_, window, cx| {
-            native.open(
-                &items,
-                placement.beside(laid_out.get(), px(OFFSET)),
-                (window, cx),
-            );
-        })
-        .into_any_element()
-}
-
-fn toggle(
-    state: &Entity<DropdownState>,
-    spec: &Spec,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if state.read(cx).open.is_some() {
-        return;
-    }
-    let menu = spec.build(window, cx);
-    let owner = state.clone();
-    window
-        .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
-            let trigger = owner.read(cx).trigger.clone();
-            window.focus(&trigger, cx);
-            close(&owner, cx);
-        })
-        .detach();
-    state.update(cx, |state, cx| {
-        state.open = Some(menu);
-        cx.notify();
-    });
-}
-
-fn close(
-    state: &Entity<DropdownState>,
-    cx: &mut App,
-) {
-    state.update(cx, |state, cx| {
-        state.open = None;
-        cx.notify();
-    });
 }
 
 opaque_debug!(DropdownMenu);
@@ -194,14 +89,19 @@ opaque_debug!(DropdownMenu);
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::rc::Rc;
 
-    use gpui::{TestAppContext, point, px};
+    use gpui::{Modifiers, TestAppContext, point};
 
     use super::*;
     use crate::control::Button;
     use crate::floating::menu::menu_item::MenuAction;
-    use crate::test_support::probe::{open, open_floating};
+    use crate::floating::menu::native_menu::{MenuEdge, NativeEntry};
+    use crate::test_support::menus::answering;
+    use crate::test_support::probe::open;
+
+    fn one_row() -> Vec<MenuItem> {
+        vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))]
+    }
 
     fn build(chosen: &Rc<Cell<usize>>) -> impl Fn(&mut Window, &mut App) -> DropdownMenu + 'static {
         let chosen = Rc::clone(chosen);
@@ -214,113 +114,11 @@ mod tests {
     }
 
     #[gpui::test]
-    fn clicking_the_trigger_opens_the_menu_and_clicking_away_closes_it(cx: &mut TestAppContext) {
-        let chosen = Rc::new(Cell::new(0));
-        let cx = open(cx, build(&chosen));
-        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_click(point(px(700.0), px(500.0)), gpui::Modifiers::none());
-        cx.run_until_parked();
-        assert!(
-            chosen.get() == 0,
-            "closing by clicking away does not choose a row"
-        );
-    }
-
-    #[gpui::test]
-    fn keyboard_choice_runs_the_row_and_closes(cx: &mut TestAppContext) {
-        let chosen = Rc::new(Cell::new(0));
-        let cx = open(cx, build(&chosen));
-        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_keystrokes("down enter");
-        assert_eq!(chosen.get(), 1);
-    }
-
-    fn one_row() -> Vec<MenuItem> {
-        vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))]
-    }
-
-    fn in_dialog(
-        closed: &Rc<Cell<usize>>,
-        rows: RowStyle,
-    ) -> impl Fn(&mut Window, &mut App) -> crate::Dialog + 'static {
-        let closed = Rc::clone(closed);
-        move |_, _| {
-            let closed = Rc::clone(&closed);
-            let trigger = div()
-                .debug_selector(|| "trigger".to_owned())
-                .w(px(120.0))
-                .h(px(28.0));
-            let menu = DropdownMenu::new("pick", trigger, one_row());
-            let menu = match rows {
-                RowStyle::Option => menu.options_over(Some(0), (point(px(0.0), px(0.0)), px(0.0))),
-                RowStyle::Plain => menu,
-            };
-            crate::Dialog::new("d")
-                .body(menu)
-                .on_close(move |_, _| closed.set(closed.get() + 1))
-        }
-    }
-
-    #[gpui::test]
-    fn after_a_choice_escape_reaches_the_dialog_around_a_dropdown_or_select(
-        cx: &mut TestAppContext
-    ) {
-        for rows in [RowStyle::Plain, RowStyle::Option] {
-            let closed = Rc::new(Cell::new(0));
-            let cx = open(cx, in_dialog(&closed, rows));
-            let trigger = cx.debug_bounds("trigger").unwrap_or_default();
-            cx.simulate_click(trigger.center(), gpui::Modifiers::none());
-            cx.run_until_parked();
-            cx.simulate_keystrokes("down enter");
-            cx.run_until_parked();
-            cx.simulate_keystrokes("escape");
-            assert_eq!(closed.get(), 1, "{rows:?}");
-        }
-    }
-
-    #[gpui::test]
-    fn an_end_placed_menu_shares_the_right_edge_of_its_trigger(cx: &mut TestAppContext) {
-        let cx = open(cx, |_, _| {
-            let trigger = div().w(px(300.0)).h(px(20.0));
-            let rows = vec![MenuItem::Action(MenuAction::new("Row", |_, _| {}))];
-            DropdownMenu::new("end", trigger, rows).placement(Placement::BelowEnd)
-        });
-        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
-        cx.run_until_parked();
-        let trigger = cx.debug_bounds("probe").unwrap_or_default();
-        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
-        assert!(
-            (menu.right() - trigger.right()).abs() < px(0.5),
-            "{menu:?} ends with {trigger:?}"
-        );
-    }
-
-    type Asked = Rc<std::cell::RefCell<Vec<crate::NativeRequest>>>;
-
-    fn answering(
-        cx: &mut TestAppContext,
-        path: Option<crate::MenuPath>,
-    ) -> Asked {
-        let asked = Asked::default();
-        let heard = Rc::clone(&asked);
-        let popup: crate::PopupMenu = Rc::new(move |request, _, _| {
-            heard.borrow_mut().push(request);
-            gpui::Task::ready(path.clone())
-        });
-        cx.update(|cx| cx.set_global(NativeMenu::new(popup)));
-        asked
-    }
-
-    #[gpui::test]
-    fn with_a_native_menu_a_dropdown_asks_for_it_under_its_trigger_and_runs_the_choice(
-        cx: &mut TestAppContext
-    ) {
+    fn a_dropdown_asks_for_its_menu_under_its_trigger_and_runs_the_choice(cx: &mut TestAppContext) {
         let chosen = Rc::new(Cell::new(0));
         let asked = answering(cx, Some(vec![0]));
         let cx = open(cx, build(&chosen));
-        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        cx.simulate_click(point(px(10.0), px(10.0)), Modifiers::none());
         cx.run_until_parked();
         let trigger = cx.debug_bounds("probe").unwrap_or_default();
         let opened_at = asked
@@ -328,23 +126,18 @@ mod tests {
             .first()
             .map(|request| (request.at, request.edge));
         let under = point(trigger.left(), trigger.bottom() + px(4.0));
-        assert_eq!(opened_at, Some((under, crate::MenuEdge::Start)));
-        assert_eq!(
-            cx.debug_bounds("ui-menu"),
-            None,
-            "nothing is drawn in the window"
-        );
+        assert_eq!(opened_at, Some((under, MenuEdge::Start)));
         assert_eq!(chosen.get(), 1);
     }
 
     #[gpui::test]
-    fn with_a_native_menu_an_end_placed_dropdown_ends_with_its_trigger(cx: &mut TestAppContext) {
+    fn an_end_placed_dropdown_ends_with_its_trigger(cx: &mut TestAppContext) {
         let asked = answering(cx, None);
         let cx = open(cx, |_, _| {
             let trigger = div().w(px(300.0)).h(px(20.0));
             DropdownMenu::new("end", trigger, one_row()).placement(Placement::BelowEnd)
         });
-        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        cx.simulate_click(point(px(10.0), px(10.0)), Modifiers::none());
         cx.run_until_parked();
         let trigger = cx.debug_bounds("probe").unwrap_or_default();
         let opened_at = asked
@@ -352,46 +145,45 @@ mod tests {
             .first()
             .map(|request| (request.at, request.edge));
         let under = point(trigger.right(), trigger.bottom() + px(4.0));
-        assert_eq!(opened_at, Some((under, crate::MenuEdge::End)));
+        assert_eq!(opened_at, Some((under, MenuEdge::End)));
     }
 
     #[gpui::test]
-    fn with_a_native_menu_a_select_checks_its_chosen_option(cx: &mut TestAppContext) {
+    fn after_a_choice_escape_reaches_the_dialog_around_the_dropdown(cx: &mut TestAppContext) {
+        answering(cx, Some(vec![0]));
+        let closed = Rc::new(Cell::new(0));
+        let heard = Rc::clone(&closed);
+        let cx = open(cx, move |_, _| {
+            let heard = Rc::clone(&heard);
+            let trigger = div()
+                .debug_selector(|| "trigger".to_owned())
+                .w(px(120.0))
+                .h(px(28.0));
+            crate::Dialog::new("d")
+                .body(DropdownMenu::new("pick", trigger, one_row()))
+                .on_close(move |_, _| heard.set(heard.get() + 1))
+        });
+        let trigger = cx.debug_bounds("trigger").unwrap_or_default();
+        cx.simulate_click(trigger.center(), Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_keystrokes("escape");
+        assert_eq!(closed.get(), 1);
+    }
+
+    #[gpui::test]
+    fn a_select_checks_its_chosen_option(cx: &mut TestAppContext) {
         let asked = answering(cx, None);
         let cx = open(cx, |_, _| {
             crate::Select::new("s", vec!["System".into(), "Dark".into()], Some(1))
         });
-        cx.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
+        cx.simulate_click(point(px(10.0), px(10.0)), Modifiers::none());
         cx.run_until_parked();
         let checked: Vec<bool> = asked
             .borrow()
             .iter()
             .flat_map(|request| request.entries.iter())
-            .map(|entry| matches!(entry, crate::NativeEntry::Item { checked: true, .. }))
+            .map(|entry| matches!(entry, NativeEntry::Item { checked: true, .. }))
             .collect();
         assert_eq!(checked, [false, true]);
-    }
-
-    #[gpui::test]
-    fn an_open_dropdown_is_drawn_in_the_window_and_covers_the_web_views_under_its_card(
-        cx: &mut TestAppContext
-    ) {
-        let chosen = Rc::new(Cell::new(0));
-        let mut owner = open_floating(cx, build(&chosen));
-        owner.simulate_click(point(px(10.0), px(10.0)), gpui::Modifiers::none());
-        owner.run_until_parked();
-        let menu = owner.debug_bounds("ui-menu").unwrap_or_default();
-        let trigger = owner.debug_bounds("probe").unwrap_or_default();
-        assert!(
-            menu.origin.y >= trigger.bottom(),
-            "{menu:?} below {trigger:?}"
-        );
-        assert_eq!(
-            crate::testing::covered(&mut owner).1,
-            [menu],
-            "its card covers"
-        );
-        owner.simulate_keystrokes("down enter");
-        assert_eq!(chosen.get(), 1, "the keyboard reaches the menu");
     }
 }

@@ -50,16 +50,6 @@ impl PathAction {
             Self::OpenInTerminal => "Open in Terminal",
         }
     }
-
-    /// The menu row's glyph.
-    #[must_use]
-    pub fn icon(self) -> ui::IconName {
-        match self {
-            Self::CopyPath | Self::CopyRelativePath => ui::IconName::Copy,
-            Self::Reveal => ui::IconName::FolderOpen,
-            Self::OpenInTerminal => ui::IconName::TerminalWindow,
-        }
-    }
 }
 
 #[cfg(test)]

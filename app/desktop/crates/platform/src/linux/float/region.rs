@@ -42,7 +42,7 @@ fn curve_rows(
     ]
 }
 
-fn inset(
+pub(crate) fn inset(
     radius: u16,
     row: u16,
 ) -> u16 {

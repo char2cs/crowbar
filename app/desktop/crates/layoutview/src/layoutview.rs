@@ -1,7 +1,8 @@
-use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect, Tab};
+use layout::{PaneGroup, Presentation, Rect, Tab};
 use protocol::PaneId;
 
 use crate::geometry::chrome_context::ChromeContext;
+use crate::geometry::corners::Corners;
 use crate::geometry::pane_frame::PaneFrame;
 use crate::host::pane_hole::PaneHole;
 use crate::host::pane_source::PaneSource;
@@ -18,21 +19,20 @@ pub fn pane_holes(
     tab.leaves(content)
         .into_iter()
         .flat_map(|(rect, group)| {
-            let hole = PaneFrame::new(rect, content, chrome).hole;
-            let shown = Presentation::of(group, hole, chrome.side, DEFAULT_CHAT_SHARE);
-            holes_of(group, &shown)
+            let frame = PaneFrame::new(rect, content, chrome);
+            let shown = Presentation::of(group, frame.hole, chrome.side);
+            holes_of(group, (&shown, &frame))
         })
         .collect()
 }
 
 fn holes_of(
     group: &PaneGroup,
-    shown: &Presentation,
+    (shown, frame): (&Presentation, &PaneFrame),
 ) -> Vec<PaneHole> {
     let hole = |pane: Option<&PaneId>, rect: Option<Rect>| {
-        pane.cloned()
-            .zip(rect)
-            .map(|(pane, rect)| PaneHole { pane, rect })
+        let placed = pane.cloned().zip(rect);
+        placed.map(|placed| hole_at(placed, frame))
     };
     [
         hole(group.chat(), shown.chat),
@@ -41,6 +41,17 @@ fn holes_of(
     .into_iter()
     .flatten()
     .collect()
+}
+
+fn hole_at(
+    (pane, rect): (PaneId, Rect),
+    frame: &PaneFrame,
+) -> PaneHole {
+    PaneHole {
+        pane,
+        rect,
+        radius: frame.inner_corners(rect),
+    }
 }
 
 /// Like [`pane_holes`], but asks `source` about each pane: a native pane gets no hole because no
@@ -71,7 +82,25 @@ fn below_chrome(
         height: hole.rect.height - strip,
         ..hole.rect
     };
-    PaneHole { rect, ..hole }
+    PaneHole {
+        rect,
+        radius: under_strip(hole.radius, strip),
+        ..hole
+    }
+}
+
+fn under_strip(
+    radius: Corners,
+    strip: f32,
+) -> Corners {
+    if strip <= 0.0 {
+        return radius;
+    }
+    Corners {
+        top_left: 0.0,
+        top_right: 0.0,
+        ..radius
+    }
 }
 
 #[cfg(test)]
@@ -112,6 +141,34 @@ mod tests {
                 "borders and margins take space"
             );
         }
+    }
+
+    #[test]
+    fn a_web_view_rounds_only_the_corners_it_shares_with_its_pane_s_frame() {
+        let corners = |top_left, top_right, bottom_left, bottom_right| Corners {
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+        };
+        let radii = |layout: &layout::Layout, source: &FakeSource| {
+            let tab = layout.showing("").expect("tab");
+            let holes = pane_holes_with(tab, CONTENT, CHROME, source);
+            holes.iter().map(|hole| hole.radius).collect::<Vec<_>>()
+        };
+        let plain = FakeSource::starting_at_first_tab();
+        let side_by_side = layout_of("a", &[("b", "a", Edge::Right)]);
+        assert_eq!(
+            radii(&side_by_side, &plain),
+            [corners(9.0, 9.0, 0.0, 0.0), corners(9.0, 0.0, 0.0, 0.0)]
+        );
+        let mut split = layout_of("a", &[]);
+        crate::test_support::open_tab(&mut split, "t1");
+        assert_eq!(
+            radii(&split, &plain),
+            [corners(9.0, 0.0, 0.0, 0.0), Corners::default()],
+            "the chat keeps the left corner, the editor sits below its tab bar"
+        );
     }
 
     #[test]

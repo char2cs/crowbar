@@ -110,19 +110,27 @@ impl Theme {
         &self,
         surface: Surface,
     ) -> &'static Palette {
-        match (self.id, self.appearance(), surface) {
-            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome)
-                if self.vibrancy == Vibrancy::None =>
-            {
-                &Palette::CROWBAR_CHROME_LIGHT_FLAT
+        let (flat, see_through) = match (self.id, self.appearance(), surface) {
+            (ThemeId::Crowbar, Appearance::Light, Surface::Window) => {
+                (&Palette::CROWBAR_LIGHT, &Palette::CROWBAR_LIGHT_SEE_THROUGH)
             },
-            (ThemeId::Crowbar, Appearance::Light, Surface::Window) => &Palette::CROWBAR_LIGHT,
-            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome) => {
-                &Palette::CROWBAR_CHROME_LIGHT
+            (ThemeId::Crowbar, Appearance::Light, Surface::Chrome) => (
+                &Palette::CROWBAR_CHROME_LIGHT_FLAT,
+                &Palette::CROWBAR_CHROME_LIGHT,
+            ),
+            (ThemeId::Crowbar, Appearance::Dark, _) => {
+                (&Palette::CROWBAR_DARK, &Palette::CROWBAR_DARK_SEE_THROUGH)
             },
-            (ThemeId::Crowbar, Appearance::Dark, _) => &Palette::CROWBAR_DARK,
-            (ThemeId::Frosted, Appearance::Light, _) => &Palette::FROSTED_LIGHT,
-            (ThemeId::Frosted, Appearance::Dark, _) => &Palette::FROSTED_DARK,
+            (ThemeId::Frosted, Appearance::Light, _) => {
+                (&Palette::FROSTED_LIGHT, &Palette::FROSTED_LIGHT_SEE_THROUGH)
+            },
+            (ThemeId::Frosted, Appearance::Dark, _) => {
+                (&Palette::FROSTED_DARK, &Palette::FROSTED_DARK_SEE_THROUGH)
+            },
+        };
+        match self.vibrancy {
+            Vibrancy::None => flat,
+            Vibrancy::Translucent => see_through,
         }
     }
 }
@@ -170,25 +178,43 @@ mod tests {
         );
     }
 
+    type Washed = (ThemeId, ThemeMode, (u8, u8));
+
+    fn alphas(palette: &Palette) -> (u8, u8) {
+        let byte = |colour: Hsla| u32::from(gpui::Rgba::from(colour)).to_be_bytes()[3];
+        (byte(palette.chrome_bg()), byte(palette.pane_chrome_bg()))
+    }
+
     #[test]
-    fn chrome_washes_keep_their_alpha_only_where_the_window_is_translucent() {
-        const CASES: &[(Vibrancy, bool)] =
-            &[(Vibrancy::None, true), (Vibrancy::Translucent, false)];
-        for &(vibrancy, opaque) in CASES {
-            let themed = theme(ThemeId::Crowbar, ThemeMode::Light, Appearance::Light)
-                .with_vibrancy(vibrancy);
-            let chrome = themed.palette(Surface::Chrome);
+    fn the_washes_are_see_through_exactly_where_the_window_is() {
+        const CASES: [Washed; 4] = [
+            (ThemeId::Crowbar, ThemeMode::Light, (0xa6, 0xf2)),
+            (ThemeId::Crowbar, ThemeMode::Dark, (0xa6, 0xa6)),
+            (ThemeId::Frosted, ThemeMode::Light, (0x99, 0xe6)),
+            (ThemeId::Frosted, ThemeMode::Dark, (0xa6, 0xa6)),
+        ];
+        for (id, mode, washed) in CASES {
+            let flat = theme(id, mode, Appearance::Light);
+            let through = flat.with_vibrancy(Vibrancy::Translucent);
             assert_eq!(
-                ((chrome.chrome_bg().a - 1.0).abs() < f32::EPSILON),
-                opaque,
-                "{vibrancy:?} chrome_bg"
+                alphas(flat.palette(Surface::Window)),
+                (0xff, 0xff),
+                "{id:?} {mode:?}"
             );
             assert_eq!(
-                ((chrome.pane_chrome_bg().a - 1.0).abs() < f32::EPSILON),
-                opaque,
-                "{vibrancy:?} pane_chrome_bg"
+                alphas(through.palette(Surface::Window)),
+                washed,
+                "{id:?} {mode:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_light_chrome_washes_over_the_blur_with_dark_ink() {
+        let light = theme(ThemeId::Crowbar, ThemeMode::Light, Appearance::Light);
+        let through = light.with_vibrancy(Vibrancy::Translucent);
+        assert_eq!(alphas(light.palette(Surface::Chrome)), (0xff, 0xff));
+        assert_eq!(alphas(through.palette(Surface::Chrome)), (0xa6, 0xa6));
     }
 
     #[test]

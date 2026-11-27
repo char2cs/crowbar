@@ -5,13 +5,12 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Point, RenderOnce, SharedString, Styled, Window, div, point, px,
+    Pixels, RenderOnce, SharedString, Styled, Window, div, px,
 };
 
 use crate::floating::menu::menu_item::MenuAction;
 use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::trigger::dropdown_menu::DropdownMenu;
-use crate::floating::menu::{OPTION_CHECK, OPTION_GAP, OPTION_HEIGHT, OPTION_START};
 use crate::foundation::Appearance;
 use crate::foundation::ControlScale;
 use crate::foundation::Icon;
@@ -31,11 +30,9 @@ const DEFAULT_WIDTH: f32 = 144.0;
 const STANDARD_HEIGHT: f32 = 32.0;
 const COMPACT_HEIGHT: f32 = 28.0;
 const CARET_OPACITY: f32 = 0.8;
-const MENU_EDGE: Pixels = px(5.0);
-const OPTION_REACH: Pixels = px(30.0);
 const PLACEHOLDER_OPACITY: f32 = 0.72;
 
-/// A select box: the trigger shows the chosen option, the popup lists all of them with a check on the current one.
+/// A select box: the trigger shows the chosen option, its menu lists all of them with a check on the current one.
 #[derive(IntoElement)]
 pub struct Select {
     id: ElementId,
@@ -186,15 +183,6 @@ fn forward(
     }
 }
 
-fn over_chosen(
-    chosen: usize,
-    (trigger, row): (Pixels, Pixels),
-) -> Point<Pixels> {
-    let rows = row * index_f32(chosen);
-    let x = spacing::STEP_2_5 - (MENU_EDGE + OPTION_START + OPTION_CHECK + OPTION_GAP);
-    point(x, (trigger - row) / 2.0 - (MENU_EDGE + rows))
-}
-
 fn caret(
     breakpoint: ControlScale,
     palette: &Palette,
@@ -202,10 +190,6 @@ fn caret(
     Icon::new(IconName::CaretUpDown)
         .size(breakpoint.icon())
         .color(palette.foreground().opacity(CARET_OPACITY))
-}
-
-fn index_f32(index: usize) -> f32 {
-    u16::try_from(index).map_or(f32::from(u16::MAX), f32::from)
 }
 
 impl RenderOnce for Select {
@@ -221,18 +205,13 @@ impl RenderOnce for Select {
         let focus = focus.read(cx).clone();
         let rung = Pose::from(crate::Modality::rings(&focus, window, cx));
         let trigger = self.trigger(*Theme::of(cx), breakpoint, (&focus, rung));
-        let growth = breakpoint.growth();
-        let heights = (self.height + growth, OPTION_HEIGHT + growth);
         let items: Vec<MenuItem> = self
             .options
             .iter()
             .enumerate()
             .map(|(index, option)| self.item(index, option))
             .collect();
-        let chosen = self.selected.unwrap_or(0);
-        DropdownMenu::new(self.id, trigger, items)
-            .trigger_focus(focus)
-            .options_over(self.selected, (over_chosen(chosen, heights), OPTION_REACH))
+        DropdownMenu::new(self.id, trigger, items).trigger_focus(focus)
     }
 }
 
@@ -265,36 +244,5 @@ mod tests {
             Select::new("s", options(), Some(0)).width(px(112.0))
         });
         assert_eq!(f32::from(bounds.size.width), 144.0);
-    }
-
-    #[gpui::test]
-    fn the_list_opens_over_the_trigger_with_the_chosen_row_on_it(cx: &mut TestAppContext) {
-        let cx = crate::test_support::probe::open(cx, |_, _| {
-            div()
-                .pt(px(200.0))
-                .pl(px(100.0))
-                .child(Select::new("s", options(), Some(2)).compact())
-        });
-        cx.simulate_click(point(px(120.0), px(210.0)), gpui::Modifiers::none());
-        cx.run_until_parked();
-        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
-        let chosen = cx.debug_bounds("menu-row-2").unwrap_or_default();
-        assert_eq!(chosen.top(), px(200.0), "{chosen:?}");
-        assert_eq!(chosen.size.height, px(28.0), "{chosen:?}");
-        assert_eq!(menu.left(), px(100.0 - 27.0), "{menu:?}");
-        assert_eq!(menu.size.width, px(144.0 + 30.0), "{menu:?}");
-    }
-
-    #[gpui::test]
-    fn a_filling_trigger_opens_a_list_wider_than_itself(cx: &mut TestAppContext) {
-        let cx = crate::test_support::probe::open(cx, |_, _| {
-            div()
-                .w(px(300.0))
-                .child(Select::new("s", options(), Some(0)).fill())
-        });
-        cx.simulate_click(point(px(150.0), px(10.0)), gpui::Modifiers::none());
-        cx.run_until_parked();
-        let menu = cx.debug_bounds("ui-menu").unwrap_or_default();
-        assert_eq!(menu.size.width, px(300.0 + 30.0), "{menu:?}");
     }
 }

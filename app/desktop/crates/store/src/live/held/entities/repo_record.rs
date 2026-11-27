@@ -14,5 +14,6 @@ pub(crate) struct RepoRecord {
     pub(crate) avatar_emoji: String,
     pub(crate) avatar_url: String,
     pub(crate) order: i64,
+    pub(crate) folder_id: String,
     pub(crate) deleting: bool,
 }

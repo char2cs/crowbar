@@ -2,9 +2,11 @@ use crate::backend::mock::call::Call;
 use crate::backend::mock::mock_platform::MockPlatform;
 use crate::backend::view::page_control::PageControl;
 use crate::backend::view::view_capture::ViewCapture;
+use crate::backend::view::view_cutout::ViewCutout;
 use crate::error::Result;
 use crate::view::Id;
 use crate::view::Snapshot;
+use crate::view::{Bounds, Corners};
 
 impl PageControl for MockPlatform {
     fn eval(
@@ -41,6 +43,28 @@ impl ViewCapture for MockPlatform {
     ) -> Result<Option<Snapshot>> {
         self.record(Call::Snapshot { id });
         Ok(None)
+    }
+}
+
+impl ViewCutout for MockPlatform {
+    fn set_cutout(
+        &self,
+        id: Id,
+        hole: Option<Bounds>,
+    ) -> Result<()> {
+        self.require_live(id)?;
+        self.record(Call::SetCutout { id, hole });
+        Ok(())
+    }
+
+    fn set_corners(
+        &self,
+        id: Id,
+        corners: Corners,
+    ) -> Result<()> {
+        self.require_live(id)?;
+        self.record(Call::SetCorners { id, corners });
+        Ok(())
     }
 }
 

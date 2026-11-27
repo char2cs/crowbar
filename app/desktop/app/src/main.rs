@@ -88,6 +88,7 @@ fn start(
         #[cfg(target_os = "linux")]
         adapters::drop_relay::install(window, cx);
         let view = cx.new(|cx| ShellView::new(parts, window, cx));
+        view.update(cx, |_, cx| window_vibrancy::follow(window, cx));
         remember_close(&memory, window, cx, &view);
         view
     });

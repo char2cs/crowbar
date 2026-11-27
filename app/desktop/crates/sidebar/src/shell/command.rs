@@ -51,6 +51,13 @@ pub enum Command {
     ChooseSpaceFolder(HostId),
     /// Delete a space after its confirmation.
     DeleteProject(ProjectId),
+    /// Rename a space.
+    RenameProject {
+        /// The space.
+        project: ProjectId,
+        /// The new name.
+        name: String,
+    },
     /// Subscribe to the space's chats again.
     RetryChats(ProjectId),
     /// Open the row in a pane.

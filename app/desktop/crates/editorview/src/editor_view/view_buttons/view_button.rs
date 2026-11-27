@@ -70,8 +70,8 @@ mod tests {
     use gpui::TestAppContext;
 
     use super::*;
-    use crate::editor_view::find::find_actions::FIND_BUTTON;
     use crate::editor_view::test_support::opened_at;
+    use crate::editor_view::view_buttons::FIND_BUTTON;
 
     #[gpui::test]
     fn the_toolbar_buttons_take_develop_s_button_sizes(cx: &mut TestAppContext) {

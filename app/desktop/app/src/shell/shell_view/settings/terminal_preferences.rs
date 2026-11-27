@@ -54,7 +54,7 @@ pub(crate) fn terminal_settings(read: impl Fn(&str) -> Option<Value>) -> termina
 
 fn family(stored: Option<&Value>) -> Option<String> {
     let name = stored.and_then(Value::as_text)?.trim();
-    (!name.is_empty()).then(|| name.to_owned())
+    (!name.is_empty()).then(|| ui::font::registered_family(name).to_owned())
 }
 
 fn shape(stored: Option<&Value>) -> Option<CursorShape> {
@@ -121,6 +121,14 @@ mod tests {
         assert_eq!(settings.cursor_shape, CursorShape::Bar);
         assert!(!settings.cursor_blink);
         assert!((settings.cursor_width - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_stored_web_mono_name_draws_with_the_bundled_face() {
+        let web = Value::Text("Geist Mono Variable".into());
+        let stored: Stored = BTreeMap::from([("terminalFontFamily", web)]);
+        let settings = terminal_settings(read(&stored));
+        assert_eq!(settings.font_family, ui::font::MONO_FAMILY);
     }
 
     #[test]

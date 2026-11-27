@@ -1,5 +1,6 @@
-//! The desktop's own context menu, which the shell installs at start in place of the drawn one.
+//! The desktop's own context menu, which the shell installs at start.
 
+mod entries;
 mod menu_edge;
 mod native_entry;
 mod native_request;
@@ -17,7 +18,8 @@ pub use menu_edge::MenuEdge;
 pub use native_entry::NativeEntry;
 pub use native_request::NativeRequest;
 
-use crate::floating::menu::menu_item::{MenuAction, MenuItem};
+use crate::floating::menu::menu_item::MenuItem;
+use crate::floating::menu::native_menu::entries::{action_at, entries};
 use crate::foundation::opaque_debug;
 
 /// The chosen entry: its index in the menu, then its index in each submenu it lies in.
@@ -27,10 +29,7 @@ pub type MenuPath = Vec<usize>;
 /// the menu is dismissed.
 pub type PopupMenu = Rc<dyn Fn(NativeRequest, &Window, &mut App) -> Task<Option<MenuPath>>>;
 
-type Run = Rc<dyn Fn(&mut Window, &mut App)>;
-
-/// The installed native menu, a global; context menus are drawn in the window until one is
-/// installed.
+/// The installed native menu, a global; menus open nothing until one is installed.
 #[derive(Clone)]
 pub struct NativeMenu(PopupMenu);
 
@@ -61,10 +60,8 @@ impl NativeMenu {
         (self.0)(request, window, cx)
     }
 
-    /// Pops `items` up with `edge` at `at` and runs the chosen row's action, as a drawn menu
-    /// would.
+    /// Pops `items` up with `edge` at `at` in the installed menu and runs the chosen row's action.
     pub fn open(
-        &self,
         items: &Rc<[MenuItem]>,
         anchor: (Point<Pixels>, MenuEdge),
         (window, cx): (&Window, &mut App),
@@ -75,7 +72,10 @@ impl NativeMenu {
             at,
             edge,
         };
-        let chosen = self.popup(request, window, cx);
+        let Some(native) = Self::installed(cx) else {
+            return;
+        };
+        let chosen = native.popup(request, window, cx);
         let items = Rc::clone(items);
         window
             .spawn(cx, async move |cx| {
@@ -94,15 +94,15 @@ pub(crate) fn trigger_probe() -> (Rc<Cell<Bounds<Pixels>>>, impl IntoElement) {
     (laid_out, probe.absolute().top_0().left_0().size_full())
 }
 
-/// Calls `open` with the pointer when `element` is right-clicked: on release when a native menu
-/// is installed, on press otherwise, where a drawn menu opens.
+/// Calls `open` with the pointer when `element` is right-clicked: on release for a GTK menu, on
+/// press otherwise.
 pub fn on_context_click<E: InteractiveElement>(
     element: E,
     open: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,
 ) -> E {
     let on_press: Rc<Open> = Rc::new(open);
     let on_release = Rc::clone(&on_press);
-    // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up.
+    // PLATFORM: linux the press holds an implicit X grab on the shell window, so GTK can only take the pointer for its menu once the button is up; macos opens menus on the press.
     element
         .on_mouse_down(MouseButton::Right, move |event, window, cx| {
             pressed(&on_press, event.position, (window, cx));
@@ -119,7 +119,7 @@ fn pressed(
     at: Point<Pixels>,
     (window, cx): (&mut Window, &mut App),
 ) {
-    if NativeMenu::installed(cx).is_none() {
+    if !opens_on_release(cx) {
         open(at, window, cx);
     }
 }
@@ -129,86 +129,24 @@ fn released(
     at: Point<Pixels>,
     (window, cx): (&mut Window, &mut App),
 ) {
-    if NativeMenu::installed(cx).is_some() {
+    if opens_on_release(cx) {
         open(at, window, cx);
     }
 }
 
-fn entries(items: &[MenuItem]) -> Vec<NativeEntry> {
-    items.iter().map(entry).collect()
-}
-
-fn entry(item: &MenuItem) -> NativeEntry {
-    match item {
-        MenuItem::Action(action) => action_entry(item, action),
-        MenuItem::Separator => NativeEntry::Separator,
-        MenuItem::Label(text) => NativeEntry::Item {
-            label: text.clone(),
-            enabled: false,
-            checked: false,
-        },
-    }
-}
-
-fn action_entry(
-    item: &MenuItem,
-    action: &MenuAction,
-) -> NativeEntry {
-    let (label, enabled) = (action.label.clone(), !action.disabled);
-    match item.submenu_items() {
-        Some(nested) => NativeEntry::Submenu {
-            label,
-            enabled,
-            entries: entries(&nested),
-        },
-        None => NativeEntry::Item {
-            label,
-            enabled,
-            checked: action.checked,
-        },
-    }
-}
-
-fn action_at(
-    items: &[MenuItem],
-    path: &[usize],
-) -> Option<Run> {
-    let (first, rest) = path.split_first()?;
-    let item = items.get(*first)?;
-    if !rest.is_empty() {
-        return action_at(&item.submenu_items()?, rest);
-    }
-    let MenuItem::Action(action) = item else {
-        return None;
-    };
-    item.is_selectable().then(|| Rc::clone(&action.on_select))
+fn opens_on_release(cx: &App) -> bool {
+    cfg!(target_os = "linux") && NativeMenu::installed(cx).is_some()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-
     use gpui::{Modifiers, MouseButton, TestAppContext, div, point, px};
 
     use super::*;
     use crate::floating::menu::ContextMenu;
+    use crate::floating::menu::menu_item::MenuAction;
+    use crate::test_support::menus::answering;
     use crate::test_support::probe::open;
-
-    type Asked = Rc<RefCell<Vec<NativeRequest>>>;
-
-    fn answering(
-        cx: &mut TestAppContext,
-        path: Option<MenuPath>,
-    ) -> Asked {
-        let asked = Asked::default();
-        let heard = Rc::clone(&asked);
-        let popup: PopupMenu = Rc::new(move |request, _, _| {
-            heard.borrow_mut().push(request);
-            Task::ready(path.clone())
-        });
-        cx.update(|cx| cx.set_global(NativeMenu::new(popup)));
-        asked
-    }
 
     fn rows(chosen: &Rc<Cell<u32>>) -> Vec<MenuItem> {
         let (outer, inner) = (Rc::clone(chosen), Rc::clone(chosen));
@@ -216,7 +154,7 @@ mod tests {
         let deep = MenuAction::new("main", move |_, _| inner.set(inner.get() + 10));
         let nested = vec![MenuItem::Action(deep)];
         vec![
-            MenuItem::Action(rename.shortcut("F2").destructive()),
+            MenuItem::Action(rename),
             MenuItem::Separator,
             MenuItem::Action(MenuAction::submenu("Move to…", nested)),
             MenuItem::Action(MenuAction::new("Off", |_, _| {}).disabled()),
@@ -234,7 +172,7 @@ mod tests {
     fn right_click(
         cx: &mut TestAppContext,
         chosen: &Rc<Cell<u32>>,
-    ) -> Option<Bounds<Pixels>> {
+    ) {
         let chosen = Rc::clone(chosen);
         let cx = open(cx, move |_, _| {
             let area = div().w(px(200.0)).h(px(100.0));
@@ -244,13 +182,12 @@ mod tests {
         cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
         cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
-        cx.debug_bounds("ui-menu")
     }
 
     #[gpui::test]
     fn a_right_click_asks_for_a_native_menu_of_plain_rows_at_the_pointer(cx: &mut TestAppContext) {
         let asked = answering(cx, None);
-        let drawn = right_click(cx, &Rc::new(Cell::new(0)));
+        right_click(cx, &Rc::new(Cell::new(0)));
         let submenu = NativeEntry::Submenu {
             label: "Move to…".into(),
             enabled: true,
@@ -268,7 +205,6 @@ mod tests {
             edge: MenuEdge::Start,
         };
         assert_eq!(*asked.borrow(), [want]);
-        assert_eq!(drawn, None, "nothing is drawn in the window");
     }
 
     #[gpui::test]
@@ -315,22 +251,23 @@ mod tests {
     }
 
     #[gpui::test]
-    fn without_a_native_menu_a_context_click_opens_on_the_press(cx: &mut TestAppContext) {
+    fn without_a_native_menu_a_context_click_is_heard_on_the_press(cx: &mut TestAppContext) {
         assert_eq!(press_then_release(cx), (1, 1));
     }
 
     #[gpui::test]
-    fn with_a_native_menu_a_context_click_opens_on_the_release(cx: &mut TestAppContext) {
+    fn with_a_native_menu_a_context_click_opens_when_the_desktop_s_menus_do(
+        cx: &mut TestAppContext
+    ) {
         answering(cx, None);
-        assert_eq!(press_then_release(cx), (0, 1));
+        assert_eq!(press_then_release(cx), heard_here());
     }
 
-    #[test]
-    fn a_dismissed_menu_or_a_disabled_or_missing_entry_runs_nothing() {
-        let items = rows(&Rc::new(Cell::new(0)));
-        for path in [vec![], vec![1], vec![3], vec![9], vec![2, 4]] {
-            assert!(action_at(&items, &path).is_none(), "{path:?}");
+    // PLATFORM: linux GTK opens on the release, macos on the press.
+    fn heard_here() -> (u32, u32) {
+        if cfg!(target_os = "linux") {
+            return (0, 1);
         }
-        assert!(action_at(&items, &[0]).is_some());
+        (1, 1)
     }
 }

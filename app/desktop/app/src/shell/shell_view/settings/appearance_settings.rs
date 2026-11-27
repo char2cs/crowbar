@@ -73,7 +73,7 @@ fn family_of(
 ) -> Option<&'static str> {
     stored
         .and_then(Value::as_text)
-        .and_then(|name| names.intern(name))
+        .and_then(|name| names.intern(ui::font::registered_family(name)))
 }
 
 pub(crate) fn themed(
@@ -185,6 +185,18 @@ mod tests {
         assert_eq!(
             (unset.id(), unset.mode()),
             (ThemeId::Crowbar, ThemeMode::System)
+        );
+    }
+
+    #[test]
+    fn a_stored_web_family_name_draws_with_the_bundled_face() {
+        let ui = Value::Text("CalSansUI".into());
+        let mono = Value::Text("Geist Mono Variable".into());
+        let stored = ((None, None, None), (Some(&ui), None, Some(&mono)));
+        let set = themed(Theme::default(), (stored, &mut FamilyNames::default()));
+        assert_eq!(
+            (set.ui_family(), set.mono_family()),
+            (ui::font::UI_FAMILY, ui::font::MONO_FAMILY)
         );
     }
 

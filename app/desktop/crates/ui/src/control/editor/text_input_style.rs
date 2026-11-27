@@ -1,18 +1,21 @@
 //! Size and finish of a [`crate::TextInput`].
 
-use gpui::{Pixels, px};
+use gpui::{FontWeight, Pixels, px};
 
 use crate::foundation::ControlScale;
 use crate::foundation::ScaledText;
 use crate::foundation::Theme;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::text_size;
+use crate::foundation::tokens::tracking;
 
 const STANDARD_HEIGHT: f32 = 32.0;
 const COMPACT_HEIGHT: f32 = 28.0;
 const STEPPER_HEIGHT: f32 = 24.0;
 const BARE_HEIGHT: f32 = 20.0;
 const BARE_TEXT: f32 = 13.0;
+const TITLE_TEXT: f32 = 19.0;
+const TITLE_LINE: f32 = 24.0;
 const STANDARD_PADDING: f32 = 10.0;
 const COMPACT_PADDING: f32 = 9.0;
 const STEPPER_PADDING: f32 = 8.0;
@@ -35,6 +38,8 @@ pub enum TextInputStyle {
     /// [`Self::Standard`] framed in the foreground colour without a focus ring, as develop's
     /// Files-tree name field (`border-foreground`, focused by script so never focus-visible).
     Outlined,
+    /// Frameless field in the heading face of the space name, so renaming never changes it.
+    Title,
 }
 
 impl TextInputStyle {
@@ -45,6 +50,7 @@ impl TextInputStyle {
             Self::Compact => COMPACT_HEIGHT,
             Self::Stepper => STEPPER_HEIGHT,
             Self::Bare | Self::BareMono => BARE_HEIGHT,
+            Self::Title => TITLE_LINE,
         })
     }
 
@@ -53,14 +59,14 @@ impl TextInputStyle {
             Self::Standard | Self::Outlined => STANDARD_PADDING,
             Self::Compact => COMPACT_PADDING,
             Self::Stepper => STEPPER_PADDING,
-            Self::Bare | Self::BareMono => 0.0,
+            Self::Bare | Self::BareMono | Self::Title => 0.0,
         })
     }
 
     pub(crate) fn radius(self) -> Pixels {
         match self {
             Self::Stepper => radius::MD,
-            Self::Bare | Self::BareMono => px(0.0),
+            Self::Bare | Self::BareMono | Self::Title => px(0.0),
             Self::Standard | Self::Compact | Self::Outlined => radius::LG,
         }
     }
@@ -74,7 +80,9 @@ impl TextInputStyle {
             Self::Standard | Self::Compact | Self::Outlined => {
                 (self.height() + point.growth(), point.text())
             },
-            Self::Stepper | Self::Bare | Self::BareMono => (self.height(), self.text(theme)),
+            Self::Stepper | Self::Bare | Self::BareMono | Self::Title => {
+                (self.height(), self.text(theme))
+            },
         }
     }
 
@@ -84,6 +92,7 @@ impl TextInputStyle {
     ) -> Pixels {
         match self {
             Self::Bare | Self::BareMono => px(BARE_TEXT),
+            Self::Title => px(TITLE_TEXT),
             Self::Stepper => ScaledText::Sm.size(&theme),
             Self::Standard | Self::Compact | Self::Outlined => text_size::SM,
         }
@@ -93,14 +102,36 @@ impl TextInputStyle {
         self,
         theme: Theme,
     ) -> &'static str {
-        if self == Self::BareMono {
-            return theme.mono_family();
+        match self {
+            Self::BareMono => theme.mono_family(),
+            Self::Title => theme.heading_family(),
+            _ => theme.ui_family(),
         }
-        theme.ui_family()
     }
 
     pub(crate) fn bare(self) -> bool {
-        matches!(self, Self::Bare | Self::BareMono)
+        matches!(self, Self::Bare | Self::BareMono | Self::Title)
+    }
+
+    pub(crate) fn weight(self) -> FontWeight {
+        match self {
+            Self::Title => FontWeight::NORMAL,
+            _ => FontWeight::MEDIUM,
+        }
+    }
+
+    pub(crate) fn line_height(self) -> Pixels {
+        match self {
+            Self::Title => px(TITLE_LINE),
+            _ => text_size::LINE_HEIGHT,
+        }
+    }
+
+    pub(crate) fn tracking(self) -> f32 {
+        match self {
+            Self::Title => tracking::TIGHT,
+            _ => 0.0,
+        }
     }
 
     pub(crate) fn centered(self) -> bool {

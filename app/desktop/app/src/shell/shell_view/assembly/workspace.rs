@@ -95,6 +95,9 @@ impl Render for Workspace {
         _window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
+        let landing = self.landing(cx);
+        let replaced = landing.is_some() && !self.tabs.read(cx).has_tabs();
+        let stage = (!replaced).then(|| self.stage(cx));
         div()
             .size_full()
             .flex()
@@ -106,8 +109,8 @@ impl Render for Workspace {
                     .relative()
                     .flex()
                     .flex_col()
-                    .child(self.stage(cx))
-                    .children(self.landing(cx)),
+                    .children(stage)
+                    .children(landing),
             )
     }
 }
@@ -181,5 +184,18 @@ mod tests {
             count,
             "an unchanged area is not reported again"
         );
+    }
+
+    #[gpui::test]
+    fn the_landing_that_covers_an_empty_workspace_replaces_the_stage(cx: &mut TestAppContext) {
+        cx.update(|cx| ui::init(cx).unwrap_or_else(|error| panic!("{error}")));
+        let (_, cx) = cx.add_window_view(|_, cx| {
+            let layout = cx.new(|_| LayoutView::new(source()));
+            let tabs = cx.new(|_| TabBar::new(TabId(1)));
+            let landing = cx.new(|_| ProjectsFailed::new(Rc::new(|| {})));
+            Workspace::new((tabs, layout), landing, Rc::new(|| true))
+        });
+        cx.run_until_parked();
+        assert_eq!(cx.debug_bounds(STAGE_SELECTOR), None);
     }
 }

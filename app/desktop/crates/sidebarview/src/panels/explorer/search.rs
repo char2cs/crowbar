@@ -134,10 +134,7 @@ impl Sidebar {
         cx: &mut Context<'_, Self>,
     ) {
         let entries = filter_menu(&self.data.file_tree_view());
-        self.open_menu((entries, at), window, cx);
-        if let Some(menu) = self.menu.as_mut() {
-            menu.filter = true;
-        }
+        Self::pop_menu((entries, at), window, cx);
     }
 
     pub(crate) fn file_search_box(

@@ -22,7 +22,7 @@ use crate::host::pane_source::PaneSource;
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::clock::Clock;
 use crate::layout_view::drag::drop_hover::DropHover;
-use crate::layout_view::drag::sash_grab::SashGrab;
+use crate::layout_view::drag::held_sash::HeldSash;
 use crate::layout_view::hover_source::HoverSource;
 use crate::layout_view::pane::pane_cell::handle_rect;
 use crate::layout_view::pane::pane_fades::PaneFades;
@@ -37,7 +37,7 @@ pub struct LayoutView {
     pub(crate) source: Rc<dyn PaneSource>,
     pub(crate) bounds: Bounds<Pixels>,
     pub(crate) hover: PaneHover,
-    pub(crate) sash: Option<SashGrab>,
+    pub(crate) sash: Option<HeldSash>,
     pub(crate) drop: DropHover,
     pub(crate) rings: PaneFades,
     pub(crate) handles: PaneFades,
@@ -248,6 +248,13 @@ mod tests {
     }
 
     #[gpui::test]
+    fn the_empty_stage_can_move_the_window_as_there_is_no_tab_strip(cx: &mut TestAppContext) {
+        let empty = open(cx, &layout::Layout::default());
+        empty.cx.run_until_parked();
+        assert!(empty.cx.debug_bounds("window-grip").is_some());
+    }
+
+    #[gpui::test]
     fn the_view_measures_itself_and_lays_the_panes_out_in_its_bounds(cx: &mut TestAppContext) {
         let layout = side_by_side();
         let harness = open(cx, &layout);
@@ -303,6 +310,35 @@ mod tests {
         assert!(
             (first_extent - expected).abs() < 1.5,
             "first extent {first_extent} vs {expected}"
+        );
+    }
+
+    #[gpui::test]
+    fn dragging_the_sash_beside_a_chat_widens_the_chat_by_the_drag(cx: &mut TestAppContext) {
+        let mut layout = layout_of("a", &[]);
+        crate::test_support::open_tab(&mut layout, "t1");
+        let harness = open(cx, &layout);
+        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let (content, chrome) = view.read_with(cx, |view, _| (view.local(), view.chrome));
+        let chat = |layout: &layout::Layout| {
+            let tab = layout.showing("").expect("tab");
+            crate::pane_holes(tab, content, chrome)[0].rect
+        };
+        let before = chat(&layout);
+        let on_sash = before.x + before.width + 3.0;
+        let at = |x: f32| point(px(x), px(200.0));
+        cx.simulate_mouse_down(at(on_sash), MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(at(on_sash + 10.0), MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(at(on_sash + 60.0), MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(at(on_sash + 60.0), MouseButton::Left, Modifiers::none());
+        let resize = commands.borrow().last().cloned().expect("a command");
+        layout.apply(resize).expect("applied");
+        let after = chat(&layout);
+        assert!(
+            (after.width - before.width - 60.0).abs() < 1.5,
+            "{} then {}",
+            before.width,
+            after.width
         );
     }
 

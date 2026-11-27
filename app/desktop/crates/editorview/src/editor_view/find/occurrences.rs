@@ -95,7 +95,7 @@ impl EditorView {
     }
 }
 
-fn word_query(
+pub(in crate::editor_view) fn word_query(
     text: &str,
     word: &Range<usize>,
 ) -> FindQuery {

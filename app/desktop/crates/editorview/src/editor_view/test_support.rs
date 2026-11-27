@@ -1,12 +1,10 @@
 //! Views opened for the unit tests, and reads of what they show.
 
 use gpui::{
-    App, AppContext as _, Context, Entity, Focusable as _, TestAppContext, VisualTestContext,
-    Window,
+    App, AppContext as _, Entity, Focusable as _, TestAppContext, VisualTestContext, Window,
 };
 
 use super::EditorView;
-use crate::chrome::find_widget::FindWidget;
 use crate::document::Document;
 use crate::{Access, DocumentOpening, EditorEvent, Opening};
 
@@ -65,13 +63,6 @@ pub(crate) fn document_of(
     window.read(|cx| view.read(cx).document().clone())
 }
 
-pub(crate) fn find_of(
-    view: &Entity<EditorView>,
-    window: &mut VisualTestContext,
-) -> Entity<FindWidget> {
-    window.read(|cx| view.read(cx).find.clone())
-}
-
 pub(crate) fn selected_of(
     view: &Entity<EditorView>,
     window: &mut VisualTestContext,
@@ -86,37 +77,11 @@ pub(crate) fn rows_of(
     window.read(|cx| view.read(cx).state.read(cx).visible_row_range())
 }
 
-pub(crate) fn line_height_of(
-    view: &Entity<EditorView>,
-    window: &mut VisualTestContext,
-) -> Option<gpui::Pixels> {
-    window.read(|cx| view.read(cx).state.read(cx).line_height())
-}
-
-pub(crate) fn scroll_top_of(
-    view: &Entity<EditorView>,
-    window: &mut VisualTestContext,
-) -> gpui::Pixels {
-    window.read(|cx| view.read(cx).state.read(cx).scroll_offset().y)
-}
-
-pub(crate) fn body_of(window: &mut VisualTestContext) -> Option<gpui::Bounds<gpui::Pixels>> {
-    window.debug_bounds(super::BODY)
-}
-
 pub(crate) fn state_of(
     view: &Entity<EditorView>,
     cx: &App,
 ) -> Entity<gpui_kit::component::input::EditorState> {
     view.read(cx).state.clone()
-}
-
-pub(crate) fn text_top_of(window: &mut VisualTestContext) -> gpui::Pixels {
-    window
-        .debug_bounds(super::TEXT)
-        .unwrap_or_default()
-        .origin
-        .y
 }
 
 pub(crate) fn listened(
@@ -133,24 +98,6 @@ pub(crate) fn listened(
         cx.subscribe(view, record).detach();
     });
     heard
-}
-
-pub(crate) fn on_find<R>(
-    find: &Entity<FindWidget>,
-    window: &mut VisualTestContext,
-    run: impl FnOnce(&mut FindWidget, &mut Window, &mut Context<'_, FindWidget>) -> R,
-) -> R {
-    window.update(|window, cx| find.update(cx, |find, cx| run(find, window, cx)))
-}
-
-pub(crate) fn open_find(
-    find: &Entity<FindWidget>,
-    reveal: crate::editor_view::reveal::Reveal,
-    window: &mut VisualTestContext,
-) {
-    on_find(find, window, |find, window, cx| {
-        find.open(reveal, window, cx);
-    });
 }
 
 type Posts = std::rc::Rc<std::cell::RefCell<Vec<(&'static str, serde_json::Value)>>>;

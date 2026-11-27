@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 use crate::{LanguageServer, LspError};
 
-const CHANGE_DEBOUNCE: Duration = Duration::from_millis(400);
+pub(crate) const CHANGE_DEBOUNCE: Duration = Duration::from_millis(400);
 const UNTITLED: &str = "untitled:";
 const HOST_ROOT: char = '/';
 const PATH: &str = "path";
@@ -58,6 +58,10 @@ impl LspLink {
 
     pub(crate) fn path(&self) -> Option<String> {
         self.path.borrow().clone()
+    }
+
+    pub(crate) fn is_behind(&self) -> bool {
+        self.pending.borrow().is_some()
     }
 
     pub(crate) fn close(

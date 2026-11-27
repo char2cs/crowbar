@@ -9,6 +9,8 @@ mod crowbar_light;
 mod frosted_dark;
 mod frosted_light;
 
+const INK_WASH: u32 = 0x1010_0ea6;
+
 macro_rules! palette {
     ($($field:ident => $css:literal),* $(,)?) => {
         /// Resolved colour tokens of one theme and mode; one accessor per CSS custom property.
@@ -109,6 +111,26 @@ impl Palette {
     };
     pub(crate) const FROSTED_LIGHT: Self = frosted_light::PALETTE;
     pub(crate) const FROSTED_DARK: Self = frosted_dark::PALETTE;
+    pub(crate) const CROWBAR_LIGHT_SEE_THROUGH: Self = Self {
+        pane_chrome_bg: color::hex(0xfcfc_faf2),
+        chrome_bg: color::hex(INK_WASH),
+        ..crowbar_light::PALETTE
+    };
+    pub(crate) const CROWBAR_DARK_SEE_THROUGH: Self = Self {
+        pane_chrome_bg: color::hex(INK_WASH),
+        chrome_bg: color::hex(INK_WASH),
+        ..crowbar_dark::PALETTE
+    };
+    pub(crate) const FROSTED_LIGHT_SEE_THROUGH: Self = Self {
+        pane_chrome_bg: color::hex(0xfcfc_fae6),
+        chrome_bg: color::hex(0xfcfc_fa99),
+        ..frosted_light::PALETTE
+    };
+    pub(crate) const FROSTED_DARK_SEE_THROUGH: Self = Self {
+        pane_chrome_bg: color::hex(INK_WASH),
+        chrome_bg: color::hex(INK_WASH),
+        ..frosted_dark::PALETTE
+    };
 }
 
 #[cfg(test)]

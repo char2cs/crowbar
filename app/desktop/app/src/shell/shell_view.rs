@@ -12,7 +12,7 @@ use layoutview::{ChromeContext, LayoutView};
 use settingsview::SettingsModal;
 use sidebarview::Sidebar;
 use store::SettingsAdapter;
-use ui::{Portal, Surface, Theme, ToastQueue, layer};
+use ui::{Portal, Theme, ToastQueue, layer};
 use viewtabs::{SidebarState, TabBar};
 
 pub(crate) mod assembly;
@@ -40,7 +40,6 @@ use crate::shell::ports::Ports;
 use crate::shell::shell_state::ShellState;
 use crate::shell::shell_view::assembly::shell_parts::ShellParts;
 
-use crate::panes::terminals::link_menu;
 use crate::panes::tracking::active_file;
 use crate::panes::tracking::open_chats;
 use crate::shell::dialogs::file_prompt;
@@ -84,7 +83,6 @@ pub(crate) struct ShellView {
     readout: readout_state::ReadoutState,
     notices: Entity<ToastQueue>,
     backend: crate::daemon::backend::BackendWatch,
-    link_menu: Option<link_menu::LinkMenu>,
     subscriptions: Vec<Subscription>,
 }
 
@@ -143,7 +141,6 @@ impl ShellView {
             ports: parts.ports,
             notices: built.notices,
             backend: events::backend::watching(built.workspace),
-            link_menu: None,
             pane_area: built.pane_area,
             subscriptions: built.subscriptions,
         }
@@ -311,7 +308,6 @@ impl Render for ShellView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
-        let palette = Theme::of(cx).palette(Surface::Window);
         self.readout.paint();
         div()
             .size_full()
@@ -320,10 +316,8 @@ impl Render for ShellView {
             .on_key_down(cx.listener(Self::on_key_down))
             .capture_any_mouse_down(cx.listener(Self::on_shell_pressed))
             .relative()
-            .bg(palette.background())
             .child(ui::hear())
             .child(self.sidebar.clone())
-            .children(self.link_layers(cx))
             .children(self.floating(cx))
     }
 }
@@ -455,6 +449,42 @@ mod tests {
             preferences,
             space,
         }
+    }
+
+    fn solid_fills_at(
+        window: &mut Window,
+        (x, y): (f32, f32),
+    ) -> Vec<f32> {
+        let scale = window.scale_factor();
+        let at = gpui::point(gpui::px(x).scale(scale), gpui::px(y).scale(scale));
+        window
+            .painted_quads()
+            .into_iter()
+            .filter(|quad| {
+                quad.bounds
+                    .intersect(&quad.content_mask.bounds)
+                    .contains(&at)
+            })
+            .filter_map(|quad| quad.background.as_solid())
+            .map(|fill| fill.a)
+            .filter(|alpha| *alpha > 0.0)
+            .collect()
+    }
+
+    #[gpui::test]
+    fn a_see_through_window_paints_nothing_solid_behind_its_sidebar(cx: &mut TestAppContext) {
+        let mut opened = open_started_shell(cx);
+        let see_through = Theme::default()
+            .with_mode(ui::ThemeMode::Dark)
+            .with_vibrancy(ui::Vibrancy::Translucent);
+        opened.window.update(|_, cx| see_through.install(cx));
+        opened.window.run_until_parked();
+        let fills = opened.window.update(|window, _| {
+            let bottom = f32::from(window.viewport_size().height) - 4.0;
+            solid_fills_at(window, (4.0, bottom))
+        });
+        assert!(!fills.is_empty(), "the sidebar's wash is there");
+        assert!(fills.iter().all(|alpha| *alpha < 1.0), "{fills:?}");
     }
 
     #[gpui::test]
@@ -597,35 +627,38 @@ mod tests {
         opened
     }
 
-    fn open_drawn_menu(cx: &mut TestAppContext) -> Opened {
-        let mut opened = open_started_shell(cx);
-        register_chat(&mut opened);
-        let pane = opened.pane.clone();
-        let link = terminalview::Event::OpenUrl {
-            url: "https://example.com".into(),
-            position: gpui::point(gpui::px(400.0), gpui::px(200.0)),
-        };
-        opened
-            .shell
-            .update_in(&mut opened.window, |shell, window, cx| {
-                shell.on_terminal((&pane, link), window, cx);
-            });
+    fn click(
+        opened: &mut Opened,
+        at: gpui::Point<gpui::Pixels>,
+    ) {
+        opened.window.simulate_click(at, gpui::Modifiers::none());
         opened.window.run_until_parked();
-        opened
     }
 
-    #[gpui::test]
-    fn activating_the_window_leaves_the_keyboard_with_an_open_menu(cx: &mut TestAppContext) {
-        let mut opened = open_drawn_menu(cx);
-        let before = page_focuses(&opened.mock);
-        opened.window.deactivate_window();
-        opened.window.update(|window, _| window.activate_window());
+    fn popover_open(opened: &mut Opened) -> bool {
+        !ui::testing::covered(&mut opened.window).1.is_empty()
+    }
+
+    /// The new space's icon picker, a popover that holds the keyboard while it is open.
+    fn open_popover(cx: &mut TestAppContext) -> Opened {
+        let mut opened = open_started_shell(cx);
+        register_chat(&mut opened);
         opened.window.run_until_parked();
-        assert_eq!(
-            page_focuses(&opened.mock),
-            before,
-            "no page took the keyboard"
-        );
+        let switcher = opened
+            .window
+            .debug_bounds("sidebar-switcher")
+            .expect("the switcher");
+        let add = gpui::point(switcher.right() - gpui::px(18.0), switcher.center().y);
+        click(&mut opened, add);
+        let icon = opened
+            .window
+            .debug_bounds("space-draft-icon")
+            .expect("the new space's icon");
+        opened
+            .window
+            .simulate_click(icon.center(), gpui::Modifiers::none());
+        assert!(popover_open(&mut opened), "open");
+        opened
     }
 
     pub(super) fn own_keyboard_by_page(opened: &mut Opened) {
@@ -681,12 +714,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_press_on_a_page_closes_a_drawn_menu_and_the_page_takes_the_keyboard(
-        cx: &mut TestAppContext
-    ) {
-        let mut opened = open_drawn_menu(cx);
+    fn a_press_on_a_page_closes_a_popover_and_the_page_takes_the_keyboard(cx: &mut TestAppContext) {
+        let mut opened = open_popover(cx);
         own_keyboard_by_page(&mut opened);
-        assert!(opened.window.debug_bounds("ui-menu").is_some(), "open");
         let before = page_focuses(&opened.mock);
         let pane = opened.pane.clone();
         let text = r#"{"sdk":1,"kind":"shell.focus"}"#.to_owned();
@@ -696,7 +726,7 @@ mod tests {
             shell.update(cx, |shell, cx| shell.on_ipc(pressed, window, cx));
         });
         opened.window.run_until_parked();
-        assert_eq!(opened.window.debug_bounds("ui-menu"), None, "closed");
+        assert!(!popover_open(&mut opened), "closed");
         assert!(
             page_focuses(&opened.mock) > before,
             "the page has the keyboard"
@@ -704,8 +734,16 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_menu_closed_with_escape_gives_the_keyboard_back_to_the_page(cx: &mut TestAppContext) {
-        let mut opened = open_drawn_menu(cx);
+    fn a_prompt_closed_with_escape_gives_the_keyboard_back_to_the_page(cx: &mut TestAppContext) {
+        let mut opened = open_started_shell(cx);
+        register_chat(&mut opened);
+        let pane = opened.pane.clone();
+        opened
+            .shell
+            .update_in(&mut opened.window, |shell, window, cx| {
+                shell.ask_rename((&pane, "Chat"), window, cx);
+            });
+        opened.window.run_until_parked();
         own_keyboard_by_page(&mut opened);
         let before = page_focuses(&opened.mock);
         opened.window.simulate_keystrokes("escape");

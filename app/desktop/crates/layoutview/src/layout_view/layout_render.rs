@@ -84,7 +84,8 @@ impl LayoutView {
             .flex()
             .items_center()
             .justify_center()
-            .child(Wordmark::new(px(width)));
+            .child(Wordmark::new(px(width)))
+            .child(ui::window_drag_strip(STRIP_HEIGHT));
         Some(stage.into_any_element())
     }
 

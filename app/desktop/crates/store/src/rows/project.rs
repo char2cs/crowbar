@@ -1,7 +1,7 @@
-//! The chats tree of one space: its home level and its repositories, each under its header,
-//! sorted as one sibling list.
+//! The chats tree of one space: its home level, with each repository under its header where the
+//! home files it.
 
-mod root_block;
+use std::collections::HashMap;
 
 use sidebar::{Mark, Row, RowKind, Worktree};
 
@@ -11,9 +11,8 @@ use crate::live::PendingRow;
 use crate::live::RepoRecord;
 use crate::live::WorkspaceRecord;
 use crate::rows::emitter::Emitter;
-use crate::rows::forest::SiblingKey;
+use crate::rows::forest::{Item, ItemKind};
 use crate::rows::look::{activity_of, nesting_for};
-use crate::rows::project::root_block::RootBlock;
 use crate::rows::{forest, repo_mark};
 use crate::rows::{scope_items, scope_items::ScopeItems};
 
@@ -25,40 +24,32 @@ pub(crate) fn of(
     pending: &[PendingRow],
     icons: &IconCache,
 ) -> Vec<Row> {
-    let mut blocks = home_blocks(store, project, pending);
-    let repos = store
-        .repos
-        .values()
-        .filter(|repo| repo.project_id == project);
-    blocks.extend(repos.map(|repo| repo_block(store, repo, pending, icons)));
-    blocks.sort_by(|a, b| a.key.cmp(&b.key));
-    blocks.into_iter().flat_map(|block| block.rows).collect()
-}
-
-fn home_blocks(
-    store: &Entities,
-    project: &str,
-    pending: &[PendingRow],
-) -> Vec<RootBlock> {
-    let ScopeItems { items, owners } = scope_items::of(store, (project, ""), pending);
+    let ScopeItems { mut items, owners } = scope_items::of(store, (project, ""), pending);
+    let mut repos = HashMap::new();
+    for repo in store.repos.values().filter(|r| r.project_id == project) {
+        items.push(repo_item(repo));
+        repos.insert(repo.id.clone(), repo_block(store, repo, pending, icons));
+    }
     let trees = forest::fold_owners(forest::build(&items), &owners);
     let emitter = Emitter {
         store,
         pending,
         owners: &owners,
         folders: Worktree::Shared,
+        repos: &repos,
     };
-    let key_of = |id: &str| {
-        let item = items.iter().find(|item| item.id == id);
-        item.map_or_default(SiblingKey::of_item)
-    };
-    trees
-        .iter()
-        .map(|tree| RootBlock {
-            key: key_of(&tree.id),
-            rows: emitter.rows(std::slice::from_ref(tree), 0),
-        })
-        .collect()
+    emitter.rows(&trees, 0)
+}
+
+fn repo_item(repo: &RepoRecord) -> Item {
+    Item {
+        id: repo.id.clone(),
+        kind: ItemKind::Repo,
+        order: repo.order,
+        created: String::new(),
+        filed: repo.folder_id.clone(),
+        ground: String::new(),
+    }
 }
 
 fn repo_block(
@@ -66,14 +57,11 @@ fn repo_block(
     repo: &RepoRecord,
     pending: &[PendingRow],
     icons: &IconCache,
-) -> RootBlock {
+) -> Vec<Row> {
     let body = repo_rows(store, (&repo.project_id, &repo.id), pending);
     let mut rows = vec![header(store, repo, body.len(), icons)];
     rows.extend(body);
-    RootBlock {
-        key: SiblingKey::of_repo(repo.order, &repo.id),
-        rows,
-    }
+    rows
 }
 
 fn repo_rows(
@@ -88,6 +76,7 @@ fn repo_rows(
         pending,
         owners: &owners,
         folders: Worktree::Owned,
+        repos: &HashMap::new(),
     };
     emitter.rows(&trees, REPO_DEPTH)
 }
@@ -300,7 +289,38 @@ mod tests {
         assert_eq!(marks, [Some(Mark::Image("/c/r-1".into()))]);
     }
 
-    const CASES: [fn(); 5] = [
+    fn a_repo_filed_into_a_home_folder_is_drawn_inside_it() {
+        const FILED: [(&str, &str, &str); 3] = [
+            (
+                "folder",
+                "hf",
+                r#"{"id":"hf","projectId":"p","repoId":"","name":"Notes"}"#,
+            ),
+            (
+                "repo",
+                "r",
+                r#"{"id":"r","projectId":"p","name":"crowbar","folderId":"hf"}"#,
+            ),
+            (
+                "workspace",
+                "lock",
+                r#"{"id":"lock","projectId":"p","repoId":"r","branch":"main","status":"locked"}"#,
+            ),
+        ];
+        let rows = of(&store_of(&FILED), "p", &[]);
+        let placed: Vec<(RowKind, u8)> = rows.iter().map(|row| (row.kind, row.depth)).collect();
+        let want = [
+            (RowKind::Folder, 0),
+            (RowKind::RepoHeader, 1),
+            (RowKind::Branch, 2),
+        ];
+        assert_eq!(placed, want);
+        assert_eq!(rows[0].nesting, Nesting::Parent);
+        assert_eq!(rows[1].nesting, Nesting::Parent);
+    }
+
+    const CASES: [fn(); 6] = [
+        a_repo_filed_into_a_home_folder_is_drawn_inside_it,
         a_repo_with_a_fetched_image_wears_it_as_its_mark,
         the_home_level_and_the_repos_sort_as_one_sibling_list,
         a_space_lists_its_home_chats_then_each_repo_under_a_header,

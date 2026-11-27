@@ -72,7 +72,7 @@ fn place_of(
     wanted: Keysym,
 ) -> Option<UsKey> {
     let width = usize::from(mapping.keysyms_per_keycode).max(1);
-    let rows = mapping.keysyms.chunks(width).zip(first..);
+    let rows = mapping.keysyms.chunks(width).zip(first..=Keycode::MAX);
     let levels = |level: usize| {
         rows.clone()
             .find(|(syms, _)| syms.get(level) == Some(&wanted))
@@ -136,5 +136,11 @@ mod tests {
             let found = place_of(&us_digit_row(), FIRST, keysym_of(typed));
             assert_eq!(found, expected, "{case}");
         }
+    }
+
+    #[test]
+    fn a_table_that_runs_to_the_last_keycode_is_searched_to_its_end() {
+        let full = mapping(&vec![[0, 0]; usize::from(Keycode::MAX - FIRST) + 1]);
+        assert_eq!(place_of(&full, FIRST, keysym_of('|')), None);
     }
 }

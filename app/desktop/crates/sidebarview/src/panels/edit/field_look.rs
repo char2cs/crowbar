@@ -8,6 +8,7 @@ pub(crate) fn of(editing: &Editing) -> TextInputStyle {
     match editing {
         Editing::Branching(_) | Editing::Drafting(_) => TextInputStyle::BareMono,
         Editing::RenamingFile(_) | Editing::Creating { .. } => TextInputStyle::Outlined,
+        Editing::RenamingProject(_) => TextInputStyle::Title,
         _ => TextInputStyle::Bare,
     }
 }

@@ -1,9 +1,7 @@
-mod gutter_gap;
-
 use gpui::{App, Context, Styled as _, Window, px};
-use gpui_kit::base::input::{RopeExt as _, TabSize};
+use gpui_kit::base::input::TabSize;
 use gpui_kit::component::Sizable as _;
-use gpui_kit::component::input::{Editor, EditorState, GutterStyle};
+use gpui_kit::component::input::{Editor, EditorState};
 
 use super::EditorView;
 use crate::{Access, Settings};
@@ -15,23 +13,19 @@ impl EditorView {
         cx: &mut Context<'_, Self>,
     ) {
         let settings = Settings::of(cx);
-        self.state
-            .update(cx, |state, cx| apply(state, &settings, (window, cx)));
+        self.state.update(cx, |state, cx| {
+            apply(state, &settings, (window, cx));
+            state.refresh(cx);
+        });
+        self.mark_occurrences(cx);
         cx.notify();
     }
 
     pub(super) fn editor(
         &self,
-        window: &Window,
         cx: &App,
     ) -> Editor {
         let settings = Settings::of(cx);
-        let lines = self.state.read(cx).text().lines_len();
-        let mono = (
-            gpui::font(ui::Theme::of(cx).mono_family()),
-            px(settings.font_size),
-        );
-        let gap = gutter_gap::monaco_gap(lines, (&mono.0, mono.1), window);
         Editor::new(&self.state)
             .appearance(false)
             .xsmall()
@@ -40,7 +34,6 @@ impl EditorView {
             .font_family(ui::Theme::of(cx).mono_family())
             .text_size(px(settings.font_size))
             .line_height(settings.row_height())
-            .gutter_style(GutterStyle::default().with_gap(gap))
     }
 }
 

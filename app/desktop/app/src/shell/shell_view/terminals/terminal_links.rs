@@ -1,14 +1,11 @@
-use gpui::{
-    AnyElement, App, AppContext as _, ClipboardItem, Context, DismissEvent, Pixels, Point, Window,
-};
+use gpui::{ClipboardItem, Context, Pixels, Point, Window};
 use layout::Command;
 use protocol::PaneId;
 use terminalview::Event;
-use ui::{Menu, MenuAction, MenuItem, ToastKind};
+use ui::{MenuAction, MenuItem, ToastKind};
 
 use crate::panes::kinds::pane_spec::PaneSpec;
 use crate::panes::terminals::link_choice::LinkChoice;
-use crate::panes::terminals::link_menu::LinkMenu;
 use crate::shell::inbox::shell_request::ShellRequest;
 use crate::shell::shell_view::ShellView;
 use crate::shell::window::notice_key::NoticeKey;
@@ -23,7 +20,7 @@ impl ShellView {
         match event {
             Event::OpenUrl { url, position } => {
                 let items = self.link_rows(pane, &url);
-                self.open_link_menu((items, position), window, cx);
+                Self::open_link_menu((items, position), window, cx);
             },
             Event::OpenFile { path, line } => self.open_printed_file(pane, (&path, line), cx),
             Event::Exited(_) => self.close_terminal(pane, cx),
@@ -44,21 +41,11 @@ impl ShellView {
     }
 
     fn open_link_menu(
-        &mut self,
         (items, at): (Vec<MenuItem>, Point<Pixels>),
-        window: &mut Window,
+        window: &Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if let Some(native) = ui::NativeMenu::installed(cx) {
-            return native.open(&items.into(), (at, ui::MenuEdge::Start), (window, cx));
-        }
-        let menu = cx.new(|cx| Menu::new(items, window, cx));
-        cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
-            this.close_link_menu(cx);
-        })
-        .detach();
-        self.link_menu = Some(LinkMenu { menu, at });
-        cx.notify();
+        ui::NativeMenu::open(&items.into(), (at, ui::MenuEdge::Start), (window, cx));
     }
 
     fn link_row(
@@ -77,36 +64,11 @@ impl ShellView {
         })
     }
 
-    pub(crate) fn link_layers(
-        &self,
-        cx: &mut Context<'_, Self>,
-    ) -> Vec<AnyElement> {
-        let Some(LinkMenu { menu, at }) = self.link_menu.as_ref() else {
-            return Vec::new();
-        };
-        let (menu, shell) = (menu.clone(), cx.entity());
-        let away = ui::click_away("link-menu-away", move |_, cx: &mut App| {
-            shell.update(cx, Self::close_link_menu);
-        });
-        let popup = ui::popup_at("link-menu", *at, move |_, _| menu.clone());
-        vec![away, popup]
-    }
-
-    fn close_link_menu(
-        &mut self,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.link_menu = None;
-        cx.notify();
-    }
-
     pub(crate) fn choose_link(
         &mut self,
         (pane, url, choice): (&PaneId, String, LinkChoice),
         cx: &mut Context<'_, Self>,
     ) {
-        self.link_menu = None;
-        cx.notify();
         match choice {
             LinkChoice::CopyLink => cx.write_to_clipboard(ClipboardItem::new_string(url)),
             _ if self.refuses_loopback(pane, &url, cx) => {},
@@ -188,18 +150,6 @@ mod tests {
             .map(str::to_owned)
     }
 
-    #[gpui::test]
-    fn a_url_opens_its_menu_at_the_pointer(cx: &mut TestAppContext) {
-        let (mut opened, terminal) = with_terminal(cx);
-        let position = point(px(120.0), px(80.0));
-        let url = "https://example.com".to_owned();
-        tell(&mut opened, (&terminal, Event::OpenUrl { url, position }));
-        let at = opened.shell.update(&mut opened.window, |shell, _| {
-            shell.link_menu.as_ref().map(|menu| menu.at)
-        });
-        assert_eq!(at, Some(position));
-    }
-
     fn row(label: &'static str) -> ui::NativeEntry {
         ui::NativeEntry::Item {
             label: label.into(),
@@ -230,10 +180,6 @@ mod tests {
             .read_from_clipboard()
             .and_then(|item| item.text());
         assert_eq!(copied.as_deref(), Some("https://example.com"));
-        let drawn = opened
-            .shell
-            .update(&mut opened.window, |shell, _| shell.link_menu.is_some());
-        assert!(!drawn, "no menu drawn in the window");
     }
 
     #[gpui::test]

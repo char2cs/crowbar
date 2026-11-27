@@ -34,6 +34,7 @@ mod tests {
     use super::*;
     use crate::floating::menu::trigger::select::Select;
     use crate::foundation::{Surface, Theme};
+    use crate::test_support::menus::answering;
     use crate::test_support::probe::{open_floating, settle};
 
     fn options() -> Vec<SharedString> {
@@ -51,15 +52,16 @@ mod tests {
     }
 
     #[gpui::test]
-    fn escape_on_the_open_list_rings_the_trigger_as_develop_s_focus_visible_does(
+    fn a_key_after_the_menu_rings_the_trigger_as_develop_s_focus_visible_does(
         cx: &mut TestAppContext
     ) {
+        answering(cx, None);
         let mut owner = open_floating(cx, |_, _| Select::new("s", options(), Some(0)));
         owner.simulate_click(point(px(20.0), px(10.0)), gpui::Modifiers::none());
         settle(&mut owner);
         assert_eq!(rings_drawn(&mut owner), 0, "opened from a pointer press");
         owner.simulate_keystrokes("escape");
         settle(&mut owner);
-        assert_eq!(rings_drawn(&mut owner), 1, "the list closed on a key");
+        assert_eq!(rings_drawn(&mut owner), 1, "the keyboard was used");
     }
 }

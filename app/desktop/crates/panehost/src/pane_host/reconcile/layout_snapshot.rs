@@ -158,6 +158,7 @@ mod tests {
         let hole = VisiblePane {
             pane: PaneId::new("p1").unwrap(),
             bounds: bounds(),
+            corners: webview::Corners::default(),
         };
         let layout = layout();
         let focus = layout.showing("").and_then(|tab| tab.focused().cloned());

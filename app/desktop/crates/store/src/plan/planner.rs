@@ -1,6 +1,6 @@
 //! Turning a sidebar command into the daemon requests it means.
 
-use serde_json::json;
+use serde_json::Value;
 use sidebar::Command;
 
 use crate::live::Files;
@@ -117,18 +117,15 @@ fn edit(
     match command {
         Command::DeleteProject(project) => plan_edit::remove_project(state, project),
         Command::Rename { row, name } => plan_edit::rename(state, (row.as_str(), name)),
+        Command::RenameProject { project, name } => {
+            plan_edit::rename_project(state, (project, name))
+        },
         Command::CommitRemoval(row) => plan_edit::remove(state, Removal::KeepWork(row.clone())),
         Command::RemoveDiscardingWork(row) => {
             plan_edit::remove(state, Removal::DiscardWork(row.clone()))
         },
-        Command::Lock(row) => {
-            plan_edit::verb(state, row.as_str(), ("lock", Some(json!({"locked": true}))))
-        },
-        Command::Unlock(row) => plan_edit::verb(
-            state,
-            row.as_str(),
-            ("lock", Some(json!({"locked": false}))),
-        ),
+        Command::Lock(row) => plan_edit::lock(state, row.as_str(), &Value::Bool(true)),
+        Command::Unlock(row) => plan_edit::lock(state, row.as_str(), &Value::Bool(false)),
         Command::Detach(row) => plan_edit::verb(state, row.as_str(), ("detach-holder", None)),
         Command::Retry(row) => plan_edit::verb(state, row.as_str(), ("retry-provision", None)),
         Command::SetSpaceIcon { project, icon } => plan_icon::space((state, files), project, icon),
@@ -240,13 +237,18 @@ mod tests {
             "retry" => Command::Retry(row),
             "cancel" => Command::CancelMove(row),
             "branch" => Command::MakeBranch { row, name },
+            "rename-space" => Command::RenameProject {
+                project: ProjectId::from(row.as_str()),
+                name,
+            },
             _ => Command::DeleteProject(ProjectId::from("p")),
         }
     }
 
     type Route = (&'static str, &'static str, &'static str, &'static str);
 
-    const CASES: [Route; 11] = [
+    const CASES: [Route; 12] = [
+        ("rename-space", "p", "PATCH", "/v0/projects/p"),
         ("rename", "t", "POST", "CHATS/t/rename"),
         ("rename", "f", "PATCH", "CHATS/folders/f"),
         ("rename", "rdo", "PATCH", "/v0/projects/p/repos/r"),

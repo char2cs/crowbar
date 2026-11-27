@@ -8,8 +8,10 @@ use layout::Rect;
 use protocol::PaneId;
 use ui::{Appearance, Palette, Surface, Theme};
 
+use crate::geometry::corners::Corners;
 use crate::geometry::insets::Insets;
 use crate::layout_view::pane::hover_route::route;
+use crate::layout_view::pane::pane_ground::ground;
 
 use crate::geometry::pane_frame::PaneFrame;
 use crate::layout_view::pane::pane_handle::PaneHandle;
@@ -26,6 +28,7 @@ pub(crate) struct PaneCell {
     pub(crate) group: PaneId,
     pub(crate) slot: Rect,
     pub(crate) frame: PaneFrame,
+    pub(crate) grounds: Vec<(Rect, Corners)>,
     pub(crate) content: AnyElement,
     pub(crate) ring_opacity: f32,
     pub(crate) dragging: bool,
@@ -46,6 +49,8 @@ impl RenderOnce for PaneCell {
         let (enter, leave, press) = (self.on_enter, self.on_leave, self.on_press);
         let id = ElementId::from(SharedString::from(self.group.as_str().to_owned()));
         let at = handle_rect(&frame);
+        let fill = palette.pane_background();
+        let grounds = self.grounds.into_iter().map(move |part| ground(part, fill));
         let seat = (at.x - self.slot.x, at.y - self.slot.y);
         div()
             .id(id)
@@ -60,6 +65,7 @@ impl RenderOnce for PaneCell {
             .on_mouse_down(MouseButton::Left, move |_, window, cx| press(window, cx))
             .child(
                 pane_box(&frame, self.slot, palette)
+                    .children(grounds)
                     .child(self.content)
                     .children(self.dragging.then(|| tint(palette))),
             )

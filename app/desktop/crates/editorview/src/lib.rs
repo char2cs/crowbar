@@ -25,4 +25,7 @@ pub use lsp::lsp_error::LspError;
 pub use opening::Opening;
 pub use opening::access::Access;
 pub use settings::Settings;
+pub use settings::assists::Assists;
+pub use settings::highlighting::Highlighting;
+pub use settings::save_format::SaveFormat;
 pub use settings::word_wrap::WordWrap;

@@ -4,9 +4,11 @@ use std::time::Duration;
 use crate::backend::native::linux::gtk_platform::GtkPlatform;
 use crate::backend::view::page_control::PageControl;
 use crate::backend::view::view_capture::ViewCapture;
+use crate::backend::view::view_cutout::ViewCutout;
 use crate::error::Result;
 use crate::view::Id;
 use crate::view::Snapshot;
+use crate::view::{Bounds, Corners};
 
 const SNAPSHOT_PATIENCE: Duration = Duration::from_millis(400);
 
@@ -50,6 +52,24 @@ impl PageControl for GtkPlatform {
     ) -> Result<()> {
         let url = url.to_owned();
         self.post_logged("navigate", move |state| state.navigate(id, &url))
+    }
+}
+
+impl ViewCutout for GtkPlatform {
+    fn set_cutout(
+        &self,
+        id: Id,
+        hole: Option<Bounds>,
+    ) -> Result<()> {
+        self.post_logged("set_cutout", move |state| state.set_cutout(id, hole))
+    }
+
+    fn set_corners(
+        &self,
+        id: Id,
+        corners: Corners,
+    ) -> Result<()> {
+        self.post_logged("set_corners", move |state| state.set_corners(id, corners))
     }
 }
 

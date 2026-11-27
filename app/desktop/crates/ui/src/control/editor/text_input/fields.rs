@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use gpui::{Bounds, FocusHandle, Pixels, ShapedLine, SharedString};
+use gpui::{Bounds, FocusHandle, Pixels, SharedString};
 
 use crate::control::editor::field::Blink;
 use crate::control::editor::field::Blinking;
@@ -11,6 +11,7 @@ use crate::control::editor::text_input::TextInput;
 use crate::control::editor::text_input::line_element::caret_scroll::CaretScroll;
 use crate::control::editor::text_input::line_element::layout::Layout;
 use crate::control::editor::text_input::line_element::line_surface::LineSurface;
+use crate::display::TrackedLine;
 
 impl LineSurface for TextInput {}
 
@@ -65,9 +66,13 @@ impl Layout for TextInput {
         self.style.centered()
     }
 
+    fn tracking(&self) -> f32 {
+        self.style.tracking()
+    }
+
     fn record_layout(
         &mut self,
-        line: ShapedLine,
+        line: TrackedLine,
         (bounds, scroll): (Bounds<Pixels>, Pixels),
     ) {
         self.layout = Some(line);

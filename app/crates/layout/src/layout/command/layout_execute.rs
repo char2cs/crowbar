@@ -48,6 +48,9 @@ impl Layout {
             Command::SetEditorView { pane, view } => {
                 view_commands::set_editor_view(self, &pane, view).map(none_removed)
             },
+            Command::ResizeChat { pane, share } => {
+                view_commands::resize_chat(self, &pane, share).map(none_removed)
+            },
             pane_command => self.execute_pane(pane_command),
         }
     }

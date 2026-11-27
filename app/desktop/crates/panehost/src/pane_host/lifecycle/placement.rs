@@ -89,6 +89,7 @@ impl PaneHost {
         runtime.covered = overlays.covered.hides(&visible.bounds);
         if let Some(slot) = runtime.slot.and_then(|slot| self.pool.get(slot)) {
             slot.handle.set_cutout(overlays.cut_for(&visible.bounds))?;
+            slot.handle.set_corners(visible.corners)?;
         }
         self.refresh_native_visibility(&visible.pane)
     }

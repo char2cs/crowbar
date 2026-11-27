@@ -1,11 +1,14 @@
 //! The user's editor settings, in develop's units and with develop's defaults.
 
+pub(crate) mod assists;
+pub(crate) mod highlighting;
+pub(crate) mod save_format;
 pub(crate) mod word_wrap;
 
 use editor::WhitespaceMode;
 use gpui::{App, Global, Pixels, px};
 
-use crate::WordWrap;
+use crate::{Assists, SaveFormat, WordWrap};
 
 const DEFAULT_FONT_SIZE: f32 = 14.0;
 const DEFAULT_LINE_HEIGHT: f32 = 1.4;
@@ -31,6 +34,10 @@ pub struct Settings {
     pub indent_guides: bool,
     /// Which spaces and tabs show a marker.
     pub whitespace: WhitespaceMode,
+    /// What the editor does while you type.
+    pub assists: Assists,
+    /// What a manual save does first.
+    pub save_format: SaveFormat,
 }
 
 impl Default for Settings {
@@ -43,6 +50,8 @@ impl Default for Settings {
             line_numbers: true,
             indent_guides: true,
             whitespace: WhitespaceMode::None,
+            assists: Assists::default(),
+            save_format: SaveFormat::AsTyped,
         }
     }
 }

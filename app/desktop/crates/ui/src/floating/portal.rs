@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use gpui::{App, Bounds, ElementId, IntoElement, Pixels, RenderOnce, Styled, Window, canvas};
+use gpui::{App, Bounds, ElementId, IntoElement, RenderOnce, Styled, Window, canvas};
 
 use crate::floating::layers::{Owners, place};
 use crate::floating::portal::cover::covering::covering;
@@ -49,15 +49,6 @@ impl Portal {
         Self::new(id.into(), Reach::Here, build)
     }
 
-    pub(crate) fn here_sized<E: IntoElement>(
-        id: impl Into<ElementId>,
-        build: impl Fn(Bounds<Pixels>, &mut Window, &mut App) -> E + 'static,
-    ) -> Self {
-        let build: Build =
-            Rc::new(move |bounds, window, cx| build(bounds, window, cx).into_any_element());
-        Self::built(id.into(), Reach::Here, build)
-    }
-
     /// Paints `build` at the portal's own bounds like [`Portal::here`], for the view a drag
     /// shows under the pointer; it paints in place, not deferred.
     pub fn lifted<E: IntoElement>(
@@ -90,15 +81,7 @@ impl Portal {
         reach: Reach,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
     ) -> Self {
-        let build: Build = Rc::new(move |_, window, cx| build(window, cx).into_any_element());
-        Self::built(id, reach, build)
-    }
-
-    fn built(
-        id: ElementId,
-        reach: Reach,
-        build: Build,
-    ) -> Self {
+        let build: Build = Rc::new(move |window, cx| build(window, cx).into_any_element());
         let float = match reach {
             Reach::Lifted => Float::Drag,
             Reach::Here | Reach::Window | Reach::Cover => Float::Passive,

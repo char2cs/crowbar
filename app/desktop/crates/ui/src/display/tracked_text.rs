@@ -7,7 +7,7 @@ use gpui::{
     Pixels, SharedString, Style, TextStyle, Window, point, size,
 };
 
-use tracked_line::TrackedLine;
+pub(crate) use tracked_line::TrackedLine;
 
 const ELLIPSIS: &str = "\u{2026}";
 

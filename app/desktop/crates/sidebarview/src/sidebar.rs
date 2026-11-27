@@ -29,7 +29,6 @@ use sidebar::{Mode, Panel, Preferences, Resizing, RowId, WorkAtRisk};
 use ui::{CubicBezier, Glide, ToastQueue};
 
 use crate::column::switcher::icon_editor::IconEditor;
-use crate::overlays::OpenMenu;
 use crate::overlays::Peek;
 use crate::panels::DragState;
 use crate::panels::Field;
@@ -56,7 +55,6 @@ pub struct Sidebar {
     pub(crate) mode: Mode,
     pub(crate) tree: sidebar::Tree,
     pub(crate) inline: Option<Field>,
-    pub(crate) menu: Option<OpenMenu>,
     pub(crate) carousel: Glide,
     pub(crate) peek: Peek,
     pub(crate) clock: Rc<dyn Clock>,
@@ -101,7 +99,6 @@ impl Sidebar {
             preferences,
             resizing: None,
             inline: None,
-            menu: None,
             carousel: Glide::resting(0.0, CAROUSEL_SPAN, CubicBezier::EASE),
             peek: Peek::new(Rc::clone(&clock)),
             clock,

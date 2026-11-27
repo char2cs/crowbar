@@ -3,6 +3,7 @@ use crate::chooser::FileChoice;
 use crate::menu::MenuRequest;
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Corners;
 use crate::view::Id;
 use crate::view::Kind;
 use crate::view::ParentWindow;
@@ -48,6 +49,13 @@ pub enum Call {
         id: Id,
         /// The hole, in logical pixels from the view's top-left corner.
         hole: Option<Bounds>,
+    },
+    /// A view's corners were rounded.
+    SetCorners {
+        /// The view.
+        id: Id,
+        /// The radii.
+        corners: Corners,
     },
     /// A view got another colour to show before its page paints.
     SetBackground {

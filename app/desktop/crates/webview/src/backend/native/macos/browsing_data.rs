@@ -5,6 +5,7 @@ use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
 
 use crate::backend::native::macos::appkit_platform::AppkitPlatform;
 use crate::backend::native::macos::data_store::BROWSER_STORE;
+use crate::backend::native::macos::page::Page;
 use crate::backend::view::browsing_data::BrowsingData;
 use crate::error::{Error, Result};
 use crate::view::Kind;
@@ -18,7 +19,7 @@ fn scratch_browser_view(parent: Option<AppkitParent>) -> Result<WebView> {
 
 impl BrowsingData for AppkitPlatform {
     fn clear_browsing_data(&self) -> Result<()> {
-        let open: Option<Rc<WebView>> = {
+        let open: Option<Rc<Page>> = {
             let kinds = self.kinds.borrow();
             let views = self.views.borrow();
             kinds
@@ -27,7 +28,7 @@ impl BrowsingData for AppkitPlatform {
                 .and_then(|(id, _)| views.get(id).cloned())
         };
         if let Some(browser) = open {
-            return Ok(browser.clear_all_browsing_data()?);
+            return Ok(browser.view.clear_all_browsing_data()?);
         }
         let parent = self
             .last_parent

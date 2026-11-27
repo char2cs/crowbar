@@ -1,7 +1,7 @@
 pub(crate) mod save_key;
 
 use gpui::{KeyBinding, actions};
-use gpui_kit::base::input::{GoToDefinition, Redo, Replace, Search, ShowCompletions};
+use gpui_kit::base::input::{GoToDefinition, Redo, Replace, ShowCompletions};
 
 use crate::keys::save_key::CONTEXT;
 
@@ -19,25 +19,10 @@ actions!(
         Unfold,
         FoldAll,
         UnfoldAll,
-        FindNext,
-        FindPrevious,
-        ToggleMatchCase,
-        ToggleWholeWord,
-        ToggleRegex,
-        ToggleFindInSelection,
-        ReplaceOne,
-        ReplaceAll,
-        CloseFind,
         GoToLine,
     ]
 );
 
-pub(crate) const FIND_CONTEXT: &str = "CrowbarFind";
-const FIND_FIELD: &str = "CrowbarFind > UiTextInput";
-const FIND_NEXT: &str = "f3";
-const FIND_PREVIOUS: &str = "shift-f3";
-const PREVIOUS_IN_FIELD: &str = "shift-enter";
-const CLOSE_FIND: &str = "escape";
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.ts
 const GO_TO_LINE: &str = "ctrl-g";
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/suggest/browser/suggestController.ts
@@ -61,14 +46,7 @@ mod chords {
     pub(super) const FOLD_ALL: &str = "cmd-k cmd-0";
     pub(super) const UNFOLD_ALL: &str = "cmd-k cmd-j";
     pub(super) const REDO: &str = "cmd-shift-z";
-    pub(super) const FIND: &str = "cmd-f";
     pub(super) const REPLACE: &str = "alt-cmd-f";
-    pub(super) const MATCH_CASE: &str = "alt-cmd-c";
-    pub(super) const WHOLE_WORD: &str = "alt-cmd-w";
-    pub(super) const REGEX: &str = "alt-cmd-r";
-    pub(super) const IN_SELECTION: &str = "alt-cmd-l";
-    pub(super) const REPLACE_ONE: &str = "cmd-shift-1";
-    pub(super) const REPLACE_ALL: &str = "cmd-alt-enter";
 }
 #[cfg(not(target_os = "macos"))]
 mod chords {
@@ -82,14 +60,7 @@ mod chords {
     pub(super) const FOLD_ALL: &str = "ctrl-k ctrl-0";
     pub(super) const UNFOLD_ALL: &str = "ctrl-k ctrl-j";
     pub(super) const REDO: &str = "ctrl-shift-z";
-    pub(super) const FIND: &str = "ctrl-f";
     pub(super) const REPLACE: &str = "ctrl-h";
-    pub(super) const MATCH_CASE: &str = "alt-c";
-    pub(super) const WHOLE_WORD: &str = "alt-w";
-    pub(super) const REGEX: &str = "alt-r";
-    pub(super) const IN_SELECTION: &str = "alt-l";
-    pub(super) const REPLACE_ONE: &str = "ctrl-shift-1";
-    pub(super) const REPLACE_ALL: &str = "ctrl-alt-enter";
 }
 
 const MOVE_LINES_UP: &str = "alt-up";
@@ -114,18 +85,7 @@ pub(crate) fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new(chords::FOLD_ALL, FoldAll, context),
         KeyBinding::new(chords::UNFOLD_ALL, UnfoldAll, context),
         KeyBinding::new(chords::REDO, Redo, Some(INPUT_CONTEXT)),
-        KeyBinding::new(chords::FIND, Search, context),
         KeyBinding::new(chords::REPLACE, Replace, context),
-        KeyBinding::new(FIND_NEXT, FindNext, context),
-        KeyBinding::new(FIND_PREVIOUS, FindPrevious, context),
-        KeyBinding::new(PREVIOUS_IN_FIELD, FindPrevious, Some(FIND_FIELD)),
-        KeyBinding::new(chords::MATCH_CASE, ToggleMatchCase, context),
-        KeyBinding::new(chords::WHOLE_WORD, ToggleWholeWord, context),
-        KeyBinding::new(chords::REGEX, ToggleRegex, context),
-        KeyBinding::new(chords::IN_SELECTION, ToggleFindInSelection, context),
-        KeyBinding::new(chords::REPLACE_ONE, ReplaceOne, context),
-        KeyBinding::new(chords::REPLACE_ALL, ReplaceAll, context),
-        KeyBinding::new(CLOSE_FIND, CloseFind, context),
         KeyBinding::new(GO_TO_LINE, GoToLine, context),
         KeyBinding::new(SHOW_COMPLETIONS, ShowCompletions, context),
         KeyBinding::new(GO_TO_DEFINITION, GoToDefinition, context),

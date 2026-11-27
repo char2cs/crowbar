@@ -8,4 +8,6 @@ pub(crate) enum ItemKind {
     Workspace,
     /// A chat.
     Chat,
+    /// A repository, filed in the project home.
+    Repo,
 }

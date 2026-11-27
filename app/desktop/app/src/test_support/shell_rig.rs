@@ -54,12 +54,23 @@ fn window_area() -> Bounds {
     }
 }
 
+fn square(
+    pane: PaneId,
+    bounds: Bounds,
+) -> VisiblePane {
+    VisiblePane {
+        pane,
+        bounds,
+        corners: webview::Corners::default(),
+    }
+}
+
 fn visible(shell: &ShellState) -> Vec<VisiblePane> {
     let area = window_area();
     shell.showing().map_or_else(Vec::new, |tab| {
         tab.pane_ids()
             .into_iter()
-            .map(|pane| VisiblePane { pane, bounds: area })
+            .map(|pane| square(pane, area))
             .collect()
     })
 }

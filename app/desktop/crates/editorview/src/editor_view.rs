@@ -4,30 +4,28 @@ use gpui::{
     Window, div,
 };
 use gpui_kit::base::input::{InputEditsEvent, Rope};
-use gpui_kit::component::input::EditorState;
+use gpui_kit::component::input::{EditorState, RangeDecorationCollection};
 
-use crate::chrome::find_widget::FindWidget;
 use crate::chrome::goto_line::GotoLine;
 use crate::chrome::toolbar::Toolbar;
 use crate::document::Document;
 use crate::editor_view::find::occurrence_session::OccurrenceSession;
-use crate::keys::save_key::{CONTEXT, Save};
+use crate::keys::save_key::CONTEXT;
 use crate::theme::highlight_name;
-use crate::theme::{ground, ink};
+use crate::theme::ink;
 use crate::{Access, Caret, DocumentEvent, EditorEvent, Opening, Settings};
-use bracket_colours::BracketColours;
 
 const BODY: &str = "editor-body";
 const TEXT: &str = "editor-text";
 
 mod access_change;
-mod bracket_colours;
 mod command;
 mod find;
 mod goto_action;
 mod language;
 pub(crate) mod replay;
 pub(crate) mod reveal;
+mod save;
 mod settings_follow;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -42,9 +40,8 @@ pub struct EditorView {
     access: Access,
     toolbar: Toolbar,
     occurrences: Option<OccurrenceSession>,
-    find: Entity<FindWidget>,
+    word_marks: RangeDecorationCollection,
     goto: Entity<GotoLine>,
-    brackets: Entity<BracketColours>,
     _caret_moves: Subscription,
     _typed: Subscription,
     _replayed: Subscription,
@@ -69,10 +66,9 @@ impl EditorView {
         if let Some(line) = line {
             goto_action::reveal_line(&state, line, (window, cx));
         }
-        let find = cx.new(|cx| FindWidget::new(state.clone(), window, cx));
+        let word_marks = find::occurrence_marks::collection_in(&state, cx);
         let goto = cx.new(|cx| GotoLine::new(state.clone(), window, cx));
-        let brackets = cx.new(|cx| BracketColours::new(&state, highlight_name::of(language), cx));
-        let caret_moves = cx.observe(&state, |_, _, cx| cx.notify());
+        let caret_moves = cx.observe(&state, Self::caret_moved);
         let typed = cx.subscribe(&state, Self::typed);
         let replayed = cx.subscribe_in(&shared, window, |view, _, text: &Rope, window, cx| {
             view.replay(text, window, cx);
@@ -87,9 +83,8 @@ impl EditorView {
             access,
             toolbar,
             occurrences: None,
-            find,
+            word_marks,
             goto,
-            brackets,
             _caret_moves: caret_moves,
             _typed: typed,
             _replayed: replayed,
@@ -126,8 +121,6 @@ impl EditorView {
         let language = highlight_name::of(toolbar.language());
         self.state
             .update(cx, |state, cx| state.set_highlighter(language, cx));
-        self.brackets
-            .update(cx, |brackets, cx| brackets.relanguage(language, cx));
         self.toolbar = toolbar;
         cx.notify();
     }
@@ -204,7 +197,7 @@ impl Focusable for EditorView {
 impl Render for EditorView {
     fn render(
         &mut self,
-        window: &mut Window,
+        _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let caret = self.caret(cx);
@@ -213,14 +206,13 @@ impl Render for EditorView {
         let toolbar = self.toolbar.element(caret, (actions, rich_view), cx);
         let root = div()
             .size_full()
-            .bg(ground(cx))
             .flex()
             .flex_col()
             .key_context(CONTEXT)
-            .on_action(cx.listener(|_, _: &Save, _, cx| cx.emit(EditorEvent::SaveRequested)));
+            .on_action(cx.listener(Self::save));
         let root = Self::command_actions(root, cx).on_action(cx.listener(Self::go_to_line));
-        let text = self.text_area(window, cx);
-        Self::find_actions(root, cx).child(toolbar).child(
+        let text = self.text_area(cx);
+        root.child(toolbar).child(
             div()
                 .debug_selector(|| BODY.to_owned())
                 .relative()
@@ -229,7 +221,6 @@ impl Render for EditorView {
                 .flex_1()
                 .min_h_0()
                 .text_color(ink(cx))
-                .child(self.find.clone())
                 .child(text)
                 .child(self.goto.clone()),
         )
@@ -243,8 +234,7 @@ fn editor_state(
 ) -> EditorState {
     let mut state = EditorState::new(window, cx)
         .language(highlight_name::of(language))
-        .context_menu(false)
-        .searchable(false);
+        .context_menu(false);
     state.set_value(text, window, cx);
     settings_follow::apply(&mut state, &Settings::of(cx), (window, cx));
     state

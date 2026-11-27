@@ -28,6 +28,14 @@ impl RememberedPlace {
         Ok(())
     }
 
+    pub(crate) fn size(
+        &self,
+        scale: f64,
+    ) -> (f64, f64) {
+        let size = self.wanted.get().size.to_logical::<f64>(scale);
+        (size.width, size.height)
+    }
+
     pub(crate) fn show(
         &self,
         view: &impl Placed,

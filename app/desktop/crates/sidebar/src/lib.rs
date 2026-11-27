@@ -35,7 +35,7 @@ pub use shell::{
 };
 #[cfg(feature = "fixtures")]
 pub use test_support::DemoShell;
-pub use tree::{Confirmation, Deadline};
+pub use tree::{Confirmation, Deadline, RowTree};
 pub use tree::{
     DragArm, DropModes, EdgeScroll, Editing, FilesState, FolderTarget, Hold, MenuContext,
     RemovalKind, RemovalTarget, RemovalTray, Removals, Tree, VisibleRow, WorkAtRisk,

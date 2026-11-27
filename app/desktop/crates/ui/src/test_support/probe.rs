@@ -48,7 +48,6 @@ pub(crate) fn open<E: IntoElement>(
         cx.set_global(Theme::default());
         cx.set_global(Motion::default());
         Modality::install(cx);
-        cx.bind_keys(crate::floating::menu_bindings());
         cx.bind_keys(crate::floating::popover_bindings());
         cx.bind_keys(crate::floating::dialog_bindings());
         cx.bind_keys(crate::control::text_input_bindings());

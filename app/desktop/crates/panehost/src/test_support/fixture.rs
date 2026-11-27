@@ -119,6 +119,14 @@ fn visible_pane(id: &str) -> VisiblePane {
     VisiblePane {
         pane: PaneId::new(id).unwrap(),
         bounds: bounds(),
+        corners: rounded_top_left(),
+    }
+}
+
+fn rounded_top_left() -> webview::Corners {
+    webview::Corners {
+        top_left: 9.0,
+        ..webview::Corners::default()
     }
 }
 

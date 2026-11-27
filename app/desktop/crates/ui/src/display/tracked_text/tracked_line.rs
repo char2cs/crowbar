@@ -1,11 +1,14 @@
 //! A shaped line with letter spacing: where each glyph sits once the spacing is added after every
 //! glyph before it, and how it paints.
 
+mod caret;
+
 use gpui::{FontId, Hsla, Pixels, Point, ShapedGlyph, ShapedLine, SharedString, TextStyle, Window};
 
 use crate::foundation::tokens::tracking;
 
-pub(super) struct TrackedLine {
+#[derive(Clone)]
+pub(crate) struct TrackedLine {
     line: ShapedLine,
     spacing: Pixels,
     color: Hsla,
@@ -34,7 +37,7 @@ impl TrackedLine {
         (self.line.ascent, self.line.descent)
     }
 
-    pub(super) fn width(&self) -> Pixels {
+    pub(crate) fn width(&self) -> Pixels {
         self.x_at(self.count())
     }
 
@@ -72,6 +75,18 @@ impl TrackedLine {
             let x = origin.x + placed.1.position.x + self.spacing * glyphs_before(index);
             let at = gpui::point(x, origin.y + placed.1.position.y);
             log_failure(self.paint_glyph(at, placed, window));
+        }
+    }
+
+    pub(crate) fn of(
+        line: ShapedLine,
+        spacing: Pixels,
+        color: Hsla,
+    ) -> Self {
+        Self {
+            line,
+            spacing,
+            color,
         }
     }
 

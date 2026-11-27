@@ -9,8 +9,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, LayoutId, Pixels, Point, ShapedLine, SharedString, Style, TextAlign,
-    TextRun, Window, fill, point, px, relative, size,
+    InspectorElementId, LayoutId, Pixels, Point, SharedString, Style, TextRun, Window, fill, point,
+    px, relative, size,
 };
 
 use crate::control::editor::field::Frame;
@@ -19,6 +19,7 @@ use crate::control::editor::field::native_selection;
 use crate::control::editor::field::{band_frame, blinks, caret_frame, runs_for, tend};
 use crate::control::editor::text_input::line_element::caret_scroll::CARET_WIDTH;
 use crate::control::editor::text_input::line_element::line_surface::LineSurface;
+use crate::display::TrackedLine;
 use crate::foundation::Palette;
 use crate::foundation::Pose;
 use crate::foundation::WindowActivity;
@@ -41,13 +42,13 @@ impl<S: LineSurface> LineElement<S> {
     fn aligned(
         &self,
         bounds: Bounds<Pixels>,
-        line: &ShapedLine,
+        line: &TrackedLine,
         cx: &App,
     ) -> Bounds<Pixels> {
         if !self.input.read(cx).centered() {
             return bounds;
         }
-        let spare = (bounds.size.width - line.width).max(px(0.0));
+        let spare = (bounds.size.width - line.width()).max(px(0.0));
         Bounds::new(
             point(bounds.left() + spare / 2.0, bounds.top()),
             size(bounds.size.width - spare, bounds.size.height),
@@ -68,7 +69,7 @@ impl<S: LineSurface> LineElement<S> {
 
     fn frame(
         &self,
-        (line, bounds): (ShapedLine, Bounds<Pixels>),
+        (line, bounds): (TrackedLine, Bounds<Pixels>),
         selection: &Range<usize>,
     ) -> Frame {
         let (from, to) = (
@@ -88,7 +89,7 @@ impl<S: LineSurface> LineElement<S> {
         &self,
         window: &mut Window,
         cx: &App,
-    ) -> ShapedLine {
+    ) -> TrackedLine {
         let input = self.input.read(cx);
         let empty = input.content().is_empty();
         let style = window.text_style();
@@ -102,13 +103,14 @@ impl<S: LineSurface> LineElement<S> {
             strikethrough: None,
         };
         let marked = input.marked_range().filter(|_| !empty);
+        let marked_free = marked.is_none();
         let runs = runs_for(shown.len(), marked, &base);
-        window.text_system().shape_line(
-            shown,
-            style.font_size.to_pixels(window.rem_size()),
-            &runs,
-            None,
-        )
+        let font_size = style.font_size.to_pixels(window.rem_size());
+        let em = input.tracking() * f32::from(u8::from(marked_free));
+        let line = window
+            .text_system()
+            .shape_line(shown, font_size, &runs, None);
+        TrackedLine::of(line, crate::foundation::tracking::at(em, font_size), color)
     }
 }
 
@@ -194,14 +196,7 @@ impl<S: LineSurface> LineElement<S> {
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection);
         }
-        let painted = prepaint.line.paint(
-            origin,
-            window.line_height(),
-            TextAlign::Left,
-            None,
-            window,
-            cx,
-        );
+        let painted = prepaint.line.paint_line(origin, window, cx);
         debug_assert!(painted.is_ok(), "shaped line failed to paint");
         let lit = focus.is_focused(window) && WindowActivity::of(window, cx);
         let caret = prepaint.caret.take().filter(|_| lit);

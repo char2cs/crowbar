@@ -28,6 +28,7 @@ pub(crate) fn failure_title(
         Command::Dismiss(_) => "Dismiss".to_owned(),
         Command::MoveTo { .. } | Command::Drop { .. } => "Move".to_owned(),
         Command::CancelMove(_) => "Cancel move".to_owned(),
+        Command::RenameProject { .. } => "Failed to rename project".to_owned(),
         _ => return None,
     };
     Some(title)
@@ -65,6 +66,13 @@ mod tests {
     fn each_command_fails_under_develops_title() {
         let (state, _) = state();
         let cases = [
+            (
+                Command::RenameProject {
+                    project: ProjectId::from("p"),
+                    name: "x".into(),
+                },
+                Some("Failed to rename project"),
+            ),
             (
                 Command::Lock(RowId::from("b")),
                 Some("Failed to update lock"),

@@ -7,14 +7,14 @@ use crate::ide::presentation::sidebar_side::SidebarSide;
 use crate::ide::presentation::view_mode::ViewMode;
 use crate::tree::axis::Axis;
 use crate::tree::geometry::rect::Rect;
+use crate::tree::split_node::SASH_THICKNESS;
 use crate::tree::split_node_place::divide;
 
 /// Height of every top chrome row of a group: the chat header and the tab bar.
 pub const TOP_ROW_HEIGHT: f32 = 42.0;
 
-/// The chat's share of a group's width or height when chat and editor show together, before
-/// the user drags the sash.
-pub const DEFAULT_CHAT_SHARE: f32 = 0.45;
+const CHAT_MIN_BESIDE: f32 = 340.0;
+const CHAT_MIN_STACKED: f32 = 160.0;
 
 /// Below this many pixels on its longer side a group shows chat and editor one at a time.
 pub const SIDE_BY_SIDE_MIN: f32 = 780.0;
@@ -44,14 +44,12 @@ pub struct Presentation {
 }
 
 impl Presentation {
-    /// The parts of `group` laid out in `area`, the chat taking `chat_share` of the room when it
-    /// shows beside or above the editor.
+    /// The parts of `group` laid out in `area`.
     #[must_use]
     pub fn of(
         group: &PaneGroup,
         area: Rect,
         side: SidebarSide,
-        chat_share: f32,
     ) -> Self {
         let mode = mode_of(group, area);
         if group.chat().is_none() {
@@ -63,7 +61,26 @@ impl Presentation {
         if mode == ViewMode::Tabs {
             return Self::one_at_a_time(group, area);
         }
-        Self::together(mode, area, side, chat_share)
+        Self::together(mode, area, side, group.chat_share())
+    }
+
+    /// The share that gives the chat `wanted` pixels of a group laid out in `area`, each side
+    /// keeping develop's minimum; a group too small for both splits in half.
+    #[must_use]
+    pub fn chat_share_for(
+        mode: ViewMode,
+        area: Rect,
+        wanted: f32,
+    ) -> f32 {
+        let (total, min) = match mode {
+            ViewMode::Stacked => (area.height, CHAT_MIN_STACKED),
+            ViewMode::SideBySide | ViewMode::Tabs => (area.width, CHAT_MIN_BESIDE),
+        };
+        let room = (total - SASH_THICKNESS).max(0.0);
+        if room < 2.0 * min {
+            return 0.5;
+        }
+        wanted.clamp(min, room - min) / room
     }
 
     fn editor_only(
@@ -406,11 +423,46 @@ mod tests {
         },
     ];
 
+    fn halved(group: PaneGroup) -> PaneGroup {
+        PaneGroup {
+            chat_share: Some(0.5),
+            ..group
+        }
+    }
+
+    #[test]
+    fn a_dragged_chat_keeps_both_sides_at_develop_s_minimum() {
+        let cases = [
+            ("beside", ViewMode::SideBySide, (1006.0, 800.0), 600.0, 0.6),
+            (
+                "too narrow",
+                ViewMode::SideBySide,
+                (1006.0, 800.0),
+                100.0,
+                0.34,
+            ),
+            (
+                "too wide",
+                ViewMode::SideBySide,
+                (1006.0, 800.0),
+                900.0,
+                0.66,
+            ),
+            ("stacked", ViewMode::Stacked, (800.0, 1006.0), 50.0, 0.16),
+            ("no room", ViewMode::SideBySide, (506.0, 800.0), 100.0, 0.5),
+        ];
+        for (name, mode, size, wanted, share) in cases {
+            let area = at((0.0, 0.0), size);
+            let got = Presentation::chat_share_for(mode, area, wanted);
+            assert!((got - share).abs() < 1e-6, "{name}: {got}");
+        }
+    }
+
     #[test]
     fn a_group_lays_out_its_chat_and_editor_as_develop_does() {
         for case in CASES {
             let area = at((0.0, 0.0), case.size);
-            let shown = Presentation::of(&(case.group)(), area, case.side, 0.5);
+            let shown = Presentation::of(&halved((case.group)()), area, case.side);
             assert_eq!(shown, case.expected, "{}", case.name);
         }
     }

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::{
     App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString,
-    Stateful, StatefulInteractiveElement, Styled, Window, div, px, relative,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, Intent, ProjectId};
 use ui::{Icon, IconName, IconWeight, Palette, Surface, Theme, radius};
@@ -99,7 +99,6 @@ fn foot_row(
         .mx(px(ROW_MARGIN_X))
         .mt(px(ROW_MARGIN_Y))
         .px(SPACE_SM)
-        .w(relative(1.0))
         .rounded(radius::LG)
         .border_1()
         .border_color(gpui::transparent_black())
@@ -145,6 +144,20 @@ mod tests {
         assert!(
             f32::from(bounds.size.height) > rows,
             "the divider adds height"
+        );
+    }
+
+    #[gpui::test]
+    fn the_foot_rows_stay_inside_their_column(cx: &mut TestAppContext) {
+        let (handler, _) = recording_handler();
+        cx.update(|cx| ui::init(cx).expect("ui installs"));
+        let (_, cx) = cx.add_window_view(|_, _| Foot { handler });
+        cx.simulate_resize(gpui::size(px(300.0), px(200.0)));
+        cx.run_until_parked();
+        let more = cx.debug_bounds("foot-more").unwrap_or_default();
+        assert_eq!(
+            (more.left(), more.right()),
+            (px(ROW_MARGIN_X), px(300.0 - ROW_MARGIN_X))
         );
     }
 

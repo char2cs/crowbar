@@ -1,7 +1,6 @@
 //! The menu behind the funnel button of the Files panel's search box.
 
 use sidebar::{Command, FileTreeFlag, FileTreeView, Intent};
-use ui::IconName;
 
 use crate::overlays::popup::check::Check;
 use crate::overlays::popup::menu_entry::MenuEntry;
@@ -18,7 +17,6 @@ fn state(
 
 fn entry(
     label: &str,
-    icon: IconName,
     (view, flag): (&FileTreeView, FileTreeFlag),
 ) -> MenuEntry {
     let check = state(view, flag);
@@ -26,23 +24,15 @@ fn entry(
         flag,
         on: check == Check::Off,
     };
-    MenuEntry::toggle(label, icon, (check, Intent::Send(command)))
+    MenuEntry::toggle(label, (check, Intent::Send(command)))
 }
 
 pub(crate) fn filter_menu(view: &FileTreeView) -> Vec<MenuEntry> {
     vec![
-        entry("Hidden Files", IconName::Eye, (view, FileTreeFlag::Hidden)),
-        entry(
-            "Gitignored Files",
-            IconName::GitBranch,
-            (view, FileTreeFlag::Gitignored),
-        ),
+        entry("Hidden Files", (view, FileTreeFlag::Hidden)),
+        entry("Gitignored Files", (view, FileTreeFlag::Gitignored)),
         MenuEntry::Separator,
-        entry(
-            "Git Status",
-            IconName::GitBranch,
-            (view, FileTreeFlag::GitStatus),
-        ),
+        entry("Git Status", (view, FileTreeFlag::GitStatus)),
     ]
 }
 
@@ -65,16 +55,6 @@ mod tests {
             return None;
         };
         Some((*flag, *on, *checked))
-    }
-
-    #[test]
-    fn hidden_files_carry_the_eye() {
-        let entries = filter_menu(&FileTreeView::default());
-        let icon = match entries.first() {
-            Some(MenuEntry::Action { icon, .. }) => *icon,
-            _ => None,
-        };
-        assert_eq!(icon, Some(IconName::Eye));
     }
 
     #[test]

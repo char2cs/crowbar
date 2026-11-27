@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::floating::portal::reach::Reach;
 
-pub(crate) type Build = Rc<dyn Fn(Bounds<Pixels>, &mut Window, &mut App) -> AnyElement>;
+pub(crate) type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 #[derive(Clone)]
 pub(crate) struct Layer {
@@ -26,10 +26,10 @@ impl Layer {
         cx: &mut App,
     ) -> AnyElement {
         if let Reach::Window | Reach::Cover = self.reach {
-            let content = (self.build)(whole(window), window, cx);
+            let content = (self.build)(window, cx);
             return div().absolute().inset_0().child(content).into_any_element();
         }
-        let content = (self.build)(self.bounds, window, cx);
+        let content = (self.build)(window, cx);
         div()
             .absolute()
             .left(self.bounds.origin.x)
@@ -48,7 +48,7 @@ impl Layer {
         if let Reach::Here = self.reach {
             return self.deferred_here();
         }
-        let content = (self.build)(whole(window), window, cx);
+        let content = (self.build)(window, cx);
         if let Reach::Lifted = self.reach {
             return content;
         }
@@ -76,7 +76,7 @@ impl Layer {
                 let sized = div()
                     .w(bounds.size.width)
                     .h(bounds.size.height)
-                    .child(build(bounds, window, cx));
+                    .child(build(window, cx));
                 let mut content = deferred(sized).with_priority(priority).into_any_element();
                 content.prepaint_as_root(bounds.origin, bounds.size.into(), window, cx);
                 content
@@ -87,10 +87,6 @@ impl Layer {
         .size_full()
         .into_any_element()
     }
-}
-
-fn whole(window: &Window) -> Bounds<Pixels> {
-    Bounds::new(window_origin(), window.viewport_size())
 }
 
 fn window_origin() -> Point<Pixels> {
@@ -110,7 +106,7 @@ mod tests {
     const OFFSET: f32 = 24.0;
 
     fn layer(reach: Reach) -> Layer {
-        let build: Build = Rc::new(|_, _, _| {
+        let build: Build = Rc::new(|_, _| {
             div()
                 .w(px(30.0))
                 .h(px(10.0))

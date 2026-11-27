@@ -1,4 +1,4 @@
-//! Pops develop's GTK context menu for the shell's right clicks, on the web views' platform thread.
+//! Pops the desktop's context menu for the shell, through the web views' platform.
 
 use std::rc::Rc;
 

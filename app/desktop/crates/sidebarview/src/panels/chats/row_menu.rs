@@ -4,7 +4,6 @@ use sidebar::{
     Command, Intent, Lock, MenuContext, MoveTarget, Question, Row, RowKind, WorkspaceStatus,
     Worktree,
 };
-use ui::IconName;
 
 use crate::overlays::MenuEntry;
 
@@ -15,21 +14,17 @@ pub(crate) fn row_menu(
     let id = &row.id;
     let rename = (!is_locked_branch(row)).then(|| {
         let intent = Intent::StartRename(id.clone());
-        MenuEntry::action("Rename", IconName::PencilSimpleLine, intent)
+        MenuEntry::action("Rename", intent)
     });
     let is_repo = row.kind == RowKind::RepoHeader;
     let import = is_repo.then(|| {
         let intent = Intent::Send(Command::ImportBranches(id.clone()));
-        MenuEntry::action("Import branches", IconName::DownloadSimple, intent)
+        MenuEntry::action("Import branches", intent)
     });
     let delete = is_repo.then(|| {
         [
             MenuEntry::Separator,
-            MenuEntry::destructive(
-                "Delete Repo",
-                IconName::Trash,
-                Intent::RequestRemoval(id.clone()),
-            ),
+            MenuEntry::action("Delete Repo", Intent::RequestRemoval(id.clone())),
         ]
     });
     rename
@@ -58,20 +53,14 @@ fn lock_entry(row: &Row) -> Option<MenuEntry> {
     }
     let id = row.id.clone();
     Some(match row.lock {
-        Lock::Unlocked => {
-            MenuEntry::action("Lock", IconName::Lock, Intent::Send(Command::Lock(id)))
-        },
-        Lock::Locked => MenuEntry::action(
-            "Unlock",
-            IconName::LockOpen,
-            Intent::Send(Command::Unlock(id)),
-        ),
+        Lock::Unlocked => MenuEntry::action("Lock", Intent::Send(Command::Lock(id))),
+        Lock::Locked => MenuEntry::action("Unlock", Intent::Send(Command::Unlock(id))),
     })
 }
 
 fn folder_entry(row: &Row) -> MenuEntry {
     let folder = Command::CreateFolder(Some(row.id.clone()));
-    MenuEntry::action("New folder", IconName::Folder, Intent::Send(folder))
+    MenuEntry::action("New folder", Intent::Send(folder))
 }
 
 fn move_entries(
@@ -81,7 +70,7 @@ fn move_entries(
     let submenu = (!context.targets.is_empty()).then(|| move_submenu(row, context));
     let cancel = row.pending_move.is_some().then(|| {
         let intent = Intent::Send(Command::CancelMove(row.id.clone()));
-        MenuEntry::action("Cancel move", IconName::XCircle, intent)
+        MenuEntry::action("Cancel move", intent)
     });
     submenu
         .into_iter()
@@ -103,15 +92,11 @@ fn move_entry(
     row: &Row,
     target: &MoveTarget,
 ) -> MenuEntry {
-    let icon = match target.kind {
-        RowKind::Folder => IconName::Folder,
-        _ => IconName::GitBranch,
-    };
     let command = Command::MoveTo {
         row: row.id.clone(),
         target: target.id.clone(),
     };
-    MenuEntry::action(&target.label, icon, Intent::Send(command))
+    MenuEntry::action(&target.label, Intent::Send(command))
 }
 
 fn move_submenu(
@@ -120,7 +105,6 @@ fn move_submenu(
 ) -> MenuEntry {
     MenuEntry::Submenu {
         label: "Move to…".into(),
-        icon: Some(IconName::ArrowsOutCardinal),
         entries: move_targets(row, context),
     }
 }
@@ -131,7 +115,7 @@ fn kill_entries(
 ) -> Option<[MenuEntry; 2]> {
     let title = context.running.as_deref()?;
     let question = Question::kill(row.clone(), title);
-    let kill = MenuEntry::destructive("Kill agent", IconName::Skull, Intent::Ask(question));
+    let kill = MenuEntry::action("Kill agent", Intent::Ask(question));
     Some([MenuEntry::Separator, kill])
 }
 
@@ -139,7 +123,7 @@ fn make_branch_entry(row: &Row) -> Option<MenuEntry> {
     let applies =
         row.kind == RowKind::Chat && row.worktree == Worktree::Shared && row.pending_move.is_none();
     let intent = Intent::StartBranching(row.id.clone());
-    applies.then(|| MenuEntry::action("Make a branch", IconName::GitBranch, intent))
+    applies.then(|| MenuEntry::action("Make a branch", intent))
 }
 
 #[cfg(test)]
@@ -231,7 +215,7 @@ mod tests {
 
     const CASES: &[Case] = &[
         (
-            "a repo header gets import, a new folder and a destructive tail",
+            "a repo header gets import, a new folder and delete apart at the end",
             repo,
             &[
                 "Rename",

@@ -40,6 +40,30 @@ impl PaneFrame {
     }
 }
 
+impl PaneFrame {
+    /// The radii content filling `rect` rounds: the frame's, less the border, at each corner of
+    /// `rect` that is a corner of the hole.
+    #[must_use]
+    pub fn inner_corners(
+        &self,
+        rect: Rect,
+    ) -> Corners {
+        let near = |a: f32, b: f32| (a - b).abs() < 0.5;
+        let left = near(rect.x, self.hole.x);
+        let top = near(rect.y, self.hole.y);
+        let right = near(rect.x + rect.width, self.hole.x + self.hole.width);
+        let bottom = near(rect.y + rect.height, self.hole.y + self.hole.height);
+        let (radius, border) = (self.radius, self.border.top);
+        let inner = |outer: Option<f32>| outer.map_or(0.0, |outer| (outer - border).max(0.0));
+        Corners {
+            top_left: inner((top && left).then_some(radius.top_left)),
+            top_right: inner((top && right).then_some(radius.top_right)),
+            bottom_left: inner((bottom && left).then_some(radius.bottom_left)),
+            bottom_right: inner((bottom && right).then_some(radius.bottom_right)),
+        }
+    }
+}
+
 fn snapped(rect: Rect) -> Rect {
     let (left, top) = (rect.x.round(), rect.y.round());
     Rect {

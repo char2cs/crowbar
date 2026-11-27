@@ -16,6 +16,16 @@ pub const HEADING_FAMILY: &str = "Instrument Serif";
 /// Family of code, terminal and keyboard hints (`font-mono`).
 pub const MONO_FAMILY: &str = "Geist Mono";
 
+/// The settings hold the names the web bundle gives these faces; GPUI knows them by their own.
+#[must_use]
+pub fn registered_family(setting: &str) -> &str {
+    match setting {
+        "CalSansUI" => UI_FAMILY,
+        "Geist Mono Variable" => MONO_FAMILY,
+        other => other,
+    }
+}
+
 const FILES: [&[u8]; 8] = [
     include_bytes!("../../../assets/fonts/CalSansUI-Regular.ttf"),
     include_bytes!("../../../assets/fonts/InstrumentSerif.ttf"),

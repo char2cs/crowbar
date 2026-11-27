@@ -1,10 +1,10 @@
 use gpui::{
-    AnyElement, AnyView, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, px,
+    AnyElement, AnyView, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Styled, Window, div, px,
 };
-use layout::{DEFAULT_CHAT_SHARE, PaneGroup, Presentation, Rect};
+use layout::{PaneGroup, Presentation, Rect, ViewMode};
 use protocol::PaneId;
-use ui::{Motion, Surface, Theme};
+use ui::{Motion, Sash, Surface, Theme};
 
 use ideshell::PaneStrip;
 
@@ -12,6 +12,7 @@ use crate::geometry::pane_frame::PaneFrame;
 use crate::layout_view::LayoutView;
 use crate::layout_view::hover_source::HoverSource;
 use crate::layout_view::pane::pane_cell::PaneCell;
+use crate::layout_view::pane::pane_ground::grounds;
 
 impl LayoutView {
     pub(crate) fn pane_cells(
@@ -42,7 +43,7 @@ impl LayoutView {
             y: 0.0,
             ..frame.hole
         };
-        let shown = Presentation::of(group, local, self.chrome.side, DEFAULT_CHAT_SHARE);
+        let shown = Presentation::of(group, local, self.chrome.side);
         let cell = PaneCell {
             handle: self.handle_for(&pane, (now, motion), cx),
             ring_opacity: self.rings.opacity(&pane, now, motion),
@@ -50,7 +51,8 @@ impl LayoutView {
             on_enter: Self::enter_action((HoverSource::Cell, &pane), cx),
             on_leave: Self::leave_action((HoverSource::Cell, &pane), cx),
             on_press: Self::press_action(&pane, cx),
-            content: self.parts((group, &shown), window, cx),
+            grounds: grounds([shown.tab_bar, shown.editor], &frame),
+            content: self.parts((group, &shown, local), window, cx),
             group: group.chat().or_else(|| group.tabs().first())?.clone(),
             slot: rect,
             frame,
@@ -60,11 +62,15 @@ impl LayoutView {
 
     fn parts(
         &self,
-        leaf: (&PaneGroup, &Presentation),
+        leaf: (&PaneGroup, &Presentation, Rect),
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let (group, shown) = leaf;
+        let (group, shown, area) = leaf;
+        let sash = group
+            .chat()
+            .zip(shown.sash)
+            .map(|(chat, at)| Self::chat_sash((chat, at), (shown, area), cx));
         let chat = group.chat().zip(shown.chat).map(|(pane, at)| {
             let content = self.source.content(pane, window, cx);
             placed(at, pane.as_str(), content)
@@ -95,7 +101,35 @@ impl LayoutView {
             .children(editor)
             .children(bar)
             .children(seam)
+            .children(sash)
             .into_any_element()
+    }
+
+    fn chat_sash(
+        (chat, at): (&PaneId, Rect),
+        laid: (&Presentation, Rect),
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
+        let (shown, area) = laid;
+        let axis = match shown.mode {
+            ViewMode::Stacked => ui::Axis::Vertical,
+            _ => ui::Axis::Horizontal,
+        };
+        let (grabbed, shown) = (chat.clone(), *shown);
+        let hit = div()
+            .size_full()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, _, _| {
+                    this.grab_chat_sash(&grabbed, (&shown, area), event);
+                }),
+            )
+            .child(Sash::new(chat.as_str().to_owned(), axis).on(Surface::Window));
+        placed(
+            at,
+            &format!("sash-{}", chat.as_str()),
+            hit.into_any_element(),
+        )
     }
 
     fn editor_part(

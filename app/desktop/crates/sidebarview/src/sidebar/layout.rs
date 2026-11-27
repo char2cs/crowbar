@@ -99,7 +99,6 @@ impl Sidebar {
             || self.peek.is_shown(Motion::of(cx))
             || self.tree.files().dialog().is_some()
             || self.line_target().is_some()
-            || self.menu.is_some()
     }
 
     fn layers(
@@ -114,7 +113,6 @@ impl Sidebar {
             .children(self.floating(geometry, window, cx))
             .children(self.file_dialog_layer(cx))
             .children(self.drop_line_layer(window, cx))
-            .children(self.menu_layer(cx))
     }
 
     fn handle(

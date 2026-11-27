@@ -1,5 +1,5 @@
 use gpui::prelude::FluentBuilder as _;
-use gpui::{Context, Div, FontWeight, ParentElement, Styled, div, px};
+use gpui::{Context, Div, FontWeight, InteractiveElement as _, ParentElement, Styled, div, px};
 use sidebar::{SpaceFacts, SpaceIcon};
 use ui::{Button, ButtonVariant, Icon, IconName, Palette, radius};
 
@@ -80,6 +80,7 @@ pub(crate) fn icon_tile(
         ),
     };
     div()
+        .debug_selector(|| "space-draft-icon".into())
         .flex()
         .flex_none()
         .items_center()

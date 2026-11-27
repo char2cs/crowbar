@@ -1,6 +1,6 @@
 use layout::Layout;
 use protocol::PaneId;
-use webview::{Bounds, ParentWindow, Snapshot};
+use webview::{Bounds, Corners, ParentWindow, Snapshot};
 
 use crate::error::{Error, Result};
 use crate::pane_host::PaneHost;
@@ -20,6 +20,7 @@ fn parked(pane: &PaneId) -> VisiblePane {
     VisiblePane {
         pane: pane.clone(),
         bounds,
+        corners: Corners::default(),
     }
 }
 

@@ -181,7 +181,7 @@ impl Render for TerminalView {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let colors = Colors::of(cx);
-        let root = self.root(&colors, cx);
+        let root = self.root(cx);
         root.children(self.search.as_ref().map(|session| session.bar.clone()))
             .children(self.notice_element(&colors))
     }
@@ -205,7 +205,6 @@ impl TerminalView {
 
     fn root(
         &self,
-        colors: &Colors,
         cx: &mut Context<'_, Self>,
     ) -> Stateful<Div> {
         let root = div()
@@ -214,7 +213,6 @@ impl TerminalView {
             .relative()
             .size_full()
             .overflow_hidden()
-            .bg(colors.pane)
             .track_focus(&self.focus)
             .cursor(self.pointer_style())
             .on_key_down(cx.listener(Self::on_key_down))

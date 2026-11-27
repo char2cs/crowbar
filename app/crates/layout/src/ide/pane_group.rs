@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::layout::tab::pane_instance::PaneInstance;
 
+/// The chat's share of a group's width or height when chat and editor show together, before
+/// the user drags the sash.
+pub const DEFAULT_CHAT_SHARE: f32 = 0.45;
+
 /// One place of a tab's split tree, as develop's `PaneGroup`: at most one chat, and the editor
 /// tabs shown beside it or over it.
 ///
@@ -25,6 +29,8 @@ pub struct PaneGroup {
     pub(crate) chat_selected: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) preview: Option<PaneId>,
+    #[serde(skip)]
+    pub(crate) chat_share: Option<f32>,
 }
 
 impl PaneGroup {
@@ -40,6 +46,7 @@ impl PaneGroup {
             editor_open: false,
             chat_selected: true,
             preview: None,
+            chat_share: None,
         }
     }
 
@@ -52,6 +59,7 @@ impl PaneGroup {
             editor_open: true,
             chat_selected: false,
             preview: None,
+            chat_share: None,
         }
     }
 

@@ -1,10 +1,13 @@
-//! The pop-up window and covers in tests of the crates that build on this one.
+//! The pop-up window, covers and native menus in tests of the crates that build on this one.
 #![cfg(any(test, feature = "test-support"))]
 
-use gpui::{App, Bounds, Pixels, VisualTestContext};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use gpui::{App, Bounds, Pixels, Task, TestAppContext, VisualTestContext};
 use raw_window_handle::RawWindowHandle;
 
-use crate::{FloatHost, FloatRegion};
+use crate::{FloatHost, FloatRegion, MenuPath, NativeEntry, NativeMenu, NativeRequest, PopupMenu};
 
 impl FloatHost for () {
     fn cover(
@@ -33,6 +36,35 @@ impl FloatHost for () {
 /// does on the desktop.
 pub fn open_float_windows(cx: &mut App) {
     crate::install_float_host((), cx);
+}
+
+/// Every native menu asked for, in order.
+pub type Popped = Rc<RefCell<Vec<NativeRequest>>>;
+
+/// Installs a native menu that records each request and answers with the path `pick` finds.
+pub fn answer_menus(
+    cx: &mut TestAppContext,
+    pick: impl Fn(&[NativeEntry]) -> Option<MenuPath> + 'static,
+) -> Popped {
+    let popped = Popped::default();
+    let heard = Rc::clone(&popped);
+    let popup: PopupMenu = Rc::new(move |request, _, _| {
+        let path = pick(&request.entries);
+        heard.borrow_mut().push(request);
+        Task::ready(path)
+    });
+    cx.update(|cx| cx.set_global(NativeMenu::new(popup)));
+    popped
+}
+
+/// The path of the top-level entry labelled `label`.
+#[must_use]
+pub fn entry_labelled(
+    entries: &[NativeEntry],
+    label: &str,
+) -> Option<MenuPath> {
+    let is_it = |entry: &NativeEntry| matches!(entry, NativeEntry::Item { label: shown, .. } if shown == label);
+    entries.iter().position(is_it).map(|at| vec![at])
 }
 
 /// The window `owner` opened last; `owner` itself while it has none.

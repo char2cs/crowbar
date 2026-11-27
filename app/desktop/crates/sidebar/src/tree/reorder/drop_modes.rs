@@ -22,6 +22,11 @@ impl DropModes {
     /// Everything.
     pub const ALL: Self = Self(BEFORE | AFTER | INTO);
 
+    pub(crate) fn union<const N: usize>(parts: [Option<Self>; N]) -> Self {
+        let parts = parts.into_iter().flatten();
+        parts.fold(Self::NONE, |all, part| Self(all.0 | part.0))
+    }
+
     fn bit(mode: DropMode) -> u8 {
         match mode {
             DropMode::Before => BEFORE,

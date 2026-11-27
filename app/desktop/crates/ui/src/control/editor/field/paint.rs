@@ -1,11 +1,12 @@
 use std::ops::Range;
 
-use gpui::{PaintQuad, ShapedLine, TextRun, UnderlineStyle, px};
+use gpui::{PaintQuad, TextRun, UnderlineStyle, px};
 
 use crate::control::editor::field::frame::Frame;
+use crate::display::TrackedLine;
 
 pub(crate) fn caret_frame(
-    line: ShapedLine,
+    line: TrackedLine,
     caret: PaintQuad,
 ) -> Frame {
     Frame {
@@ -16,7 +17,7 @@ pub(crate) fn caret_frame(
 }
 
 pub(crate) fn band_frame(
-    line: ShapedLine,
+    line: TrackedLine,
     band: PaintQuad,
 ) -> Frame {
     Frame {

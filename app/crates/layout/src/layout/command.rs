@@ -122,6 +122,17 @@ pub enum Command {
         /// Whether the editor view shows.
         view: EditorView,
     },
+    /// Gives the chat of the group holding `pane` a share of the room it splits with the editor,
+    /// as dragging the sash between them does. [`Presentation::chat_share_for`] says which share
+    /// a drag asks for.
+    ///
+    /// [`Presentation::chat_share_for`]: crate::Presentation::chat_share_for
+    ResizeChat {
+        /// A member of the group.
+        pane: PaneId,
+        /// The chat's share, between 0 and 1.
+        share: f32,
+    },
     /// Makes an editor tab its group's preview, as develop's file tree opens a file with a
     /// single click; the group's previous preview becomes an ordinary tab.
     PreviewPane {
@@ -232,6 +243,7 @@ impl Command {
                 | Self::KeepPane { .. }
                 | Self::ResizeSplit { .. }
                 | Self::ResetSplit { .. }
+                | Self::ResizeChat { .. }
                 | Self::SetPaneState { .. }
                 | Self::SetPaneParams { .. }
                 | Self::AdoptSpace { .. }

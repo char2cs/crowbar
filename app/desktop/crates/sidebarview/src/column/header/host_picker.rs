@@ -15,7 +15,6 @@ use crate::sidebar::{RowAction, RowHandler};
 const DOT_OFFSET: f32 = -1.0;
 const TRIGGER_HEIGHT: Pixels = px(24.0);
 const NAME_MAX_WIDTH: Pixels = px(96.0);
-const MENU_MIN_WIDTH: Pixels = px(224.0);
 
 const DOT: f32 = 5.0;
 const CUTOUT: f32 = 8.0;
@@ -130,9 +129,7 @@ pub(crate) fn host_picker(
                 .truncate()
                 .child(current.name.clone()),
         );
-    DropdownMenu::new("host-picker", trigger, items)
-        .min_width(MENU_MIN_WIDTH)
-        .into_any_element()
+    DropdownMenu::new("host-picker", trigger, items).into_any_element()
 }
 
 #[cfg(test)]

@@ -21,9 +21,7 @@ use crate::event::Event;
 use crate::gesture::{DragSession, HeldGap, IncomingDrop, NewTab, Press, Settle};
 use crate::pill::TabView;
 use crate::span::Span;
-use crate::strip_metrics::{
-    ROW_GAP, ROW_HEIGHT, ROW_PADDING, TOGGLE_SIZE, TRAFFIC_LIGHT_INSET, slots,
-};
+use crate::strip_metrics::{ROW_HEIGHT, ROW_PADDING, slots};
 
 const NO_ROW: f32 = 0.0;
 
@@ -125,20 +123,16 @@ impl TabBar {
     }
 
     pub(crate) fn strip_left(&self) -> Pixels {
-        let toggle = match self.sidebar {
-            SidebarState::ClosedLeft => TOGGLE_SIZE + ROW_GAP + TRAFFIC_LIGHT_INSET,
-            SidebarState::Open | SidebarState::ClosedRight => 0.0,
+        let leading_toggle = match self.sidebar {
+            SidebarState::ClosedLeft => self.sidebar.toggle_width(),
+            SidebarState::Open | SidebarState::OpenRight | SidebarState::ClosedRight => 0.0,
         };
-        self.row.origin.x + px(ROW_PADDING + toggle)
+        self.row.origin.x + px(ROW_PADDING + self.sidebar.leading_inset() + leading_toggle)
     }
 
     pub(crate) fn strip_width(&self) -> f32 {
-        let toggle = match self.sidebar {
-            SidebarState::Open => 0.0,
-            SidebarState::ClosedRight => TOGGLE_SIZE + ROW_GAP,
-            SidebarState::ClosedLeft => TOGGLE_SIZE + ROW_GAP + TRAFFIC_LIGHT_INSET,
-        };
-        (f32::from(self.row.size.width) - 2.0 * ROW_PADDING - toggle).max(0.0)
+        let taken = self.sidebar.leading_inset() + self.sidebar.toggle_width();
+        (f32::from(self.row.size.width) - 2.0 * ROW_PADDING - taken).max(0.0)
     }
 
     pub(crate) fn slot_spans(&self) -> Vec<Span> {
@@ -153,14 +147,14 @@ pub(crate) fn position(
     tabs.iter().position(|tab| tab.id == id)
 }
 
-// PLATFORM: linux hands the move to the window manager through _NET_WM_MOVERESIZE; macos is unverified.
+// PLATFORM: linux hands the move to the window manager through _NET_WM_MOVERESIZE.
 pub(crate) fn window_grip() -> impl IntoElement {
     div()
         .id("tab-strip-grip")
         .flex_1()
         .min_w_0()
         .h_full()
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+        .on_mouse_down(MouseButton::Left, ui::drag_window)
 }
 
 pub(crate) fn row_height(tabs: &[TabView]) -> f32 {
@@ -172,6 +166,7 @@ pub(crate) fn row_height(tabs: &[TabView]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::strip_metrics::TRAFFIC_LIGHT_INSET;
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -239,6 +234,20 @@ mod tests {
                 width - 16.0 - 34.0 - TRAFFIC_LIGHT_INSET,
                 "inset, toggle and gap come off the width"
             );
+        });
+    }
+
+    #[gpui::test]
+    fn a_sidebar_on_the_right_leaves_the_strip_under_the_traffic_lights(cx: &mut TestAppContext) {
+        let harness = open(cx, vec![view(1, &["a"])], 1);
+        let (bar, cx) = (harness.bar, harness.cx);
+        bar.update(cx, |bar, cx| bar.set_sidebar(SidebarState::ClosedRight, cx));
+        cx.run_until_parked();
+        bar.read_with(cx, |bar, _| {
+            let (left, width) = (f32::from(bar.row.origin.x), f32::from(bar.row.size.width));
+            let start = left + 8.0 + TRAFFIC_LIGHT_INSET;
+            assert_eq!(f32::from(bar.strip_left()), start, "past the lights");
+            assert_eq!(bar.strip_width(), width - 16.0 - 34.0 - TRAFFIC_LIGHT_INSET);
         });
     }
 }

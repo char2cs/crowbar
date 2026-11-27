@@ -31,12 +31,12 @@ Key: **C** covered, **P** partly covered, **M** missing (needs a shell-side buil
 | `showMinimap` (also in the toolbar preferences menu) | off | **M**: no minimap | Dropped (D4): setting and menu item deleted in S7 |
 | `renderWhitespace` none/boundary/trailing/all (the settings catalog has 4 values; Monaco also has `selection`) | none | P: only a bool, `set_show_whitespaces` | Patch: a mode enum |
 | `renderIndentGuides` + active indent guide | on | P: `set_indent_guides`; no active-guide highlight | Patch (active guide) |
-| `semanticHighlighting` (LSP semantic tokens) | on | C: `semantic_tokens_provider` | Slice 6 |
-| `highlightOccurrences` (word under the caret, Monaco `occurrencesHighlight`) | off | **M** | Shell: range decorations from the caret word; no patch |
+| `semanticHighlighting` (LSP semantic tokens) | on | C: `semantic_tokens_provider` | Shell: the daemon's canonical legend; off answers no tokens |
+| `highlightOccurrences` (word under the caret, Monaco `occurrencesHighlight`) | off | **M**; built | Shell: range decorations from the caret word; no patch |
 | Selection highlight of other occurrences (`selectionHighlight: true`, ED-029) | on | **M** | Shell: range decorations from the selection |
 | `autoCompletion` (quick suggestions, trigger characters) | on | C: `CompletionProvider` + `is_completion_trigger` | Slices 5-6 |
-| `parameterHints` (signature help) | on | **M**: no signature-help provider | Patch (popover + trait) |
-| `formatOnSave` | off | **M**: no formatting provider, but `apply_lsp_edits` exists | Shell: LSP `formatting` → `apply_lsp_edits` before the write |
+| `parameterHints` (signature help) | on | **M**: no signature-help provider | Not honoured: the stock editor has none |
+| `formatOnSave` | off | **M**: no formatting provider | Shell: ctrl+s asks LSP `formatting` before the write; one undo step; autosave never formats |
 | `autoSave` (1 s quiet period, not untitled) | off | n/a | Shell: the document owner |
 | `inlineBlame` | (setting) | **M**: no after-line virtual text | ED-098/099 show no inline blame in either app; keep it off and record that |
 | Ligatures | Monaco default (off) | M: no font-features API | Nothing to do: develop does not turn them on |
@@ -58,7 +58,7 @@ Key: **C** covered, **P** partly covered, **M** missing (needs a shell-side buil
 | Toggle line comment: develop leaves ctrl+/ to the app (ED-046) | none bound | Nothing to bind; the chord stays with the shell keymap |
 | Folding: chevrons on hover, click folds with a … marker (ED-055) | C: gutter fold icons, a placeholder renderer, ranges from the tree-sitter highlighter | Look: use `fold_icon_renderer` with phosphor icons |
 | Fold keys ctrl+shift+[ / ] and fold all ctrl+k ctrl+0 (ED-056) | **M**: `DisplayMap::set_folded` is not reachable mutably | Patch (actions) |
-| Find widget ctrl+f, floating top-right over the text; "n of m" / "No results"; match case / whole word / regex (alt+c/w/r); in-selection; next/prev Enter, F3; replace ctrl+h, Replace All; Escape (ED-057..064) | P: a built-in `SearchPanel` that docks as a row, matches literal text only (AhoCorasick, case only), labels "1/3" | Shell: an `editorview` find widget drawn like develop's. Matching uses `regex`, highlights use range decorations, and moves use `set_selected_range`. Disable the built-in panel (`set_searchable(false)`). No patch. |
+| Find and replace (ED-057..064) | C: gpui-kit's own search panel (ctrl/cmd+f, replace) | Stock (owner decision 2026-11-26: the editor is gpui-kit's default, no Monaco widgets) |
 | Toolbar "Find in file" button (ED-058) | n/a | Toolbar opens the shell widget |
 | Go to line ctrl+g: quick input "line:col", jumps and centres (ED-065) | P: `set_cursor_position` scrolls to the caret; no centring (`scroll_to` is `pub(crate)`) | Shell quick input; a patch adds a centred reveal |
 | Quick outline ctrl+shift+o (document symbols, ED-066) | **M** | Shell picker over the LSP `documentSymbol` route |
@@ -276,7 +276,7 @@ The Monaco pane stays in place until slice 7 retires it. No feature flag is adde
 - Rows: ED-018, 020, 021, 023, 026, 027, 029, 030, 032, 033, 034, 075, 076, 077.
 
 ### S5: find, go to line, multi-cursor, folding, keys
-- The shell find widget, floating, with regex, whole word, case and in-selection; replace / replace all; F3.
+- Find and replace: gpui-kit's own search panel.
 - Go-to-line with centring (patch); outline when LSP lands.
 - ctrl+d / ctrl+shift+l; line ops (patch); fold keys (patch); `NativeEditor` key context and the keymap yield table; the ctrl+shift+z redo binding; context menu off; breadcrumb dropdowns.
 - Red tests:

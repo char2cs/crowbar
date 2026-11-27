@@ -2,10 +2,8 @@
 
 mod menu_action;
 mod nested_items;
-mod tone;
 
 pub use menu_action::MenuAction;
-pub(crate) use tone::Tone;
 
 use std::rc::Rc;
 
@@ -13,16 +11,14 @@ use gpui::SharedString;
 
 use crate::floating::menu::menu_item::nested_items::NestedItems;
 
-/// One entry of a [`crate::Menu`].
+/// One entry of a menu.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum MenuItem {
     /// A selectable row.
     Action(MenuAction),
-    /// A hairline between groups.
+    /// A line between groups.
     Separator,
-    /// A small muted heading.
-    Label(SharedString),
 }
 
 impl MenuItem {
@@ -62,7 +58,6 @@ mod tests {
         assert!(enabled.is_selectable());
         assert!(!disabled.is_selectable());
         assert!(!MenuItem::Separator.is_selectable());
-        assert!(!MenuItem::Label("Group".into()).is_selectable());
     }
 
     #[test]

@@ -21,4 +21,5 @@ pub use toast::{
     Toast, ToastContent, ToastId, ToastKind, ToastLifetime, ToastPlacement, ToastQueue,
     ToastQueueEvent, ToastSide,
 };
+pub(crate) use tracked_text::TrackedLine;
 pub use tracked_text::TrackedText;

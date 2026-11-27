@@ -1,24 +1,19 @@
 //! One line of a context menu, as plain data.
 
 use sidebar::Intent;
-use ui::IconName;
 
 use crate::overlays::popup::check::Check;
-use crate::overlays::popup::tone::Tone;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MenuEntry {
     Action {
         label: String,
-        icon: Option<IconName>,
-        tone: Tone,
         intent: Intent,
         checked: Option<Check>,
     },
     Separator,
     Submenu {
         label: String,
-        icon: Option<IconName>,
         entries: Vec<MenuEntry>,
     },
 }
@@ -26,13 +21,10 @@ pub(crate) enum MenuEntry {
 impl MenuEntry {
     pub(crate) fn action(
         label: &str,
-        icon: IconName,
         intent: Intent,
     ) -> Self {
         Self::Action {
             label: label.to_owned(),
-            icon: Some(icon),
-            tone: Tone::Normal,
             intent,
             checked: None,
         }
@@ -40,29 +32,12 @@ impl MenuEntry {
 
     pub(crate) fn toggle(
         label: &str,
-        icon: IconName,
         (check, intent): (Check, Intent),
     ) -> Self {
         Self::Action {
             label: label.to_owned(),
-            icon: Some(icon),
-            tone: Tone::Normal,
             intent,
             checked: Some(check),
-        }
-    }
-
-    pub(crate) fn destructive(
-        label: &str,
-        icon: IconName,
-        intent: Intent,
-    ) -> Self {
-        Self::Action {
-            label: label.to_owned(),
-            icon: Some(icon),
-            tone: Tone::Destructive,
-            intent,
-            checked: None,
         }
     }
 }
@@ -73,29 +48,17 @@ mod tests {
     use sidebar::{Command, RowId};
 
     #[test]
-    fn constructors_set_the_tone() {
+    fn only_a_toggle_carries_a_check() {
         let intent = Intent::Send(Command::Lock(RowId::from("r")));
-        let normal = MenuEntry::action("Lock", IconName::Lock, intent.clone());
-        let destructive = MenuEntry::destructive("Delete", IconName::Trash, intent);
-        assert!(
-            matches!(
-                normal,
-                MenuEntry::Action {
-                    tone: Tone::Normal,
-                    ..
-                }
-            ),
-            "normal"
-        );
-        assert!(
-            matches!(
-                destructive,
-                MenuEntry::Action {
-                    tone: Tone::Destructive,
-                    ..
-                }
-            ),
-            "destructive"
-        );
+        let plain = MenuEntry::action("Lock", intent.clone());
+        let toggle = MenuEntry::toggle("Hidden", (Check::On, intent));
+        assert!(matches!(plain, MenuEntry::Action { checked: None, .. }));
+        assert!(matches!(
+            toggle,
+            MenuEntry::Action {
+                checked: Some(Check::On),
+                ..
+            }
+        ));
     }
 }

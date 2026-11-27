@@ -6,6 +6,7 @@ use crate::backend::Platform;
 use crate::error::Result;
 use crate::view::Bounds;
 use crate::view::Color;
+use crate::view::Corners;
 use crate::view::Id;
 use crate::view::Visibility;
 
@@ -68,6 +69,17 @@ impl Handle {
         hole: Option<Bounds>,
     ) -> Result<()> {
         self.platform.set_cutout(self.id, hole)
+    }
+
+    /// Rounds the view's corners.
+    ///
+    /// # Errors
+    /// An [`Error`](crate::Error) when the backend has stopped.
+    pub fn set_corners(
+        &self,
+        corners: Corners,
+    ) -> Result<()> {
+        self.platform.set_corners(self.id, corners)
     }
 
     /// Draws the view, stops drawing it while the page stays loaded and is not told, or covers

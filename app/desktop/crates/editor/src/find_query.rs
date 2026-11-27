@@ -10,10 +10,8 @@ use crate::{Error, FindOption, FindOptions};
 
 // SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findModel.ts (MATCHES_LIMIT)
 const MATCHES_LIMIT: usize = 19_999;
-const DOLLAR: char = '$';
-const WHOLE_MATCH: char = '&';
 
-/// What the find widget looks for: the typed text and the toggles that shape it.
+/// A text to find the occurrences of, and the toggles that shape the search.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FindQuery {
     text: String,
@@ -33,11 +31,10 @@ impl FindQuery {
         }
     }
 
-    /// Every non-empty match in `haystack`, in order, up to Monaco's limit; none for an empty
-    /// query.
+    /// Every non-empty match in `haystack`, in order, up to a limit; none for an empty query.
     ///
     /// # Errors
-    /// [`Error::Pattern`] when the regex toggle is on and the text is not a valid expression.
+    /// [`Error::Pattern`] when the text is too large to search for.
     pub fn matches(
         &self,
         haystack: &str,
@@ -57,37 +54,8 @@ impl FindQuery {
         Ok(found)
     }
 
-    /// The text that replaces the match at `found` in `haystack`: `with` as typed, or with the
-    /// regex toggle on, `with` with Monaco's `$1`, `$&` and `$$` filled from the match.
-    ///
-    /// # Errors
-    /// [`Error::Pattern`] when the regex toggle is on and the text is not a valid expression.
-    pub fn replacement(
-        &self,
-        haystack: &str,
-        found: &Range<usize>,
-        with: &str,
-    ) -> Result<String, Error> {
-        if !self.options.has(FindOption::Regex) {
-            return Ok(with.to_owned());
-        }
-        let pattern = self.pattern()?;
-        let from_match = haystack.get(found.start..).unwrap_or("");
-        let rest = haystack.get(found.end..).unwrap_or("");
-        let replaced = pattern.replacen(from_match, 1, rust_template(with).as_str());
-        Ok(replaced.strip_suffix(rest).unwrap_or(&replaced).to_owned())
-    }
-
-    fn source(&self) -> String {
-        if self.options.has(FindOption::Regex) {
-            return self.text.clone();
-        }
-        regex::escape(&self.text)
-    }
-
     fn pattern(&self) -> Result<Regex, Error> {
-        let source = self.source();
-        RegexBuilder::new(&source)
+        RegexBuilder::new(&regex::escape(&self.text))
             .case_insensitive(!self.options.has(FindOption::MatchCase))
             .multi_line(true)
             .build()
@@ -96,34 +64,6 @@ impl FindQuery {
                 source,
             })
     }
-}
-
-fn rust_template(monaco: &str) -> String {
-    let mut chars = monaco.chars().peekable();
-    let template: String = std::iter::from_fn(|| piece(&mut chars)).collect();
-    template.replace("\\n", "\n").replace("\\t", "\t")
-}
-
-fn piece(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
-    let character = chars.next()?;
-    if character != DOLLAR {
-        return Some(character.to_string());
-    }
-    Some(dollar(chars))
-}
-
-fn dollar(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
-    if chars.next_if_eq(&DOLLAR).is_some() {
-        return "$$".to_owned();
-    }
-    if chars.next_if_eq(&WHOLE_MATCH).is_some() {
-        return "${0}".to_owned();
-    }
-    let digits: String = std::iter::from_fn(|| chars.next_if(char::is_ascii_digit)).collect();
-    if digits.is_empty() {
-        return "$$".to_owned();
-    }
-    format!("${{{digits}}}")
 }
 
 fn bounded_by_separators(
@@ -172,19 +112,8 @@ mod tests {
             &[FindOption::WholeWord],
             &[(0, 5), (6, 11), (19, 24)],
         ),
-        ("^price", &[FindOption::Regex], &[(0, 5), (19, 24)]),
         ("p.ice", &[], &[]),
         ("", &[], &[]),
-    ];
-
-    const REPLACED: &str = "let total = 1;";
-    type Replacement = (&'static str, Toggles, &'static str, &'static str);
-
-    const REPLACE_CASES: &[Replacement] = &[
-        ("(t)(otal)", &[FindOption::Regex], "$2$1", "otalt"),
-        ("(t)(otal)", &[FindOption::Regex], "[$&]", "[total]"),
-        ("(t)(otal)", &[FindOption::Regex], "$1x", "tx"),
-        ("total", &[], "$1", "$1"),
     ];
 
     #[test]
@@ -195,20 +124,5 @@ mod tests {
             let found = FindQuery::new(query, FindOptions::of(on)).matches(MATCHED);
             assert_eq!(found.ok(), Some(expected), "{query:?} {on:?}");
         }
-    }
-
-    #[test]
-    fn a_replacement_fills_monaco_s_groups_only_under_the_regex_toggle() {
-        for (query, on, with, expected) in REPLACE_CASES {
-            let query = FindQuery::new(query, FindOptions::of(on));
-            let replaced = query.replacement(REPLACED, &(4..9), with);
-            assert_eq!(replaced.ok().as_deref(), Some(*expected), "{with:?}");
-        }
-    }
-
-    #[test]
-    fn an_invalid_expression_is_reported_not_matched() {
-        let query = FindQuery::new("(", FindOptions::of(&[FindOption::Regex]));
-        assert!(matches!(query.matches("("), Err(Error::Pattern { .. })));
     }
 }

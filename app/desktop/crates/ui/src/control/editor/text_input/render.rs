@@ -14,7 +14,6 @@ use crate::foundation::IconName;
 use crate::foundation::Theme;
 use crate::foundation::tokens::opacity;
 use crate::foundation::tokens::shadow;
-use crate::foundation::tokens::text_size;
 
 const ICON_SIZE: f32 = 14.0;
 const ICON_INSET: f32 = 8.0;
@@ -53,11 +52,9 @@ impl Render for TextInput {
             .bg(fill)
             .text_color(palette.foreground())
             .text_size(text)
-            .line_height(text_size::LINE_HEIGHT)
+            .line_height(self.style.line_height())
             .font_family(self.style.family(theme))
-            .when(self.style.bare(), |d| {
-                d.font_weight(gpui::FontWeight::MEDIUM)
-            })
+            .when(self.style.bare(), |d| d.font_weight(self.style.weight()))
             .shadow(shadows)
             .children(self.leading.map(|icon| leading(icon, palette)))
             .child(LineElement::new(cx.entity(), palette))

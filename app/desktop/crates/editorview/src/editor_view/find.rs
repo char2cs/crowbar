@@ -1,5 +1,5 @@
-//! Find in a view: the find actions and the highlighted occurrences of the selected word.
+//! The occurrences of the selected word, selected one by one or all at once.
 
-pub(super) mod find_actions;
+pub(super) mod occurrence_marks;
 pub(super) mod occurrence_session;
-mod occurrences;
+pub(super) mod occurrences;

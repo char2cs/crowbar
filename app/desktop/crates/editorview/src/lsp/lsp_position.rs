@@ -15,6 +15,19 @@ pub(crate) fn to_lsp(
     Position::new(clamped(point.row), clamped(units))
 }
 
+pub(crate) fn offset_of(
+    text: &Rope,
+    position: Position,
+) -> usize {
+    let row = position.line as usize;
+    if row >= text.lines_len() {
+        return text.len();
+    }
+    let line = text.slice_line(row);
+    let units = (position.character as usize).min(line.len_utf16());
+    text.line_start_offset(row) + line.utf16_to_byte_idx(units)
+}
+
 pub(crate) fn from_lsp(
     text: &Rope,
     position: Position,

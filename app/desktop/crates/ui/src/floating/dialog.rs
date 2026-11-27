@@ -27,7 +27,7 @@ const BOTTOM_SHARE: f32 = 3.0;
 
 /// A modal dialog: scrim, header with title and close button, scrolling body and optional footer.
 ///
-/// Not deferred: a deferred dialog cannot hold a select or menu, whose popups defer too. Mount
+/// Not deferred: a deferred dialog cannot hold a popover, whose panel defers too. Mount
 /// it as the last child of a full-window layer so it paints over its siblings.
 #[derive(IntoElement)]
 pub struct Dialog {
@@ -308,24 +308,6 @@ mod tests {
         let body = cx.debug_bounds("body").unwrap_or_default();
         cx.simulate_click(body.center(), gpui::Modifiers::none());
         assert_eq!(closed.get(), 0);
-    }
-
-    #[gpui::test]
-    fn a_select_inside_a_dialog_opens_its_popup(cx: &mut TestAppContext) {
-        let cx = open(cx, |_, _| {
-            let select =
-                crate::floating::menu::Select::new("s", vec!["One".into(), "Two".into()], Some(0));
-            Dialog::new("d")
-                .title("Title")
-                .body(div().debug_selector(|| "host".into()).child(select))
-        });
-        let host = cx.debug_bounds("host").unwrap_or_default();
-        cx.simulate_click(host.center(), gpui::Modifiers::none());
-        cx.run_until_parked();
-        assert!(
-            cx.debug_bounds("host").is_some(),
-            "the dialog still renders with the popup open"
-        );
     }
 
     #[gpui::test]

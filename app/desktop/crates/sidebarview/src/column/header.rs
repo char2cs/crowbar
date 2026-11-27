@@ -10,8 +10,8 @@ pub(crate) use tile_shape::TileShape;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Styled, Window, WindowControlArea, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    WindowControlArea, div, px,
 };
 use sidebar::{Command, DockSide, Host, Intent, Visibility};
 use ui::{IconName, Surface, Theme};
@@ -37,7 +37,7 @@ impl Sidebar {
             .w_full()
             .overflow_hidden()
             .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(MouseButton::Left, drag_window)
+            .on_mouse_down(MouseButton::Left, ui::drag_window)
             .when(side == DockSide::Left, |d| d.pl(SPACE_LG).pr(SPACE_MD))
             .when(side == DockSide::Right, |d| {
                 d.flex_row_reverse().pr(SPACE_LG).pl(SPACE_MD)
@@ -103,19 +103,6 @@ impl Sidebar {
         let shown = self.data.shown_host()?;
         hosts.iter().find(|host| host.id == shown).cloned()
     }
-}
-
-// PLATFORM: X11 has no hit-test for control areas, so the header moves the window itself.
-fn drag_window(
-    event: &MouseDownEvent,
-    window: &mut Window,
-    _: &mut App,
-) {
-    if event.click_count >= 2 {
-        window.zoom_window();
-        return;
-    }
-    window.start_window_move();
 }
 
 fn traffic_light_spacer(side: DockSide) -> Option<gpui::Div> {

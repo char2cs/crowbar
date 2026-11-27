@@ -6,17 +6,16 @@ mod hover_glide;
 pub(crate) mod icon_editor;
 mod icon_label;
 mod space_icon_editor;
+mod space_name;
 
 pub(crate) use icon_editor::IconEditor;
 
 use gpui::{
-    AnyElement, Context, Div, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, Context, Div, ElementId, Entity, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use sidebar::{Command, Host, HostKind, Intent, Project};
-use ui::{
-    HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, TrackedText, radius, tracking,
-};
+use ui::{HoverFill, Palette, Placement, Popover, Surface, Theme, Tooltip, radius};
 
 use crate::column::switcher::edit_pencil::{GROUP, edit_pencil};
 
@@ -31,8 +30,6 @@ const TILE_PULL: f32 = -4.0;
 
 const TILE: f32 = 28.0;
 const MARK: f32 = 20.0;
-const NAME_SIZE: f32 = 19.0;
-const NAME_LINE: f32 = 24.0;
 const OTHER_MARK_ALPHA: f32 = 0.8;
 const SELECTOR: &str = "sidebar-switcher";
 
@@ -93,7 +90,8 @@ impl Sidebar {
             .remote_host_of(current)
             .map(|host| Self::host_line(&host, &theme, cx));
         let tile = space_tile(current, editor, theme);
-        let name = name_column(current, line, theme);
+        let label = self.space_label(current, theme, cx);
+        let name = name_column(label, line);
         active_block((tile, name, slot))
     }
 
@@ -156,23 +154,6 @@ fn mark_tile(
         .child(inner)
 }
 
-fn spaced_name_cell(
-    current: &Project,
-    (family, em): (&'static str, f32),
-    palette: &Palette,
-) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .truncate()
-        .font_family(family)
-        .text_size(px(NAME_SIZE))
-        .line_height(px(NAME_LINE))
-        .font_weight(FontWeight::NORMAL)
-        .text_color(palette.foreground())
-        .child(TrackedText::new(current.name.clone(), em))
-}
-
 fn editable_tile(
     tile: Div,
     mark: AnyElement,
@@ -224,21 +205,15 @@ fn space_tile(
 }
 
 fn name_column(
-    current: &Project,
+    label: AnyElement,
     line: Option<AnyElement>,
-    theme: Theme,
 ) -> Div {
-    let (family, palette) = (theme.heading_family(), theme.palette(Surface::Chrome));
     div()
         .flex()
         .flex_col()
         .flex_1()
         .min_w_0()
-        .child(spaced_name_cell(
-            current,
-            (family, tracking::TIGHT),
-            palette,
-        ))
+        .child(label)
         .children(line)
 }
 
@@ -256,58 +231,9 @@ fn active_block((tile, name, slot): (AnyElement, Div, Div)) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{InteractiveElement as _, ParentElement as _, Styled as _, div};
-    use sidebar::{HostId, Intent, Mark, Project};
-    use ui::{Surface, Theme};
+    use sidebar::Intent;
 
-    use super::{NAME_SIZE, spaced_name_cell};
-    use crate::test_support::mount;
     use crate::test_support::prelude::*;
-
-    const SEED: &str = "Crowbar Seed";
-    /// Tailwind `tracking-tight`, in em.
-    const TIGHT: f32 = -0.025;
-
-    fn name_width(
-        cx: &mut TestAppContext,
-        em: f32,
-    ) -> f32 {
-        let seed = Project {
-            id: ProjectId::from("seed"),
-            name: SEED.to_owned(),
-            mark: Mark::Fallback,
-            host: HostId::from("local"),
-        };
-        let window = mount(cx, move |_, cx| {
-            let theme = Theme::of(cx);
-            let cell = spaced_name_cell(
-                &seed,
-                (theme.heading_family(), em),
-                theme.palette(Surface::Chrome),
-            );
-            div().flex().child(
-                div()
-                    .flex_none()
-                    .debug_selector(|| "switcher-name".into())
-                    .child(cell),
-            )
-        });
-        let bounds = window.debug_bounds("switcher-name").unwrap_or_default();
-        f32::from(bounds.size.width)
-    }
-
-    #[gpui::test]
-    fn the_space_name_is_set_tight_as_develop_does(cx: &mut TestAppContext) {
-        let tight = name_width(cx, TIGHT);
-        let loose = name_width(cx, 0.0);
-        let glyphs = f32::from(u16::try_from(SEED.chars().count()).expect("a short name"));
-        let narrower = loose - tight;
-        let expected = glyphs * -TIGHT * NAME_SIZE;
-        assert!(
-            (narrower - expected).abs() < 1.0,
-            "{narrower} vs {expected}"
-        );
-    }
 
     #[gpui::test]
     fn an_empty_profile_still_offers_the_add_button(cx: &mut TestAppContext) {

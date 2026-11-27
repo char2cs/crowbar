@@ -1,6 +1,8 @@
-//! Where a dragged row lands, in the daemon's terms: a parent and an insert index.
+//! Where a dragged row lands: a container row and an insert index among its other children.
+//!
+//! Spec: develop `web/src/components/sidebar/lib/drop-plan.ts`.
 
-use sidebar::{DropMode, Row, RowKind};
+use sidebar::{DropMode, Row, RowTree};
 
 use crate::plan::relocate::slot::Slot;
 
@@ -9,152 +11,71 @@ pub(crate) fn slot_for(
     (moved, target): (&str, &str),
     mode: DropMode,
 ) -> Option<Slot> {
-    let lifted = without_subtree(rows, moved)?;
-    let at = lifted.iter().position(|row| row.id.as_str() == target)?;
-    let target_row = lifted.get(at)?;
-    if mode == DropMode::Into {
-        return Some(into(&lifted, at, target_row));
+    let at = |id: &str| rows.iter().position(|row| row.id.as_str() == id);
+    let (subject, over) = (at(moved)?, at(target)?);
+    let tree = RowTree::new(rows);
+    let mut chain = std::iter::successors(Some(over), |index| tree.parent(*index));
+    if chain.any(|index| index == subject) {
+        return None;
     }
-    let parent_at = parent_index(&lifted, at);
-    let parent = parent_at
-        .and_then(|index| lifted.get(index))
-        .map_or_default(container_id);
-    let siblings: Vec<&str> = match parent_at {
-        Some(index) => children_of(&lifted, index)
-            .map(|row| row.id.as_str())
-            .collect(),
-        None => roots(&lifted).map(|row| row.id.as_str()).collect(),
+    let container = match mode {
+        DropMode::Into => Some(over),
+        DropMode::Before | DropMode::After => tree.parent(over),
     };
-    let position = siblings.iter().position(|id| *id == target)?;
-    let index = position + usize::from(mode == DropMode::After);
-    Some(Slot { parent, index })
-}
-
-fn into(
-    rows: &[Row],
-    at: usize,
-    target: &Row,
-) -> Slot {
-    Slot {
-        parent: container_id(target),
-        index: children_of(rows, at).count(),
-    }
-}
-
-fn container_id(row: &Row) -> String {
-    if row.kind == RowKind::RepoHeader {
-        return String::new();
-    }
-    row.id.as_str().to_owned()
-}
-
-fn without_subtree(
-    rows: &[Row],
-    moved: &str,
-) -> Option<Vec<Row>> {
-    let at = rows.iter().position(|row| row.id.as_str() == moved)?;
-    let depth = rows.get(at)?.depth;
-    let end = rows
-        .iter()
-        .skip(at + 1)
-        .position(|row| row.depth <= depth)
-        .map_or(rows.len(), |n| at + 1 + n);
-    Some(
-        rows.iter()
-            .enumerate()
-            .filter(|(i, _)| *i < at || *i >= end)
-            .map(|(_, row)| row.clone())
-            .collect(),
-    )
-}
-
-fn parent_index(
-    rows: &[Row],
-    at: usize,
-) -> Option<usize> {
-    let depth = rows.get(at)?.depth;
-    (0..at)
-        .rev()
-        .find(|i| rows.get(*i).is_some_and(|row| row.depth < depth))
-}
-
-fn children_of(
-    rows: &[Row],
-    parent: usize,
-) -> impl Iterator<Item = &Row> {
-    let depth = rows.get(parent).map_or(0, |row| row.depth);
-    let below = rows
-        .iter()
-        .skip(parent + 1)
-        .take_while(move |row| row.depth > depth);
-    below.filter(move |row| row.depth == depth + 1)
-}
-
-fn roots(rows: &[Row]) -> impl Iterator<Item = &Row> {
-    rows.iter()
-        .filter(|row| row.depth == 0 && row.kind != RowKind::RepoHeader)
+    let rest: Vec<usize> = tree.children(container).filter(|i| *i != subject).collect();
+    let beside = rest.iter().position(|index| *index == over);
+    let index = match mode {
+        DropMode::Into => rest.len(),
+        DropMode::Before => beside.unwrap_or(rest.len()),
+        DropMode::After => beside.map_or(rest.len(), |at| at + 1),
+    };
+    let id = |index: Option<usize>| {
+        let row = index.and_then(|index| rows.get(index));
+        row.map_or_default(|row| row.id.as_str().to_owned())
+    };
+    Some(Slot {
+        parent: id(container),
+        from: id(tree.parent(subject)),
+        index,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use sidebar::{Row, RowKind};
+    use sidebar::RowKind;
 
     use super::*;
-    use crate::plan::relocate::slot::Slot;
-
-    fn row(
-        id: &str,
-        kind: RowKind,
-        depth: u8,
-    ) -> Row {
-        Row::new(id, kind, depth, id)
-    }
 
     fn rows() -> Vec<Row> {
+        let row = |id: &str, kind, depth| Row::new(id, kind, depth, id);
         vec![
             row("a", RowKind::Chat, 0),
             row("f", RowKind::Folder, 0),
             row("g", RowKind::Chat, 1),
-            row("h", RowKind::Chat, 0),
+            row("r", RowKind::RepoHeader, 0),
         ]
+    }
+
+    fn slot(
+        rows_moved: (&str, &str),
+        mode: DropMode,
+    ) -> Option<(String, usize)> {
+        slot_for(&rows(), rows_moved, mode).map(|slot| (slot.parent, slot.index))
     }
 
     #[test]
     fn before_and_after_count_among_the_siblings_with_the_moved_row_lifted_out() {
-        let slot = |moved, target, mode| slot_for(&rows(), (moved, target), mode);
-        assert_eq!(
-            slot("a", "h", DropMode::Before),
-            Some(Slot {
-                parent: String::new(),
-                index: 1
-            })
-        );
-        assert_eq!(
-            slot("h", "a", DropMode::After),
-            Some(Slot {
-                parent: String::new(),
-                index: 1
-            })
-        );
-        assert_eq!(
-            slot("a", "g", DropMode::After),
-            Some(Slot {
-                parent: "f".into(),
-                index: 1
-            })
-        );
+        let top = |index| Some((String::new(), index));
+        assert_eq!(slot(("a", "r"), DropMode::Before), top(1));
+        assert_eq!(slot(("a", "r"), DropMode::After), top(2), "a header counts");
+        assert_eq!(slot(("r", "a"), DropMode::After), top(1));
+        assert_eq!(slot(("a", "g"), DropMode::After), Some(("f".into(), 1)));
     }
 
     #[test]
     fn into_appends_to_the_container_and_a_row_cannot_go_into_itself() {
-        assert_eq!(
-            slot_for(&rows(), ("a", "f"), DropMode::Into),
-            Some(Slot {
-                parent: "f".into(),
-                index: 1
-            })
-        );
-        assert_eq!(slot_for(&rows(), ("f", "g"), DropMode::Into), None);
-        assert_eq!(slot_for(&rows(), ("a", "missing"), DropMode::Before), None);
+        assert_eq!(slot(("a", "f"), DropMode::Into), Some(("f".into(), 1)));
+        assert_eq!(slot(("f", "g"), DropMode::Into), None);
+        assert_eq!(slot(("a", "missing"), DropMode::Before), None);
     }
 }

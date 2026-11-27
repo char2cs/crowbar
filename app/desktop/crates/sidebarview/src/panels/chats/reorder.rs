@@ -225,12 +225,12 @@ mod tests {
     fn a_drop_after_the_threshold_sends_the_placement(cx: &mut TestAppContext) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
-            this.drop_on((RowId::from("working"), RowId::from("folder")), cx);
+            this.press_row(press("chat"));
+            this.drag_over(&over("chat", "folder", (20.0, 18.0)), cx);
+            this.drop_on((RowId::from("chat"), RowId::from("folder")), cx);
         });
         let want = Command::Drop {
-            row: RowId::from("working"),
+            row: RowId::from("chat"),
             target: RowId::from("folder"),
             mode: DropMode::Into,
         };
@@ -241,9 +241,9 @@ mod tests {
     fn a_release_below_the_threshold_is_not_a_drop(cx: &mut TestAppContext) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (2.0, 2.0)), cx);
-            this.drop_on((RowId::from("working"), RowId::from("folder")), cx);
+            this.press_row(press("chat"));
+            this.drag_over(&over("chat", "folder", (2.0, 2.0)), cx);
+            this.drop_on((RowId::from("chat"), RowId::from("folder")), cx);
         });
         assert_eq!(recorder.sent(), vec![]);
     }
@@ -254,20 +254,17 @@ mod tests {
     ) {
         let (recorder, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "working", (5.0, 0.0)), cx);
-            this.drop_on((RowId::from("working"), RowId::from("working")), cx);
+            this.press_row(press("chat"));
+            this.drag_over(&over("chat", "chat", (5.0, 0.0)), cx);
+            this.drop_on((RowId::from("chat"), RowId::from("chat")), cx);
         });
-        assert_eq!(
-            recorder.sent(),
-            vec![Command::OpenRow(RowId::from("working"))]
-        );
+        assert_eq!(recorder.sent(), vec![Command::OpenRow(RowId::from("chat"))]);
     }
 
     #[gpui::test]
     fn the_gallery_preview_marks_the_source_and_the_target(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
-        let (subject, target) = (RowId::from("working"), RowId::from("folder"));
+        let (subject, target) = (RowId::from("chat"), RowId::from("folder"));
         sidebar.update(cx, |this, cx| {
             this.preview_drag((subject.clone(), target.clone(), DropMode::After), cx);
             assert!(this.drag.is_lifted(&subject), "source");
@@ -279,8 +276,8 @@ mod tests {
     fn a_release_anywhere_ends_a_drag_that_never_reached_a_row(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
+            this.press_row(press("chat"));
+            this.drag_over(&over("chat", "folder", (20.0, 18.0)), cx);
             assert!(this.drag.lifted.is_some(), "lifted");
             this.release_drag(cx);
             assert!(this.drag.lifted.is_none(), "dropped elsewhere");
@@ -292,9 +289,9 @@ mod tests {
     fn a_row_scrolled_out_of_the_tree_is_no_drop_target(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
-            let hidden = over_at(("working", "folder"), BELOW_THE_TREE, (20.0, 4.0));
+            this.press_row(press("chat"));
+            this.drag_over(&over("chat", "folder", (20.0, 18.0)), cx);
+            let hidden = over_at(("chat", "folder"), BELOW_THE_TREE, (20.0, 4.0));
             this.drag_over(&hidden, cx);
             assert_eq!(this.drag.hint, None);
         });
@@ -304,8 +301,8 @@ mod tests {
     fn hovering_selects_a_hint_and_ending_clears_it(cx: &mut TestAppContext) {
         let (_, sidebar, cx) = open(cx, DemoShell::rich());
         sidebar.update(cx, |this, cx| {
-            this.press_row(press("working"));
-            this.drag_over(&over("working", "folder", (20.0, 18.0)), cx);
+            this.press_row(press("chat"));
+            this.drag_over(&over("chat", "folder", (20.0, 18.0)), cx);
             let target = RowId::from("folder");
             assert_eq!(this.drag.mode_on(&target), Some(DropMode::Into), "hint");
             this.end_drag(cx);

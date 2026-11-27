@@ -36,7 +36,7 @@ impl Sidebar {
     }
 
     fn overlay_open(&self) -> bool {
-        self.menu.is_some() || self.tree.removals().confirmation().is_some()
+        self.tree.removals().confirmation().is_some()
     }
 
     fn slide_peek(
@@ -157,21 +157,5 @@ mod tests {
         sidebar.update(cx, Sidebar::begin_peek);
         sidebar.update(cx, Sidebar::pointer_left_peek);
         assert!(!sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
-    }
-
-    #[gpui::test]
-    fn an_open_menu_keeps_the_card_when_the_pointer_wanders(cx: &mut TestAppContext) {
-        let (sidebar, cx) = closed_sidebar(cx);
-        sidebar.update(cx, Sidebar::begin_peek);
-        sidebar.update_in(cx, |this, window, cx| {
-            let entry = crate::overlays::popup::MenuEntry::action(
-                "Keep",
-                ui::IconName::Check,
-                Intent::Keep(RowId::from("chat")),
-            );
-            this.open_menu((vec![entry], point(px(10.0), px(10.0))), window, cx);
-            this.pointer_left_peek(cx);
-        });
-        assert!(sidebar.read_with(cx, |this, _| this.peek.is_wanted()));
     }
 }

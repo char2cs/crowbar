@@ -2,7 +2,7 @@ use gpui::{
     Context, EventEmitter, IntoElement, ParentElement, Pixels, Render, Size, Styled, Window, div,
     px,
 };
-use ui::{Button, ButtonSize, ButtonVariant, Surface, Theme, Wordmark};
+use ui::{Button, ButtonSize, ButtonVariant, Wordmark};
 
 use crate::panes::content::new_tab::new_tab_action::NewTabAction;
 
@@ -25,7 +25,6 @@ impl Render for NewTabView {
         cx: &mut Context<'_, Self>,
     ) -> impl IntoElement {
         let wordmark = wordmark_width(window.viewport_size());
-        let palette = Theme::of(cx).palette(Surface::Window);
         let rows = self.actions.map(|action| {
             Button::new(action.label(), action.label())
                 .icon(action.icon())
@@ -40,7 +39,6 @@ impl Render for NewTabView {
             .items_center()
             .justify_center()
             .gap(px(PAGE_GAP))
-            .bg(palette.pane_background())
             .child(Wordmark::new(wordmark))
             .child(div().flex().flex_col().gap(px(ROW_GAP)).children(rows))
     }

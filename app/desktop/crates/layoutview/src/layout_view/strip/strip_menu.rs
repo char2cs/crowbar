@@ -3,17 +3,12 @@ use std::rc::Rc;
 use gpui::{Context, SharedString};
 use layout::{CloseScope, Command, PaneGroup};
 use protocol::PaneId;
-use ui::{IconName, MenuAction, MenuItem};
+use ui::{MenuAction, MenuItem};
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
 use ideshell::PathAction;
 use ideshell::TabLook;
-
-#[cfg(target_os = "macos")]
-const CLOSE_HINT: &str = "\u{2318}W";
-#[cfg(not(target_os = "macos"))]
-const CLOSE_HINT: &str = "Ctrl+W";
 
 impl LayoutView {
     pub(crate) fn tab_menu(
@@ -49,10 +44,10 @@ fn pin_action(
 ) -> MenuAction {
     if group.is_pinned(pane) {
         let command = Command::UnpinPane { pane: pane.clone() };
-        return applying("Unpin Tab", command, view).icon(IconName::PushPinSlash);
+        return applying("Unpin Tab", command, view);
     }
     let command = Command::PinPane { pane: pane.clone() };
-    applying("Pin Tab", command, view).icon(IconName::PushPin)
+    applying("Pin Tab", command, view)
 }
 
 fn rename_row(
@@ -65,7 +60,7 @@ fn rename_row(
         current: look.label.to_string(),
     };
     look.renamable
-        .then(|| MenuItem::Action(emitting("Rename", event, view).icon(IconName::PencilSimple)))
+        .then(|| MenuItem::Action(emitting("Rename", event, view)))
 }
 
 fn path_rows(
@@ -78,12 +73,12 @@ fn path_rows(
     let mut rows: Vec<MenuItem> = PathAction::offered_for(path)
         .iter()
         .map(|action| (*action, LayoutEvent::tab_path(*action, path)))
-        .map(|(action, event)| emitting(action.label(), event, view).icon(action.icon()))
+        .map(|(action, event)| emitting(action.label(), event, view))
         .map(MenuItem::Action)
         .collect();
     if !PathAction::is_virtual(path) {
         let reload = LayoutEvent::ReloadTab { pane: pane.clone() };
-        let reload = emitting("Reload", reload, view).icon(IconName::ArrowCounterClockwise);
+        let reload = emitting("Reload", reload, view);
         rows.push(MenuItem::Action(reload));
     }
     rows.push(MenuItem::Separator);
@@ -96,8 +91,6 @@ fn single_close(
 ) -> MenuAction {
     let command = Command::ClosePane { pane: pane.clone() };
     applying("Close", command, view)
-        .icon(IconName::X)
-        .shortcut(CLOSE_HINT)
 }
 
 fn close_item(
@@ -131,6 +124,8 @@ fn emitting(
 mod tests {
     use gpui::{Modifiers, MouseButton, TestAppContext, point, px};
     use layout::{Command, Layout};
+    use ui::NativeEntry;
+    use ui::testing::{answer_menus, entry_labelled};
 
     use crate::layout_event::LayoutEvent;
     use crate::test_support::{FakeSource, open_with, pane_id, stacked_layout};
@@ -140,61 +135,30 @@ mod tests {
     fn choose(
         cx: &mut TestAppContext,
         layout: &Layout,
-        keys: &str,
+        label: &'static str,
     ) -> Vec<Command> {
+        answer_menus(cx, move |entries| entry_labelled(entries, label));
         let harness = open_with(cx, layout, FakeSource::starting_at_first_tab());
         let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_keystrokes(keys);
+        cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
         commands.borrow().clone()
     }
 
     #[gpui::test]
     fn the_first_row_of_a_tab_menu_pins_the_tab(cx: &mut TestAppContext) {
-        let chosen = choose(cx, &stacked_layout(), "down enter");
+        let chosen = choose(cx, &stacked_layout(), "Pin Tab");
         assert_eq!(chosen, [Command::PinPane { pane: pane_id("b") }], "pin");
     }
 
-    struct Row {
-        name: &'static str,
-        keys: &'static str,
-        action: PathAction,
-    }
-
-    impl Row {
-        fn event(&self) -> LayoutEvent {
-            LayoutEvent::TabPath {
-                action: self.action,
-                path: "src/main.rs".into(),
-            }
-        }
-    }
-
-    const PATH_ROWS: &[Row] = &[
-        Row {
-            name: "copy path",
-            keys: "down down enter",
-            action: PathAction::CopyPath,
-        },
-        Row {
-            name: "copy relative path",
-            keys: "down down down enter",
-            action: PathAction::CopyRelativePath,
-        },
-        Row {
-            name: "reveal",
-            keys: "down down down down enter",
-            action: PathAction::Reveal,
-        },
-        Row {
-            name: "open in terminal",
-            keys: "down down down down down enter",
-            action: PathAction::OpenInTerminal,
-        },
+    const PATH_ROWS: [PathAction; 4] = [
+        PathAction::CopyPath,
+        PathAction::CopyRelativePath,
+        PathAction::Reveal,
+        PathAction::OpenInTerminal,
     ];
 
     fn file_source() -> FakeSource {
@@ -204,36 +168,39 @@ mod tests {
 
     fn chosen_path_row(
         cx: &mut TestAppContext,
-        keys: &str,
+        label: &'static str,
     ) -> Vec<LayoutEvent> {
+        answer_menus(cx, move |entries| entry_labelled(entries, label));
         let harness = open_with(cx, &stacked_layout(), file_source());
         let (view, cx, opened) = (harness.view, harness.cx, harness.opened);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_keystrokes(keys);
+        cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
         opened.take()
     }
 
     #[gpui::test]
     fn a_file_tab_offers_its_path_actions_with_the_path(cx: &mut TestAppContext) {
-        for row in PATH_ROWS {
-            let heard = chosen_path_row(cx, row.keys);
-            assert_eq!(heard, [row.event()], "{}", row.name);
+        for action in PATH_ROWS {
+            let heard = chosen_path_row(cx, action.label());
+            let path = "src/main.rs".into();
+            let event = LayoutEvent::TabPath { action, path };
+            assert_eq!(heard, [event], "{}", action.label());
         }
     }
 
     #[gpui::test]
     fn a_file_tab_offers_reload_after_its_path_actions(cx: &mut TestAppContext) {
-        let heard = chosen_path_row(cx, "down down down down down down enter");
+        let heard = chosen_path_row(cx, "Reload");
         let reload = LayoutEvent::ReloadTab { pane: pane_id("b") };
         assert_eq!(heard, [reload]);
     }
 
     #[gpui::test]
-    fn a_renamable_tab_offers_rename_right_after_pin(cx: &mut TestAppContext) {
+    fn a_renamable_tab_offers_rename(cx: &mut TestAppContext) {
+        answer_menus(cx, |entries| entry_labelled(entries, "Rename"));
         let look = TabLook::plain("zsh").renamable();
         let source = FakeSource::starting_at_first_tab().looking(pane_id("b"), look);
         let harness = open_with(cx, &stacked_layout(), source);
@@ -241,8 +208,7 @@ mod tests {
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_keystrokes("down down enter");
+        cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
         let event = LayoutEvent::RenameTab {
             pane: pane_id("b"),
@@ -253,21 +219,32 @@ mod tests {
 
     #[gpui::test]
     fn a_terminal_tab_offers_its_path_rows_and_then_close(cx: &mut TestAppContext) {
+        let popped = answer_menus(cx, |_| None);
         let look = TabLook::plain("zsh").renamable().at_path("terminal://b");
         let source = FakeSource::starting_at_first_tab().looking(pane_id("b"), look);
         let harness = open_with(cx, &stacked_layout(), source);
-        let (view, cx, commands) = (harness.view, harness.cx, harness.commands);
+        let (view, cx) = (harness.view, harness.cx);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let tab = point(size.width * 0.5 + px(74.0), px(20.0));
         cx.simulate_mouse_down(tab, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(tab, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
-        cx.simulate_keystrokes("down down down down down down enter");
-        cx.run_until_parked();
-        let close = Command::ClosePane { pane: pane_id("b") };
+        let labels: Vec<String> = popped
+            .borrow()
+            .iter()
+            .flat_map(|menu| menu.entries.iter())
+            .filter_map(|entry| match entry {
+                NativeEntry::Item { label, .. } => Some(label.to_string()),
+                _ => None,
+            })
+            .collect();
+        let close = labels.iter().position(|label| label == "Close");
+        let rows = ["Pin Tab", "Rename", "Copy Path", "Copy Relative Path"];
+        assert_eq!(labels.get(..rows.len()), Some(&rows.map(String::from)[..]));
         assert_eq!(
-            commands.borrow().as_slice(),
-            [close],
-            "pin, rename, copy path, copy relative path and reveal come before close"
+            close,
+            Some(rows.len() + 1),
+            "reveal, then close: {labels:?}"
         );
     }
 
@@ -280,14 +257,17 @@ mod tests {
         cx: &mut TestAppContext,
         press: f32,
     ) -> Opened {
+        let popped = answer_menus(cx, |_| None);
         let harness = open_with(cx, &stacked_layout(), FakeSource::starting_at_first_tab());
         let (view, cx) = (harness.view, harness.cx);
         let size = view.read_with(cx, |view, _| view.bounds.size);
         let at = point(size.width * 0.5 + px(press), px(20.0));
         cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+        cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
+        let menu = popped.borrow().first().map(|menu| menu.at);
         Opened {
-            menu: cx.debug_bounds("ui-menu").unwrap_or_default().origin,
+            menu: menu.unwrap_or_default(),
             tab: cx.debug_bounds("strip-tab-frame-b").unwrap_or_default(),
         }
     }
@@ -310,7 +290,7 @@ mod tests {
 
     #[gpui::test]
     fn closing_others_closes_every_loose_tab_but_the_one_clicked(cx: &mut TestAppContext) {
-        let chosen = choose(cx, &stacked_layout(), "down down down down enter");
+        let chosen = choose(cx, &stacked_layout(), "Close Others");
         assert_eq!(
             chosen,
             [Command::ClosePanes {

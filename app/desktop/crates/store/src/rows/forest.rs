@@ -45,7 +45,7 @@ fn parent_of(
         (!id.is_empty() && id != item.id && by_id.contains_key(id)).then(|| id.to_owned())
     };
     match item.kind {
-        ItemKind::Folder => exists(&item.filed),
+        ItemKind::Folder | ItemKind::Repo => exists(&item.filed),
         ItemKind::Chat => exists(&item.filed).or_else(|| exists(&item.ground)),
         ItemKind::Workspace => workspace_parent(
             (&exists(&item.filed), &exists(&item.ground)),

@@ -18,14 +18,15 @@ pub(crate) use line_element::caret_scroll::CARET_WIDTH;
 
 use gpui::AppContext as _;
 use gpui::{
-    App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, ShapedLine,
-    SharedString, Window,
+    App, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, SharedString,
+    Window,
 };
 
 use crate::control::editor::buffer::Buffer;
 use crate::control::editor::field::Blink;
 use crate::control::editor::text_input_event::TextInputEvent;
 use crate::control::editor::text_input_style::TextInputStyle;
+use crate::display::TrackedLine;
 use crate::foundation::IconName;
 use crate::foundation::Surface;
 use crate::foundation::opaque_debug;
@@ -35,7 +36,7 @@ pub struct TextInput {
     pub(crate) buffer: Buffer,
     pub(crate) placeholder: SharedString,
     pub(crate) focus_handle: FocusHandle,
-    pub(crate) layout: Option<ShapedLine>,
+    pub(crate) layout: Option<TrackedLine>,
     pub(crate) bounds: Option<Bounds<Pixels>>,
     pub(crate) scroll: Pixels,
     pub(crate) selecting: bool,

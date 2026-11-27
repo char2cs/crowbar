@@ -3,12 +3,17 @@ import { paintPaneSurface } from '@/entries/paint-pane-surface'
 
 describe('paintPaneSurface', () => {
   it.each([
-    ['core.editor', 'var(--pane-background)'],
-    ['core.review', 'var(--pane-background)'],
-    ['core.chat', 'var(--pane-chrome-bg)'],
-    ['core.console', 'var(--pane-chrome-bg)'],
-  ])('fills a %s page with the surface develop paints under it', (typeId, colour) => {
-    paintPaneSurface(document.body, typeId)
-    expect(document.body.style.backgroundColor).toBe(colour)
-  })
+    ['linux', 'core.editor', 'var(--pane-background)'],
+    ['linux', 'core.review', 'var(--pane-background)'],
+    ['linux', 'core.chat', 'var(--pane-chrome-bg)'],
+    ['linux', 'core.console', 'var(--pane-chrome-bg)'],
+    ['macos', 'core.editor', 'var(--pane-background)'],
+    ['macos', 'core.chat', 'transparent'],
+  ] as const)(
+    'fills a %s %s page with the surface develop paints under it',
+    (os, typeId, colour) => {
+      paintPaneSurface(document.body, typeId, os)
+      expect(document.body.style.backgroundColor).toBe(colour)
+    },
+  )
 })

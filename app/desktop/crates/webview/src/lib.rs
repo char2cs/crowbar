@@ -66,8 +66,8 @@ pub use host::{Desktop, Handle, Host};
 pub use menu::{MenuEdge, MenuEntry, MenuRequest};
 pub use scheme::{ProtocolHandler, ProtocolRequest, ProtocolResponder, ProtocolResponse};
 pub use view::{
-    Bounds, Color, Config, Id, IpcHandler, Kind, PageEvent, PageHandler, ParentWindow, Snapshot,
-    Visibility,
+    Bounds, Color, Config, Corners, Id, IpcHandler, Kind, PageEvent, PageHandler, ParentWindow,
+    Snapshot, Visibility,
 };
 
 #[cfg(feature = "mock")]

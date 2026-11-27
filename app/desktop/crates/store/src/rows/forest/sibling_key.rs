@@ -26,18 +26,6 @@ impl SiblingKey {
             id: item.id.clone(),
         }
     }
-
-    pub(crate) fn of_repo(
-        order: i64,
-        id: &str,
-    ) -> Self {
-        Self {
-            order,
-            rank: REPO_RANK,
-            created: created_key(""),
-            id: id.to_owned(),
-        }
-    }
 }
 
 fn rank_of(kind: ItemKind) -> u8 {
@@ -45,6 +33,7 @@ fn rank_of(kind: ItemKind) -> u8 {
         ItemKind::Folder => FOLDER_RANK,
         ItemKind::Workspace => BRANCH_RANK,
         ItemKind::Chat => CHAT_RANK,
+        ItemKind::Repo => REPO_RANK,
     }
 }
 
@@ -71,7 +60,7 @@ mod tests {
     fn order_comes_first_then_kind_with_repos_last_then_id() {
         let chat = SiblingKey::of_item(&item("a", ItemKind::Chat, 0));
         let folder = SiblingKey::of_item(&item("z", ItemKind::Folder, 0));
-        let repo = SiblingKey::of_repo(0, "b");
+        let repo = SiblingKey::of_item(&item("b", ItemKind::Repo, 0));
         let later = SiblingKey::of_item(&item("c", ItemKind::Folder, 1));
         let tie = SiblingKey::of_item(&item("b", ItemKind::Chat, 0));
         let mut keys = vec![

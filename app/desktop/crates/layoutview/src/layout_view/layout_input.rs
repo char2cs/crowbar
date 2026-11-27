@@ -1,10 +1,12 @@
 use gpui::{Context, DragMoveEvent, MouseDownEvent, Pixels, Point, Window};
-use layout::{Command, Rect, Sash};
+use layout::{Command, Presentation, Rect, Sash};
 use protocol::PaneId;
 use ui::SashDrag;
 
 use crate::layout_event::LayoutEvent;
 use crate::layout_view::LayoutView;
+use crate::layout_view::drag::chat_sash_grab::ChatSashGrab;
+use crate::layout_view::drag::held_sash::HeldSash;
 use crate::layout_view::drag::sash_grab::SashGrab;
 use crate::layout_view::hover_source::HoverSource;
 
@@ -21,13 +23,24 @@ impl LayoutView {
         let local = self.local_point(event.position);
         let grab = SashGrab::begin(&tab, sash, local, self.local());
         if event.click_count < 2 {
-            self.sash = grab;
+            self.sash = grab.map(HeldSash::Split);
             return;
         }
         self.sash = None;
         if let Some(grab) = grab {
             cx.emit(LayoutEvent::Apply(grab.reset()));
         }
+    }
+
+    pub(crate) fn grab_chat_sash(
+        &mut self,
+        chat: &PaneId,
+        (shown, area): (&Presentation, Rect),
+        event: &MouseDownEvent,
+    ) {
+        let pointer = self.local_point(event.position);
+        let grab = ChatSashGrab::begin(chat.clone(), (shown, area), self.chrome.side, pointer);
+        self.sash = grab.map(HeldSash::Chat);
     }
 
     pub(crate) fn sash_moved(

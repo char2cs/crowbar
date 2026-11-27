@@ -1,7 +1,7 @@
 //! Plans that change or remove something that exists.
 
 use daemonapi::Call;
-use serde_json::json;
+use serde_json::{Value, json};
 use sidebar::ProjectId;
 
 use crate::live::HostSlot;
@@ -37,9 +37,9 @@ pub(crate) fn rename(
             "{}/{row}",
             daemonapi::Route::folders(project, repo)
         ))
-        .json(json!({"name": name})),
+        .json(named(name)),
         Kind::RepoHeader { .. } => {
-            Call::patch(daemonapi::Route::scope(project, repo)).json(json!({"name": name}))
+            Call::patch(daemonapi::Route::scope(project, repo)).json(named(name))
         },
         Kind::Branch { locked: true, .. } => Call::patch(format!(
             "{}/{}/branch",
@@ -106,6 +106,27 @@ fn if_consented(
     call.discarding_work()
 }
 
+fn named(name: &str) -> Value {
+    json!({"name": name})
+}
+
+pub(crate) fn lock(
+    state: &State,
+    row: &str,
+    locked: &Value,
+) -> Result<Plan, PlanError> {
+    verb(state, row, ("lock", Some(json!({"locked": locked}))))
+}
+
+pub(crate) fn rename_project(
+    state: &State,
+    (project, name): (&ProjectId, &str),
+) -> Result<Plan, PlanError> {
+    let slot = host_of(state, project.as_str()).ok_or(PlanError::SpaceNotLoaded)?;
+    let call = Call::patch(daemonapi::Route::project(project.as_str())).json(named(name));
+    Ok(Plan::of(&slot.spec.id, vec![call]))
+}
+
 pub(crate) fn remove_project(
     state: &State,
     project: &ProjectId,
@@ -119,7 +140,7 @@ pub(crate) fn remove_project(
 pub(crate) fn verb(
     state: &State,
     row: &str,
-    (verb, body): (&str, Option<serde_json::Value>),
+    (verb, body): (&str, Option<Value>),
 ) -> Result<Plan, PlanError> {
     let (target, host) = locate(state, row)?;
     let path = format!(

@@ -1,4 +1,4 @@
-use gpui::App;
+use gpui::{App, Context, Window};
 use ui::{Theme, Vibrancy};
 
 pub(crate) const fn of_platform() -> Vibrancy {
@@ -14,6 +14,41 @@ pub(crate) fn install(
     cx: &mut App,
 ) {
     Theme::of(cx).with_vibrancy(vibrancy).install(cx);
+}
+
+pub(crate) fn follow<V: 'static>(
+    window: &mut Window,
+    cx: &mut Context<'_, V>,
+) {
+    frost(window, cx);
+    cx.observe_global_in::<Theme>(window, |_, window, cx| frost(window, cx))
+        .detach();
+}
+
+// PLATFORM: macos only its windows blur what is behind them.
+#[cfg(target_os = "macos")]
+fn frost(
+    window: &Window,
+    cx: &App,
+) {
+    let Ok(webview::ParentWindow::AppKit(address)) = webview::ParentWindow::from_window(window)
+    else {
+        return;
+    };
+    let tone = match Theme::of(cx).appearance() {
+        ui::Appearance::Light => platform::Frost::Light,
+        ui::Appearance::Dark => platform::Frost::Dark,
+    };
+    if let Err(error) = platform::frost_window(address, tone) {
+        tracing::warn!(%error, "the window stays unblurred");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn frost(
+    _window: &Window,
+    _cx: &App,
+) {
 }
 
 #[cfg(test)]

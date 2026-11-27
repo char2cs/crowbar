@@ -3,5 +3,6 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Slot {
     pub(crate) parent: String,
+    pub(crate) from: String,
     pub(crate) index: usize,
 }

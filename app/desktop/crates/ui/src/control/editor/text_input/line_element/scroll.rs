@@ -1,17 +1,18 @@
 //! How far a single-line field scrolls its text so the caret stays in view, as a browser input does.
 
-use gpui::{Bounds, ContentMask, Pixels, ShapedLine, point, px, size};
+use gpui::{Bounds, ContentMask, Pixels, point, px, size};
 
 use crate::control::editor::text_input::line_element::caret_scroll::{CARET_WIDTH, CaretScroll};
+use crate::display::TrackedLine;
 
 const CLIP_LINES: f32 = 3.0;
 
 pub(crate) fn place<S: CaretScroll>(
     input: &S,
-    (visible, line): (Bounds<Pixels>, &ShapedLine),
+    (visible, line): (Bounds<Pixels>, &TrackedLine),
 ) -> (Bounds<Pixels>, Pixels) {
     let caret = line.x_for_index(input.caret());
-    let scroll = follow(input.scrolled(), (caret, line.width), visible.size.width);
+    let scroll = follow(input.scrolled(), (caret, line.width()), visible.size.width);
     let shifted = Bounds::new(
         point(visible.left() - scroll, visible.top()),
         size(visible.size.width + scroll, visible.size.height),

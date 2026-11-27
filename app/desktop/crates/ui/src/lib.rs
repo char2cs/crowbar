@@ -14,7 +14,7 @@ mod ui;
 pub use control::{
     Axis, Button, ButtonSize, ButtonVariant, Checkbox, DraggedRow, Sash, SashDrag, Separator,
     Switch, TabItem, Tabs, TabsStyle, TextArea, TextAreaCondition, TextAreaSize, TextInput,
-    TextInputEvent, TextInputStyle,
+    TextInputEvent, TextInputStyle, drag_window, window_drag_strip,
 };
 pub use display::{
     Badge, BadgeSize, BadgeVariant, FlickerSpinner, Kbd, ScrollArea, Skeleton, Spinner, Toast,
@@ -25,9 +25,9 @@ pub use error::Error;
 pub use floating::{
     AlertButton, AlertRequest, AlertRole, AskAlert, ContextMenu, Cover, Dialog, DialogExtent,
     DialogSize, DialogStyle, DragGhost, DropdownMenu, Float, FloatHost, FloatRegion, HeaderFlow,
-    Menu, MenuAction, MenuEdge, MenuItem, MenuPath, NativeAlert, NativeEntry, NativeMenu,
-    NativeRequest, Placement, Popover, PopupMenu, Portal, Select, Shaped, TabPreview, Tooltip,
-    TooltipSide, click_away, install_float_host, on_context_click, popup_at,
+    MenuAction, MenuEdge, MenuItem, MenuPath, NativeAlert, NativeEntry, NativeMenu, NativeRequest,
+    Placement, Popover, PopupMenu, Portal, Select, Shaped, TabPreview, Tooltip, TooltipSide,
+    install_float_host, on_context_click,
 };
 pub use foundation::{
     Appearance, Breakpoint, CaretBlink, ChoiceKind, ChooseFiles, CubicBezier, FileChoice,

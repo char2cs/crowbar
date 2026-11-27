@@ -15,7 +15,6 @@ use crate::pill::ShellLook;
 use crate::pill::{CloseAction, TabShell};
 use crate::strip_metrics::{
     ROW_GAP, ROW_HEIGHT, ROW_PADDING, SCROLLER_PADDING, SHELL_MARGIN, TAB_HEIGHT, TOGGLE_SIZE,
-    TRAFFIC_LIGHT_INSET,
 };
 use crate::tab_bar::TabBar;
 use crate::tab_bar::pointer::follow_pointer;
@@ -77,9 +76,9 @@ impl TabBar {
             .gap(px(ROW_GAP))
             .size_full()
             .px(px(ROW_PADDING))
+            .pl(px(ROW_PADDING + self.sidebar.leading_inset()))
             .when(self.sidebar == SidebarState::ClosedLeft, |row| {
-                row.pl(px(ROW_PADDING + TRAFFIC_LIGHT_INSET))
-                    .child(Self::toggle(SidebarState::ClosedLeft, cx))
+                row.child(Self::toggle(SidebarState::ClosedLeft, cx))
             })
             .child(self.scroller(now, motion, cx))
             .when(self.sidebar == SidebarState::ClosedRight, |row| {
@@ -301,6 +300,7 @@ mod tests {
 
     #[gpui::test]
     fn right_clicking_a_view_tab_opens_no_menu(cx: &mut TestAppContext) {
+        let popped = ui::testing::answer_menus(cx, |_| None);
         let harness = open(cx, vec![view(1, &["a"]), view(2, &["b"])], 1);
         let cx = harness.cx;
         cx.simulate_mouse_down(
@@ -309,11 +309,7 @@ mod tests {
             gpui::Modifiers::none(),
         );
         cx.run_until_parked();
-        assert_eq!(
-            cx.debug_bounds("ui-menu"),
-            None,
-            "develop offers no tab menu"
-        );
+        assert!(popped.borrow().is_empty(), "develop offers no tab menu");
     }
 
     #[gpui::test]

@@ -11,6 +11,7 @@ use lsp_types::{
 };
 use serde_json::{Map, json};
 
+use crate::Settings;
 use crate::lsp::lsp_link::LspLink;
 use crate::lsp::lsp_position::{range_from_lsp, to_lsp};
 
@@ -48,12 +49,10 @@ impl CompletionProvider for LspCompletion {
         &self,
         _offset: usize,
         new_text: &str,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> bool {
-        new_text
-            .chars()
-            .last()
-            .is_some_and(|typed| is_word(typed) || TRIGGER_CHARACTERS.contains(&typed))
+        let triggers = |typed| is_word(typed) || TRIGGER_CHARACTERS.contains(&typed);
+        Settings::of(cx).assists.completion && new_text.chars().last().is_some_and(triggers)
     }
 }
 

@@ -10,7 +10,7 @@ pub(crate) fn of(preferences: &Preferences) -> (ChromeContext, SidebarState) {
     };
     let (edge, state) = match (preferences.visibility, preferences.side) {
         (Visibility::Open, DockSide::Left) => (SidebarEdge::Left, SidebarState::Open),
-        (Visibility::Open, DockSide::Right) => (SidebarEdge::Right, SidebarState::Open),
+        (Visibility::Open, DockSide::Right) => (SidebarEdge::Right, SidebarState::OpenRight),
         (Visibility::Closed, DockSide::Left) => (SidebarEdge::Closed, SidebarState::ClosedLeft),
         (Visibility::Closed, DockSide::Right) => (SidebarEdge::Closed, SidebarState::ClosedRight),
     };
@@ -54,7 +54,7 @@ mod tests {
             Visibility::Open,
             DockSide::Right,
             SidebarEdge::Right,
-            SidebarState::Open,
+            SidebarState::OpenRight,
             SidebarSide::Right,
         ),
         (

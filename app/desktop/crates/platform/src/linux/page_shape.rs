@@ -1,7 +1,8 @@
-//! Cuts a hole out of a web view's window, or all of it, so the shell window under it shows
+//! Cuts a hole and rounded corners out of a web view's window, or all of it, so the shell window under it shows
 //! there and takes the pointer, as for the handle a split pane hangs from its top.
 
 mod page_cut;
+mod rounded;
 
 use x11rb::NONE;
 use x11rb::connection::Connection as _;
@@ -11,9 +12,10 @@ use x11rb::protocol::xproto::{ClipOrdering, ConnectionExt as _, QueryTreeReply, 
 use x11rb::rust_connection::RustConnection;
 
 use crate::error::Error;
-use crate::linux::float::region::rectangles;
+use crate::linux::float::region::{inset, rectangles};
 
 pub use page_cut::PageCut;
+pub use rounded::Rounded;
 
 const WHOLE: Rectangle = Rectangle {
     x: 0,
@@ -21,6 +23,37 @@ const WHOLE: Rectangle = Rectangle {
     width: u16::MAX,
     height: u16::MAX,
 };
+
+fn notches(round: Rounded) -> impl Iterator<Item = Rectangle> {
+    let (right, bottom) = (Some(round.width), Some(round.height));
+    let far = [(None, None), (right, None), (right, bottom), (None, bottom)];
+    far.into_iter()
+        .zip(round.radii)
+        .flat_map(|(far, radius)| notch(far, radius))
+}
+
+fn notch(
+    (right, bottom): (Option<u16>, Option<u16>),
+    radius: u16,
+) -> impl Iterator<Item = Rectangle> {
+    let rows = (0..radius).map(move |row| outside((right, bottom), (radius, row)));
+    rows.filter(|row| row.width > 0)
+}
+
+fn outside(
+    (right, bottom): (Option<u16>, Option<u16>),
+    (radius, row): (u16, u16),
+) -> Rectangle {
+    let width = inset(radius, row);
+    let x = right.map_or(0, |edge| edge.saturating_sub(width));
+    let y = bottom.map_or(row, |edge| edge.saturating_sub(row + 1));
+    Rectangle {
+        x: x.cast_signed(),
+        y: y.cast_signed(),
+        width,
+        height: 1,
+    }
+}
 
 /// The shape of the windows web views draw in, set over a connection of its own.
 #[derive(Debug)]
@@ -72,12 +105,13 @@ impl PageShape {
                 .shape_mask(SO::SET, kind, window, 0, 0, NONE)?;
             return Ok(());
         };
-        let PageCut::Hole(hole) = cut else {
+        let PageCut::Trimmed { hole, round } = cut else {
             self.connection
                 .shape_rectangles(SO::SET, kind, unsorted, window, 0, 0, &[])?;
             return Ok(());
         };
-        let rows = rectangles(&[hole]);
+        let mut rows = rectangles(hole.as_slice());
+        rows.extend(round.into_iter().flat_map(notches));
         self.connection
             .shape_rectangles(SO::SET, kind, unsorted, window, 0, 0, &[WHOLE])?;
         self.connection
@@ -157,11 +191,77 @@ mod tests {
             .unwrap()
             .reply()
             .unwrap();
+        // PLATFORM: linux X hands back the region as set; only its part inside the window counts.
         input
             .rectangles
             .iter()
-            .map(|rect| (rect.x, rect.y, rect.width, rect.height))
+            .map(|rect| {
+                let width = rect
+                    .width
+                    .min(200u16.saturating_sub(rect.x.cast_unsigned()));
+                let height = rect
+                    .height
+                    .min(100u16.saturating_sub(rect.y.cast_unsigned()));
+                (rect.x, rect.y, width, height)
+            })
+            .filter(|&(_, _, width, height)| width > 0 && height > 0)
             .collect()
+    }
+
+    #[test]
+    fn only_the_pixels_outside_a_rounded_corner_are_notched() {
+        let page = Rounded {
+            width: 100,
+            height: 50,
+            radii: [4, 0, 4, 0],
+        };
+        let notched: Vec<(i16, i16, u16, u16)> = notches(page)
+            .map(|rect| (rect.x, rect.y, rect.width, rect.height))
+            .collect();
+        assert!(notched.contains(&(0, 0, 2, 1)), "top left: {notched:?}");
+        let (x, y, width, _) = notched[notched.len() - 1];
+        assert!(
+            x > 90 && x + width.cast_signed() == 100 && y > 45,
+            "bottom right: {notched:?}"
+        );
+        let square = |&(x, y, _, _): &(i16, i16, u16, u16)| (x > 50) != (y > 25);
+        assert!(!notched.iter().any(square), "square corners: {notched:?}");
+    }
+
+    /// A window, its child and its grandchild: the shell, wry's holder and the page.
+    fn nested(
+        connection: &RustConnection,
+        root: u32,
+    ) -> [u32; 3] {
+        let owner = child(connection, root);
+        let holder = child(connection, owner);
+        [owner, holder, child(connection, holder)]
+    }
+
+    /// X serves each connection on its own, so a cut is read only once the server has done it.
+    fn settled(shape: &PageShape) {
+        shape.connection.get_input_focus().unwrap().reply().unwrap();
+    }
+
+    fn rounds_the_bottom_corners(
+        shape: &PageShape,
+        cut: (u32, u32),
+        (connection, holder): (&RustConnection, u32),
+    ) {
+        let round = Rounded {
+            width: 200,
+            height: 100,
+            radii: [0, 0, 9, 9],
+        };
+        let trimmed = PageCut::Trimmed {
+            hole: None,
+            round: Some(round),
+        };
+        shape.cut(cut, Some(trimmed)).unwrap();
+        settled(shape);
+        let rounded = input(connection, holder);
+        let ends = (rounded.first(), rounded.last());
+        assert_eq!(ends, (Some(&(0, 0, 200, 94)), Some(&(6, 99, 188, 1))));
     }
 
     #[test]
@@ -169,9 +269,7 @@ mod tests {
     fn the_hole_is_cut_from_the_owner_s_child_and_filled_again_on_a_display() {
         let (connection, screen) = RustConnection::connect(None).unwrap();
         let root = connection.setup().roots[screen].root;
-        let owner = child(&connection, root);
-        let holder = child(&connection, owner);
-        let page = child(&connection, holder);
+        let [owner, holder, page] = nested(&connection, root);
         let shape = PageShape::connect().unwrap();
         let hole = Card {
             x: 60,
@@ -180,13 +278,21 @@ mod tests {
             height: 20,
             radius: 0,
         };
-        shape.cut((page, owner), Some(PageCut::Hole(hole))).unwrap();
+        let holed = PageCut::Trimmed {
+            hole: Some(hole),
+            round: None,
+        };
+        shape.cut((page, owner), Some(holed)).unwrap();
+        settled(&shape);
         let cut = input(&connection, holder);
         assert!(!cut.contains(&(0, 0, 200, 100)), "{cut:?}");
         assert!(cut.contains(&(0, 20, 200, 80)), "below the hole: {cut:?}");
+        rounds_the_bottom_corners(&shape, (page, owner), (&connection, holder));
         shape.cut((page, owner), Some(PageCut::Everything)).unwrap();
+        settled(&shape);
         assert_eq!(input(&connection, holder), [], "all cut away");
         shape.cut((page, owner), None).unwrap();
+        settled(&shape);
         assert_eq!(
             input(&connection, holder),
             [(0, 0, 200, 100)],

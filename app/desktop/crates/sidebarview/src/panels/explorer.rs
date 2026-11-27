@@ -275,16 +275,6 @@ mod tests {
         sidebar.read_with(cx, |this, _| this.inline.is_some())
     }
 
-    fn choose_first_item_at(
-        y: f32,
-        cx: &mut gpui::VisualTestContext,
-    ) {
-        let at = point(px(120.0), px(y));
-        cx.simulate_mouse_down(at, gpui::MouseButton::Right, gpui::Modifiers::none());
-        cx.run_until_parked();
-        cx.simulate_keystrokes("down enter");
-    }
-
     fn input_is_focused(
         sidebar: &gpui::Entity<Sidebar>,
         cx: &mut gpui::VisualTestContext,
@@ -297,21 +287,6 @@ mod tests {
         };
         let handle = field.read_with(cx, gpui::Focusable::focus_handle);
         cx.update(|window, _| handle.is_focused(window))
-    }
-
-    #[gpui::test]
-    fn choosing_new_file_from_the_menu_leaves_the_input_focused(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
-        cx.run_until_parked();
-        let mut step = 0_u8;
-        while !started(&sidebar, cx) && step < 100 {
-            choose_first_item_at(4.0 + 6.0 * f32::from(step), cx);
-            step += 1;
-        }
-        assert!(started(&sidebar, cx), "no Files row opened an inline input");
-        cx.run_until_parked();
-        assert!(input_is_focused(&sidebar, cx));
     }
 
     fn highlighted(
@@ -406,11 +381,6 @@ mod tests {
             ]
         );
         assert_eq!(request.at, point(px(120.0), px(FAR_BELOW_THE_ROWS)));
-        assert_eq!(
-            cx.debug_bounds("ui-menu"),
-            None,
-            "no menu drawn in the window"
-        );
     }
 
     #[gpui::test]
@@ -418,6 +388,7 @@ mod tests {
         let (_, sidebar, cx) = files_open(cx, Some(vec![0]));
         right_click_at(FAR_BELOW_THE_ROWS, cx);
         assert!(started(&sidebar, cx), "New File opened no input");
+        assert!(input_is_focused(&sidebar, cx));
     }
 
     #[gpui::test]
@@ -436,17 +407,5 @@ mod tests {
             this.tree.files().selected().map(str::to_owned)
         });
         assert_eq!(selected, None);
-    }
-
-    #[gpui::test]
-    fn the_empty_space_at_the_foot_of_the_panel_opens_the_root_menu(cx: &mut TestAppContext) {
-        let (_, sidebar, cx) = open(cx, DemoShell::reference());
-        sidebar.update(cx, |this, cx| this.set_mode(Mode::Files, cx));
-        cx.run_until_parked();
-        choose_first_item_at(FAR_BELOW_THE_ROWS, cx);
-        assert!(
-            started(&sidebar, cx),
-            "the root menu's New File opened no input"
-        );
     }
 }

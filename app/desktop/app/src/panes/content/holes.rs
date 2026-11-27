@@ -24,9 +24,19 @@ pub(crate) fn visible_panes(
         .into_iter()
         .map(|hole| VisiblePane {
             bounds: placed(area, hole.rect),
+            corners: rounded(hole.radius),
             pane: hole.pane,
         })
         .collect()
+}
+
+fn rounded(radius: layoutview::Corners) -> webview::Corners {
+    webview::Corners {
+        top_left: f64::from(radius.top_left),
+        top_right: f64::from(radius.top_right),
+        bottom_right: f64::from(radius.bottom_right),
+        bottom_left: f64::from(radius.bottom_left),
+    }
 }
 
 pub(crate) fn overlays(

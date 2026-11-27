@@ -29,7 +29,7 @@ impl Sidebar {
                 self.open_row_menu((&row, at), window, cx);
             },
             RowAction::FootMenu { project, at } => {
-                self.pop_menu((foot_menu(&project), at), window, cx);
+                Self::pop_menu((foot_menu(&project), at), window, cx);
             },
             RowAction::Intent(intent) => self.apply(intent, window, cx),
             RowAction::Copied(path, note) => self.flash_copied((path, note), cx),
@@ -51,7 +51,7 @@ impl Sidebar {
             return;
         };
         let entries = row_menu(&row, &self.menu_context(id));
-        self.pop_menu((entries, at), window, cx);
+        Self::pop_menu((entries, at), window, cx);
     }
 
     pub(crate) fn apply(
@@ -236,10 +236,12 @@ impl Sidebar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::answer_menus_with;
     use crate::test_support::prelude::*;
 
     #[gpui::test]
     fn the_row_menu_opens_at_the_pointer(cx: &mut TestAppContext) {
+        let popped = answer_menus_with(cx, None);
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let at = point(px(40.0), px(200.0));
         let action = RowAction::Menu {
@@ -247,19 +249,20 @@ mod tests {
             at,
         };
         sidebar.update_in(cx, |this, window, cx| this.act(action, window, cx));
-        let menu_at = sidebar.read_with(cx, |this, _| this.menu.as_ref().map(|menu| menu.at));
-        assert_eq!(menu_at, Some(at));
+        let asked: Vec<_> = popped.borrow().iter().map(|request| request.at).collect();
+        assert_eq!(asked, [at]);
     }
 
     #[gpui::test]
     fn a_menu_for_a_missing_row_stays_closed(cx: &mut TestAppContext) {
+        let popped = answer_menus_with(cx, None);
         let (_, sidebar, cx) = open(cx, DemoShell::reference());
         let action = RowAction::Menu {
             row: RowId::from("gone"),
             at: point(px(0.0), px(0.0)),
         };
         sidebar.update_in(cx, |this, window, cx| this.act(action, window, cx));
-        assert!(sidebar.read_with(cx, |this, _| this.menu.is_none()));
+        assert!(popped.borrow().is_empty());
     }
 
     #[gpui::test]

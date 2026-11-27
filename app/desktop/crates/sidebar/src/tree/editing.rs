@@ -3,6 +3,7 @@
 use crate::shell::NewEntry;
 use crate::shell::RowId;
 
+use crate::shell::ProjectId;
 /// Which name the sidebar's inline input is collecting; at most one is open at a time.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Editing {
@@ -11,6 +12,8 @@ pub enum Editing {
     Nothing,
     /// The row's new name.
     Renaming(RowId),
+    /// The space's new name, typed over its name in the switcher.
+    RenamingProject(ProjectId),
     /// The name of the branch the chat row turns into.
     Branching(RowId),
     /// The name of a fork of the row.
@@ -29,7 +32,10 @@ pub enum Editing {
 impl Editing {
     pub(crate) fn row(&self) -> Option<&RowId> {
         match self {
-            Self::Nothing | Self::RenamingFile(_) | Self::Creating { .. } => None,
+            Self::Nothing
+            | Self::RenamingProject(_)
+            | Self::RenamingFile(_)
+            | Self::Creating { .. } => None,
             Self::Renaming(row) | Self::Branching(row) | Self::Drafting(row) => Some(row),
         }
     }

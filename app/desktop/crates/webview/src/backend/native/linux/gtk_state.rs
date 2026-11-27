@@ -169,6 +169,7 @@ impl GtkState {
             parent: window,
             shown: Cell::new(config.visibility),
             hole: Cell::new(None),
+            corners: Cell::default(),
         };
         page_focus::give_keys([&live], page_focus::NOBODY);
         self.views.insert(id, live);

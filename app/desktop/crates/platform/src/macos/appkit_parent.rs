@@ -1,9 +1,11 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
+use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSApplication, NSView, NSWindow};
+use objc2_foundation::NSRunLoop;
 use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
 };
@@ -33,10 +35,28 @@ impl AppkitParent {
             .map(Self)
     }
 
+    pub(crate) fn view(&self) -> &NSView {
+        &self.0
+    }
+
     /// The window that shows the view, while one does.
     #[must_use]
     pub fn window(&self) -> Option<Retained<NSWindow>> {
         self.0.window()
+    }
+}
+
+/// Runs `task` on the next turn of the main run loop.
+// PLATFORM: macos a menu is tracked in a run loop of its own, which re-enters its opener if popped inside its update.
+#[expect(unsafe_code, reason = "performBlock is unsafe in objc2")]
+pub fn on_next_turn(
+    _on_main: MainThreadMarker,
+    task: impl Fn() + 'static,
+) {
+    let block = RcBlock::new(task);
+    // SAFETY: the marker proves the main thread queues on its own run loop, so nothing crosses threads.
+    unsafe {
+        NSRunLoop::mainRunLoop().performBlock(&block);
     }
 }
 

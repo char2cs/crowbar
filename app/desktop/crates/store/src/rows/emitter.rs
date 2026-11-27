@@ -18,6 +18,7 @@ pub(crate) struct Emitter<'a> {
     pub(crate) pending: &'a [PendingRow],
     pub(crate) owners: &'a HashMap<String, String>,
     pub(crate) folders: Worktree,
+    pub(crate) repos: &'a HashMap<String, Vec<Row>>,
 }
 
 impl Emitter<'_> {
@@ -37,11 +38,29 @@ impl Emitter<'_> {
         tree: &Tree,
         depth: u8,
     ) -> Vec<Row> {
+        if tree.kind == ItemKind::Repo {
+            return self.repository(&tree.id, depth);
+        }
         let mut row = self.row(tree, depth);
         row.nesting = nesting_of(&tree.children);
         let mut rows = vec![row];
         rows.extend(self.rows(&tree.children, depth.saturating_add(1)));
         rows
+    }
+
+    fn repository(
+        &self,
+        repo: &str,
+        depth: u8,
+    ) -> Vec<Row> {
+        let block = self.repos.get(repo).into_iter().flatten();
+        block
+            .map(|row| {
+                let mut row = row.clone();
+                row.depth = row.depth.saturating_add(depth);
+                row
+            })
+            .collect()
     }
 
     fn row(
@@ -52,7 +71,7 @@ impl Emitter<'_> {
         match tree.kind {
             ItemKind::Folder => self.folder(tree, depth),
             ItemKind::Workspace => self.branch(tree, depth),
-            ItemKind::Chat => self.chat(tree, depth),
+            ItemKind::Chat | ItemKind::Repo => self.chat(tree, depth),
         }
     }
 
@@ -224,6 +243,7 @@ mod tests {
             pending: &[],
             owners: &owners,
             folders: Worktree::Owned,
+            repos: &HashMap::new(),
         };
         let trees = folder_with_a_branch();
         let rows = emitter.rows(&trees, 0);
@@ -272,6 +292,7 @@ mod tests {
             pending: &pending,
             owners: &owners,
             folders: Worktree::Shared,
+            repos: &HashMap::new(),
         };
         let rows = emitter.rows(&[node("c", ItemKind::Chat, vec![])], 0);
         assert_eq!(

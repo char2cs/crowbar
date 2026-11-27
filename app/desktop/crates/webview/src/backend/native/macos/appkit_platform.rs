@@ -4,33 +4,30 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use objc2_foundation::MainThreadMarker;
-use platform::AppkitParent;
-use wry::{WebView, WebViewBuilder, WebViewBuilderExtDarwin};
+use wry::WebView;
 
 use crate::backend::host_config::HostConfig;
-use crate::backend::native::macos::data_store::{BROWSER_STORE, store_identifier};
-use crate::backend::native::wry_builder::{common_attributes, register_scheme, to_rect};
+use crate::backend::native::macos::page::{Page, filling, frame_of};
+use crate::backend::native::wry_builder::to_rect;
 use crate::backend::platform::Platform;
 use crate::backend::view::page_control::PageControl;
 use crate::backend::view::view_capture::ViewCapture;
 use crate::backend::view::view_cutout::ViewCutout;
 use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
-use crate::backend::view::view_lifecycle::ViewLifecycle;
 use crate::error::{Error, Result};
 use crate::scheme::ProtocolHandler;
 use crate::view::Bounds;
 use crate::view::Color;
-use crate::view::Config;
+use crate::view::Corners;
 use crate::view::Id;
 use crate::view::Kind;
-use crate::view::ParentWindow;
 use crate::view::Visibility;
 
 pub(crate) struct AppkitPlatform {
-    scheme: String,
-    protocol: Arc<dyn ProtocolHandler>,
-    pub(crate) views: RefCell<HashMap<Id, Rc<WebView>>>,
+    pub(crate) scheme: String,
+    pub(crate) protocol: Arc<dyn ProtocolHandler>,
+    pub(crate) views: RefCell<HashMap<Id, Rc<Page>>>,
     pub(crate) kinds: RefCell<HashMap<Id, Kind>>,
     pub(crate) last_parent: Cell<Option<usize>>,
     pub(crate) main_thread: MainThreadMarker,
@@ -49,74 +46,23 @@ impl AppkitPlatform {
         })
     }
 
+    pub(crate) fn page(
+        &self,
+        id: Id,
+    ) -> Result<Rc<Page>> {
+        self.views
+            .borrow()
+            .get(&id)
+            .cloned()
+            .ok_or(Error::UnknownWebView(id))
+    }
+
     fn with_view<R>(
         &self,
         id: Id,
         run: impl FnOnce(&WebView) -> wry::Result<R>,
     ) -> Result<R> {
-        let view = self
-            .views
-            .borrow()
-            .get(&id)
-            .cloned()
-            .ok_or(Error::UnknownWebView(id))?;
-        Ok(run(&view)?)
-    }
-}
-
-impl AppkitPlatform {
-    fn builder_for(
-        &self,
-        kind: &Kind,
-    ) -> WebViewBuilder<'_> {
-        let scheme = |builder| register_scheme(builder, &self.scheme, Arc::clone(&self.protocol));
-        match kind {
-            Kind::Core => scheme(WebViewBuilder::new()),
-            Kind::Extension(extension) => scheme(WebViewBuilder::new())
-                .with_data_store_identifier(store_identifier(extension)),
-            // PLATFORM: macos has no custom scheme here, so a browser page cannot reach the pane protocol; the fixed identifier gives it a data store apart from core and every extension.
-            Kind::Browser => WebViewBuilder::new().with_data_store_identifier(BROWSER_STORE),
-        }
-    }
-}
-
-impl ViewLifecycle for AppkitPlatform {
-    fn create(
-        &self,
-        id: Id,
-        parent: ParentWindow,
-        config: Config,
-    ) -> Result<()> {
-        let ParentWindow::AppKit(address) = parent else {
-            return Err(Error::UnsupportedParent(
-                "a macOS host needs an AppKit window",
-            ));
-        };
-        let view = AppkitParent::find(address, self.main_thread)
-            .ok_or(Error::UnsupportedParent("no open window shows that NSView"))?;
-        let builder = self.builder_for(&config.kind);
-        let id_text = id.to_string();
-        let builder = match config.background {
-            Some(color) => builder.with_background_color(color.rgba()),
-            None => builder,
-        };
-        let web_view = common_attributes(builder, &id_text, &config).build_as_child(&view)?;
-        self.views.borrow_mut().insert(id, Rc::new(web_view));
-        self.kinds.borrow_mut().insert(id, config.kind);
-        self.last_parent.set(Some(address));
-        Ok(())
-    }
-
-    fn destroy(
-        &self,
-        id: Id,
-    ) -> Result<()> {
-        self.kinds.borrow_mut().remove(&id);
-        self.views
-            .borrow_mut()
-            .remove(&id)
-            .map(drop)
-            .ok_or(Error::UnknownWebView(id))
+        Ok(run(&self.page(id)?.view)?)
     }
 }
 
@@ -126,7 +72,9 @@ impl ViewLayout for AppkitPlatform {
         id: Id,
         bounds: Bounds,
     ) -> Result<()> {
-        self.with_view(id, |view| view.set_bounds(to_rect(bounds)))
+        let page = self.page(id)?;
+        page.clip.set_frame(frame_of(bounds));
+        Ok(page.view.set_bounds(to_rect(filling(bounds)))?)
     }
 
     fn set_visibility(
@@ -168,8 +116,25 @@ impl Platform for AppkitPlatform {}
 
 impl ViewCapture for AppkitPlatform {}
 
-// PLATFORM: macos a hole needs the web view's layer masked and its hit test answered by the shell's view; not cut yet.
-impl ViewCutout for AppkitPlatform {}
+impl ViewCutout for AppkitPlatform {
+    fn set_cutout(
+        &self,
+        id: Id,
+        hole: Option<Bounds>,
+    ) -> Result<()> {
+        self.page(id)?.set_hole(hole);
+        Ok(())
+    }
+
+    fn set_corners(
+        &self,
+        id: Id,
+        corners: Corners,
+    ) -> Result<()> {
+        self.page(id)?.set_corners(corners);
+        Ok(())
+    }
+}
 
 impl ViewFocus for AppkitPlatform {
     fn focus(
@@ -183,7 +148,9 @@ impl ViewFocus for AppkitPlatform {
         &self,
         id: Id,
     ) -> Result<()> {
-        self.with_view(id, WebView::focus_parent)
+        // PLATFORM: macos wry would focus the clip, which types nothing; the shell's view holds it.
+        self.page(id)?.clip.hand_keys_to_parent();
+        Ok(())
     }
 }
 

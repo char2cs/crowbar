@@ -83,7 +83,7 @@ mod tests {
         dragged_onto(&sidebar, ("demo", "folder"), cx);
         assert_eq!(recorder.sent(), vec![], "nothing moves");
         assert_eq!(toasts(&sidebar, cx), 1, "a repo cannot go into a folder");
-        dragged_onto(&sidebar, ("working", "folder"), cx);
+        dragged_onto(&sidebar, ("chat", "folder"), cx);
         assert_eq!(toasts(&sidebar, cx), 1, "an allowed drop says nothing");
     }
 }
