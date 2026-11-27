@@ -84,7 +84,7 @@ function track_table(raw) {
 function check_unsafe_home(raw,   u, i) {
   u = strip(raw); i = index(u, "//"); if (i) u = substr(u, 1, i - 1)
   if (u ~ /(^|[^A-Za-z_])unsafe([ \t]*[{(]|[ \t]+(fn|impl|extern|trait)([^A-Za-z_]|$))/)
-    report(NR, "unsafe-home", "unsafe outside platform/src/{linux,macos}/: put it behind a safe API there (docs/rust-style.md, Crate layers)")
+    report(NR, "unsafe-home", "unsafe outside platform/src/{linux,macos}/: put it behind a safe API there")
 }
 BEGIN { ri_active = ri_file + 0; pend_doc = 0; cfg_line = 0; in_t = 0; t_depth = 0; loc = 0 }
 {

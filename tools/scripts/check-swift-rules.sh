@@ -78,5 +78,5 @@ scan_package "$root" | sed -E "s#^([^ :]+:[0-9]+: \\[)#$rel_root/\\1#" >"$findin
 status=0
 ((do_full)) && full "$root"
 python3 -I "$here/check-ratchet.py" --lang swift --scope "$rel_root/" ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
-((status)) && echo "check-swift-rules: violations found (see docs/swift-style.md)"
+((status)) && echo "check-swift-rules: violations found"
 exit $status

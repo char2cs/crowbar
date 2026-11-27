@@ -30,7 +30,7 @@ COPY stage/crowbar-api /opt/crowbar/crowbar-api.real
 COPY stage/panes /opt/crowbar/panes
 COPY rig/rig rig/rigx.py rig/rig-proxy.py rig/crowbar-api rig/rigapi.py rig/rigops.py rig/fixture-http.py \
      rig/a11y-dump.py rig/keyring-dump.py rig/clipowner.py rig/dragsource.py /opt/rig/bin/
-COPY rig/points.conf rig/rc.xml README.md /opt/rig/
+COPY rig/points.conf rig/rc.xml /opt/rig/
 COPY agent/scripted-agent /usr/local/bin/scripted-agent
 COPY forge/forge /opt/rig/bin/forge
 COPY agent/scripted.yaml agent/scripted-lite.yaml /opt/rig/agent/

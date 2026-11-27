@@ -63,6 +63,6 @@ else
 fi
 ctx=$work/context
 mkdir -p "$ctx/stage"
-cp -r "$here"/{Dockerfile,entrypoint.sh,index.html,README.md,rig,agent,forge,seed} "$ctx"/
+cp -r "$here"/{Dockerfile,entrypoint.sh,index.html,rig,agent,forge,seed} "$ctx"/
 cp -r "$stage"/{crowbar,crowbar-api,crowbar-seed,crowbar-seed-chat,panes,crowbar-desktop.deb} "$ctx/stage"/
 docker build -t "$image" "$ctx"

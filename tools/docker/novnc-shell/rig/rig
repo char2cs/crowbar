@@ -620,7 +620,7 @@ perf_one() {
 }
 
 usage() {
-  sed -n '/^## Driver/,/^## Performance/p' /opt/rig/README.md 2>/dev/null | grep '^    rig' || true
+  echo "usage: rig <command>; the commands are the cases of $0"
 }
 
 sub=${1:-help}

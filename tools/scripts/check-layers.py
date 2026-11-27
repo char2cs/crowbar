@@ -55,7 +55,7 @@ def findings(path, root, layers, complete):
         return
     if crate not in layers:
         if complete:
-            yield f"{rel}:1: [cargo-layer] crate {crate} has no layer: add it to the layer table (docs/rust-style.md M17, tools/scripts/rust-layers.txt)"
+            yield f"{rel}:1: [cargo-layer] crate {crate} has no layer: add it to the layer table (tools/scripts/rust-layers.txt)"
         return
     level, kind = layers[crate]
     for dep in sorted(set(dependencies(manifest)) - {crate}):

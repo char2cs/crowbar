@@ -65,15 +65,15 @@ custom_rules:
   no_inline_comment:
     name: "No narrative comments"
     regex: '(?<![:/])//(?![/!])(?!\s*(SPEC|PLATFORM|DEPRECATED):)(?!\s*swiftlint:)'
-    message: "Only SPEC:, PLATFORM: and DEPRECATED: comments are allowed (swift-style M7)."
+    message: "Only SPEC:, PLATFORM: and DEPRECATED: comments are allowed."
     severity: error
   no_bool_parameter:
     name: "No Bool flag parameters"
     regex: 'func\s+\w+(<[^>]*>)?\([^)]*:\s*Bool\b'
-    message: "Use an enum or two functions (swift-style M33)."
+    message: "Use an enum or two functions."
     severity: error
   no_global_mutable_state:
     name: "No global mutable state"
     regex: '^(?:(?:public|internal|private|fileprivate)\s+)?var\s|static\s+var\s|static\s+let\s+shared\b'
-    message: "Pass state in; no globals or singletons (swift-style M24)."
+    message: "Pass state in; no globals or singletons."
     severity: error

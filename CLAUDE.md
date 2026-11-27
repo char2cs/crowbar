@@ -4,14 +4,15 @@
 - A fix starts with a failing test that reproduces it.
 - Never fix a symptom with a timer, poll, retry, extra flag, or resync effect.
   Find the owner of the state. If the fix needs a second copy of some state,
-  stop and write a plan in docs/plans/ instead.
+  stop and agree the change with the owner first.
 - A known bug is an issue, not a `t.Skip`.
 
 ## Hygiene
 - Delete code you make unused in the same change. No exports kept "for API
   completeness"; deadcode/knip must stay clean.
 - No stubs that ship: a UI must not be wired to a method that returns [] or false.
-- Comments explain *why* in ≤3 lines — no incident narratives or PR history.
+- Comments only where the logic is genuinely complicated, in ≤3 lines; about 1% of lines at most.
+- No spec, plan or design markdown in the repository.
 - Don't commit plans-as-scratch, QA logs, spikes, test output, placeholders.
 - No second library for a job already covered (icons: phosphor; DnD: dnd-kit;
   headless UI: base-ui; highlighting: shiki).
@@ -80,7 +81,7 @@ export function MyComponent() { ... }
 
 ## Go daemon (`api/`)
 
-Layout and flow are described in `api/ARCHITECTURE.md`. Enforced by `api/.golangci.yml` (funlen 100 lines/50 statements, gocyclo 15, nestif 2, revive early-return, gofumpt) and `make pr-checks`:
+Enforced by `api/.golangci.yml` (funlen 100 lines/50 statements, gocyclo 15, nestif 2, revive early-return, gofumpt) and `make pr-checks`:
 
 - Implementation details live in `internal/` sub-packages; one domain concept per file; source files under 500 lines.
 - One test file per source file (`foo.go` → `foo_test.go`), struct-only files excepted.

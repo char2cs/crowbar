@@ -13,7 +13,6 @@ on:
     paths:
       - 'app/**'
       - 'api/internal/core/bootgate/testdata/**'
-      - 'docs/**'
       - 'tools/scripts/**'
       - '.github/workflows/rust.yml'
       - '.github/workflows/desktop-build.yml'
@@ -91,7 +90,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny,cargo-machete
-      - name: Rust rules (docs/rust-style.md)
+      - name: Rust rules
         run: |
           bash tools/scripts/check-rust-rules.sh --self-test
           bash tools/scripts/check-rust-rules.sh --mobile
@@ -271,7 +270,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install swiftlint and swift-format
         run: brew install swiftlint swift-format
-      - name: Swift rules (docs/swift-style.md)
+      - name: Swift rules
         run: |
           bash tools/scripts/check-swift-rules.sh --self-test
           bash tools/scripts/check-swift-rules.sh --full app/mobile/ios
@@ -297,7 +296,7 @@ jobs:
             git show "origin/${{ github.base_ref }}:tools/scripts/$f-baseline.txt" >"/tmp/$f-old.txt" 2>/dev/null || continue
             python3 -I tools/scripts/check-ratchet.py --guard "/tmp/$f-old.txt" "tools/scripts/$f-baseline.txt"
           done
-      - name: Rust, Swift and TypeScript rules (docs/rabbyte-manifest.md)
+      - name: Rust, Swift and TypeScript rules
         run: |
           bash tools/scripts/check-standards.sh --self-test
           bash tools/scripts/check-standards.sh

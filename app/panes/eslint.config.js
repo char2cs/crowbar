@@ -78,7 +78,7 @@ const WINDOW_WIDTH_RULES = [
     selector:
       "CallExpression:matches([callee.name='matchMedia'], [callee.property.name='matchMedia']) > :matches(Literal[value=/width/], TemplateLiteral).arguments",
     message:
-      'A width media query asks the pane, not the window: use the sm:/md:/lg:/xl: variants, which follow the shell window (docs/plans/2026-11-21-pane-window-breakpoints.md).',
+      'A width media query asks the pane, not the window: use the sm:/md:/lg:/xl: variants, which follow the shell window.',
   },
 ]
 

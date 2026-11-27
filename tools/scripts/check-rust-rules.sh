@@ -223,5 +223,5 @@ if ((${#rekey[@]})); then
 else
   python3 -I "$here/check-ratchet.py" --lang rust ${scopes[@]+"${scopes[@]}"} ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
 fi
-((status)) && echo "check-rust-rules: violations found (see docs/rust-style.md)"
+((status)) && echo "check-rust-rules: violations found"
 exit $status

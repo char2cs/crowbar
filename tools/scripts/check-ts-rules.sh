@@ -130,5 +130,5 @@ scan "$root" "$all" | sed -E "s#^([^ :]+:[0-9]+: \\[)#$rel_root/\\1#" >"$finding
 status=0
 ((do_full)) && full "$root"
 python3 -I "$here/check-ratchet.py" --lang ts --scope "$rel_root/" --scanned "$scanned" ${ratchet_flags[@]+"${ratchet_flags[@]}"} <"$findings" || status=1
-((status)) && echo "check-ts-rules: violations found (see docs/ts-style.md)"
+((status)) && echo "check-ts-rules: violations found"
 exit $status
