@@ -22,7 +22,6 @@ const NOISE_BYTES: usize = 1 << 20;
 const NOISE_BYTE: u8 = 0xff;
 const READ_BUFFER_BYTES: usize = 4096;
 const THIRD_REQUEST: u32 = 3;
-const EXIT_DIED: u8 = 3;
 const EXIT_USAGE: u8 = 64;
 const EXIT_BIND: u8 = 65;
 const EXIT_NOISE: u8 = 66;
@@ -109,7 +108,7 @@ async fn serve_one(
         return None;
     }
     answer(stream, mode, served).await;
-    (mode == "die").then_some(ExitCode::from(EXIT_DIED))
+    None
 }
 
 async fn serve(

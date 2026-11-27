@@ -8,6 +8,7 @@ mod script;
 mod support;
 
 use late_launch::{heard_until, launch_until_startup_is_spent, probing};
+use rustix::process::{Pid, Signal, kill_process};
 use std::path::PathBuf;
 use std::time::Duration;
 use supervisor::{DaemonEvent, Error, Supervisor, Timings};
@@ -111,10 +112,14 @@ async fn a_crash_loop_backs_off_then_gives_up_with_a_report_and_a_manual_restart
 #[tokio::test]
 #[ignore = "real-infra: supervises a real fake_daemon child process over a real unix socket"]
 async fn a_daemon_that_dies_after_becoming_ready_is_recovered_and_comes_back() -> TestResult {
-    let (cfg, _home) = config("die", fast_timings())?;
+    let (cfg, _home) = config("ok", fast_timings())?;
     let supervisor = Supervisor::start(cfg);
     let mut events = supervisor.events();
-    next_matching(&mut events, is_ready).await?;
+    let DaemonEvent::Ready { pid: Some(pid) } = next_matching(&mut events, is_ready).await? else {
+        return Err("ready without a pid".into());
+    };
+    let daemon = Pid::from_raw(pid.try_into()?).ok_or("ready with pid zero")?;
+    kill_process(daemon, Signal::KILL)?;
     next_matching(&mut events, |e| matches!(e, DaemonEvent::Recovering { .. })).await?;
     next_matching(&mut events, is_ready).await?;
     supervisor.stop().await;
