@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Descendant, Value } from 'platejs'
 import { describe, expect, it } from 'vitest'
@@ -161,10 +161,11 @@ const REPO = join(process.cwd(), '..', '..')
 const repoDocs = [
   'README.md',
   'CLAUDE.md',
-  'api/ARCHITECTURE.md',
-  ...readdirSync(join(REPO, 'docs/plans'))
-    .filter((name) => name.endsWith('.md'))
-    .map((name) => `docs/plans/${name}`),
+  'ARROW.md',
+  'legal/NOTICE.md',
+  'legal/LICENSING.md',
+  'website/AGENTS.md',
+  'app/mobile/src-tauri/CHANGELOG.md',
 ]
 
 describe('markdown save over the source', () => {
