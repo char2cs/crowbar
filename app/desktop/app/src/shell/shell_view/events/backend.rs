@@ -153,7 +153,6 @@ mod tests {
             shell.backend.crash = Some((panel, watched));
             cx.notify();
         });
-        opened.window.run_until_parked();
         let drawn = opened.window.debug_bounds("daemon-crash-panel");
         assert!(drawn.is_some(), "drawn in the window");
         assert_eq!(covered_views(&opened), before + 1, "the chat is covered");
