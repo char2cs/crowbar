@@ -1,5 +1,3 @@
-//! What checking a daemon that was just heard from logs when it does not serve.
-
 use std::fmt;
 use std::time::Duration;
 

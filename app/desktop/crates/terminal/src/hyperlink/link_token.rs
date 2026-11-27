@@ -1,5 +1,3 @@
-//! A link candidate inside a line of text.
-
 use crate::hyperlink::link_target::LinkTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

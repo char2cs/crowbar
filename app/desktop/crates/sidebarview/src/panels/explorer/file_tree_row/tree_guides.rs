@@ -1,5 +1,3 @@
-//! The indent guides joining a nested tree row to its ancestors, one per level.
-
 use gpui::{Div, InteractiveElement, Styled, div, px};
 use sidebar::IndentGuides;
 use ui::Palette;

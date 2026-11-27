@@ -176,7 +176,6 @@ mod tests {
     use super::*;
     use crate::test_support::{FakeSource, editor, open_with, pane_id, stacked_layout, strip_of};
 
-    /// The stacked layout with the editor tab `d` in chat `a`'s group.
     fn with_tab_by_the_chat() -> Layout {
         let mut layout = stacked_layout();
         let open = Command::OpenPaneInGroup {

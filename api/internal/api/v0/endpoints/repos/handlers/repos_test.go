@@ -192,9 +192,6 @@ func TestDetailError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// iconRouter mounts the icon route with the hierarchical :projectId/:repoId
-// params and wires the handler's icon storage to a temp home + an optional
-// avatar-bytes fetcher.
 func iconRouter(
 	store repohandlers.Store,
 	home string,
@@ -225,7 +222,6 @@ func TestIcon_ServesOnDiskBytes(t *testing.T) {
 	home := t.TempDir()
 	iconPath := filepath.Join(home, "projects", "p1", "r1", "icon")
 	require.NoError(t, os.MkdirAll(filepath.Dir(iconPath), 0o755))
-	// PNG magic bytes so http.DetectContentType reports image/png.
 	png := append([]byte("\x89PNG\r\n\x1a\n"), []byte("rest")...)
 	require.NoError(t, os.WriteFile(iconPath, png, 0o644))
 
@@ -253,7 +249,6 @@ func TestIcon_NoIcon_Returns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// putIconHandler builds a router wired to the multipart/JSON upload handler.
 func putIconRouter(store repohandlers.Store, home string) *gin.Engine {
 	h := repohandlers.New(store, func() (string, error) { return home, nil })
 	r := gin.New()
@@ -261,9 +256,6 @@ func putIconRouter(store repohandlers.Store, home string) *gin.Engine {
 	return r
 }
 
-// Desktop transport: the WKWebView crowbar:// scheme cannot carry a
-// multipart/binary body, so the native file dialog hands the daemon an absolute
-// path (as JSON) and the daemon reads the file itself — exactly like repo import.
 func TestPutIcon_JSONPath_ReadsFileFromDisk(t *testing.T) {
 	home := t.TempDir()
 	srcPath := filepath.Join(t.TempDir(), "photo.png")
@@ -280,9 +272,6 @@ func TestPutIcon_JSONPath_ReadsFileFromDisk(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	putIconRouter(store, home).ServeHTTP(w, req)
 
-	// 204 (not a raw 200 body): the FE apiFetch throws on any non-enveloped
-	// 200, so PutIcon must answer 204 like the other icon mutations — the
-	// updated avatar arrives on the repos WS stream, not in this response.
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	stored, err := os.ReadFile(filepath.Join(home, "projects", "p1", "r1", "icon"))
 	require.NoError(t, err)
@@ -319,7 +308,6 @@ func TestPutIcon_JSONPath_NonImageExt_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// Web browsers still POST the file as multipart/form-data; keep that path working.
 func TestPutIcon_Multipart_StoresBytes(t *testing.T) {
 	home := t.TempDir()
 	var saved domain.Repository
@@ -371,8 +359,6 @@ func (f *fakeWSReader) List(_ context.Context) ([]domain.Workspace, error) {
 }
 
 func TestBranches_AnnotatesProtectionAndWorkspace(t *testing.T) {
-	// Note: git branch -r uses real git, so we can't easily test it in unit tests.
-	// We test the handler returns 404 for a missing repo.
 	h := repohandlers.NewWithDeps(
 		&fakeStore{byKey: nil},
 		&fakeBranchProvider{protected: []string{"main"}},
@@ -517,7 +503,7 @@ func TestPutIconGithub_FetchFails_Returns422(t *testing.T) {
 	home := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: "/repo"}}
 	fetch := func(_ context.Context, _ string) ([]byte, string, error) {
-		return nil, "", nil // degraded
+		return nil, "", nil
 	}
 	r := iconRouter(store, home, fetch, http.MethodPut,
 		"/v0/projects/:projectId/repos/:repoId/icon/github")
@@ -529,24 +515,11 @@ func TestPutIconGithub_FetchFails_Returns422(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }
 
-// TestRegression_RepoIcon_RejectsOversizeOrNonImage asserts that the icon
-// upload path:
-//   - rejects a file whose size on disk exceeds maxIconBytes (2 MiB), and
-//   - rejects a file whose content does not sniff as image/* even when its
-//     filename extension is .png.
-//
-// Both vectors were previously exploitable: an oversize file was read entirely
-// into memory before the size check ran, and a non-image file was accepted when
-// the caller supplied a .png path because the content-type was derived from the
-// extension rather than from content sniffing.
 func TestRegression_RepoIcon_RejectsOversizeOrNonImage(t *testing.T) {
 	t.Run("oversize file via JSON path is rejected with 400", func(t *testing.T) {
 		home := t.TempDir()
 		srcPath := filepath.Join(t.TempDir(), "big.png")
-		// Write a file of exactly maxIconBytes+1 bytes (2 MiB + 1).
-		// maxIconBytes = 2<<20 = 2097152; we write 2097153 bytes.
 		oversize := make([]byte, (2<<20)+1)
-		// Give it PNG magic bytes so it would pass content sniffing.
 		copy(oversize, []byte("\x89PNG\r\n\x1a\n"))
 		require.NoError(t, os.WriteFile(srcPath, oversize, 0o644))
 
@@ -566,7 +539,6 @@ func TestRegression_RepoIcon_RejectsOversizeOrNonImage(t *testing.T) {
 
 	t.Run("non-image file with .png extension via JSON path is rejected with 400", func(t *testing.T) {
 		home := t.TempDir()
-		// A file with a .png extension but non-image content (will sniff as text/plain).
 		srcPath := filepath.Join(t.TempDir(), "secret.png")
 		require.NoError(t, os.WriteFile(srcPath, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644))
 

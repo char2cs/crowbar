@@ -16,10 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// codexShapedDescriptor mirrors codex.yaml's own model.discover block, over
-// `cat` printing the trimmed real capture instead of a live CLI — the point
-// of the fixture is testing THIS mapping against real shape, not a live
-// process.
 func codexShapedDescriptor(fixture string) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "codex-shaped"}
 	d.Spawn.Cmd = "cat"
@@ -93,12 +89,6 @@ func TestProbe_MapsEffortsAndDefaultEffortPerModel(t *testing.T) {
 		"gpt-5.6-luna has no ultra tier, unlike gpt-6-astra")
 }
 
-// TestProbe_RealCaptureHasNoStatedDefault pins the measured fact that
-// `codex debug models` carries no per-model "this is the default" field —
-// only default_reasoning_level, an EFFORT default, not a model one — so
-// with no default_when: declared (codexShapedDescriptor doesn't), every
-// row's Default is false and gpt-6-astra ordering first must NEVER be read
-// as it being the default.
 func TestProbe_RealCaptureHasNoStatedDefault(t *testing.T) {
 	fixture, err := filepath.Abs("testdata/codex_debug_models.json")
 	require.NoError(t, err)
@@ -112,10 +102,6 @@ func TestProbe_RealCaptureHasNoStatedDefault(t *testing.T) {
 	}
 }
 
-// TestProbe_DefaultWhenFlagsTheStatedRow proves default_when works for a
-// source that DOES state a default (a manifest's isDefault: true, e.g.
-// model/list's own shape) — implemented even though debug models never
-// exercises it, per the task's own requirement.
 func TestProbe_DefaultWhenFlagsTheStatedRow(t *testing.T) {
 	d := &spec.Descriptor{ID: "manifest-shaped"}
 	d.Spawn.Cmd = "echo"
@@ -182,8 +168,6 @@ func TestProbe_RowsMissingIDOrLabelAreDropped(t *testing.T) {
 	assert.Equal(t, "a", got[0].ID)
 }
 
-// apiCatalogDescriptor is a websocket provider whose catalogue is one named call, over
-// a fake endpoint that records every method it is asked and answers from replies.
 func apiCatalogDescriptor(t *testing.T, replies map[string]string) (*spec.Descriptor, <-chan string) {
 	t.Helper()
 	ws := kit.NewFakeWS(t)

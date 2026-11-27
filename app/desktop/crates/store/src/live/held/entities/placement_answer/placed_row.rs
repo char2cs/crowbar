@@ -1,5 +1,3 @@
-//! One row a placement write committed: where it now sits.
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]

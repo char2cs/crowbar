@@ -18,25 +18,16 @@ import { report } from '@/lib/errors/report'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { hostIdForProject } from '@/lib/host-resolve'
 
-// Every worktree verb is addressed through the workspace's owning chat, which the daemon mints
-// on first read — so a row without one is still loading, never a dead end. Says so instead of
-// surfacing the raw scope error.
 export function chatNotLoadedYet(verb: string, branch: string | undefined): string {
   return `Can't ${verb} ${branch ?? 'this branch'} yet — its chat is still loading`
 }
 
-/** What a folder is called until the user says otherwise. */
 const NEW_FOLDER_NAME = 'New folder'
 
-// A new folder opens on its name, so what the user types next names it rather than landing in
-// the composer; Esc keeps the default. It is not drawn yet, so its tree instance is named.
 function nameNewFolder(folderId: string): void {
   treeUiStore.getState().startRenaming(folderId, 'tree')
 }
 
-// The daemon renames the git branch and broadcasts the updated workspace, so there is no
-// optimistic write: a relabel would show a name that never landed. A 409 refusal (name taken,
-// locked, adopted checkout) carries a user-facing message, so it is surfaced.
 async function performRenameWorkspaceBranch(wsId: string, branch: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.workspaces.some((w) => w.id === wsId))
   const ws = repo?.workspaces.find((w) => w.id === wsId)
@@ -55,8 +46,6 @@ async function performRenameWorkspaceBranch(wsId: string, branch: string): Promi
   }
 }
 
-// A folder holds no worktree, so its rename is the same placement PATCH that refiles it, with only
-// the name changed. It applies the daemon's committed `{folder, shifted}` at once.
 async function performRenameFolder(folderId: string, name: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.folders?.some((f) => f.id === folderId))
   const folder = repo?.folders?.find((f) => f.id === folderId)
@@ -78,7 +67,6 @@ async function performRenameFolder(folderId: string, name: string): Promise<void
   }
 }
 
-// performRenameFolder for a project-home folder, which lives in no repo's `folders`.
 async function performRenameHomeFolder(
   projectId: string,
   folderId: string,
@@ -94,22 +82,14 @@ async function performRenameHomeFolder(
   }
 }
 
-// Any workspace of `repo` whose scope is recorded — `.../chats` is repo-scoped, so which one
-// builds the URL doesn't matter. The repo's own ids, never a chat's `workspaceId`: a chat may
-// name a workspace in another repo (spec §9.2), which would address the wrong repo.
 function scopedWorkspaceIdOf(repo: Repo): string | undefined {
   return repo.defaultWorkspaceId ?? repo.workspaces[0]?.id
 }
 
-// A chat title lives on its own aggregate (no branch, no worktree), so this is the plain
-// `POST .../chats/:id/rename`; the new title arrives on the chat's frame.
 export async function performRenameChat(chatId: string, title: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.chats?.some((c) => c.id === chatId))
   const chat = repo?.chats?.find((c) => c.id === chatId)
   if (!repo || !chat) return
-  // The rename dialog seeds from the row's label (`title || UNTITLED_CHAT_LABEL`), so compare
-  // against the same fallback; otherwise a no-op Enter pins an untitled chat's title to
-  // "Untitled chat" and the agent's auto-title can never replace it.
   if ((chat.title || UNTITLED_CHAT_LABEL) === title) return
   const wsId = scopedWorkspaceIdOf(repo)
   if (!wsId) return
@@ -120,8 +100,6 @@ export async function performRenameChat(chatId: string, title: string): Promise<
   }
 }
 
-// performRenameChat for a project-home chat: no repo, so the home workspace names the route,
-// and the chat's projects-scope frame settles the title.
 async function performRenameHomeChat(
   projectId: string,
   homeWorkspaceId: string,
@@ -138,8 +116,6 @@ async function performRenameHomeChat(
   }
 }
 
-// Renames the repo's display name, never its branch: the project-home header row is the repo's
-// default workspace, and renaming that row names the repo.
 async function performRenameRepo(repoId: string, name: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.id === repoId)
   if (!repo?.projectId) return
@@ -151,7 +127,6 @@ async function performRenameRepo(repoId: string, name: string): Promise<void> {
   }
 }
 
-// A project is not a SidebarRow (the project switcher renames it), so it bypasses performRenameRow.
 export async function performRenameProject(projectId: string, name: string): Promise<void> {
   try {
     await renameProject(projectId, name)
@@ -160,9 +135,6 @@ export async function performRenameProject(projectId: string, name: string): Pro
   }
 }
 
-// One rename gesture for every row; the id says which endpoint. Order matters: project-home rows
-// (in no repo) first, then the repo header (its defaultWorkspaceId), then workspace rows — a
-// locked branch renames its branch, any other carries its chat's title — then chats, folders.
 export function performRenameRow(rowId: string, name: string): Promise<void> {
   const homeScope = resolveHomeRowScope(rowId)
   if (homeScope) {
@@ -171,14 +143,10 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
       : performRenameHomeFolder(homeScope.projectId, rowId, name)
   }
   const state = { repos: readSelect(selectRepos) }
-  // A branch row's id is its owning chat's, so translate before matching: otherwise the repo
-  // header misses `defaultWorkspaceId`, falls into the chat case and retitles a conversation.
   const wsId = workspaceIdOfBranchRow(state.repos, rowId) ?? rowId
   const homeRepo = state.repos.find((r) => r.defaultWorkspaceId === wsId)
   if (homeRepo) return performRenameRepo(homeRepo.id, name)
   if (wsId !== rowId) {
-    // A workspace-owning row: a locked branch keeps its branch-name label, so it renames the
-    // branch; every other such row is labelled by its chat's title.
     const repo = state.repos.find((r) => r.workspaces.some((w) => w.id === wsId))
     const ws = repo?.workspaces.find((w) => w.id === wsId)
     if (ws?.status === 'locked') return performRenameWorkspaceBranch(wsId, name)
@@ -191,9 +159,6 @@ export function performRenameRow(rowId: string, name: string): Promise<void> {
   return isFolder ? performRenameFolder(rowId, name) : performRenameWorkspaceBranch(wsId, name)
 }
 
-// Set or clear a workspace's lock; `locked: null` drops the user's override (see
-// setWorkspaceLock). Takes a row id and translates it: a locked branch row is id'd by its owning
-// chat, and without the translation a locked workspace could be neither unlocked nor deleted.
 export async function performSetWorkspaceLock(
   rowId: string,
   locked: boolean | null,
@@ -215,9 +180,6 @@ export async function performSetWorkspaceLock(
   }
 }
 
-// Creates "New folder" under `rowId`; the repo header normalises to the repo root. The row is
-// translated to a workspace only to find its repo — the `parentId` sent stays `rowId`, since
-// `POST .../chats/folders` resolves it as a chat or folder and 404s on a workspace id.
 export async function performCreateFolder(rowId: string): Promise<void> {
   const repos = readSelect(selectRepos)
   const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
@@ -231,7 +193,6 @@ export async function performCreateFolder(rowId: string): Promise<void> {
   if (!repo || !projectId) return
   const folderParentId = wsId === repo.defaultWorkspaceId ? '' : rowId
   try {
-    // Applied directly: no push channel exists for folders, so the response IS the confirmation.
     const { folder, shifted, shiftedRows } = await createFolder(
       projectId,
       repo.id,
@@ -245,9 +206,6 @@ export async function performCreateFolder(rowId: string): Promise<void> {
   }
 }
 
-// performCreateFolder for a plain chat row, so a project with no folders yet still offers one on
-// right-click. A chat id never translates to a workspace, and a chat has no folder anchor of its
-// own, so its folder always lands at the repo root.
 export async function performCreateFolderFromChat(chatId: string): Promise<void> {
   const repo = readSelect(selectRepos).find((r) => r.chats?.some((c) => c.id === chatId))
   const projectId = repo?.projectId
@@ -266,8 +224,6 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
   }
 }
 
-// performCreateFolder for the project-home workspace, which no repo tree contains: `parentId` is
-// '' (the home root) or a home folder. The response IS the confirmation, so it is applied directly.
 export async function performCreateHomeFolder(projectId: string, parentId = ''): Promise<void> {
   try {
     const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)

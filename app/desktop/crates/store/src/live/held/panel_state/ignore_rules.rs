@@ -1,5 +1,3 @@
-//! Which paths of a workspace its `.gitignore` files hide.
-
 use daemonapi::EntryKind;
 
 use crate::live::held::panel_state::rule_set::RuleSet;
@@ -69,7 +67,6 @@ mod tests {
 
     type Case = (&'static str, Files, &'static str, bool);
 
-    /// A trailing slash on the path marks a directory.
     const CASES: [Case; 14] = [
         ("a glob hides matching files", ROOT_LOG, "debug.log", true),
         ("a glob leaves other files", ROOT_LOG, "main.rs", false),

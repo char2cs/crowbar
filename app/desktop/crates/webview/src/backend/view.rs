@@ -1,5 +1,3 @@
-//! What a backend does to each web view: lifecycle, layout, focus, capture, page, site data.
-
 pub(super) mod browsing_data;
 pub(super) mod page_control;
 pub(super) mod view_capture;

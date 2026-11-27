@@ -6,7 +6,6 @@ import { settlePinnedOrder } from './view-pins'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 import { makePane, settleFocus, type ViewState } from './view-state'
 
-/** Drop the leaves `keep` refuses, collapsing emptied splits; null when none survive. */
 function pruneLayout(node: LayoutNode, keep: (paneId: string) => boolean): LayoutNode | null {
   if (!node || typeof node !== 'object') return null
   if (node.type === 'pane') return typeof node.id === 'string' && keep(node.id) ? node : null
@@ -18,8 +17,6 @@ function pruneLayout(node: LayoutNode, keep: (paneId: string) => boolean): Layou
   return first === node.first && second === node.second ? node : { ...node, first, second }
 }
 
-/** The largest part of `input` satisfying viewIntegrityViolations: whatever breaks an invariant
- *  is dropped, the rest (band order included) kept. Pure. */
 function repairViewState(input: Partial<ViewState>): ViewState {
   const source = input.panes ?? {}
   const panes: Record<string, PaneGroup> = {}
@@ -103,8 +100,6 @@ function repairViewState(input: Partial<ViewState>): ViewState {
   return repaired
 }
 
-// The persisted views, repaired: a record, pane or pointer breaking an invariant is dropped, every
-// valid one kept. A record without views restores an empty band around its stage.
 export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState {
   const views = layout.views ?? {}
   return repairViewState({

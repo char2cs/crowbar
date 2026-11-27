@@ -1,5 +1,3 @@
-//! How the settings dress a row of the Files and Changes panels.
-
 use sidebar::{FileTreeView, IconTheme, IndentGuides};
 
 #[derive(Debug, Clone, PartialEq)]

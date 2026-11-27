@@ -1,20 +1,15 @@
-//! What holds what in a space's rows, read off their depths.
-
 use crate::shell::{Row, RowKind};
 
-/// The rows of one space in tree order.
 #[derive(Debug, Clone, Copy)]
 pub struct RowTree<'a> {
     rows: &'a [Row],
 }
 
 impl<'a> RowTree<'a> {
-    /// Reads `rows`, which must be in tree order.
     pub fn new(rows: &'a [Row]) -> Self {
         Self { rows }
     }
 
-    /// The row holding `index`, `None` at the top level.
     pub fn parent(
         self,
         index: usize,
@@ -26,7 +21,6 @@ impl<'a> RowTree<'a> {
             .rposition(|row| row.depth < depth)
     }
 
-    /// The rows `container` holds directly, in order; `None` is the top level.
     pub fn children(
         self,
         container: Option<usize>,
@@ -34,7 +28,6 @@ impl<'a> RowTree<'a> {
         (0..self.rows.len()).filter(move |index| self.parent(*index) == container)
     }
 
-    /// The nearest branch at or above `from`, short of its repository's header.
     pub fn anchor(
         self,
         from: Option<usize>,
@@ -45,7 +38,6 @@ impl<'a> RowTree<'a> {
             .map(|(index, _)| index)
     }
 
-    /// The header of the repository `from` is in, `None` in the project home.
     pub fn repo(
         self,
         from: Option<usize>,

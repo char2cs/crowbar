@@ -26,8 +26,6 @@ vi.mock('@/features/agent/api/upload-chat-attachment', () => ({
   ),
 }))
 
-// Under jsdom `isTauri()` is false so the real hook never fires; stubbing it lets this suite call
-// the modal's `onDrop` directly. Subscribe/filter behaviour is covered in tauri-file-drop.test.ts.
 vi.mock('@/features/file-system/lib/tauri-file-drop', () => ({
   useTauriFileDrop: vi.fn(),
 }))
@@ -87,7 +85,6 @@ describe('AttachFileModal', () => {
     ])
   })
 
-  // A small, well-formed CSV inlines as a table without touching the network.
   it('inlines a small browsed CSV as a markdown table, without uploading', async () => {
     const { props } = draw()
     browse(new File(['name,age\nAda,36\n'], 'people.csv', { type: 'text/csv' }))
@@ -334,7 +331,6 @@ describe('AttachFileModal', () => {
     })
   })
 
-  // A native OS drop never reaches the DOM as a `drop` event, only as this hook's callback.
   describe('the Tauri host-path drop channel', () => {
     it('stages each reported host path by its file name and clears the drag-over state', async () => {
       const { props } = draw()
@@ -361,7 +357,6 @@ describe('AttachFileModal', () => {
       )
     })
 
-    // A fresh onDrop per dragOver/dragLeave render would re-subscribe Tauri's IPC mid-drag.
     it('keeps the same onDrop across a dragOver/dragLeave re-render', () => {
       draw()
       const zone = screen.getByTestId('attach-file-dropzone')
@@ -379,7 +374,6 @@ describe('AttachFileModal', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  // Base UI closes a dialog on Escape by firing onOpenChange(false).
   it('calls onClose when the dialog requests dismissal', async () => {
     const { props } = draw()
 

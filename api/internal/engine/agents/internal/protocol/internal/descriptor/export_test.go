@@ -7,14 +7,12 @@ import (
 	"testing"
 )
 
-// RegisterReader adds a schema version for the life of one test.
 func RegisterReader(t *testing.T, version int, r Reader) {
 	t.Helper()
 	readers[version] = r
 	t.Cleanup(func() { delete(readers, version) })
 }
 
-// ShippedIDs is the embedded descriptor set as the source tree names it, sorted.
 func ShippedIDs(t *testing.T) []string {
 	t.Helper()
 	matches, err := filepath.Glob("descriptors-v3/*.yaml")

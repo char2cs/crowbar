@@ -1,35 +1,26 @@
-//! An opaque 24-bit colour.
-
 const DIM_NUMERATOR: u32 = 2;
 const DIM_DENOMINATOR: u32 = 3;
 const BYTE_BITS: u32 = 8;
 
-/// A colour as the emulator reports it: three 8-bit channels, no alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Rgb {
-    /// Red channel.
     pub red: u8,
-    /// Green channel.
     pub green: u8,
-    /// Blue channel.
     pub blue: u8,
 }
 
 impl Rgb {
-    /// Builds a colour from `0xRRGGBB`.
     pub const fn from_hex(hex: u32) -> Self {
         let [_, red, green, blue] = hex.to_be_bytes();
         Self { red, green, blue }
     }
 
-    /// The colour as `0xRRGGBB`.
     pub fn to_hex(self) -> u32 {
         (u32::from(self.red) << (2 * BYTE_BITS))
             | (u32::from(self.green) << BYTE_BITS)
             | u32::from(self.blue)
     }
 
-    /// The colour at two thirds of its intensity, as SGR 2 (faint) renders it.
     #[must_use]
     pub fn dimmed(self) -> Self {
         Self {

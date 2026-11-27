@@ -1,5 +1,3 @@
-//! How much daemon output the view applies in one UI update.
-
 use async_channel::Receiver;
 use terminal::DaemonFrame;
 

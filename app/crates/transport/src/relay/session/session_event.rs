@@ -1,5 +1,3 @@
-//! What a relay session logs from its handshake to its close.
-
 use std::fmt;
 
 use journal::Level;

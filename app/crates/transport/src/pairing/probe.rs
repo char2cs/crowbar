@@ -21,12 +21,6 @@ use probe_event::ProbeEvent;
 
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The fingerprint of the certificate `endpoint` presents, for the user to confirm before pairing
-/// pins it. This is the one unpinned TLS dial: it sends nothing and hangs up.
-///
-/// # Errors
-/// [`Error::MalformedEndpoint`], [`Error::ProbeTimeout`], [`Error::Handshake`] or
-/// [`Error::NoCertificate`].
 pub async fn probe_fingerprint(endpoint: &str) -> Result<String, Error> {
     let endpoint = Endpoint::parse(endpoint)?;
     let read = tokio::time::timeout(PROBE_TIMEOUT, read_fingerprint(&endpoint)).await;

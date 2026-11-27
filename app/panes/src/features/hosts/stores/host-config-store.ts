@@ -4,27 +4,20 @@ import type { Host } from '@/features/hosts/types'
 
 interface HostConfigState {
   hosts: Host[]
-  /** One-way: set by the first remote `addHost`, never reset (not even by
-   *  removing the last host). Remote ids outlive their host, so only "never
-   *  paired" proves an unknown id is local — read it through `hasPairedRemote`. */
   remoteEverPaired: boolean
   addHost: (host: Host) => void
   removeHost: (id: string) => void
-  /** The shell pairs hosts itself: its list replaces this one, which it alone changes. */
   adoptHosts: (hosts: Host[]) => void
 }
 
 type Saved = Partial<Pick<HostConfigState, 'hosts' | 'remoteEverPaired'>>
 
-/** State saved before `remoteEverPaired` existed lacks it, so a configured host counts too. */
 export function hasPairedRemote(s: Pick<HostConfigState, 'hosts' | 'remoteEverPaired'>): boolean {
   return s.remoteEverPaired || s.hosts.length > 0
 }
 
 const STORAGE_KEY = 'crowbar.hosts'
 
-/** What is saved, over what this window holds: every window saves to one key, so the saved
- *  host list wins, a removal included (else a host revoked elsewhere comes back). */
 function withSaved<S extends HostConfigState>(saved: Saved | undefined, current: S): S {
   return {
     ...current,
@@ -33,8 +26,6 @@ function withSaved<S extends HostConfigState>(saved: Saved | undefined, current:
   }
 }
 
-/** This window's state brought up to what is saved now: another window may have paired or
- *  removed a host since, and a write from stale state would lose that. */
 function current(state: HostConfigState): HostConfigState {
   const saved = useHostConfigStore.persist.getOptions().storage?.getItem(STORAGE_KEY)
   return saved && !(saved instanceof Promise) ? withSaved(saved.state as Saved, state) : state
@@ -67,8 +58,6 @@ export const useHostConfigStore = create<HostConfigState>()(
   ),
 )
 
-/** Calls `onRemoved(id)` for each host that leaves the list, whichever window removed it:
- *  whatever holds a host's data lets it go here, so no removal path can leave it behind. */
 export function onHostRemoved(onRemoved: (hostId: string) => void): () => void {
   return useHostConfigStore.subscribe((state, prev) => {
     if (state.hosts === prev.hosts) return
@@ -78,7 +67,6 @@ export function onHostRemoved(onRemoved: (hostId: string) => void): () => void {
   })
 }
 
-// The browser tells every other window when one saves: follow it.
 window.addEventListener('storage', (event) => {
   if (event.key === STORAGE_KEY) void useHostConfigStore.persist.rehydrate()
 })

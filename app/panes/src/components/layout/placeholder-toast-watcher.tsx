@@ -12,9 +12,6 @@ import {
   operationsState,
 } from '@/core/entities/operations'
 
-// ONE error toast (with a Fix… detach action) per newly seen UNPROVISIONED workspace (§3.6).
-// 'own-checkout' stays silent: it is every import's resting state; its Detach… lives on the row.
-// A placeholder still being made, or whose operation failed, is the operations watcher's to toast.
 export function PlaceholderToastWatcher() {
   const repos = useSelect(selectRepos)
   const openDetach = useDetachModalStore((s) => s.open)

@@ -1,5 +1,3 @@
-//! File panes: the editor panes, their documents and language servers.
-
 pub(crate) mod chat_locks;
 pub(crate) mod chat_servers;
 mod chat_workspaces;

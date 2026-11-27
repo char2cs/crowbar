@@ -1,6 +1,3 @@
-//! Semantic tokens from the document's language server. The daemon rewrites every server's
-//! legend into one canonical one, so the legend here is fixed.
-
 use std::ops::Range;
 use std::rc::Rc;
 

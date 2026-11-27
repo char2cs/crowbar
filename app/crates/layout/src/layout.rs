@@ -17,16 +17,8 @@ use crate::layout::tab::pane_instance::PaneInstance;
 use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 
-/// Most tabs a layout may hold.
 pub const MAX_TABS: usize = 256;
 
-/// All tabs of a window, each in the space it was made in, and which tab each space shows.
-///
-/// The layout is a state machine: [`Layout::apply`] is the only way to change it, and a
-/// command that fails leaves it exactly as it was. Invariants: tab ids are unique, a pane id
-/// appears in at most one tab, no two panes share a type and non-empty parameters, a space
-/// shows only one of its own tabs, and every tab satisfies the [`Tab`] invariants. A space
-/// with no shown tab shows its stage, as develop's `activeViewByProject` without an entry.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Layout {
     pub(crate) tabs: Vec<Tab>,
@@ -34,13 +26,11 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// The tabs in tab bar order.
     #[must_use]
     pub fn tabs(&self) -> &[Tab] {
         &self.tabs
     }
 
-    /// Looks up a tab.
     #[must_use]
     pub fn tab(
         &self,
@@ -49,8 +39,6 @@ impl Layout {
         self.tabs.iter().find(|tab| tab.id() == id)
     }
 
-    /// The tab a space shows: the one it remembers, else its first tab in strip order, as
-    /// develop's `nextViewFor` falls back; `None` only when the space has no tabs.
     #[must_use]
     pub fn showing(
         &self,
@@ -60,7 +48,6 @@ impl Layout {
         remembered.or_else(|| self.tabs.iter().find(|tab| tab.space() == space))
     }
 
-    /// The tab holding a pane.
     #[must_use]
     pub fn tab_of(
         &self,
@@ -69,7 +56,6 @@ impl Layout {
         self.tabs.iter().find(|tab| tab.contains(pane))
     }
 
-    /// Looks up a pane in any tab.
     #[must_use]
     pub fn pane(
         &self,
@@ -78,8 +64,6 @@ impl Layout {
         self.tab_of(id).and_then(|tab| tab.pane(id))
     }
 
-    /// The open pane with this type and these parameters, if any. Parameters identify a pane:
-    /// a chat is open once, whichever tab it is in.
     #[must_use]
     pub fn find_pane(
         &self,
@@ -92,16 +76,11 @@ impl Layout {
             .find(|instance| is_same_thing(instance, type_id, params))
     }
 
-    /// Number of panes in all tabs.
     #[must_use]
     pub fn pane_count(&self) -> usize {
         self.tabs.iter().map(Tab::len).sum()
     }
 
-    /// Applies a command, or changes nothing and says why not.
-    ///
-    /// # Errors
-    /// The [`Error`](crate::error::Error) that refused the command.
     pub fn apply(
         &mut self,
         command: Command,

@@ -1,5 +1,3 @@
-//! Position of a sliding indicator between slots.
-
 use std::time::Instant;
 
 use gpui::Context;

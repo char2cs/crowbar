@@ -62,8 +62,6 @@ func TestMigrateCmd_PlanOfAnUnopenedHomeCreatesNothing(t *testing.T) {
 	assert.NoDirExists(t, h.State())
 }
 
-// The chat-ledger step has no command of its own: the dry run names it and
-// its conversion, and opens no legacy database.
 func TestMigrateCmd_PlanNamesTheChatLedgerStep(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	t.Setenv(home.EnvVar, h.Root())

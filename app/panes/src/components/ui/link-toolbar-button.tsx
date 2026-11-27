@@ -1,6 +1,3 @@
-// From the Plate registry (`https://platejs.org/r/floating-toolbar-kit.json`
-// -> `link-toolbar-button`), verbatim — no primitive collision. Opens the
-// same floating link editor already wired up by `LinkKit` (`link-toolbar.tsx`).
 'use client'
 
 import * as React from 'react'

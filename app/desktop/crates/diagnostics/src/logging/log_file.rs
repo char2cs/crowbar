@@ -1,5 +1,3 @@
-//! An open log file: where to append and how much it already holds.
-
 use std::io::Write;
 
 pub(crate) struct LogFile {

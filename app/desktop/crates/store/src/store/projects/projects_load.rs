@@ -1,28 +1,20 @@
-//! Whether this computer's projects have loaded, as develop's shell landing tells it.
-
 use crate::live::State;
 use crate::store::Store;
 
 const PERSISTENT: u32 = 2;
 
-/// How the projects of this computer's daemon have loaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectsLoad {
-    /// They are listed, or there is no daemon of this computer to list them.
     Loaded,
-    /// The first snapshot is still coming.
     Loading,
-    /// The snapshot was lost twice in a row; only Retry or a reconnect asks again.
     Failed,
 }
 
 impl Store {
-    /// How the projects of this computer's daemon have loaded.
     pub fn projects_load(&self) -> ProjectsLoad {
         self.hub.read(load_of)
     }
 
-    /// Asks this computer's daemon for its projects again, forgetting the failed attempts.
     pub fn retry_projects(&self) {
         let host = self.hub.edit(|state| {
             let slot = state

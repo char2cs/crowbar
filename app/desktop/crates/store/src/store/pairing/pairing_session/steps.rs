@@ -1,7 +1,3 @@
-//! The steps of pairing that wait on the host: probing its certificate and redeeming the code.
-//! A redeemed pairing that cannot be remembered is undone, because a host without its client id
-//! could never be revoked.
-
 mod pairing_event;
 
 use crate::error::Error;

@@ -1,6 +1,3 @@
-// Package editor mounts the v0 editor routes: blame, LSP features, document sync, diagnostics.
-// Blame takes its path in ?path= because GET has no body; the LSP routes take it in the JSON
-// body. Live diagnostics ride the stream's lsp: scope.
 package editor
 
 import (
@@ -9,9 +6,6 @@ import (
 	editorhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/editor/handlers"
 )
 
-// Register mounts the editor routes at /v0/chats/:chatId/{blame,lsp/*}. The
-// worktree comes from chatScoped's resolveChatWorktree middleware, but LSP
-// sessions are keyed by chat id so sibling chats sharing a worktree never share one.
 func Register(
 	chatScoped *gin.RouterGroup,
 	lsp editorhandlers.LSPEngine,
@@ -21,7 +15,6 @@ func Register(
 	mount(chatScoped, "", h)
 }
 
-// mount registers the editor surface under prefix on rg.
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,

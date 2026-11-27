@@ -1,11 +1,4 @@
 // app/panes/scripts/check-eslint-baselines.mjs — stale-entry gate for the *_BASELINE
-// lists in eslint.config.js.
-//
-// `eslint .` already fails on any violation a baseline does not cover. This
-// script covers the other direction: it lints every baselined file with the
-// `baseline/*` config entries removed and fails when a listed file no longer
-// violates the rule it is baselined for (or no longer exists), so the lists
-// can only shrink. Fix a file, then delete its entry.
 import { existsSync } from 'node:fs'
 import { ESLint } from 'eslint'
 import config, { BASELINES } from '../eslint.config.js'
@@ -20,7 +13,7 @@ for (const file of files) {
   if (!present.includes(file)) problems.push(`stale baseline: ${file} no longer exists`)
 }
 
-const violations = new Map() // file -> Set(rule)
+const violations = new Map()
 for (const result of await eslint.lintFiles(present)) {
   const rel = result.filePath.slice(process.cwd().length + 1)
   violations.set(rel, new Set(result.messages.map((message) => message.ruleId)))

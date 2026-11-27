@@ -7,7 +7,6 @@ import { sameDocument } from '@/features/editor/documents/document-ref'
 
 interface JumpListEntry {
   bufferId: string
-  /** The whole document, so an entry resolves the same from any workspace. */
   doc: DocumentRef
   line: number
   column: number
@@ -24,15 +23,8 @@ interface JumpListActions {
   canGoBack: () => boolean
   canGoForward: () => boolean
   clear: () => void
-  /** Consume the pending Back/Forward marker: true if `bufferId` is where history navigation just
-   *  moved, which the caller must not record as a new navigation. */
   consumeNavigationTarget: (bufferId: string) => boolean
-  /** Re-point the pending marker at the buffer a closed entry's file was reopened under (a new id),
-   *  so the recorder doesn't record it and truncate the forward branch. Moves only the marker; a
-   *  no-op when nothing is pending, so an ordinary open can't swallow the next genuine record. */
   retargetNavigation: (bufferId: string) => void
-  /** Drop the pending marker. A navigation that failed must not leave one behind, or it would
-   *  suppress the next genuine visit to that buffer id. */
   clearNavigationTarget: () => void
 }
 
@@ -40,9 +32,6 @@ interface JumpListState {
   entries: JumpListEntry[]
   currentIndex: number
   maxEntries: number
-  /** The buffer goBack/goForward last moved to, until the recorder acknowledges it; without it the
-   *  recorder would push the activation as new and Back could never go twice. Naming the buffer,
-   *  not an "isNavigating" flag, keeps the handshake off a timer racing that render. */
   navigationTargetBufferId: string | null
   actions: JumpListActions
 }
@@ -66,12 +55,10 @@ export const useJumpListStore = createSelectors(
               timestamp: Date.now(),
             }
 
-            // If we're in the middle of history, truncate future entries
             if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
               state.entries = state.entries.slice(0, state.currentIndex + 1)
             }
 
-            // Check for duplicate (same file and within line threshold)
             const lastEntry = state.entries[state.entries.length - 1]
             if (lastEntry) {
               const isSameFile = sameDocument(lastEntry.doc, newEntry.doc)
@@ -79,22 +66,18 @@ export const useJumpListStore = createSelectors(
                 Math.abs(lastEntry.line - newEntry.line) <= DUPLICATE_LINE_THRESHOLD
 
               if (isSameFile && isNearbyLine) {
-                // Update the existing entry instead of adding a duplicate
                 state.entries[state.entries.length - 1] = newEntry
                 state.currentIndex = -1
                 return
               }
             }
 
-            // Add the new entry
             state.entries.push(newEntry)
 
-            // Enforce max size
             if (state.entries.length > state.maxEntries) {
               state.entries.shift()
             }
 
-            // Reset to present (not navigating history)
             state.currentIndex = -1
           })
         },
@@ -108,26 +91,21 @@ export const useJumpListStore = createSelectors(
 
           let newIndex: number
           if (state.currentIndex === -1) {
-            // Currently at present - save current position so we can go forward to it
             if (currentPosition) {
               set((s) => {
                 s.entries.push({
                   ...currentPosition,
                   timestamp: Date.now(),
                 })
-                // Enforce max size
                 if (s.entries.length > s.maxEntries) {
                   s.entries.shift()
                 }
               })
             }
-            // Go to second-to-last entry (last entry is now where we just were)
             newIndex = get().entries.length - 2
           } else if (state.currentIndex > 0) {
-            // Go to previous entry
             newIndex = state.currentIndex - 1
           } else {
-            // Already at the beginning
             return null
           }
 

@@ -24,7 +24,6 @@ interface SearchPopoverProps {
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
   onClose: () => void
   placeholder: string
-  /** Stable `name` for the search input (a11y: form fields need an id or name). */
   inputName?: string
   inputRef?: RefObject<HTMLInputElement | null>
   matchLabel?: string | null

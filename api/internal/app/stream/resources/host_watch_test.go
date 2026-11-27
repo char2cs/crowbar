@@ -19,14 +19,11 @@ import (
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
-// hostWaitBound fails a test whose signal never comes instead of stalling it.
 const hostWaitBound = 10 * time.Second
 
-// fakeFileWatch records its lifecycle and exposes the emit it was built with.
 type fakeFileWatch struct {
-	path string
-	emit func(domain.FileChangeType)
-	// startGate and stopGate, when set, hold Start or Stop until closed.
+	path                string
+	emit                func(domain.FileChangeType)
 	startGate, stopGate chan struct{}
 	startErr            error
 	started             chan struct{}
@@ -48,15 +45,12 @@ func (f *fakeFileWatch) Stop() {
 	}
 }
 
-// hostWatchRig is the resource over fake watches and a recording broadcast.
 type hostWatchRig struct {
-	m      *HostWatch
-	built  chan *fakeFileWatch
-	events chan domain.FileChangeEvent
-	// prepare, when set, configures each watch before the manager starts it.
+	m       *HostWatch
+	built   chan *fakeFileWatch
+	events  chan domain.FileChangeEvent
 	prepare func(*fakeFileWatch)
-	// during, when set, runs inside each broadcast before it is recorded.
-	during func()
+	during  func()
 }
 
 func newHostWatchRig(
@@ -106,8 +100,6 @@ func (r *hostWatchRig) assertNoneBuilt(
 	}
 }
 
-// within runs fn and answers its error, or that fn is still blocked after the
-// bound: a lock held where it must not be fails the test, never hangs it.
 func within(
 	what string,
 	fn func() error,
@@ -209,7 +201,6 @@ func TestHostWatch_AnArmFailureRecordsNothing(t *testing.T) {
 	assert.NotSame(t, failed, r.next(t), "the failed watch was not recorded")
 }
 
-// The client tells the OS's watch limit apart from a daemon that cannot watch the file.
 func TestHostWatch_TheWatchLimitIsRefusedWithItsOwnCode(t *testing.T) {
 	r := newHostWatchRig(t)
 	r.prepare = func(f *fakeFileWatch) { f.startErr = fmt.Errorf("arm: %w", enginefs.ErrWatchLimit) }
@@ -266,7 +257,6 @@ func TestHostWatch_ABroadcastHoldsBackNoStartOrStop(t *testing.T) {
 	assert.Equal(t, "/d/a.md", (<-r.events).Path)
 }
 
-// A change to a watched host file is signalled on that file's doc: scope.
 func TestHostWatch_SignalsAChangeOnTheDocScope(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a.md")
 	require.NoError(t, os.WriteFile(path, []byte("a"), 0o600))

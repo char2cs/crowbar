@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// api.ts imports isTauri from crowbar-bridge; hoisted so it exists when that
-// mock's factory runs (see host-base.test.ts).
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => true) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 

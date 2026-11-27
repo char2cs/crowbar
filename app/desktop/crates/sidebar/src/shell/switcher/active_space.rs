@@ -1,19 +1,13 @@
-//! The space shown and what it holds.
-
 use crate::shell::chats::ProjectTree;
 use crate::shell::switcher::project_id::ProjectId;
 use crate::shell::switcher::space_icon::SpaceIcon;
 
-/// The space shown and what it holds.
 pub trait ActiveSpace {
-    /// The space shown, if any.
     fn active_project(&self) -> Option<ProjectId>;
-    /// The chats tree of `project`.
     fn tree(
         &self,
         project: &ProjectId,
     ) -> ProjectTree;
-    /// The icon `project` shows.
     fn space_icon(
         &self,
         _project: &ProjectId,

@@ -18,7 +18,6 @@ import type { Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// A repo workspace with an owning chat, and a project HOME (no repo, no chat).
 const REPO_WS = 'ws-1'
 const HOME_WS = 'home-ws'
 const REPO: WorkspaceScope = {
@@ -33,9 +32,7 @@ type Urls = typeof urls
 const THROWS = 'throws'
 interface Case {
   name: string
-  /** Takes the module so the desktop-base block can run the freshly reloaded one. */
   call: (u: Urls, wsId: string) => string
-  /** The bare `/v0/...` string recorded from the builder BEFORE it became host-aware. */
   repo: string
   home: string | typeof THROWS
 }
@@ -95,7 +92,6 @@ const BUILDERS: Case[] = [
     home: '/v0/projects/p1/home',
   },
 ]
-/** Every builder, including the chat-id and chat+workspace ones, by what it returns for REPO_WS. */
 const REPO_URLS: [string, (u: Urls) => string, string][] = [
   ...BUILDERS.map((b): [string, (u: Urls) => string, string] => [
     b.name,
@@ -139,7 +135,6 @@ function resolution(call: () => unknown): HostNotResolvedError {
 }
 
 beforeEach(() => {
-  // addHost sets a persisted one-way bit; a later test must start never-paired.
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   resetEntities()
   useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
@@ -190,9 +185,6 @@ describe('golden: no remote ever paired — byte-identical to the pre-host-aware
   })
 })
 
-// jsdom's API_BASE is '' but the desktop's is `crowbar://localhost`: a builder that feeds
-// an API_BASE-prefixed string to qualify('local', …) throws only there, so every builder runs
-// under both.
 describe.each([
   ['browser', ''],
   ['desktop', 'crowbar://localhost'],
@@ -241,7 +233,6 @@ describe('a remote project: every builder returns the crowbar://<host> form', ()
   })
 
   it('qualifies a sibling chat through the workspace it is opened in, not the chat id', () => {
-    // A sibling chat is not any workspace's owning chat, so its id alone proves nothing.
     expect(chatTerminalsBaseForWorkspace(REPO_WS, 'sibling-chat')).toBe(
       'crowbar://host-2/v0/chats/sibling-chat/terminals',
     )
@@ -290,7 +281,6 @@ describe('hosts paired but the host cannot be determined: HostNotResolvedError, 
     (name, call) => {
       pair('host-1')
       loadProjects(project('p1', 'host-1'))
-      // chatBase has no workspace to miss: it is covered by the unrecorded-chat test below.
       if (name === 'chatBase') return
       expect(resolution(call).message).toMatch(/no scope is recorded for the workspace/)
     },
@@ -338,10 +328,10 @@ describe('after the last host is revoked (its ids outlive its rows)', () => {
     expect(gitBaseForWorkspace(REPO_WS)).toBe('crowbar://host-1/v0/chats/chat-1/git')
 
     useHostConfigStore.getState().removeHost('host-1')
-    loadProjects(project('p-local', 'local')) // a re-read that no longer holds the host's rows
+    loadProjects(project('p-local', 'local'))
 
     for (const [, call] of REPO_URLS)
       expect(resolution(() => call(urls)).message).toMatch(/not in the project list/)
-    expect(getWorkspaceScope(REPO_WS)).not.toBeNull() // the scope really did outlive the host
+    expect(getWorkspaceScope(REPO_WS)).not.toBeNull()
   })
 })

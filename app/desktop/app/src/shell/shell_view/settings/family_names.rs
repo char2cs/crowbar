@@ -1,5 +1,3 @@
-//! Font family names the theme holds for as long as the shell lives.
-
 use std::collections::HashSet;
 
 #[derive(Default)]

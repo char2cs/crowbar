@@ -7,8 +7,6 @@ use crate::catalog::pages::bundle_source::BundleSource;
 
 type Sources = Arc<RwLock<HashMap<ExtensionId, Arc<dyn BundleSource>>>>;
 
-/// The pane bundles of enabled extensions, shared between the host that registers them and
-/// the protocol router that serves them.
 #[derive(Clone, Default)]
 pub struct ExtensionBundles {
     sources: Sources,
@@ -24,7 +22,6 @@ impl std::fmt::Debug for ExtensionBundles {
 }
 
 impl ExtensionBundles {
-    /// Serves `extension`'s panes from `source`, replacing an earlier source.
     pub fn insert(
         &self,
         extension: ExtensionId,
@@ -36,7 +33,6 @@ impl ExtensionBundles {
             .insert(extension, source);
     }
 
-    /// Stops serving an extension, for example when it is disabled.
     pub fn remove(
         &self,
         extension: &ExtensionId,
@@ -47,7 +43,6 @@ impl ExtensionBundles {
             .remove(extension);
     }
 
-    /// The source of an extension's bundle.
     #[must_use]
     pub fn get(
         &self,

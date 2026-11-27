@@ -47,7 +47,6 @@ describe('PermissionLevelChip', () => {
     expect(screen.getByTestId('chat-permission-level-chip')).toHaveTextContent(/^Trusted$/)
   })
 
-  // A chat that inherits the default runs at that default, so it says which one.
   it('shows the default level of the chat’s host while the chat inherits it', async () => {
     writeChat({ id: 'c1' })
     defaultLevelFn.mockResolvedValue('trusted')

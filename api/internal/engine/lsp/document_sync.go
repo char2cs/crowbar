@@ -19,7 +19,6 @@ func docKey(
 	return wsID + "|" + uri
 }
 
-// openVersion resets a document's version on (re)open and returns it.
 func (e *engine) openVersion(
 	key string,
 ) int {
@@ -29,7 +28,6 @@ func (e *engine) openVersion(
 	return 1
 }
 
-// nextVersion returns the version for the next didChange of a document.
 func (e *engine) nextVersion(
 	key string,
 ) int {
@@ -59,8 +57,6 @@ func (e *engine) DidOpen(
 	text string,
 ) error {
 	abs := absFilePath(worktreePath, filePath)
-	// A document outside the worktree belongs to another workspace's server
-	// (or none); opening it here would spawn and feed the wrong one.
 	if rel, err := filepath.Rel(worktreePath, abs); err != nil || !filepath.IsLocal(rel) {
 		return fmt.Errorf("lsp: textDocument/didOpen: %w: %q is outside the workspace",
 			problem.ErrInvalidArgument, filePath)
@@ -74,8 +70,6 @@ func (e *engine) DidOpen(
 			"text":       text,
 		},
 	}
-	// The acquired ref is HELD until the matching DidClose, keeping the server warm while the
-	// document is open; the absence/spawn-error path acquires nothing.
 	return e.notify(ctx, wsID, worktreePath, filePath, "textDocument/didOpen", params, true)
 }
 
@@ -94,7 +88,6 @@ func (e *engine) DidChange(
 		},
 		"contentChanges": []any{map[string]any{"text": text}},
 	}
-	// Net-zero: the server stays warm only on the ref held by the matching DidOpen.
 	return e.notify(ctx, wsID, worktreePath, filePath, "textDocument/didChange", params, false)
 }
 
@@ -109,8 +102,6 @@ func (e *engine) DidClose(
 		"textDocument": map[string]any{"uri": uri},
 	}
 	e.forgetVersion(docKey(wsID, uri))
-	// The running server is not acquired, so the one release returns the refcount to its pre-open
-	// baseline (tearing down on the last ref); with no live server both are no-ops.
 	return e.notifyRunning(ctx, wsID, filePath, "textDocument/didClose", params, true)
 }
 
@@ -125,13 +116,9 @@ func (e *engine) DidSave(
 			"uri": convert.URIFromPath(absFilePath(worktreePath, filePath)),
 		},
 	}
-	// Like didClose, didSave only makes sense for a document the server has
-	// open, so it rides the running server without acquiring a ref.
 	return e.notifyRunning(ctx, wsID, filePath, "textDocument/didSave", params, false)
 }
 
-// notify forwards a notification through the file's server, acquiring (and if need be spawning) it.
-// hold keeps the ref, as DidOpen's lives until DidClose; otherwise it is released at once.
 func (e *engine) notify(
 	ctx context.Context,
 	wsID string,
@@ -154,8 +141,6 @@ func (e *engine) notify(
 	return e.send(ctx, srv, method, params)
 }
 
-// notifyRunning forwards a notification only to a server already running for the file, never
-// spawning; release drops one ref afterwards.
 func (e *engine) notifyRunning(
 	ctx context.Context,
 	wsID string,

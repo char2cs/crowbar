@@ -1,5 +1,3 @@
-//! A typed host and port, split but not yet checked.
-
 use crate::store::pairing::pairing_session::endpoint_text::ipv6_form::Ipv6Form;
 
 pub(crate) struct HostPort<'a> {

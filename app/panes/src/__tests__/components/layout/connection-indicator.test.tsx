@@ -51,9 +51,6 @@ describe('ConnectionIndicator', () => {
     }
     expect(arg.type).toBe('warning')
     expect(arg.key).toBe('connection-indicator')
-    // duration: 0 is how this toast opts out of auto-dismiss (see
-    // ToastStore.addToast, which only schedules a timer when duration > 0) —
-    // it must stay up for as long as the outage lasts.
     expect(arg.duration).toBe(0)
   })
 
@@ -115,16 +112,13 @@ describe('ConnectionIndicator', () => {
       })
     }
 
-    // Every warning (and every recovery) reuses the same dedup key, so the
-    // toast system updates/replaces in place instead of the caller ever
-    // needing to track more than one live toast at a time.
     const keysUsed = new Set(
       (toast.show as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
         (call) => (call[0] as { key: string }).key,
       ),
     )
     expect(keysUsed).toEqual(new Set(['connection-indicator']))
-    expect(toast.show).toHaveBeenCalledTimes(6) // 3x warning + 3x success
+    expect(toast.show).toHaveBeenCalledTimes(6)
   })
 
   it('a migrating daemon shows its step instead of Reconnecting', () => {

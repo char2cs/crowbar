@@ -3,8 +3,6 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { RowKind } from '@/features/agent/api/chat-rows'
 
-// Record<RowKind, true> fails to compile unless it names every RowKind and no
-// other, so this list is tied to the type; the fixture ties it to the daemon.
 const rowKinds: Record<RowKind, true> = {
   user_message: true,
   turn_started: true,

@@ -88,7 +88,6 @@ describe('useHostConfigStore', () => {
       useHostConfigStore.getState().addHost(remote)
       useHostConfigStore.getState().removeHost('h1')
       const saved = localStorage.getItem('crowbar.hosts')!
-      // A fresh page load: memory is blank, storage is what the last session wrote.
       useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
       localStorage.setItem('crowbar.hosts', saved)
       await useHostConfigStore.persist.rehydrate()
@@ -113,7 +112,6 @@ describe('useHostConfigStore', () => {
     })
   })
 
-  // Every window ("New Window") saves its hosts to the same key.
   describe('across windows', () => {
     const host = (id: string) => ({
       id,
@@ -123,7 +121,6 @@ describe('useHostConfigStore', () => {
       clientId: `client-${id}`,
     })
 
-    /** A window: its own store instance over the shared storage. */
     async function openWindow() {
       vi.resetModules()
       const { useHostConfigStore: store } =
@@ -131,7 +128,6 @@ describe('useHostConfigStore', () => {
       return store
     }
 
-    /** What the browser tells every other window when one of them saves. */
     const announce = () =>
       window.dispatchEvent(
         new StorageEvent('storage', {
@@ -152,7 +148,6 @@ describe('useHostConfigStore', () => {
       expect(b.getState().remoteEverPaired).toBe(true)
     })
 
-    // Its client id is the only way to revoke that pairing server-side.
     it('pairing in a window that has not heard of the other’s host yet keeps both', async () => {
       const a = await openWindow()
       const b = await openWindow()
@@ -167,7 +162,6 @@ describe('useHostConfigStore', () => {
       ])
     })
 
-    // The host it has not heard of carries the only client id that can revoke it server-side.
     it('revoking in a window that has not heard of the other’s newest host keeps that host', async () => {
       const a = await openWindow()
       a.getState().addHost(host('h1'))
@@ -195,8 +189,6 @@ describe('useHostConfigStore', () => {
       expect(ids(a)).toEqual(['h2', 'h3'])
     })
 
-    // Whatever owns a host's data (rows, status, provider list) lets it go on this, so no
-    // removal path — this window's revoke or another window's — can leave it behind.
     it('names each host that leaves the list, whichever window removed it', async () => {
       const a = await openWindow()
       a.getState().addHost(host('h1'))

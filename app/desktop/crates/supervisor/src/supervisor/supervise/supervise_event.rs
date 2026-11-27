@@ -1,5 +1,3 @@
-//! What supervising a launched daemon logs about how its startup ended.
-
 use std::fmt;
 
 use journal::{Event, Level};

@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
-// mcpRelayTimeout bounds one relayed MCP message. A tool call can chain git
-// subprocesses the daemon bounds at 60s each, so this is two of those ceilings:
-// the daemon's own error surfaces first, yet a wedged daemon still fails in a turn.
 const mcpRelayTimeout = 120 * time.Second
 
 func newMCPCmd() *cobra.Command {
@@ -51,8 +48,6 @@ func newMCPCmd() *cobra.Command {
 	return cmd
 }
 
-// mcpPath is where this relay posts: the placement-free route of its session when it has a
-// relay id, else its runner's route, which sits under the runner's project and repo.
 func mcpPath(relay, segment, project, repo, workspace string) string {
 	if relay != "" {
 		return "/v0/relays/" + relay + "/mcp"
@@ -60,8 +55,6 @@ func mcpPath(relay, segment, project, repo, workspace string) string {
 	return scopedAgentPath(project, repo, workspace, "/runners/"+segment+"/mcp")
 }
 
-// readRunnerToken reads the token the spawn wrote. It travels in a 0600 file, not
-// argv, because any local user can read a process's argv.
 func readRunnerToken(path string) (string, error) {
 	if path == "" {
 		return "", nil
@@ -73,11 +66,6 @@ func readRunnerToken(path string) (string, error) {
 	return strings.TrimSpace(string(raw)), nil
 }
 
-// runMCPRelay reads one JSON-RPC message per line, hands it to the daemon and
-// writes back whatever the daemon says. All MCP semantics live daemon-side, so a
-// stale crowbar binary can never disagree with its daemon. token is read for every
-// message: a relay can outlive the daemon boot that minted its token, and each spawn
-// rewrites the file.
 func runMCPRelay(
 	in io.Reader, out io.Writer,
 	post func(path string, body any) (int, []byte, error),
@@ -85,8 +73,6 @@ func runMCPRelay(
 	token func() (string, error),
 ) error {
 	scanner := bufio.NewScanner(in)
-	// Tool results and chat logs routinely exceed the 64 KiB default; without
-	// raising it a long line truncates into a bogus JSON parse error.
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 
 	writer := bufio.NewWriter(out)
@@ -105,9 +91,6 @@ func runMCPRelay(
 	return nil
 }
 
-// relayLine forwards one JSON-RPC message to the daemon and writes its reply,
-// if any. Split out of runMCPRelay's loop so neither function nests past one
-// level of control flow.
 func relayLine(
 	line, path string,
 	token func() (string, error),
@@ -126,14 +109,10 @@ func relayLine(
 	}
 	status, raw, err := post(path, map[string]any{"token": tok, "rpc": json.RawMessage(line)})
 	if err != nil {
-		// A daemon blip must not end the session: report it against the
-		// request's own id and keep serving the next line.
 		writeTransportError(writer, line, err)
 		return
 	}
 	if status < 200 || status > 299 {
-		// A non-2xx body carries no rpc field, indistinguishable from the 204 silence
-		// below; a request is owed a reply, so it becomes an error instead of a hang.
 		writeTransportError(writer, line, fmt.Errorf("daemon returned HTTP %d: %s", status, raw))
 		return
 	}
@@ -144,20 +123,13 @@ func relayLine(
 		} `json:"data"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil || len(envelope.Data.RPC) == 0 {
-		// A 2xx with no rpc is the daemon's 204: the message was a
-		// notification, and JSON-RPC says the relay stays silent.
 		return
 	}
 	writeLine(writer, envelope.Data.RPC)
 }
 
-// stdoutBroken reports a broken stdout pipe at most once per process: every
-// write after the pipe dies would fail the same way, and the relay has
-// nothing better to do with the error than say so exactly once.
 var stdoutBroken sync.Once
 
-// writeLine writes payload and flushes immediately: the MCP client blocks on this
-// reply. Failures go to stderr, since stdout is the JSON-RPC channel.
 func writeLine(w *bufio.Writer, payload []byte) {
 	if _, err := w.Write(payload); err != nil {
 		reportBrokenStdout(err)
@@ -178,18 +150,12 @@ func reportBrokenStdout(err error) {
 	})
 }
 
-// writeTransportError reports cause against line's id, and writes NOTHING when
-// line is a notification. Split out so both failure sites in relayLine share one
-// answer to "does this message deserve a reply at all" — see transportError.
 func writeTransportError(w *bufio.Writer, line string, cause error) {
 	if payload := transportError(line, cause); payload != nil {
 		writeLine(w, payload)
 	}
 }
 
-// transportError turns a daemon-reachability failure into a JSON-RPC error echoing
-// the request's id. It returns nil for a notification (parsed, no id): JSON-RPC
-// forbids replying to one, and "id":null is only for an unparseable line.
 func transportError(line string, cause error) []byte {
 	var request struct {
 		ID json.RawMessage `json:"id"`

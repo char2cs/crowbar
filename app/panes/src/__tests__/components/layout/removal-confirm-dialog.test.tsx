@@ -9,12 +9,6 @@ vi.mock('@/lib/native-chrome', () => ({
 import { RemovalConfirmDialog } from '@/components/layout/removal-confirm-dialog'
 import { type RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 
-/**
- * The confirm dialog is the only place a user can consent to a delete that
- * destroys work existing nowhere else — so it must say exactly what that work
- * is, per branch, before offering "Delete anyway".
- */
-
 function entry(over: Partial<RemovalEntry> = {}): RemovalEntry {
   return {
     entryId: 'e1',

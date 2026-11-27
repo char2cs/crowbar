@@ -13,7 +13,6 @@ use crate::shell::dialogs::prompt_words::PromptWords;
 const BUTTON_GAP: f32 = 8.0;
 const LABEL_GAP: f32 = 8.0;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/tabs/components/tab-context-menu.tsx
 pub(crate) const RENAME: PromptWords = PromptWords {
     dialog: "rename-prompt",
     title: "Rename Terminal",

@@ -1,5 +1,3 @@
-/* Copy and when, out of the way until the reply is hovered or focused; a touch screen shows no
-   footer under the reply (the board has none): the OS selection menu copies. */
 .agent-chat .turnbar {
   display: flex;
   align-items: center;
@@ -7,7 +5,6 @@
   color: var(--muted-foreground);
   opacity: 0;
   transition: opacity 0.15s;
-  /* Out of flow: the board's replies carry no footer, so it floats under the reply on hover. */
   position: absolute;
   top: 100%;
   left: 0;
@@ -122,17 +119,12 @@
   color: var(--muted-foreground);
   flex: none;
 }
-/* `AgentToolCall.error` (turn-tools.tsx) — a short caption for a failed call,
-   shown next to its name rather than only inferred from the row's colour. */
 .agent-chat .tools .err {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A running call's newest output, on the same row as the call it belongs to.
-   One line — it is a sign of progress, not a log, and the full output is on the
-   call once it finishes. */
 .agent-chat .tools .out {
   min-width: 0;
   flex: 1;
@@ -168,15 +160,9 @@
   padding: 6px 8px;
   font-family: var(--font-mono);
 }
-/* A call still in flight, in the live list. It carries a spinner instead of a
-   duration (turn-tools.tsx), and full-strength text is what tells it apart from
-   the finished rows above it at a glance. */
 .agent-chat .tools li[data-status='running'] {
   color: var(--foreground);
 }
-/* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
-   without this, all three rendered pixel-identical, so a failed tool call
-   read as a successful one with nothing on screen to say otherwise. */
 .agent-chat .tools li[data-status='error'] {
   color: var(--destructive);
 }
@@ -184,14 +170,10 @@
 .agent-chat .tools li[data-status='abandoned'] {
   color: var(--muted-foreground);
 }
-/* A resolved choice (AgentTurnChoices) that was never actually answered
-   through Crowbar reads the same muted way an abandoned tool call does. */
 .agent-chat .tools li[data-resolution='abandoned'] {
   opacity: 0.6;
 }
 
-/* A live verb shimmers; a settled one does not. The app-wide reduced-motion
-   switch (index.css) stops the sweep. */
 .agent-chat .tool-call-verb[data-live] {
   background: linear-gradient(
       90deg,
@@ -209,8 +191,6 @@
     background-position: -200% 0;
   }
 }
-/* A zero basis let a long command or error take the whole row and draw over the
-   verb; the label keeps up to 45% of it before it truncates. */
 .agent-chat .tool-call-label {
   display: inline-flex;
   min-width: min(45%, max-content);
@@ -229,8 +209,6 @@
   font-family: var(--font-mono);
   font-size: 0.68rem;
 }
-/* Each outcome has its own look: failed is the error tone, denied the warning tone, stopped
-   a solid chip, and a result that never came a dashed, empty one. */
 .agent-chat .tool-call-state[data-outcome],
 .agent-chat .tool-call-note[data-outcome] {
   display: inline-flex;
@@ -245,7 +223,6 @@
   line-height: 1;
   white-space: nowrap;
 }
-/* Zero specificity, so each outcome below can recolour it. */
 :where(.agent-chat .tool-call-state[data-outcome], .agent-chat .tool-call-note[data-outcome]) {
   border: 1px solid var(--border);
   background: var(--muted);
@@ -285,7 +262,6 @@
 .agent-chat .tools li[data-status='declined'] .tool-glyph {
   color: var(--warn-text);
 }
-/* A denied command never ran: its text says so. */
 .agent-chat .tools li[data-status='declined'] .tool-call-subject {
   text-decoration: line-through;
 }
@@ -314,8 +290,6 @@
   margin: 2px 0 4px 18px;
 }
 
-/* Targets past their drawn size on a phone: the card head and "Thought" reach 44pt; a tool row's
-   caret takes the whole row's width but only its 29pt pitch, or its neighbours' targets overlap. */
 .agent-chat-pane[data-touch] .agent-chat :is(.reasoning-toggle, button.subagent-head) {
   position: relative;
 }

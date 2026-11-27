@@ -30,11 +30,6 @@ async function freshRelay(config: ShellConfig, hostId: string) {
   }
 }
 
-/** A WebSocket to `path` (`/v0/...`) on `hostId`, through the shell's relay for that host. The
- *  token travels in a subprotocol, never in the URL. Like `TauriWebSocket` it connects asynchronously: the
- *  shell is asked for a new token on every connect so a long-open pane can reconnect, then the
- *  native socket is dialled and its events are forwarded. A missing relay surfaces as `onerror`
- *  then `onclose`. */
 export class ShellWebSocket {
   onopen: (() => void) | null = null
   onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null
@@ -84,7 +79,6 @@ export class ShellWebSocket {
     this.socket.send(data)
   }
 
-  /** Before the relay answers this ends the attempt quietly, as a native close before open does. */
   close(): void {
     if (this.socket) {
       this.socket.close()

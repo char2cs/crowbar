@@ -377,9 +377,6 @@ func TestWorktreeAdd_AndRemove(
 	require.NoError(t, err)
 }
 
-// Without force, git refuses a worktree holding uncommitted work and leaves it
-// exactly as it was — the only removal that may run against a worktree whose
-// changes are not Crowbar's to throw away.
 func TestWorktreeRemove_WithoutForceKeepsADirtyWorktree(
 	t *testing.T,
 ) {
@@ -473,7 +470,6 @@ func TestFetch_NoRemote(
 	makeCommit(t, dir, "file.txt", "content\n", "init")
 
 	e := git.New()
-	// git fetch with no remotes succeeds (no-op) or returns an error — both are valid.
 	_ = e.Fetch(ctx, dir)
 }
 
@@ -534,8 +530,6 @@ func TestWorktreeList_RequireSuccessError(
 func TestOperationContinue_RebaseInProgress(
 	t *testing.T,
 ) {
-	// GIT_EDITOR=true prevents git from opening an interactive editor for
-	// the rebase commit message when EDITOR is unset (e.g. in CI).
 	t.Setenv("GIT_EDITOR", "true")
 	ctx := context.Background()
 	dir := initRepo(t)
@@ -589,12 +583,6 @@ func TestOperationAbort_RebaseInProgress(
 	require.NoError(t, err)
 }
 
-// TestOperationAbort_SquashConflictInProgress is the H6 regression guard. A
-// conflicting `git merge --squash` writes AUTO_MERGE but NEITHER MERGE_HEAD nor
-// SQUASH_HEAD, so detectInProgressOp must recognize its SQUASH_MSG as a squash op —
-// otherwise abort returns "no in-progress operation" and the conflicted index
-// permanently bricks the worktree. This proves abort (via `git reset --merge`)
-// cleanly recovers it.
 func TestOperationAbort_SquashConflictInProgress(
 	t *testing.T,
 ) {
@@ -612,7 +600,6 @@ func TestOperationAbort_SquashConflictInProgress(
 	squashCmd.Dir = dir
 	_ = squashCmd.Run()
 
-	// The empirical H6 precondition: AUTO_MERGE exists, MERGE_HEAD/SQUASH_HEAD do not.
 	require.FileExists(t, filepath.Join(dir, ".git", "AUTO_MERGE"))
 	require.NoFileExists(t, filepath.Join(dir, ".git", "MERGE_HEAD"))
 	require.NoFileExists(t, filepath.Join(dir, ".git", "SQUASH_HEAD"))
@@ -620,7 +607,6 @@ func TestOperationAbort_SquashConflictInProgress(
 	e := git.New()
 	require.NoError(t, e.OperationAbort(ctx, dir), "squash conflict (AUTO_MERGE) must be abortable")
 
-	// The worktree is clean and not bricked: a subsequent commit succeeds.
 	require.NoFileExists(t, filepath.Join(dir, ".git", "AUTO_MERGE"))
 	makeCommit(t, dir, "after.txt", "after\n", "post-abort commit")
 }

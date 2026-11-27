@@ -1,8 +1,5 @@
-//! Identifier of a host.
-
 use std::sync::Arc;
 
-/// Opaque identifier handed out by the data source.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HostId(Arc<str>);
 
@@ -19,7 +16,6 @@ impl From<String> for HostId {
 }
 
 impl HostId {
-    /// The identifier as text.
     pub fn as_str(&self) -> &str {
         &self.0
     }

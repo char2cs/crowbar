@@ -41,7 +41,6 @@ type ViewActions = Pick<
   | 'closeViewsForProject'
 >
 
-/** The row lifecycle: open, detach, close, reorder, activate, project switch. */
 export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
   const release = (members: readonly ViewMember[]) => {
     for (const { chatId, workspaceId } of members) {
@@ -159,12 +158,9 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
         const first = state.activeProjectId === null
         state.activeProjectId = projectId
         if (first) {
-          // Records minted before the window knew its project join it.
           for (const view of Object.values(state.views)) {
             if (!view.projectId) view.projectId = projectId
           }
-          // A view already on screen wins over a persisted pointer: this
-          // first call can land after an open already showed one.
           if (state.activeViewId && projectOf(state, state.activeViewId) === projectId) {
             state.activeViewByProject[projectId] = state.activeViewId
             return

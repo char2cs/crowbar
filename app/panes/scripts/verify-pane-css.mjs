@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/**
- * verify-pane-css.mjs
- *
- * Proves every pane bundle carries the Tailwind utilities its components use. A pane is built
- * with its own Vite root (`entries/<pane>`), and Tailwind scans for class names from there
- * unless the stylesheet names its source, so a bundle once shipped with ~30 KB of CSS and
- * unstyled panes. Every pane uses `.flex`, so its absence means the scan missed the sources.
- * The UI font must ship in the bundle too: the `@font-face` for CalSansUI and the file it names.
- */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'

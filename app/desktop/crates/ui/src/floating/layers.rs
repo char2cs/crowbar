@@ -1,6 +1,3 @@
-//! The stock pop-up window that floats above an owner window, showing its owner's passive
-//! layers: tooltips and toasts. It never takes the keyboard.
-
 mod float_host;
 mod float_region;
 mod opening;

@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// RecordedRequest is one request a FakeHTTP served. The auth header's value is
-// never kept, only whether one was sent.
 type RecordedRequest struct {
 	Method      string
 	Path        string
@@ -25,8 +23,6 @@ type fakeRoute struct {
 	body   string
 }
 
-// FakeHTTP is a request/response server with one Server-Sent-Events stream whose
-// frames the test writes and whose connection the test can drop.
 type FakeHTTP struct {
 	URL string
 
@@ -40,7 +36,6 @@ type FakeHTTP struct {
 	opened chan struct{}
 }
 
-// NewFakeHTTP starts the server and closes it when the test ends.
 func NewFakeHTTP(t *testing.T) *FakeHTTP {
 	t.Helper()
 	f := &FakeHTTP{
@@ -55,35 +50,28 @@ func NewFakeHTTP(t *testing.T) *FakeHTTP {
 	return f
 }
 
-// Route answers "METHOD /path" with status and a canned body.
 func (f *FakeHTTP) Route(method, path string, status int, body string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.routes[method+" "+path] = fakeRoute{status, body}
 }
 
-// StreamAt serves the event stream for GET path.
 func (f *FakeHTTP) StreamAt(path string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.streamPath = path
 }
 
-// Emit writes raw to the open stream, exactly as given.
 func (f *FakeHTTP) Emit(raw string) { f.events <- raw }
 
-// Event writes one well-formed SSE event.
 func (f *FakeHTTP) Event(id, name, data string) {
 	f.Emit(fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", id, name, data))
 }
 
-// DropStream ends the open stream connection from the server side.
 func (f *FakeHTTP) DropStream() { f.drops <- struct{}{} }
 
-// StreamOpened receives once per stream connection the server accepts.
 func (f *FakeHTTP) StreamOpened() <-chan struct{} { return f.opened }
 
-// Requests returns a copy of everything served so far.
 func (f *FakeHTTP) Requests() []RecordedRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()

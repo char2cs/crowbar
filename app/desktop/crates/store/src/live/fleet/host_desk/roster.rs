@@ -1,6 +1,3 @@
-//! Removing a paired host: its pairing is revoked on the host first, because forgetting this
-//! computer's key first would drop the only credential that can.
-
 mod roster_event;
 
 use std::sync::Arc;

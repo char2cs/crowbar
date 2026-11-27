@@ -1,6 +1,3 @@
-// Package readonce lets one long read share the store reads it repeats: the
-// sidebar's snapshot reads each project's tree, every chat and every
-// workspace once instead of once per repo.
 package readonce
 
 import (
@@ -10,8 +7,6 @@ import (
 
 type sessionKey struct{}
 
-// session holds one read's answers until it ends; after that every read is fresh,
-// so work the read started in the background never sees them.
 type session struct {
 	mu    sync.Mutex
 	ended bool
@@ -24,8 +19,6 @@ type answer struct {
 	err  error
 }
 
-// Begin starts a read whose repeated reads through Do are answered once; end
-// releases them.
 func Begin(ctx context.Context) (context.Context, func()) {
 	s := &session{vals: map[string]*answer{}}
 	return context.WithValue(ctx, sessionKey{}, s), func() {
@@ -35,8 +28,6 @@ func Begin(ctx context.Context) (context.Context, func()) {
 	}
 }
 
-// Do answers key once per read begun on ctx, through read; outside one it just reads.
-// A value shared this way must not be written to by its readers.
 func Do[T any](ctx context.Context, key string, read func() (T, error)) (T, error) {
 	s, _ := ctx.Value(sessionKey{}).(*session)
 	if s == nil {

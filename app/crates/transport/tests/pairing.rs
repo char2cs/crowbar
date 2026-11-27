@@ -1,5 +1,3 @@
-//! Public-API tests of `transport` against real sockets and fake daemons.
-
 #[path = "support/http_daemon.rs"]
 mod http_daemon;
 #[path = "support/real_infra/tls_host.rs"]
@@ -137,7 +135,6 @@ enum Fingerprint {
 
 type Refusal = fn(&Error) -> bool;
 
-/// (fingerprint the shell confirmed, code typed, how the failure reads, requests the host saw)
 type Case = (Fingerprint, &'static str, Refusal, usize);
 
 const CASES: [Case; 2] = [

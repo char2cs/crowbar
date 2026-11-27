@@ -1,5 +1,3 @@
-//! Design tokens: spacing, radius, text size, letter spacing, shadow, layer, opacity, timing and font.
-
 pub mod font;
 pub mod layer;
 pub(crate) mod opacity;

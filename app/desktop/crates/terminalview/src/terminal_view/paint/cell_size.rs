@@ -1,5 +1,3 @@
-//! The cell xterm's DOM renderer sizes from a font, as develop draws it.
-
 use crate::settings::Settings;
 
 // PLATFORM: linux WebKitGTK hands xterm whole hinted advances, ascents and descents.

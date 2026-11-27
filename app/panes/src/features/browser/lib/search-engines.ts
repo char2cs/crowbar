@@ -19,8 +19,6 @@ export function isUsableSearchTemplate(template: string): boolean {
   return /^https?:\/\/\S+$/i.test(template) && template.includes('%s')
 }
 
-/** The URL template (`%s` = the query) for the chosen engine; a custom template
- *  that is not an http(s) URL containing `%s` falls back to the default engine. */
 export function searchTemplateFor(engine: SearchEngine, customTemplate: string): string {
   if (engine === 'custom' && isUsableSearchTemplate(customTemplate.trim())) {
     return customTemplate.trim()

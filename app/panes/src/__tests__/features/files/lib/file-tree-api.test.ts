@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// The file-explorer context menu / inline edit were dead because the file-system
-// store's mutation slots were never wired. These call the real daemon endpoints
-// (POST/PATCH/DELETE .../files). This locks the request shapes.
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
 vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
@@ -56,10 +53,6 @@ describe('file-tree-api mutations', () => {
   })
 })
 
-// Duplicate goes through the daemon's server-side copy verb in ONE call —
-// byte-faithful and recursive on the server. The old client-side composition
-// (GET content → POST create → PUT content) silently corrupted binary files by
-// writing the base64 read back as text; this locks the single-call shape.
 describe('copyFileNode', () => {
   it('POSTs {sourcePath, destPath} to the copy verb in a single call', async () => {
     await copyFileNode('ws1', 'img.png', 'img copy.png')

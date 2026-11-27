@@ -1,5 +1,3 @@
-//! The settings modal: a GPUI view over [`settings::State`] and the two backends.
-
 mod close_handler;
 mod field_input;
 mod modal_config;
@@ -33,7 +31,6 @@ use crate::modal::{extent, headed, search_field};
 
 const SEARCH_PLACEHOLDER: &str = "Search settings...";
 
-/// The settings modal view. Render it as the root of a window or as an overlay; it draws its own scrim.
 pub struct SettingsModal {
     pub(crate) state: settings::State,
     pub(crate) settings: Rc<dyn settings::Backend>,
@@ -50,7 +47,6 @@ pub struct SettingsModal {
 }
 
 impl SettingsModal {
-    /// Builds the modal over `config`, reading the backend snapshot once.
     pub fn new(
         config: ModalConfig,
         window: &mut Window,
@@ -92,7 +88,6 @@ impl SettingsModal {
         }
     }
 
-    /// Moves keyboard focus into the modal's search field, its first control, as develop's dialog does.
     pub fn focus(
         &self,
         window: &mut Window,
@@ -102,7 +97,6 @@ impl SettingsModal {
             .update(cx, |search, cx| search.focus(window, cx));
     }
 
-    /// Starts with `query` typed into the search field.
     #[must_use]
     pub fn with_query(
         mut self,

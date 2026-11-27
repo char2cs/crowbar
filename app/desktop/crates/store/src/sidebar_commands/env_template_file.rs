@@ -1,5 +1,3 @@
-//! Making an env template next to an env file of the followed workspace.
-
 mod blank;
 mod overwrite;
 mod quote_state;
@@ -41,12 +39,6 @@ async fn make(
 }
 
 impl SidebarCommands {
-    /// Writes `target` next to the env file `source` (workspace-relative), with `source`'s
-    /// values emptied. When `target` exists and `overwrite` is [`Overwrite::Ask`], nothing is
-    /// written and `done` gets [`TemplateOutcome::Exists`].
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
     pub fn create_env_template(
         &self,
         (source, target): (&str, &str),

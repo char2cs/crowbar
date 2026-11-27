@@ -1,9 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
-// An icon is a small image; anything bigger is not drawn rather than shipped through a snapshot.
 const MAX_BYTES = 256 * 1024
 
-/** Each URL's data URI once read; null when it could not be (failed, or too big). */
 const read = new Map<string, string | null>()
 const listeners = new Set<() => void>()
 let version = 0
@@ -37,8 +35,6 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener)
 }
 
-// Icons as data URIs for a page that can't reach the daemon an icon URL points at (the phone's
-// chat list), read once per URL from this webview, which can.
 export function useIconDataUris(urls: readonly string[]): ReadonlyMap<string, string | null> {
   useSyncExternalStore(subscribe, () => version)
   const key = urls.join('\n')

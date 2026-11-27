@@ -1,6 +1,5 @@
 import type { NativeAttachSheet } from '@/lib/native-chrome'
 
-/** The daemon's attachments.MaxBytes (see upload-chat-attachment.ts). */
 export const LIMIT_MB = 25
 
 type Status = 'uploading' | 'done' | 'bad'
@@ -8,12 +7,9 @@ type Status = 'uploading' | 'done' | 'bad'
 export interface Staged {
   id: number
   name: string
-  /** Unknown for a path the desktop hands over: the daemon reads it. */
   bytes: number | null
   status: Status
-  /** What a Retry sends again, under the same upload id so the daemon resumes. */
   retry?: () => void
-  /** Bytes sent so far; stays 0 for a path the daemon reads itself. */
   loaded?: number
   markdown?: string
   problem?: string
@@ -35,7 +31,6 @@ export function rowNote(item: Staged): string {
   return [size, note].filter(Boolean).join(' · ')
 }
 
-/** Null until the upload reports bytes, so the bar stays indeterminate rather than guessing. */
 export function percentOf(item: Staged): number | null {
   return item.bytes && item.loaded !== undefined
     ? Math.round((item.loaded / item.bytes) * 100)

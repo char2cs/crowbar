@@ -9,10 +9,8 @@ import (
 )
 
 type SetPermissionLevel struct {
-	ChatID string
-	Level  string
-	// Explicit is false for a seed the chat merely inherits (every spawn
-	// re-resolves the global default) and true for a user pick, which pins it.
+	ChatID   string
+	Level    string
 	Explicit bool
 }
 

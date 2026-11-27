@@ -21,9 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// An older build booted on an upgraded home keeps writing the legacy tables.
-// The next boot converts each chat the ledger lacks, without another backup,
-// and a boot that finds nothing owed writes nothing at all.
 func TestBoot_AChatAnOlderBuildAddedAfterTheUpgradeIsConverted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -43,8 +40,6 @@ func TestBoot_AChatAnOlderBuildAddedAfterTheUpgradeIsConverted(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
 
-// Legacy files damaged after the upgrade cannot stop a home that already runs
-// on the ledger: the boot warns, writes nothing, and the ledger is as it was.
 func TestBoot_ALegacyFileDamagedAfterTheUpgradeIsAWarningNotAHalt(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -62,7 +57,6 @@ func TestBoot_ALegacyFileDamagedAfterTheUpgradeIsAWarningNotAHalt(t *testing.T) 
 	assert.Contains(t, testutil.Attrs((*warned)[0])["err"].String(), "not a database")
 }
 
-// A chat skipped once is noted, so later boots neither retry it nor run the step.
 func TestBoot_ASkippedChatIsNotTriedAtEveryBoot(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	broken := chatB()
@@ -76,8 +70,6 @@ func TestBoot_ASkippedChatIsNotTriedAtEveryBoot(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
 
-// Legacy files the last run saw unchanged are not even counted: the plan
-// only stats them. Once they change, one run records what it found.
 func TestPlan_LegacyFilesAsTheLastRunLeftThemAreOnlyStatted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -94,8 +86,6 @@ func TestPlan_LegacyFilesAsTheLastRunLeftThemAreOnlyStatted(t *testing.T) {
 	require.Error(t, err, "a changed stamp is counted again")
 }
 
-// A skipped chat is tried again by the first build whose converter is newer
-// than the one that skipped it, and only then.
 func TestBoot_ASkippedChatIsRetriedOnceTheConverterChanges(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	broken := chatB()
@@ -118,14 +108,11 @@ func TestBoot_ASkippedChatIsRetriedOnceTheConverterChanges(t *testing.T) {
 	assert.Equal(t, int64(converterVersion), migratetest.Notes(t, h)[stepNumber][skippedKey("chat-b")].Counts["converter"])
 }
 
-// records is how many legacy records chat holds, as census counts them.
 func records(chat LegacyChat) int64 {
 	return int64(len(chat.Conversations) + len(chat.Turns) + len(chat.Tools) + len(chat.Subagents) +
 		len(chat.Interruptions) + len(chat.Choices) + len(chat.Prompts) + len(chat.Unreadable))
 }
 
-// A damaged cell of any size is named by its first bytes and its length: the
-// warning, the note and the run ledger stay small.
 func TestBoot_AHugeDamagedCellIsNamedShort(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -151,8 +138,6 @@ func TestBoot_AHugeDamagedCellIsNamedShort(t *testing.T) {
 	assert.True(t, named, "the cell is named by its first bytes and its length")
 }
 
-// killAfterStamp leaves the run ledger as a process killed between the last
-// run's legacy-files note and its step.done would have.
 func killAfterStamp(t *testing.T, h home.Home) {
 	t.Helper()
 	path := filepath.Join(h.MigrateDir(), "ledger.jsonl")
@@ -170,8 +155,6 @@ func killAfterStamp(t *testing.T, h home.Home) {
 	require.NoError(t, os.WriteFile(path, []byte(strings.Join(lines[:last+1], "")), 0o600))
 }
 
-// A chat imported by a run killed before its step.done, then written to by
-// normal use, never halts a later run: what that run checks is what it wrote.
 func TestBoot_AChatWrittenToAfterAKilledRunNeverHaltsALaterOne(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -198,8 +181,6 @@ func TestBoot_AChatWrittenToAfterAKilledRunNeverHaltsALaterOne(t *testing.T) {
 	assert.NotEmpty(t, held(t, h, "chat-c"))
 }
 
-// refuse makes the ledger refuse every row of chatID, or of every chat for "",
-// until allow lifts it.
 func refuse(t *testing.T, h home.Home, chatID string) {
 	t.Helper()
 	require.NoError(t, withStore(t.Context(), h, func(*ledgerstore.Store) error { return nil }))
@@ -222,8 +203,6 @@ func allow(t *testing.T, h home.Home) {
 	require.NoError(t, conn.Close())
 }
 
-// A chat whose import failed is tried again by the next boot, though no
-// legacy file changed, and converted once an import lands.
 func TestBoot_AChatWhoseImportFailedIsTriedAgainAtTheNextBoot(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -239,8 +218,6 @@ func TestBoot_AChatWhoseImportFailedIsTriedAgainAtTheNextBoot(t *testing.T) {
 	statsOnly(t, h)
 }
 
-// statsOnly boots h with its legacy databases unreadable: a boot that only
-// stats them, as one owing nothing does, neither warns nor fails.
 func statsOnly(t *testing.T, h home.Home) {
 	t.Helper()
 	testutil.RequirePermissionEnforcement(t)
@@ -254,8 +231,6 @@ func statsOnly(t *testing.T, h home.Home) {
 	assert.Empty(t, *warned, "the legacy records were read, not only statted")
 }
 
-// A chat whose import waits for a retry and then leaves the legacy files is
-// owed nothing: the boot after the one that saw it gone only stats them.
 func TestBoot_AChatWaitingForARetryThatLeavesTheLegacyFilesIsOwedNothing(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -277,8 +252,6 @@ func TestBoot_AChatWaitingForARetryThatLeavesTheLegacyFilesIsOwedNothing(t *test
 	statsOnly(t, h)
 }
 
-// A chat whose import fails at every boot costs one attempt per boot, and
-// only importAttempts of them: then it is skipped for good, and said so.
 func TestBoot_AChatWhoseImportKeepsFailingIsGivenUp(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -305,8 +278,6 @@ func TestBoot_AChatWhoseImportKeepsFailingIsGivenUp(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h))
 }
 
-// A ledger refusing every import, for more boots than a chat is given, costs
-// no chat an attempt: once it takes rows again, every chat converts.
 func TestBoot_ALedgerRefusingEveryImportGivesUpNoChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -322,9 +293,6 @@ func TestBoot_ALedgerRefusingEveryImportGivesUpNoChat(t *testing.T) {
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 }
 
-// A chat written to while its import waits for a retry can no longer take
-// its legacy history: the next boot gives it up and says so in the chat, after
-// what was written, so the loss is seen where the history would have been.
 func TestBoot_AChatWrittenToWhileItsImportWaitsSaysItsHistoryWasNotImported(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA(), chatB())
@@ -347,7 +315,6 @@ func TestBoot_AChatWrittenToWhileItsImportWaitsSaysItsHistoryWasNotImported(t *t
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "said once")
 }
 
-// notes is marks that also keeps the notes written.
 type notes struct {
 	marks
 	notes map[string]migrate.Note

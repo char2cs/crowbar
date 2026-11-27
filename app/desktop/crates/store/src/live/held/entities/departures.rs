@@ -1,6 +1,3 @@
-//! The chats and projects the daemon deleted, kept until the shell closes the views showing
-//! them.
-
 use crate::live::held::entities::{ChatRecord, Entities};
 
 impl Entities {

@@ -1,5 +1,3 @@
-//! The settings modal's view of [`SettingsCore`]: the traits it needs, on the UI thread.
-
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -14,8 +12,6 @@ use crate::store::settings_core::SettingsCore;
 
 type Listeners = Rc<RefCell<BTreeMap<u64, Listener>>>;
 
-/// Implements `settings::Backend` and `RecordBackend` over the thread-safe core. Changes the core
-/// made on other threads reach the modal's listeners when [`Self::deliver_pending`] runs.
 #[derive(Clone)]
 pub struct SettingsAdapter {
     core: Arc<SettingsCore>,
@@ -43,7 +39,6 @@ impl SettingsAdapter {
         }
     }
 
-    /// Installs the YAML agent descriptor `text`.
     pub fn upload_descriptor(
         &self,
         text: Vec<u8>,
@@ -51,12 +46,10 @@ impl SettingsAdapter {
         self.core.upload_descriptor(text);
     }
 
-    /// Blocks until every setting changed so far is on disk; the shell calls it as it quits.
     pub fn flush(&self) {
         self.core.flush();
     }
 
-    /// Tells the modal's listeners about every change made since the last call.
     pub fn deliver_pending(&self) {
         let listeners: Vec<Listener> = self.listeners.borrow().values().cloned().collect();
         let changes = self.core.take_changes();

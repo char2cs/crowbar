@@ -1,5 +1,3 @@
-//! The chats some pane shows, as the shell last reported them.
-
 use std::collections::HashSet;
 
 use sidebar::{Presence, RowId};

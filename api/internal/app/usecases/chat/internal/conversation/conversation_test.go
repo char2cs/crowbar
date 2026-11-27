@@ -29,23 +29,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// The stores are the real aggregates over in-memory logs: a write followed by
-// a read of the same record must not agree with a stub while both are wrong.
-
 type fixture struct {
 	conversations *conversation.Conversations
 	chats         agentchat.EventStore
 	retired       *retiredRunners
 	ledger        *ledgerstore.Store
-	db            *gorm.DB // the ledger's
+	db            *gorm.DB
 	blobs         *ledgerstore.Blobs
 	home          string
 	settle        func()
-	defaultLevel  *string // the global permission level a chat is minted under
+	defaultLevel  *string
 }
 
-// retiredRunners is the runner lifecycle with no CLI live: a purge owes the
-// processes on the chat retirement, which it records with the chat's hold.
 type retiredRunners struct {
 	mu   sync.Mutex
 	seen []string
@@ -80,7 +75,6 @@ func (r *retiredRunners) all() []string {
 	return append([]string(nil), r.seen...)
 }
 
-// stubLineage answers the ancestry question without two tables behind it.
 type stubLineage struct {
 	ancestors []string
 	err       error
@@ -90,9 +84,6 @@ func (s stubLineage) Ancestors(context.Context, string) ([]string, error) {
 	return s.ancestors, s.err
 }
 
-// stubWorkspace roots the workspace strictly UNDER crowbar home, which mirrors a
-// managed worktree and is load-bearing: every agent-path removal is guarded, and a
-// chats dir outside home is refused.
 type stubWorkspace struct{ home, worktree string }
 
 func (w stubWorkspace) WorktreeDir(
@@ -145,8 +136,6 @@ func newFixture(t *testing.T, lineage stubLineage) fixture {
 	}
 }
 
-// newLedger is a ledger whose clock ticks a millisecond a commit, so rows are
-// ordered in time as in sequence.
 func newLedger(t *testing.T) (*ledgerstore.Store, *gorm.DB) {
 	t.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
@@ -163,7 +152,6 @@ func newLedger(t *testing.T) (*ledgerstore.Store, *gorm.DB) {
 	return chatLedger, db
 }
 
-// say records text as a person's prompt the CLI took, opening its turn.
 func say(t *testing.T, f fixture, chatID, text string) {
 	t.Helper()
 	turnID := uuid.NewString()
@@ -215,8 +203,6 @@ func TestListChatsByWorkspace_ScopesToTheWorkspace(t *testing.T) {
 	assert.Len(t, all, 2, "the unscoped list still sees both")
 }
 
-// The precedence is user > agent > derived, and it is what stops a provider's
-// guess overwriting a name the user typed.
 func TestRenameChat_HonoursWhereTheTitleCameFrom(t *testing.T) {
 	t.Parallel()
 
@@ -265,9 +251,6 @@ func TestRenameByRunner_ARunnerThatIsNotLiveRenamesNothing(t *testing.T) {
 	require.Error(t, err, "an unknown runner is a lookup failure, not a silent no-op")
 }
 
-// A hard delete owes the processes on the chat exactly one thing: retirement.
-// The record decides the chat must go; it never learns how a CLI is torn down.
-// Its ledger goes with it, so the user's words outlive the chat nowhere.
 func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T) {
 	t.Parallel()
 
@@ -291,8 +274,6 @@ func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T)
 	require.Error(t, err, "a purged chat is gone from every read, including a direct get by id")
 }
 
-// A purged chat's tool payloads go with its rows, except one another chat's
-// rows still name.
 func TestPurgeChat_DeletesThePayloadsOnlyItsRowsName(t *testing.T) {
 	t.Parallel()
 
@@ -363,8 +344,6 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 	assert.Empty(t, chat.Effort)
 }
 
-// notes are the notes a chat already under way is told; a chat that has said
-// nothing is not, since its spawn tells the CLI the same through prior context.
 var notes = map[string]struct {
 	note func(*conversation.Conversations, context.Context, string) error
 	says string
@@ -408,8 +387,6 @@ func TestNotes_AppendToAChatAlreadyUnderWay(t *testing.T) {
 	}
 }
 
-// A record that cannot be read is not an empty one: no note is dropped as if
-// the chat had said nothing.
 func TestNotes_SurfaceAnUnreadableRecord(t *testing.T) {
 	for name, n := range notes {
 		t.Run(name, func(t *testing.T) {

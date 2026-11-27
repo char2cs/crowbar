@@ -51,7 +51,6 @@ pub(crate) fn is_file(instance: &PaneInstance) -> bool {
     instance.type_id.as_str() == EDITOR
 }
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/panes/stores/slices/new-buffer.ts
 fn terminal_path(instance: &PaneInstance) -> Option<String> {
     (instance.type_id.as_str() == TERMINAL)
         .then(|| format!("{TERMINAL_SCHEME}{}", instance.pane_id.as_str()))

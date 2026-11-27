@@ -44,10 +44,6 @@ function Probe({ buffers }: { buffers: PaneContent[] }) {
 
 describe('useBufferDisplayName session subscription', () => {
   afterEach(() => {
-    // Wrapped in act(): the Probe from the just-finished test is still
-    // mounted at this point (RTL's own unmount-on-cleanup afterEach runs
-    // after this describe-local one), so resetting the store here is a real
-    // subscriber-visible update.
     act(() => {
       useTerminalStore.setState({ sessions: new Map() })
     })
@@ -74,7 +70,6 @@ describe('useBufferDisplayName session subscription', () => {
     act(() => {
       useTerminalStore.getState().updateSession('session-b', { title: 'other tab title' })
     })
-    // touch bufB so the linter doesn't flag it as unused if refactored later
     void bufB
 
     expect(renderCount).toBe(before)
@@ -86,8 +81,6 @@ describe('useBufferDisplayName session subscription', () => {
     const before = renderCount
 
     act(() => {
-      // Deliberately space-containing values: proves the field separator can't
-      // alias two projected fields onto each other.
       useTerminalStore.getState().updateSession('session-a', {
         title: 'my session',
         currentDirectory: '/Users/x/My Project',
@@ -102,8 +95,6 @@ describe('useBufferDisplayName session subscription', () => {
     const bufA = terminalBuffer('buf-a', 'session-a')
     render(<Probe buffers={[bufA]} />)
 
-    // The second directory shares a prefix with the first, so a projection that
-    // compared or split on a prefix would falsely keep the label 'app'.
     const benign = '/repo/app'
     const hostile = '/repo/apptwo'
 

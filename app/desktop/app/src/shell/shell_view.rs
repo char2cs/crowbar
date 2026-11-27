@@ -613,7 +613,6 @@ mod tests {
         });
     }
 
-    /// A shell past its startup dialog, which holds the activation while it is open.
     pub(super) fn open_started_shell(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_shell(cx);
         opened.shell.update(&mut opened.window, |shell, cx| {
@@ -639,7 +638,6 @@ mod tests {
         !ui::testing::covered(&mut opened.window).1.is_empty()
     }
 
-    /// The new space's icon picker, a popover that holds the keyboard while it is open.
     fn open_popover(cx: &mut TestAppContext) -> Opened {
         let mut opened = open_started_shell(cx);
         register_chat(&mut opened);

@@ -16,11 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// The read/validate/store half of the icon plumbing, which both the repo and
-// the project icon routes run through. Every branch here is a REFUSAL, and the
-// refusals are the point: this package is the one place that decides whether a
-// client-supplied path or upload becomes bytes on disk.
-
 func png() []byte { return append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...) }
 
 func ctx(req *http.Request) (*gin.Context, *httptest.ResponseRecorder) {
@@ -36,16 +31,12 @@ func TestServe404sOnAMissingFile(t *testing.T) {
 
 	icons.Serve(c, filepath.Join(t.TempDir(), "nope"))
 
-	// c.Writer.Status(), not rec.Code: gin buffers the status until a body write
-	// or WriteHeaderNow, and a bodiless 404 writes neither.
 	if c.Writer.Status() != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", c.Writer.Status())
 	}
 }
 
 func TestServe404sOnAnOversizeFile(t *testing.T) {
-	// These bytes are written by this daemon, but a corrupted or replaced file
-	// must not become an unbounded heap allocation.
 	path := filepath.Join(t.TempDir(), "icon")
 	if err := os.WriteFile(path, make([]byte, icons.MaxBytes+1), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -74,16 +65,12 @@ func TestServeSendsTheBytesWithNoCache(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); got != "image/png" {
 		t.Errorf("Content-Type = %q, want image/png", got)
 	}
-	// The bytes change in place behind a stable URL, so the response must not be
-	// cacheable on its own; the DTO's ?v= is the primary buster.
 	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control = %q, want no-cache", got)
 	}
 }
 
 func TestValidateRefusesANonImage(t *testing.T) {
-	// By SNIFFING, never by the extension or the caller's Content-Type: a .png
-	// filename over /etc/passwd must not become an icon.
 	c, rec := ctx(httptest.NewRequest(http.MethodPut, "/", nil))
 
 	if icons.Validate(c, []byte("root:x:0:0:root:/root:/bin/sh\n")) {
@@ -96,7 +83,6 @@ func TestValidateRefusesANonImage(t *testing.T) {
 
 const scriptedSVG = `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`
 
-// The picker offers only raster formats; an SVG can carry script, so an upload of one is refused.
 func TestValidateRefusesAnSVGUpload(t *testing.T) {
 	c, rec := ctx(httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", nil))
 
@@ -108,8 +94,6 @@ func TestValidateRefusesAnSVGUpload(t *testing.T) {
 	}
 }
 
-// An imported repo's logo.svg is served as an image, and opened directly it must not run its
-// script in the daemon's origin.
 func TestServeSandboxesAnSVG(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "icon")
 	if err := os.WriteFile(path, []byte(scriptedSVG), 0o600); err != nil {
@@ -151,7 +135,6 @@ func TestValidateAcceptsARealImage(t *testing.T) {
 }
 
 func TestStoreCreatesTheParentDirectory(t *testing.T) {
-	// The entity's icon directory does not exist until its first upload.
 	path := filepath.Join(t.TempDir(), "projects", "p1", "icon")
 
 	if err := icons.Store(path, png()); err != nil {
@@ -167,7 +150,6 @@ func TestStoreCreatesTheParentDirectory(t *testing.T) {
 }
 
 func TestStoreSurfacesAnUnwritableDestination(t *testing.T) {
-	// A file where the directory should be: MkdirAll cannot proceed.
 	dir := t.TempDir()
 	blocker := filepath.Join(dir, "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
@@ -180,8 +162,6 @@ func TestStoreSurfacesAnUnwritableDestination(t *testing.T) {
 }
 
 func TestReadUploadTakesAMultipartField(t *testing.T) {
-	// The browser path. The desktop one sends a JSON {path} instead, because the
-	// WKWebView crowbar:// transport cannot carry a multipart body.
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	part, err := w.CreateFormFile("icon", "logo.png")
@@ -257,8 +237,6 @@ func TestReadUploadRefusesAPathThatIsNotThere(t *testing.T) {
 }
 
 func TestReadUploadRefusesAnOversizeFileBeforeReadingIt(t *testing.T) {
-	// Stat-rejected: the point is that an enormous file is never read into the
-	// heap just to find out it is too big.
 	path := filepath.Join(t.TempDir(), "huge.png")
 	if err := os.WriteFile(path, make([]byte, icons.MaxBytes+1), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
@@ -276,13 +254,10 @@ func TestReadUploadRefusesAnOversizeFileBeforeReadingIt(t *testing.T) {
 }
 
 func TestContentTypeOnlySniffsTheFirst512Bytes(t *testing.T) {
-	// The SVG probe reads a HEAD, not the whole file: a multi-megabyte asset
-	// must not be scanned end to end on every request that serves it.
 	head := strings.Repeat("x", 600)
 	if got := icons.ContentType([]byte(head)); !strings.HasPrefix(got, "text/plain") {
 		t.Fatalf("ContentType(600 bytes of text) = %q", got)
 	}
-	// An <svg> past the 512-byte window is deliberately NOT found.
 	late := []byte(strings.Repeat("x", 600) + "<svg")
 	if got := icons.ContentType(late); got == "image/svg+xml" {
 		t.Fatal("sniffed past the 512-byte head")
@@ -290,9 +265,6 @@ func TestContentTypeOnlySniffsTheFirst512Bytes(t *testing.T) {
 }
 
 func TestReadUploadRefusesAPathThatCannotBeRead(t *testing.T) {
-	// A directory stats fine and opens fine on Unix; the READ is what fails. It
-	// is the last of the three guards on this path, and the only one that
-	// catches a path which looked plausible right up to the bytes.
 	req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"path":"`+t.TempDir()+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	c, rec := ctx(req)
@@ -306,17 +278,12 @@ func TestReadUploadRefusesAPathThatCannotBeRead(t *testing.T) {
 }
 
 func TestIsSingleEmojiRefusesInvalidUTF8(t *testing.T) {
-	// A lone continuation byte decodes to RuneError. It is one grapheme, so the
-	// cluster count alone would let it through and store a broken label.
 	if icons.IsSingleEmoji("\xff") {
 		t.Fatal("invalid UTF-8 was accepted as an emoji")
 	}
 }
 
 func TestServe404sWhenTheFileCannotBeOpened(t *testing.T) {
-	// Stat succeeds (the file exists and is under the size cap) but the
-	// subsequent os.Open fails — a corrupted-permissions icon file must 404
-	// exactly like a missing one, not panic or leak an fs error to the client.
 	testutil.RequirePermissionEnforcement(t)
 	path := filepath.Join(t.TempDir(), "icon")
 	if err := os.WriteFile(path, png(), 0o600); err != nil {
@@ -336,8 +303,6 @@ func TestServe404sWhenTheFileCannotBeOpened(t *testing.T) {
 }
 
 func TestServe404sWhenTheFileCannotBeRead(t *testing.T) {
-	// A directory stats fine and opens fine on Unix; the READ is what fails.
-	// Serve must 404 rather than surface the "is a directory" read error.
 	dir := t.TempDir()
 	c, _ := ctx(httptest.NewRequest(http.MethodGet, "/", nil))
 
@@ -349,10 +314,6 @@ func TestServe404sWhenTheFileCannotBeRead(t *testing.T) {
 }
 
 func TestReadUploadRefusesAPathWithNoReadPermission(t *testing.T) {
-	// Stat succeeds (a file exists under the cap) but the subsequent os.Open
-	// fails — distinct from TestReadUploadRefusesAPathThatCannotBeRead, which
-	// exercises the LimitReader/ReadAll failure once Open has already
-	// succeeded (a directory opens fine on Unix; only the read fails there).
 	testutil.RequirePermissionEnforcement(t)
 	path := filepath.Join(t.TempDir(), "icon.png")
 	if err := os.WriteFile(path, png(), 0o600); err != nil {

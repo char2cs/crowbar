@@ -1,12 +1,9 @@
-//! One pixel divider lines.
-
 use gpui::{App, Div, IntoElement, Pixels, RenderOnce, Styled, Window, div, px};
 
 use crate::control::divider::axis::Axis;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 
-/// A 1px line in the border colour.
 #[derive(Debug, Clone, Copy, IntoElement)]
 pub struct Separator {
     axis: Axis,
@@ -14,7 +11,6 @@ pub struct Separator {
 }
 
 impl Separator {
-    /// A divider that runs along the horizontal axis (a rule between stacked items).
     pub fn horizontal() -> Self {
         Self {
             axis: Axis::Horizontal,
@@ -22,7 +18,6 @@ impl Separator {
         }
     }
 
-    /// A divider that runs along the vertical axis (a rule between side-by-side items).
     pub fn vertical() -> Self {
         Self {
             axis: Axis::Vertical,
@@ -30,7 +25,6 @@ impl Separator {
         }
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,

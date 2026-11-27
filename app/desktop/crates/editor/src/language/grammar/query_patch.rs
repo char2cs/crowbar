@@ -1,21 +1,12 @@
 use crate::Error;
 
-/// Anchored rewrites of one language's highlight query.
 #[derive(Clone, Copy, Debug)]
 pub struct QueryPatch {
-    /// The language whose query is rewritten, as gpui-kit's registry names it.
     pub language: &'static str,
-    /// Each text to find, exactly once, and what replaces it.
     pub hunks: &'static [(&'static str, &'static str)],
 }
 
 impl QueryPatch {
-    /// `query` with every hunk applied; a query that already has them is returned as it is.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::QueryAnchor`] when a hunk's text is missing or not unique, which means the query
-    /// changed under it.
     pub fn apply(
         &self,
         query: &str,

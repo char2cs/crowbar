@@ -9,26 +9,17 @@ import { isDesktopApp, showNativeContextMenu } from '@/lib/crowbar-bridge'
 import { canAskShellMenu, popShellMenu } from '@/sdk/shell-menu'
 import type { ShellMenuEntry } from '@/sdk/shell-menu-entry'
 
-// ── Imperative context-menu API (opened programmatically, not via a trigger) ──
-
 export interface ContextMenuItem {
   id: string
   label: string
-  /** Fallback-only: the non-Tauri rendered popup draws this icon. The native OS menu never shows per-item icons, by design, and ignores this entirely. */
   icon?: React.ReactNode
   onClick: () => void
   separator?: boolean
   disabled?: boolean
-  /** Shown as text in the fallback popup, but natively passed as the `accelerator`, which muda
-   *  PARSES: use Tauri syntax (`"CmdOrCtrl+R"`), not `"⌘R"`. Invalid syntax fails the native
-   *  menu, which then falls back to the popup without the accelerator. */
   shortcut?: string
-  /** Fallback-only: rendered next to the label in the non-Tauri popup. Being a `React.ReactNode` (not a string), this can never become a native `accelerator` — use `shortcut` for that instead. The native OS menu ignores this entirely. */
   keybinding?: React.ReactNode
-  /** Fallback-only: applied as a class on the rendered menu item. The native OS menu has no per-item styling and ignores this entirely. */
   className?: string
   items?: ContextMenuItem[]
-  /** When false, clicking this item will not auto-close the menu. Defaults to true. Fallback-only: the native OS menu always closes itself when an item is chosen. */
   closeOnClick?: boolean
 }
 
@@ -38,7 +29,6 @@ interface ContextMenuRootProps {
   items: ContextMenuItem[]
   onClose: () => void
   className?: string
-  /** Optional content rendered below the last menu item (e.g. inline error panel). Fallback-only — there is no native-menu equivalent, so this is ignored entirely when a native popup is shown. */
   footer?: React.ReactNode
 }
 
@@ -136,8 +126,6 @@ function ImperativeContextMenu({
   )
 
   return (
-    // A context-menu root, not a plain one: a plain root gets its floating node id from a
-    // Trigger, and without one a submenu opening reads as a sibling and closes the whole menu.
     <ContextMenuPrimitive.Root
       open={isOpen}
       onOpenChange={(open) => {
@@ -187,9 +175,6 @@ export function useContextMenu<T = unknown>() {
     setState({ isOpen: true, position, data: data ?? null })
   }, [])
 
-  // Keeps position/data so the caller can keep the menu mounted while it closes:
-  // base-ui only skips its focus return when an item moved focus (a rename input)
-  // if the popup outlives that focus move; unmounting it on close steals focus back.
   const close = useCallback(() => {
     setState((s) => ({ ...s, isOpen: false }))
   }, [])
@@ -197,7 +182,6 @@ export function useContextMenu<T = unknown>() {
   return { ...state, open, openAt, close }
 }
 
-// The shell's pages ask the shell for the desktop's menu; Tauri pops its own.
 function hasNativeMenu(): boolean {
   return canAskShellMenu() || isDesktopApp()
 }
@@ -208,7 +192,6 @@ async function showNativeMenu(
   isCancelled: () => boolean,
 ): Promise<void> {
   if (!canAskShellMenu()) return showNativeContextMenu(items, position, isCancelled)
-  // StrictMode's discarded first effect is cleaned up before this resumes, so only one menu pops.
   await Promise.resolve()
   if (isCancelled()) return
   const path = await popShellMenu(toShellEntries(items), position)
@@ -233,8 +216,6 @@ function itemAt(items: ContextMenuItem[], path: number[] | null): ContextMenuIte
   return item.items ? itemAt(item.items, rest) : undefined
 }
 
-// Native-first: in the desktop app it pops the OS menu and renders nothing; elsewhere (browser
-// dev, phone) it falls back to the rendered ImperativeContextMenu.
 function ContextMenuHost({
   isOpen,
   position,
@@ -248,9 +229,6 @@ function ContextMenuHost({
     onCloseRef.current = onClose
   }, [onClose])
 
-  // Set when showNativeContextMenu() itself throws (Menu.new() or
-  // popup_native_context_menu rejecting) so the render below falls back to
-  // the rendered popup instead of leaving the user with no menu at all.
   const [nativeFailed, setNativeFailed] = useState(false)
 
   useEffect(() => {
@@ -264,15 +242,11 @@ function ContextMenuHost({
       } catch (error) {
         console.error('Failed to show native context menu:', error)
         if (!cancelled) setNativeFailed(true)
-        // Not onClose here: the fallback popup calls it on real dismissal, and closing now would
-        // flip `isOpen` false before the fallback ever renders.
       }
     })()
     return () => {
       cancelled = true
     }
-    // items/position are read once, at the moment isOpen flips true — an
-    // already-open native popup can't be updated mid-display anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- items/position are read once when the menu opens
   }, [isOpen])
 

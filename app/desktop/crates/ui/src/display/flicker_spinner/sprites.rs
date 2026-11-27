@@ -1,5 +1,3 @@
-//! The flip-dot sprites the panes bundle; each spinner bakes one, picked at random.
-
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher as _;
 

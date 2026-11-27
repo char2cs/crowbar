@@ -1,5 +1,3 @@
-//! The dialog frame: its size and the search field in the header.
-
 use gpui::{App, Entity, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px};
 use ui::{Dialog, DialogExtent, HeaderFlow, TextInput};
 

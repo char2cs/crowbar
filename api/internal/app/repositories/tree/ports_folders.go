@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The folders' identities, by id, as the placement usecases read and write them.
-
-// FindByKey is folder id's identity, or nil when there is none.
 func (p *Ports) FindByKey(ctx context.Context, id string) (*tree.Folder, error) {
 	t, ok, err := p.treeOf(ctx, id)
 	if err != nil || !ok {
@@ -24,7 +21,6 @@ func (p *Ports) FindByKey(ctx context.Context, id string) (*tree.Folder, error) 
 	return &f, nil
 }
 
-// FindAll is every folder's identity.
 func (p *Ports) FindAll(ctx context.Context) ([]tree.Folder, error) {
 	trees, err := p.all(ctx)
 	if err != nil {
@@ -40,7 +36,6 @@ func (p *Ports) FindAll(ctx context.Context) ([]tree.Folder, error) {
 	return out, nil
 }
 
-// Save writes f's identity in the tree of the project its scope names.
 func (p *Ports) Save(ctx context.Context, f tree.Folder) error {
 	at, err := p.folderTree(ctx, f)
 	if err != nil {
@@ -49,8 +44,6 @@ func (p *Ports) Save(ctx context.Context, f tree.Folder) error {
 	return p.writeTo(ctx, f.ID, at, func() error { _, err := p.repo.PutFolder(ctx, at, f); return err })
 }
 
-// folderTree is the tree f is kept in: the one holding it, unless that is
-// Unplaced and f's scope now names a project, in which case its records move.
 func (p *Ports) folderTree(ctx context.Context, f tree.Folder) (string, error) {
 	at, held := p.holder(f.ID)
 	if held && at != tree.Unplaced {
@@ -72,7 +65,6 @@ func (p *Ports) folderTree(ctx context.Context, f tree.Folder) (string, error) {
 	return project, nil
 }
 
-// Delete removes folder id's identity; one that is not there is no error.
 func (p *Ports) Delete(ctx context.Context, id string) error {
 	t, ok, err := p.treeOf(ctx, id)
 	if err != nil || !ok {
@@ -83,7 +75,7 @@ func (p *Ports) Delete(ctx context.Context, id string) error {
 	}
 	out, err := p.repo.DeleteFolder(ctx, t.ProjectID, id)
 	if errors.Is(err, tree.ErrUnknownNode) {
-		return nil // a concurrent delete removed it first
+		return nil
 	}
 	if err != nil {
 		return err

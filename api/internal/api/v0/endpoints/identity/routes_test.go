@@ -29,9 +29,6 @@ func (stubResolver) CurrentIdentity(
 	return gitdomain.Identity{}
 }
 
-// registerChatScoped wires identity.Register the way router.go does: on the
-// flat chat-scoped group alone (spec §8 step 6 retired the old
-// workspace-scoped mount).
 func registerChatScoped(
 	t *testing.T,
 ) *gin.Engine {
@@ -42,9 +39,6 @@ func registerChatScoped(
 	return r
 }
 
-// TestRegisterMountsChatScopedRoute is the route half of this step: the
-// identity route is reachable at the flat /v0/chats/:chatId prefix (spec
-// §7.1).
 func TestRegisterMountsChatScopedRoute(
 	t *testing.T,
 ) {
@@ -56,10 +50,6 @@ func TestRegisterMountsChatScopedRoute(
 	assert.NotEqual(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegisterDropsWorkspaceScopedRoute proves spec §8 step 6's deletion is
-// real for identity: the old /v0/workspaces/:wsId/identity mount, kept alive
-// alongside the chat-scoped one through the rest of this refactor, answers
-// nothing any more.
 func TestRegisterDropsWorkspaceScopedRoute(
 	t *testing.T,
 ) {

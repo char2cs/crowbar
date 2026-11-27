@@ -1,5 +1,3 @@
-//! Reading the `.gitignore` files that a directory listing shows.
-
 use crate::live::held::FileEntry;
 use crate::live::panel_loader::document_body::DocumentBody;
 use crate::live::panel_loader::file_target;

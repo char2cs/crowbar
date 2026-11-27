@@ -1,5 +1,3 @@
-//! What a session tells the terminal when its stream is lost, and how it waits to reattach.
-
 mod recovery_event;
 
 use std::pin::pin;

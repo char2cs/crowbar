@@ -1,5 +1,3 @@
-//! The spacing, text and icon scale shared by the sidebar views.
-
 use gpui::{Pixels, px};
 
 pub(crate) const SPACE_XS: Pixels = px(4.0);

@@ -37,10 +37,7 @@ export interface DialogHostProps {
 
 export function DialogHost({ request, onSettled }: DialogHostProps) {
   const [value, setValue] = useState(request.kind === 'prompt' ? request.defaultValue : '')
-  // Closing the dialog makes Base UI emit onOpenChange(false) as it unmounts, which would
-  // otherwise settle the request a second time and drop the next one off the queue.
   const settled = useRef(false)
-  // A confirm starts on its safe answer, so a stray Enter never confirms.
   const cancelRef = useRef<HTMLButtonElement>(null)
 
   const settle = (notifyCaller: () => void) => {
@@ -65,7 +62,6 @@ export function DialogHost({ request, onSettled }: DialogHostProps) {
       <DialogContent initialFocus={request.kind === 'confirm' ? cancelRef : undefined}>
         <DialogHeader>
           <DialogTitle>{request.title}</DialogTitle>
-          {/* A div, not Base UI's <p>: the message is a ReactNode and may hold block elements. */}
           {request.kind !== 'prompt' && (
             <DialogDescription render={<div />} className="whitespace-pre-wrap">
               {request.message}

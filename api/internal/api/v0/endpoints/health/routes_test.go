@@ -21,7 +21,6 @@ func TestMain(
 	m.Run()
 }
 
-// noDeadLetters is a chat ingress that has refused nothing.
 type noDeadLetters struct{}
 
 func (noDeadLetters) DeadLetterCount(context.Context) (int, error) { return 0, nil }

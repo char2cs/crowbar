@@ -3,7 +3,6 @@ import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-c
 
 const ctx = (uri: string, paneId = 'p1') => ({ paneId, uri, filePath: uri })
 
-// The registry is a window singleton; a fresh module instance per test isolates it.
 let freshRegistry: ActiveEditorRegistry
 beforeEach(async () => {
   vi.resetModules()
@@ -22,7 +21,7 @@ describe('activeEditors', () => {
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
     r.subscribe('p1', cb)
-    expect(cb).toHaveBeenCalledTimes(1) // immediate with current
+    expect(cb).toHaveBeenCalledTimes(1)
     expect(cb).toHaveBeenLastCalledWith(expect.objectContaining({ uri: 'crowbar://editor/a' }))
     r.set('p1', ctx('crowbar://editor/b'))
     expect(cb).toHaveBeenCalledTimes(2)
@@ -33,15 +32,15 @@ describe('activeEditors', () => {
     const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
-    r.subscribe('p1', cb) // 1 (immediate)
-    r.set('p1', ctx('crowbar://editor/a')) // same uri -> no refire
+    r.subscribe('p1', cb)
+    r.set('p1', ctx('crowbar://editor/a'))
     expect(cb).toHaveBeenCalledTimes(1)
   })
 
   it('isolates panes: a change to p2 does not call p1 subscribers', () => {
     const r = freshRegistry
     const cb1 = vi.fn()
-    r.subscribe('p1', cb1) // 1 (immediate, undefined)
+    r.subscribe('p1', cb1)
     r.set('p2', ctx('crowbar://editor/x', 'p2'))
     expect(cb1).toHaveBeenCalledTimes(1)
   })
@@ -49,7 +48,7 @@ describe('activeEditors', () => {
   it('unsubscribe stops further calls', () => {
     const r = freshRegistry
     const cb = vi.fn()
-    const off = r.subscribe('p1', cb) // 1 (immediate undefined)
+    const off = r.subscribe('p1', cb)
     off()
     r.set('p1', ctx('crowbar://editor/a'))
     expect(cb).toHaveBeenCalledTimes(1)
@@ -59,23 +58,20 @@ describe('activeEditors', () => {
     const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
-    r.subscribe('p1', cb) // 1 immediate
+    r.subscribe('p1', cb)
     r.clear('p1')
     expect(cb).toHaveBeenLastCalledWith(undefined)
     expect(r.get('p1')).toBeUndefined()
   })
 
-  // A close→reopen of the same file keeps the uri but recreates the model, so the dedup must
-  // compare model identity too, or satellites keep reading the disposed one.
   it('RE-notifies when set with a NEW model for the SAME uri (model-identity dedup)', () => {
     const r = freshRegistry
     const m1 = { id: 'model-1' }
     const m2 = { id: 'model-2' }
     r.set('p1', { ...ctx('crowbar://editor/a'), model: m1 })
     const cb = vi.fn()
-    r.subscribe('p1', cb) // 1 immediate (m1)
+    r.subscribe('p1', cb)
 
-    // Same uri but a FRESH model (close then reopen) → must re-notify.
     r.set('p1', { ...ctx('crowbar://editor/a'), model: m2 })
     expect(cb).toHaveBeenCalledTimes(2)
     expect(cb).toHaveBeenLastCalledWith(expect.objectContaining({ model: m2 }))
@@ -87,8 +83,8 @@ describe('activeEditors', () => {
     const model = { id: 'model-1' }
     r.set('p1', { ...ctx('crowbar://editor/a'), model })
     const cb = vi.fn()
-    r.subscribe('p1', cb) // 1 immediate
-    r.set('p1', { ...ctx('crowbar://editor/a'), model }) // identical → no refire
+    r.subscribe('p1', cb)
+    r.set('p1', { ...ctx('crowbar://editor/a'), model })
     expect(cb).toHaveBeenCalledTimes(1)
   })
 
@@ -96,14 +92,12 @@ describe('activeEditors', () => {
     const r = freshRegistry
     r.set('p1', ctx('crowbar://editor/a'))
     const cb = vi.fn()
-    r.subscribe('p1', cb) // 1 immediate
+    r.subscribe('p1', cb)
 
-    // Different uri → no-op (the pane already moved on).
     r.clearIfActive('p1', 'crowbar://editor/other')
     expect(cb).toHaveBeenCalledTimes(1)
     expect(r.get('p1')?.uri).toBe('crowbar://editor/a')
 
-    // Matching uri → clears and notifies with undefined.
     r.clearIfActive('p1', 'crowbar://editor/a')
     expect(cb).toHaveBeenCalledTimes(2)
     expect(cb).toHaveBeenLastCalledWith(undefined)

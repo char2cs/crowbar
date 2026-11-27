@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// recordingTB runs the helper's cleanup on demand and keeps its failures.
 type recordingTB struct {
 	testing.TB
 	cleanups []func()
@@ -25,7 +24,6 @@ type recordingTB struct {
 func (r *recordingTB) Cleanup(f func())                  { r.cleanups = append(r.cleanups, f) }
 func (r *recordingTB) Errorf(format string, args ...any) { r.failures = append(r.failures, format) }
 
-// A grandchild orphaned by its parent's exit is still the test's process.
 func TestRequireNoLeakedProcesses_CatchesAnOrphanedGrandchild(t *testing.T) {
 	if _, err := os.Stat("/proc/self/environ"); err != nil {
 		t.Skip("needs /proc")

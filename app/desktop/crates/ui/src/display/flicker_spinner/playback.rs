@@ -1,5 +1,3 @@
-//! Where one spinner is in its sprite; the shared clock repaints it at the next tick.
-
 use std::rc::Rc;
 use std::time::Instant;
 

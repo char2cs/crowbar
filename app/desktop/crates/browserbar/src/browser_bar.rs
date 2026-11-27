@@ -16,8 +16,6 @@ const BLANK_PAGE: &str = "about:blank";
 const BAR_PADDING: f32 = 8.0;
 const BAR_GAP: f32 = 4.0;
 
-/// Back, forward, reload and pick buttons beside an address field. It emits [`Event`] and
-/// changes nothing else; the shell calls [`BrowserBar::set_address`] as the page navigates.
 pub struct BrowserBar {
     input: Entity<TextInput>,
     picking: bool,
@@ -37,7 +35,6 @@ impl std::fmt::Debug for BrowserBar {
 impl EventEmitter<Event> for BrowserBar {}
 
 impl BrowserBar {
-    /// A bar with an empty address field.
     pub fn new(cx: &mut Context<'_, Self>) -> Self {
         let input = cx.new(|cx| {
             TextInput::new(PLACEHOLDER, cx)
@@ -53,9 +50,6 @@ impl BrowserBar {
         }
     }
 
-    /// Shows `address` in the field, as the page navigates. With none, or the blank page a
-    /// browser opens on, there is no page to go back, forward, reload or pick in, so those
-    /// buttons are disabled.
     pub fn set_address(
         &mut self,
         address: &str,
@@ -71,7 +65,6 @@ impl BrowserBar {
             .update(cx, |input, cx| input.set_text(address, cx));
     }
 
-    /// Lights the pick button: a pick is in progress.
     pub fn begin_pick(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -80,7 +73,6 @@ impl BrowserBar {
         cx.notify();
     }
 
-    /// Puts the pick button out: the pick ended.
     pub fn end_pick(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -161,7 +153,6 @@ mod tests {
 
     type Events = Rc<RefCell<Vec<Event>>>;
 
-    /// A bar showing `address` in a window, and the events it emits from now on.
     fn open<'a>(
         address: &str,
         cx: &'a mut TestAppContext,

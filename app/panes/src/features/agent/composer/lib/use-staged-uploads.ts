@@ -7,14 +7,12 @@ import { UNREACHED, userWords } from '@/lib/errors/report'
 
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path
 
-/** The files chosen so far, each uploading under its own abortable request. */
 export function useStagedUploads(wsId: string, chatId: string) {
   const [items, setItems] = useState<Staged[]>([])
   const nextId = useRef(0)
   const uploads = useRef(new Map<number, AbortController>())
 
   const settle = useCallback((id: number, patch: Partial<Staged>) => {
-    // A removed row's upload may still land: it finds nothing to update.
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
   }, [])
 

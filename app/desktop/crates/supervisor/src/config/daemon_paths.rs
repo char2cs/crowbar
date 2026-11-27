@@ -9,13 +9,9 @@ use crate::error::Error;
 
 const PATHS_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Where the daemon binds and logs for one Crowbar home, as the daemon binary itself reports
-/// them so Go's `core/home` is the only place either is decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonPaths {
-    /// The unix socket the daemon listens on.
     pub socket: PathBuf,
-    /// The file the daemon's output is captured to.
     pub log: PathBuf,
 }
 
@@ -37,10 +33,6 @@ fn absolute(
 }
 
 impl DaemonPaths {
-    /// Reads the output of `crowbar-api paths`: `{"home": ..., "socket": ..., "log": ...}`.
-    ///
-    /// # Errors
-    /// [`Error::Paths`] for output that is not JSON or names a missing or relative path.
     pub fn parse(stdout: &[u8]) -> Result<Self, Error> {
         let report: Value = serde_json::from_slice(stdout)
             .map_err(|e| Error::Paths(format!("paths output is not JSON: {e}")))?;
@@ -50,11 +42,6 @@ impl DaemonPaths {
         })
     }
 
-    /// Runs `<binary> paths`, giving up after ten seconds, with `CROWBAR_HOME` set to `home` when one is given.
-    ///
-    /// # Errors
-    /// [`Error::Spawn`] when the binary cannot run, [`Error::Paths`] when it fails, times out or
-    /// prints something unusable.
     pub async fn resolve(
         binary: &Path,
         home: Option<&Path>,

@@ -1,5 +1,3 @@
-//! How far deeper rows move up under compacted folder chains.
-
 #[derive(Default)]
 pub(crate) struct Shifts(Vec<(u8, u8)>);
 

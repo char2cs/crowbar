@@ -6,9 +6,6 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 
-// A fresh store per test rather than the module singleton: these cases split, close and merge
-// the layout, and the singleton is shared with every other suite in the run.
-
 function makeStore(): WindowPaneStore {
   return createWindowPaneStore()
 }
@@ -18,8 +15,6 @@ let store: WindowPaneStore
 const paneActions = () => store.getState().paneActions
 const panes = () => store.getState().panes
 
-/** A real editor buffer plus its tab in `paneId`: preview/pinned live on the buffer itself, so a
- *  tab id with no buffer behind it has nothing to mark. */
 function openTab(paneId: string, id: string): void {
   const buffer: EditorContent = {
     id,
@@ -49,8 +44,6 @@ describe('pane-store bottom pane integration', () => {
     openTab(ROOT_PANE_ID, 'buffer-a')
     paneActions().moveEditorTabToPane('buffer-a', ROOT_PANE_ID, BOTTOM_PANE_ID)
 
-    // A pane emptied by a move is simply empty: it renders its New Tab stage with no
-    // placeholder buffer.
     expect(panes()[ROOT_PANE_ID]?.editorTabIds).toEqual([])
     expect(panes()[ROOT_PANE_ID]?.editorOpen).toBe(false)
     expect(panes()[BOTTOM_PANE_ID]?.editorTabIds).toEqual(['buffer-a'])
@@ -81,7 +74,7 @@ describe('pane-store bottom pane integration', () => {
     paneActions().moveEditorTabToPane('buffer-a', ROOT_PANE_ID, newPaneId)
 
     expect(paneActions().getAllPaneGroups().length).toBeGreaterThanOrEqual(2)
-    expect(panes()[ROOT_PANE_ID]).toBeDefined() // the source survives, empty
+    expect(panes()[ROOT_PANE_ID]).toBeDefined()
     expect(panes()[ROOT_PANE_ID]?.editorTabIds).toEqual([])
     expect(panes()[newPaneId]?.editorTabIds).toEqual(['buffer-a'])
   })
@@ -104,7 +97,6 @@ describe('pane-store bottom pane integration', () => {
 
     const newActiveId = store.getState().activePaneId
     expect([ROOT_PANE_ID, rightPaneId]).toContain(newActiveId)
-    // The closed pane's tabs merge into the survivor rather than being dropped.
     expect(panes()[newActiveId]?.editorTabIds).toContain('buffer-b')
   })
 
@@ -150,8 +142,6 @@ describe('pane-store bottom pane integration', () => {
     paneActions().setActivePane(ROOT_PANE_ID)
     paneActions().activateEditorTabInPane(rightPaneId, 'buffer-b')
 
-    // switchToNext/PreviousEditorTab take the pane explicitly now (the old
-    // switchToNextBufferInPane read the active pane off the store).
     paneActions().switchToNextEditorTab(rightPaneId)
 
     expect(store.getState().activePaneId).toBe(rightPaneId)
@@ -169,8 +159,6 @@ describe('pane-store bottom pane integration', () => {
 
     paneActions().setEditorTabPreview(ROOT_PANE_ID, 'buffer-a')
 
-    // Preview is a single slot per pane: marking one clears every other tab
-    // that pane holds.
     expect(bufferById('buffer-a')?.isPreview).toBe(true)
     expect(bufferById('buffer-b')?.isPreview).toBe(false)
 

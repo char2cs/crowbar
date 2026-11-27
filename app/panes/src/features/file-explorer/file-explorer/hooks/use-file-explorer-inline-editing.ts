@@ -19,8 +19,6 @@ interface UseFileExplorerInlineEditingProps {
   showAlertDialog: (title: string, message: string) => void
 }
 
-// Clear the inline-edit flags on the node at `path`. Starting a rename only sets the flag, so
-// cancel and commit must clear it: a stuck isRenaming makes the next double-click close the input.
 function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
   return items.map((item) =>
     item.path === path
@@ -31,9 +29,6 @@ function clearEditingFlag(items: FileEntry[], path: string): FileEntry[] {
   )
 }
 
-// Strip every uncommitted "new item" placeholder (one can survive a dismissal). Two share the
-// empty root path and collide on React keys, which stops the next inline input from rendering,
-// so startInlineEditing clears them first.
 function removeNewItems(items: FileEntry[]): FileEntry[] {
   const result: FileEntry[] = []
   for (const i of items) {
@@ -59,13 +54,8 @@ export function useFileExplorerInlineEditing({
     (parentPath: string, isFolder: boolean) => {
       if (!onUpdateFiles) return
 
-      // Clear any stale placeholder from a prior edit that was dismissed without
-      // committing, so a second New File/Folder never collides with it (see
-      // removeNewItems). Operate on the cleaned tree throughout.
       const baseFiles = removeNewItems(files)
 
-      // The root target arrives as its absolute path (=== rootFolderPath) but tree nodes are
-      // root-relative, so normalise it to '' and finishInlineEditing derives an empty parent.
       const isRootTarget = !parentPath || parentPath === rootFolderPath
 
       const newItem: FileEntry = {
@@ -93,8 +83,6 @@ export function useFileExplorerInlineEditing({
         onUpdateFiles(addNewItemToTree(baseFiles, parentPath))
       }
 
-      // Expand the parent so the new row shows; never the root (''), whose
-      // expansion would load the root's contents again as its own children.
       if (parentPath) {
         const wsId = workspaceId ?? ''
         const { getExpandedPaths, setExpandedPaths } = useFileTreeStore.getState()
@@ -111,22 +99,15 @@ export function useFileExplorerInlineEditing({
       if (!onUpdateFiles) return
 
       if (newName.trim()) {
-        // '' is the valid workspace root: create handlers join the name onto it. Never substitute
-        // rootFolderPath, the absolute wsId path, which would create at wsId/<name>.
         const parentPath = stripTrailingPathSeparators(item.path)
 
         if (item.isRenaming) {
           const trimmed = newName.trim()
-          // Rename only when the name changed (a blur with the pre-filled name is a no-op).
-          // onRenamePath is fire-and-forget, so a rejection (locked, name collision …) is toasted.
           if (trimmed !== item.name) {
             Promise.resolve(onRenamePath?.(item.path, trimmed)).catch((error: unknown) => {
               report(error, { action: 'Rename failed' })
             })
           }
-          // Clear the flag now so the node is immediately non-editing; the WS
-          // refetch will later replace it with a fresh node at the new path. Do
-          // not depend on that refetch to clear the editable state.
           onUpdateFiles(clearEditingFlag(files, item.path))
           setEditingValue('')
           return
@@ -167,8 +148,6 @@ export function useFileExplorerInlineEditing({
       if (!onUpdateFiles) return
 
       if (file.isRenaming) {
-        // Clear the editable flag directly (do NOT call bare onRenamePath, which
-        // now START-s a rename) so Escape deterministically closes the input.
         onUpdateFiles(clearEditingFlag(files, file.path))
         setEditingValue('')
         return

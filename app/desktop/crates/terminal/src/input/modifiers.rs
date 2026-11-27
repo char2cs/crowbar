@@ -1,24 +1,15 @@
-//! Keyboard modifier state.
-
 const CONTROL_WEIGHT: u8 = 4;
 
-/// The modifier keys held during an input event.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Modifiers(u8);
 
 impl Modifiers {
-    /// Nothing held.
     pub const NONE: Self = Self(0);
-    /// Shift.
     pub const SHIFT: Self = Self(1);
-    /// Alt or Option.
     pub const ALT: Self = Self(1 << 1);
-    /// Control.
     pub const CONTROL: Self = Self(1 << 2);
-    /// Command or the Windows/Super key.
     pub const PLATFORM: Self = Self(1 << 3);
 
-    /// True when every modifier of `other` is held.
     pub fn contains(
         self,
         other: Self,
@@ -26,7 +17,6 @@ impl Modifiers {
         self.0 & other.0 == other.0
     }
 
-    /// The union of both sets.
     #[must_use]
     pub fn with(
         self,
@@ -35,7 +25,6 @@ impl Modifiers {
         Self(self.0 | other.0)
     }
 
-    /// The xterm modifier parameter: 1 plus shift 1, alt 2 and control 4; 1 means none.
     pub fn xterm_parameter(self) -> u8 {
         let shift = u8::from(self.contains(Self::SHIFT));
         let alt = u8::from(self.contains(Self::ALT)) * 2;

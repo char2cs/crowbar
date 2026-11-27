@@ -1,6 +1,5 @@
 use gpui::App;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/desktop/src-tauri/src/windows.rs
 pub(crate) fn quit_with_last_window(
     cx: &App,
     quit: impl Fn(&mut App) + 'static,

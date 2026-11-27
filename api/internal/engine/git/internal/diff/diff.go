@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// WorkingTree runs `git diff -M [--cached]` and parses the result.
-// staged=true adds --cached to diff against the index instead of the working tree.
 func WorkingTree(
 	ctx context.Context,
 	repoPath string,
@@ -27,9 +25,6 @@ func WorkingTree(
 	return parseFiles(ctx, repoPath, r.Stdout), nil
 }
 
-// Commit parses the diff for a single commit.
-// For the root commit (no parent) it uses `git show --format= <sha>`.
-// For all other commits it uses `git diff -M <sha>^ <sha>`.
 func Commit(
 	ctx context.Context,
 	repoPath string,
@@ -68,7 +63,6 @@ func parseCommitMeta(
 	output string,
 ) gitdomain.MultiFileDiff {
 	var d gitdomain.MultiFileDiff
-	// Format is: hash NUL subject NUL body NUL author NUL date
 	parts := strings.SplitN(strings.TrimRight(output, "\n"), "\x00", 5)
 	if len(parts) < 5 {
 		return d
@@ -241,13 +235,11 @@ func parseFileSection(
 func parseDiffGitPath(
 	line string,
 ) string {
-	// line format: "diff --git a/<path> b/<path>"
-	// Use the last " b/" as boundary since path may contain spaces.
 	idx := strings.LastIndex(line, " b/")
 	if idx < 0 {
 		return ""
 	}
-	bPath := line[idx+3:] // strip leading " b/"
+	bPath := line[idx+3:]
 	return bPath
 }
 
@@ -309,7 +301,6 @@ func finalizeFileDiff(
 		case gitdomain.DiffLineRemoved:
 			f.Deletions++
 		case gitdomain.DiffLineContext, gitdomain.DiffLineHeader:
-			// Context and header lines do not affect add/delete counts.
 		}
 	}
 	return f

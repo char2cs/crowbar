@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// bindSessions binds each provider's conversations when they began, so their turns
-// mark them turned, then rebinds the current one last so the chat resumes it. A session
-// another chat owns is a conflict marker; one missing provider or session is left out.
 func (c *conversion) bindSessions(in LegacyChat, owner Owner) {
 	c.current, c.bound = map[string]string{}, map[string]bool{}
 	byProvider := map[string][]LegacyConversation{}
@@ -54,8 +51,6 @@ func (c *conversion) bind(provider, sessionID string, at time.Time, owner Owner,
 	}
 }
 
-// currentSession is the conversation whose newest turn is the latest; with no
-// turn naming any of them, the one last active.
 func currentSession(convs []LegacyConversation, turns []LegacyTurn) string {
 	known := map[string]bool{}
 	for _, conv := range convs {
@@ -79,8 +74,6 @@ func currentSession(convs []LegacyConversation, turns []LegacyTurn) string {
 	return last.SessionID
 }
 
-// firstTurnOn is when the first turn on provider's sessionID began: one that
-// names it, or for the current session one that names no session.
 func firstTurnOn(turns []LegacyTurn, provider, sessionID, current string) time.Time {
 	var out time.Time
 	for _, t := range turns {
@@ -92,8 +85,6 @@ func firstTurnOn(turns []LegacyTurn, provider, sessionID, current string) time.T
 	return out
 }
 
-// sessionOf is the bound session a legacy turn ran on: the one it names, or
-// its provider's current one when it names none.
 func (c *conversion) sessionOf(provider, sessionID string) string {
 	if sessionID == "" {
 		return c.current[provider]

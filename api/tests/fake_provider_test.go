@@ -25,21 +25,14 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// stubs are the stub providers installed per crowbar home, so a hook can be
-// posted with the launch of the runner it names. Keyed "<home>|<id>".
 var stubs sync.Map
 
-// stubLifecycle is what a stub that declares only what its test exercises is
-// completed with: the lifecycle every descriptor needs before it is enabled.
 var stubLifecycle = map[string]map[string]any{
 	"session_start": {"in": "session_start", "map": map[string]any{"session_id": "session_id"}},
 	"user_prompt":   {"in": "user_prompt", "map": map[string]any{"message": "prompt"}},
 	"turn_stop":     {"in": "turn_stop", "map": map[string]any{"session_id": "session_id", "message": "last_assistant_message"}},
 }
 
-// writeProviderDescriptor installs stub provider id over the fake CLI: body's
-// blocks, with its events completed by stubLifecycle. A stub that declares its
-// own spawn keeps it; one that does not runs the fake CLI, which acts as `cat`.
 func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
 	t.Helper()
 	var stub map[string]any
@@ -72,7 +65,6 @@ func writeProviderDescriptor(t *testing.T, h *harness, id, body string) {
 	t.Cleanup(func() { stubs.Delete(key) })
 }
 
-// stubLaunch is the fake CLI placed as runnerID, of stub provider id.
 func stubLaunch(t *testing.T, h *harness, id, runnerID string) kit.Launch {
 	t.Helper()
 	stored, _ := stubs.Load(h.home + "|" + id)
@@ -81,8 +73,6 @@ func stubLaunch(t *testing.T, h *harness, id, runnerID string) kit.Launch {
 	return fake.AwaitLaunch(t, runnerID)
 }
 
-// postHook posts one hook of runnerID's CLI through the hook route under base
-// (a repo or home route prefix), and requires it accepted.
 func postHook(t *testing.T, h *harness, base, provider, runnerID, event, payload string) []byte {
 	t.Helper()
 	resp := stubLaunch(t, h, provider, runnerID).PostHook(t, h.url+base, provider, event, []byte(payload)) //nolint:bodyclose // PostHook closes the body and returns a buffered copy
@@ -92,16 +82,12 @@ func postHook(t *testing.T, h *harness, base, provider, runnerID, event, payload
 	return body
 }
 
-// heldHook is how a hook the daemon held open ended: its status and body, or
-// the error its request failed with.
 type heldHook struct {
 	status int
 	body   string
 	err    error
 }
 
-// askHook posts a hook that opens an ask. The daemon holds it open until the
-// ask is decided, so it is answered on the channel; ending ctx hangs it up.
 func askHook(ctx context.Context, t *testing.T, h *harness, base, provider, runnerID, event, payload string) <-chan heldHook {
 	t.Helper()
 	l := stubLaunch(t, h, provider, runnerID)
@@ -123,8 +109,6 @@ func askHook(ctx context.Context, t *testing.T, h *harness, base, provider, runn
 	return out
 }
 
-// heldChoice is the id of the ask a held hook opened on chatID: the first
-// answerable one not in seen.
 func heldChoice(t *testing.T, h *harness, chatID string, seen ...string) string {
 	t.Helper()
 	var id string
@@ -140,9 +124,6 @@ func heldChoice(t *testing.T, h *harness, chatID string, seen ...string) string 
 	return id
 }
 
-// newFakeClaudeChat installs the shipped claude descriptor over the fake CLI,
-// creates a chat on it, and returns the chat, its launch capture and the hook
-// route prefix a real claude would post to.
 func newFakeClaudeChat(
 	t *testing.T,
 	h *harness,
@@ -154,16 +135,12 @@ func newFakeClaudeChat(
 	return chatID, launch, h.url + repoBase(imported)
 }
 
-// createFakeChat creates a chat on an installed fake provider, starts it, and
-// returns it with the launch of the CLI placed on it.
 func createFakeChat(t *testing.T, h *harness, imported importedRepo, fake kit.FakeProvider) (string, kit.Launch) {
 	t.Helper()
 	chatID := createChat(t, h, imported, fake.ID)
 	return chatID, fake.AwaitLaunch(t, startChat(t, h, repoBase(imported), chatID))
 }
 
-// createChat creates a chat on provider, on the chat surface: dormant, no CLI
-// launched until its first prompt or a start.
 func createChat(t *testing.T, h *harness, imported importedRepo, provider string) string {
 	t.Helper()
 	var created struct {
@@ -177,8 +154,6 @@ func createChat(t *testing.T, h *harness, imported importedRepo, provider string
 	return created.ID
 }
 
-// startChat is the pane's Start session on chatID, under base: the explicit
-// launch of a chat no prompt has started. It returns the runner placed.
 func startChat(t *testing.T, h *harness, base, chatID string) string {
 	t.Helper()
 	var started struct {
@@ -190,8 +165,6 @@ func startChat(t *testing.T, h *harness, base, chatID string) string {
 	return started.ID
 }
 
-// The override of a built-in in the home (the shipped claude descriptor over the
-// fake CLI) is what runs the turn.
 func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -203,8 +176,6 @@ func TestFakeProvider_LaunchIsCapturedAndHooksReachTheChat(t *testing.T) {
 	assertTurnRecorded(t, h, imported, chatID)
 }
 
-// A provider Crowbar has no code for is a descriptor file in the home: it is
-// listed and reported clean in Settings > Agents, and a chat on it runs a turn.
 func TestFakeProvider_ACustomDescriptorInTheHomeRunsATurn(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -247,13 +218,11 @@ func TestFakeProvider_ACustomDescriptorInTheHomeRunsATurn(t *testing.T) {
 	assertTurnRecorded(t, h, imported, chatID)
 }
 
-// runHookTurn posts one prompt-and-reply turn the way a hooks CLI does.
 func runHookTurn(t *testing.T, h *harness, l kit.Launch, hookBase, provider string) {
 	t.Helper()
 	for _, step := range []struct{ event, payload string }{
 		{"session_start", `{"session_id":"s-1","source":"startup"}`},
 		{"user_prompt", `{"session_id":"s-1","prompt":"hello"}`},
-		// Claude sends MessageDisplay before Stop; a Stop with text and no open message waits 3s.
 		{"message_delta", `{"session_id":"s-1","turn_id":"t-1","message_id":"m-1","index":0,"final":true,"delta":"HI"}`},
 		{"turn_stop", `{"session_id":"s-1","last_assistant_message":"HI"}`},
 	} {
@@ -317,7 +286,6 @@ func TestFakeProvider_KillEndsTheRunnerWithNoHook(t *testing.T) {
 		"a CLI that exits with no hook leaves the chat dormant")
 }
 
-// newChatView is what a client reads of a chat before its first prompt.
 type newChatView struct {
 	LiveRunnerID      string `json:"liveRunnerId"`
 	TerminalSessionID string `json:"terminalSessionId"`
@@ -332,14 +300,11 @@ func readNewChat(t *testing.T, h *harness, imported importedRepo, chatID string)
 	return view
 }
 
-// requireOneLaunch is the fake CLI having launched exactly once, as l.
 func requireOneLaunch(t *testing.T, fake kit.FakeProvider, l kit.Launch) {
 	t.Helper()
 	assert.Equal(t, []string{l.RunnerID}, fake.LaunchedRunners(t), "exactly one CLI was launched")
 }
 
-// A new chat is dormant until used; its first prompt launches its one CLI,
-// carrying the prompt, with no idle CLI from the create to displace.
 func TestFakeProvider_CreateThenFirstPromptLaunchesOnce(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -357,8 +322,6 @@ func TestFakeProvider_CreateThenFirstPromptLaunchesOnce(t *testing.T) {
 	assert.Empty(t, exitReason(t, h, imported, chatID), "no runner was displaced")
 }
 
-// A client that re-reads the new chat and the chat list first still finds a
-// dormant chat, and its prompt is still the one launch.
 func TestFakeProvider_CreateThenReloadThenPromptLaunchesOnce(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -377,8 +340,6 @@ func TestFakeProvider_CreateThenReloadThenPromptLaunchesOnce(t *testing.T) {
 	requireOneLaunch(t, fake, l)
 }
 
-// Opening the terminal of a chat nothing ever ran on launches its CLI there,
-// once; a chat created on the terminal launches with its create.
 func TestFakeProvider_TerminalFirstLaunchesOnTheTerminal(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -409,8 +370,6 @@ func TestFakeProvider_TerminalFirstLaunchesOnTheTerminal(t *testing.T) {
 	requireOneLaunch(t, other, other.AwaitLaunch(t, born.LiveRunnerID))
 }
 
-// An api-transport chat is dormant until used too: its first prompt forks the
-// one app-server, and the recorded turn it replays streams back as the reply.
 func TestFakeProvider_AnAppServerChatLaunchesOnItsFirstPrompt(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -427,8 +386,6 @@ func TestFakeProvider_AnAppServerChatLaunchesOnItsFirstPrompt(t *testing.T) {
 	requireOneLaunch(t, fake, l)
 }
 
-// codex says an added or deleted file's whole text, unprefixed; a recorded turn
-// that adds one file and deletes another reaches the chat as whole-file diffs.
 func TestFakeProvider_ACodexAddedAndDeletedFileRecordWholeFileDiffs(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)

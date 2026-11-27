@@ -17,33 +17,19 @@ import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
 import { fuzzyScore } from './agent-selection-search'
 import { NativeModelPicker } from './native-model-picker'
 
-// Fits the longest model id unwrapped. An inline style because Dropdown locks
-// its measured width on open and would overwrite a class-set one.
 const MENU_WIDTH_PX = 280
 
 export interface AgentSelectionPickerProps {
-  /** The agent running this chat, or undefined before any runner has been on it. */
   provider?: AgentProvider
   providers: AgentProvider[]
-  /** The effective model (sticky selection or staged pick); '' means unset. */
   model: string
   effort: string
-  /** A turn is in flight, or a switch is already running. */
   disabled?: boolean
-  /** Lit, as the board's chip while the way on is another model. */
   hot?: boolean
-  /** Local staging only, provider included: nothing is written or switched
-   *  until the next message sends, so a row click never tears down the live CLI. */
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  /** Display text for an unset `model`/`effort` only. Values stay raw elsewhere:
-   *  `pickEffort` echoes `model` back out, and a label must never become a value. */
   unsetLabel?: string
-  /** Names a model nobody has stated; defaults to `unsetLabel`. */
   modelUnsetLabel?: string
-  /** The model the last turn reported, shown beside an unset label. Display only:
-   *  substituting it for `model` would break the `efforts['']` lookup. */
   reportedModel?: string
-  /** On the phone the chat's permission level is chosen inside this picker, not in the footer. */
   permission?: PermissionTarget
 }
 
@@ -62,8 +48,6 @@ function effortLabel(level: string): string {
   return level === 'xhigh' ? 'XHigh' : level.charAt(0).toUpperCase() + level.slice(1)
 }
 
-/** Search results, split out so the running rowIndex used for highlighting
- *  stays local. */
 function ModelSections({
   sections,
   query,
@@ -124,8 +108,6 @@ function ModelSections({
   )
 }
 
-/** Renders nothing when the model declares no levels — absence, not a disabled
- *  control. Owns its drag gesture so the picker carries none of that state. */
 function EffortSlider({
   levels,
   effort,
@@ -137,8 +119,6 @@ function EffortSlider({
   defaultEffort: string
   onPick: (level: string) => void
 }) {
-  // An unknown effort draws no thumb rather than clamping to the first level,
-  // which would look like a pick nobody made. '' runs at the stated default.
   const shown = effort || defaultEffort
   const shownLabel = effort ? effortLabel(effort) : `${effortLabel(defaultEffort)} (default)`
   const knownIndex = levels.indexOf(shown)
@@ -146,8 +126,6 @@ function EffortSlider({
   const effortIndex = Math.max(0, knownIndex)
   const effortPct = levels.length > 1 ? Math.round((effortIndex / (levels.length - 1)) * 100) : 0
 
-  // Press anywhere on the track jumps there and keeps tracking until release,
-  // snapping to the nearest discrete level.
   const setEffortFromClientX = useCallback(
     (track: HTMLDivElement, clientX: number) => {
       if (levels.length === 0) return
@@ -161,8 +139,6 @@ function EffortSlider({
     [levels, onPick],
   )
 
-  // Window listeners instead of pointer capture: WKWebView throws NotFoundError
-  // from setPointerCapture even on a genuine pointerdown.
   const draggingRef = useRef<(() => void) | null>(null)
 
   const onTrackPointerDown = useCallback(
@@ -253,7 +229,6 @@ function EffortSlider({
   )
 }
 
-/** The phone's web fallback for the native sheet's level section. */
 function PermissionRadios({
   options,
   level,
@@ -287,9 +262,6 @@ function PermissionRadios({
   )
 }
 
-/** One menu: picking a model picks its provider (providers are sections), and
- *  effort sits at the foot as a property of the current model. A provider with
- *  no catalogue contributes nothing — never a disabled control. */
 export function AgentSelectionPicker({
   provider,
   providers,
@@ -303,7 +275,6 @@ export function AgentSelectionPicker({
   reportedModel,
   permission,
 }: AgentSelectionPickerProps) {
-  // Unpicked, the chip names the model the provider reported, never a 'Default (…)' wrapper.
   const modelLabel = model || reportedModel || modelUnsetLabel
   const effortLabelText = effort || unsetLabel
   const [isOpen, setOpen] = useModelPickerOpen(permission?.chatId)
@@ -315,13 +286,11 @@ export function AgentSelectionPicker({
   const permissionChoice =
     level.options.length > 0 ? { ...level, onPick: level.setLevel } : undefined
 
-  // An uninstalled CLI cannot spawn; a disabled one the user asked not to see.
   const offered = useMemo(
     () => providers.filter((candidate) => candidate.connected && candidate.enabled),
     [providers],
   )
 
-  // Decides whether the trigger renders, independent of a query that may filter every row out.
   const catalogueProviders = useMemo(
     () =>
       offered.filter((candidate) => candidate.modelSelect && (candidate.models?.length ?? 0) > 0),
@@ -331,7 +300,6 @@ export function AgentSelectionPicker({
   const sections = useMemo<ProviderSection[]>(() => {
     const result: ProviderSection[] = []
     for (const candidate of catalogueProviders) {
-      // Matching the provider's name surfaces all its models.
       const sectionScore = fuzzyScore(query, candidate.displayName)
       const rows: ModelRow[] = []
       for (const m of candidate.models ?? []) {
@@ -357,7 +325,6 @@ export function AgentSelectionPicker({
   useEffect(() => {
     if (!isOpen) return
     const frame = window.requestAnimationFrame(() => searchRef.current?.focus())
-    // A search belongs to one opening of the menu: closing it lets the query go.
     return () => {
       window.cancelAnimationFrame(frame)
       setQuery('')
@@ -367,7 +334,6 @@ export function AgentSelectionPicker({
 
   const close = useCallback(() => setOpen(false), [setOpen])
 
-  // Stages the provider alongside the model — never a live switch.
   const pickModel = useCallback(
     (targetProvider: AgentProvider, targetModel: string) => {
       const nextEffort = resolveEffort(targetProvider, targetModel, effort)

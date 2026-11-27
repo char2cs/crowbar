@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// ws/url.ts imports isTauri from crowbar-bridge (via apiBaseFor's own import
-// of it), so vi.hoisted is required — see api.test.ts's identical comment.
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => false) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
@@ -37,8 +35,6 @@ describe('wsUrl', () => {
     expect(result.endsWith('/v0/ws/workspaces')).toBe(true)
   })
 
-  // The default hostId is 'local' — every existing caller omitting it keeps
-  // resolving against VITE_API_URL/origin exactly as above, never apiBaseFor.
   it('defaults hostId to "local", ignoring the host store and Tauri entirely', () => {
     vi.stubEnv('VITE_API_URL', 'http://127.0.0.1:3737')
     expect(wsUrl('/v0/ws/git?wsId=ws-1', 'local')).toBe(wsUrl('/v0/ws/git?wsId=ws-1'))

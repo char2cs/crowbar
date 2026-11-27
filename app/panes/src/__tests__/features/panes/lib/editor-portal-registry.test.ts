@@ -7,9 +7,6 @@ import {
   type EditorPortalEntry,
 } from '@/features/panes/lib/editor-portal-registry'
 
-// Module-level singleton (one registry for the whole window, matching
-// windowPaneStore itself — see the module's own doc) — each test uses its
-// own paneId so entries never collide, but we still clear defensively.
 afterEach(() => {
   clearEditorPortalEntry('p1')
   clearEditorPortalEntry('p2')
@@ -54,14 +51,14 @@ describe('editor-portal-registry', () => {
 
   it('isolates panes: publishing p2 does not notify p1 subscribers', () => {
     const cb1 = vi.fn()
-    subscribeEditorPortalEntry('p1', cb1) // 1: immediate, undefined
+    subscribeEditorPortalEntry('p1', cb1)
     setEditorPortalEntry('p2', entry())
     expect(cb1).toHaveBeenCalledTimes(1)
   })
 
   it('unsubscribe stops further calls', () => {
     const cb = vi.fn()
-    const off = subscribeEditorPortalEntry('p1', cb) // 1: immediate
+    const off = subscribeEditorPortalEntry('p1', cb)
     off()
     setEditorPortalEntry('p1', entry())
     expect(cb).toHaveBeenCalledTimes(1)
@@ -70,7 +67,7 @@ describe('editor-portal-registry', () => {
   it('clearEditorPortalEntry notifies subscribers with undefined and drops the entry', () => {
     setEditorPortalEntry('p1', entry())
     const cb = vi.fn()
-    subscribeEditorPortalEntry('p1', cb) // 1: immediate
+    subscribeEditorPortalEntry('p1', cb)
     clearEditorPortalEntry('p1')
     expect(cb).toHaveBeenLastCalledWith(undefined)
     expect(getEditorPortalEntry('p1')).toBeUndefined()

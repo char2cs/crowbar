@@ -28,8 +28,6 @@ func (a *agent) PromptType() (PromptTyping, bool) {
 	}, true
 }
 
-// CanType refuses a message holding a control character other than a newline
-// rather than stripping it: it must reach the CLI exactly as written or not at all.
 func (a *agent) CanType(text string) bool {
 	typing, ok := a.PromptType()
 	if !ok || typing.Input != spec.InputKeys || strings.ContainsFunc(text, isKeyControl) {
@@ -43,8 +41,6 @@ func (a *agent) CanType(text string) bool {
 	})
 }
 
-// ComposerScreen is the terminal read ComposerEmpty judges: text rows split on
-// newlines, a 0-based cursor cell, and Faint as [row][col] over the grid.
 type ComposerScreen struct {
 	Text                 string
 	CursorRow, CursorCol int
@@ -71,8 +67,6 @@ func (a *agent) ComposerEmpty(screen ComposerScreen) bool {
 	return restIsGhost(row[len(typing.ComposerRowPrefix):], screen.CursorCol, faint, typing.ComposerGhost == spec.GhostFaint)
 }
 
-// restIsGhost reports whether every cell of rest, from col on, is blank or, when
-// ghostFaint, drawn faint: anything else is a draft the cursor sits before.
 func restIsGhost(rest string, col int, faint []bool, ghostFaint bool) bool {
 	for g := uniseg.NewGraphemes(rest); g.Next(); col += g.Width() {
 		if strings.TrimSpace(g.Str()) == "" {
@@ -85,7 +79,6 @@ func restIsGhost(rest string, col int, faint []bool, ghostFaint bool) bool {
 	return true
 }
 
-// isKeyControl covers C0, DEL and C1: a terminal may read U+0080-U+009F as a control.
 func isKeyControl(r rune) bool { return r != '\n' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) }
 
 func (a *agent) PromptTypeWrites(text string) ([][]byte, bool) {
@@ -96,7 +89,6 @@ func (a *agent) PromptTypeWrites(text string) ([][]byte, bool) {
 	var writes [][]byte
 	for rest := text; rest != ""; {
 		n := min(typing.ChunkBytes, len(rest))
-		// Cut on a rune boundary: a split rune would reach the CLI as two garbled keys.
 		for n > 1 && n < len(rest) && !utf8.RuneStart(rest[n]) {
 			n--
 		}

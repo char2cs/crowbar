@@ -1,5 +1,3 @@
-//! Staging, syncing and renaming through the operating system.
-
 use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind, Result, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -8,11 +6,6 @@ use std::path::{Path, PathBuf};
 const PRIVATE_MODE: u32 = 0o600;
 const STAGING_SUFFIX: &str = ".tmp";
 
-/// Replaces the file at `path` with `bytes`, creating its directory. The file is owner-only
-/// (mode 0600); readers see the old content or the new, never a mix.
-///
-/// # Errors
-/// The first I/O failure; a staged file left by a failed write is removed.
 pub fn write(
     path: &Path,
     bytes: &[u8],

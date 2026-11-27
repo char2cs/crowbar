@@ -1,5 +1,3 @@
-//! The rows of one entity kind, each with the version that wrote it.
-
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]

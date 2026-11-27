@@ -26,8 +26,6 @@ func TestRefusedResume_NeedsTheExitCodeAndTheLine(t *testing.T) {
 	assert.False(t, refused, "a descriptor declaring no refusal never refuses")
 }
 
-// The exit screen holds terminal rows, trimmed of trailing blanks: a refusal the
-// terminal wrapped, mid-word or on a space, is still the refusal.
 func TestRefusedResume_ALineWrappedAcrossRowsIsStillTheRefusal(t *testing.T) {
 	claude := get(t, "claude")
 	want := "No conversation found with session ID: abc"
@@ -61,7 +59,6 @@ func TestSessionAssignArg_IsClaudesAlone(t *testing.T) {
 	assert.False(t, ok, "codex announces its own thread id")
 }
 
-// Only a descriptor whose session calls name {relay_id} keeps an identity for the session.
 func TestSessionPinsRelay_IsWhatTheSessionCallsName(t *testing.T) {
 	assert.True(t, get(t, "hermes").SessionPinsRelay())
 	assert.False(t, get(t, "codex").SessionPinsRelay())
@@ -69,8 +66,6 @@ func TestSessionPinsRelay_IsWhatTheSessionCallsName(t *testing.T) {
 	assert.False(t, stubAgent(t, "sh").SessionPinsRelay())
 }
 
-// codex writes no rollout until a turn completes; claude writes its session
-// as soon as a turn starts.
 func TestSessionPersists_IsWhenTheCLIHasWrittenItsSession(t *testing.T) {
 	assert.Equal(t, "turn_end", get(t, "codex").SessionPersists())
 	assert.Equal(t, "turn_start", get(t, "claude").SessionPersists())

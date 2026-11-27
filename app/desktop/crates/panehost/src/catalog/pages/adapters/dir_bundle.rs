@@ -4,7 +4,6 @@ use crate::catalog::pages::bundle_asset::BundleAsset;
 use crate::catalog::pages::bundle_source::BundleSource;
 use crate::catalog::pages::mime::mime_for;
 
-/// Serves a bundle from a directory. Paths that would leave the directory are not found.
 #[derive(Debug, Clone)]
 pub struct DirBundle {
     root: PathBuf,
@@ -18,7 +17,6 @@ fn index_for(path: &str) -> String {
 }
 
 impl DirBundle {
-    /// A bundle rooted at `root`.
     #[must_use]
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }

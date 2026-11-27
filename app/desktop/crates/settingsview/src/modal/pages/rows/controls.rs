@@ -1,5 +1,3 @@
-//! Draws the control of a row.
-
 mod button;
 mod field;
 mod number;

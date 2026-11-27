@@ -1,7 +1,3 @@
-//! Why the transport could not probe, pair or unpair a host.
-
-/// The transport's own failure, kept as its source; its text is what the pairing dialog turns
-/// into words.
 #[derive(Debug, thiserror::Error)]
 #[error("{source}")]
 pub struct BookError {
@@ -10,7 +6,6 @@ pub struct BookError {
 }
 
 impl BookError {
-    /// Wraps the transport's failure.
     pub fn new(source: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self {
             source: Box::new(source),

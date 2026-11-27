@@ -13,12 +13,6 @@ use crate::wait::pending_forget::PendingForget;
 use crate::wait::pending_reply::PendingReply;
 use crate::wait::reply_scope::{ReplyScope, merged};
 
-/// The requests that wait for an answer, shared by the loop that serves the daemon and the shell
-/// that does the work.
-///
-/// Each wait names who may end it: the shell always, a page only for its own pane, so a page
-/// cannot answer for another tab. A navigation waits for the load that follows it, never for
-/// one that was already running.
 #[derive(Debug, Default)]
 pub struct Replies {
     pending: Mutex<BTreeMap<String, PendingReply>>,
@@ -26,10 +20,6 @@ pub struct Replies {
 }
 
 impl Replies {
-    /// Starts waiting for request `id`. A request registered under the same id before is
-    /// replaced: the daemon numbers its requests again after a restart, so an id may come back.
-    /// `pane` is the tab the request is about, when it has one;
-    /// the page of that pane may answer too.
     #[must_use]
     pub fn register(
         self: &Arc<Self>,
@@ -54,7 +44,6 @@ impl Replies {
         )
     }
 
-    /// Whether request `id` is still waiting for an answer.
     pub fn is_waiting(
         &self,
         id: &str,
@@ -62,8 +51,6 @@ impl Replies {
         self.lock().contains_key(id)
     }
 
-    /// The shell answers request `id`: [`Delivery::NotWaiting`] when nobody waits for it any
-    /// more.
     pub fn complete(
         &self,
         id: &str,
@@ -75,8 +62,6 @@ impl Replies {
         pending.deliver(answer)
     }
 
-    /// The page of `pane` answers request `id`. [`Delivery::Refused`], with the wait left
-    /// running, when the request is about another pane or is not waiting for a page.
     pub fn from_page(
         &self,
         pane: &str,
@@ -97,7 +82,6 @@ impl Replies {
         entry.deliver(answer)
     }
 
-    /// Request `id` is answered with `result` once `pane` has navigated and finished loading.
     pub fn after_load(
         &self,
         id: &str,
@@ -116,8 +100,6 @@ impl Replies {
         Arming::Armed
     }
 
-    /// Fails the requests that wait for the load of a pane `is_open` no longer knows, so they
-    /// do not wait for a load that cannot come.
     pub fn abandon_loads(
         &self,
         is_open: impl Fn(&str) -> bool,
@@ -146,8 +128,6 @@ impl Replies {
         tracing::debug!(?delivery, id, "a navigation lost its pane");
     }
 
-    /// `pane` started loading a page: the requests waiting for its next load end now wait for
-    /// this one.
     pub fn loading(
         &self,
         pane: &str,
@@ -157,8 +137,6 @@ impl Replies {
         }
     }
 
-    /// `pane` finished loading and shows `page`: answers the requests that waited for this
-    /// load with their result and, when both are objects, the fields of `page` added to it.
     pub fn loaded(
         &self,
         pane: &str,

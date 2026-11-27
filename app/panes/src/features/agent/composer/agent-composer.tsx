@@ -45,25 +45,19 @@ import { cn } from '@/lib/utils'
 interface AgentComposerProps {
   wsId: string
   chatId: string
-  /** The asks still pending, oldest first. */
   asks: AskItem[]
   providerLabel: string
   live: boolean
-  /** The chat's host does not answer: the bar is a read-only signpost. */
   offline?: boolean
   working: boolean
   compacting: boolean
-  /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
-  /** Why the chat's feed failed, while it has. */
   feedError?: string
   canStop: boolean
 
-  /** The blank chat's document, or the dock under a conversation: one editor either way. */
   placement: 'document' | 'dock'
-  /** The box itself, for the caller to read on send and load text into. */
   editorRef: RefObject<ChatMarkdownEditorHandle | null>
   slashOpen: boolean
   onShapeChange: (shape: ComposerShape, edited: boolean) => void
@@ -76,19 +70,13 @@ interface AgentComposerProps {
   onSend: () => void
   onStop: () => void
   onOpenTerminal: () => void
-  /** The document's selection chips, left of its send button. */
   controls?: ReactNode
-  /** The document's reason it cannot be typed into yet, in place of its controls. */
   banner?: ReactNode
   headerClearancePx?: number
   documentRef?: Ref<AgentEmptyDocumentHandle>
-  /** Where the Excalidraw takeover portals to, so `inset-0` covers the chat pane: inline, the
-   *  absolutely positioned `.dock` would be its containing block. Undefined renders inline. */
   takeoverContainer?: HTMLElement | null
 }
 
-// The bar: one 38px slot with one occupant from `resolveComposerState`. An input when you can
-// talk; otherwise the question, the permission, or the reason you cannot, never a dead input.
 export function AgentComposer(props: AgentComposerProps) {
   const [modal, setModal] = useState<'excalidraw' | 'attach-file' | null>(null)
   const [excalidrawInitialScene, setExcalidrawInitialScene] = useState<
@@ -99,7 +87,6 @@ export function AgentComposer(props: AgentComposerProps) {
   const docRef = useRef<HTMLDivElement>(null)
   const [dropTarget, setDropTarget] = useState(false)
   const [fieldHeight, setFieldHeight] = useState(20)
-  // Only the box's emptiness re-renders the bar; the text itself stays in the editor.
   const [empty, setEmpty] = useState(true)
   const { onShapeChange } = props
   const handleShape = useCallback(
@@ -133,8 +120,6 @@ export function AgentComposer(props: AgentComposerProps) {
     clearExcalidrawEditRequest(props.chatId)
   }, [pendingExcalidrawEdit, props.chatId])
 
-  // Upload, CSV inlining and the failure toast live in this one shared hook;
-  // `void uploadAndInsert(...)` below is safe because the hook catches.
   const { uploadAndInsert } = useAttachmentUpload(
     props.wsId,
     props.chatId,
@@ -143,7 +128,6 @@ export function AgentComposer(props: AgentComposerProps) {
     settlePendingImage,
   )
 
-  // Memoized: the Tauri drop hook re-subscribes over IPC whenever its handler changes.
   const handleTauriDrop = useCallback(
     (paths: string[]) => {
       setDropTarget(false)
@@ -165,8 +149,6 @@ export function AgentComposer(props: AgentComposerProps) {
     if (!related || !e.currentTarget.contains(related)) setDropTarget(false)
   }, [])
 
-  // Plain-browser (non-Tauri dev) fallback: a real DataTransfer.files DOES
-  // carry usable File bytes here, though never a host path.
   const handlePillDrop = useCallback(
     (e: DragEvent) => {
       setDropTarget(false)
@@ -181,7 +163,6 @@ export function AgentComposer(props: AgentComposerProps) {
     for (const file of files) void uploadAndInsert({ file })
   }
 
-  // The chord the plus menu's first row advertises.
   const handlePillKeyDown = (e: KeyboardEvent) => {
     if (!isAttachShortcut(e)) return
     e.preventDefault()
@@ -204,11 +185,8 @@ export function AgentComposer(props: AgentComposerProps) {
     feedError: props.feedError,
   })
   const document = props.placement === 'document'
-  // The document always takes the first prompt; its banner says why it waits.
   const input = document || acceptsTyping(state)
 
-  // A card that held the bar takes focus with it when it goes; hand it back to the
-  // box, but never take it from wherever the person has since moved it.
   const wasInput = useRef(input)
   useEffect(() => {
     const returned = input && !wasInput.current
@@ -217,7 +195,6 @@ export function AgentComposer(props: AgentComposerProps) {
     if (returned && (!active || active === window.document.body)) editorRef.current?.focus()
   }, [input, editorRef])
 
-  // A compaction is only a visual: the box invites a prompt as usual, and the footer says it compacts.
   const placeholder = document
     ? 'Describe the change…'
     : props.working || props.sending
@@ -247,8 +224,6 @@ export function AgentComposer(props: AgentComposerProps) {
     />
   )
 
-  // One tree for every placement and state, so the editor never remounts: an
-  // occupant hides the box instead of replacing it, and keeps what was typed.
   return (
     <>
       {!input && (
@@ -346,7 +321,6 @@ interface ComposerOccupantProps {
   onStop?: () => void
 }
 
-/** What holds the bar when it is not an input: the question, or why not. */
 function ComposerOccupant({ state, ...props }: ComposerOccupantProps) {
   const answerTerminalWait = useAnswerTerminalWait(props.wsId, props.chatId)
   switch (state.kind) {

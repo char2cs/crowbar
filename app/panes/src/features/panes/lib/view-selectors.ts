@@ -2,7 +2,6 @@ import type { PaneGroup, ViewRecord } from '@/features/panes/types/pane'
 
 const chatIndexCache = new WeakMap<Record<string, PaneGroup>, Map<string, string>>()
 
-/** chatId → the pane holding it, memoized on the `panes` map's identity. */
 export function chatPaneIndex(panes: Record<string, PaneGroup>): Map<string, string> {
   const cached = chatIndexCache.get(panes)
   if (cached) return cached
@@ -25,8 +24,6 @@ const bandCache = new WeakMap<
   Map<string, { order: string[]; ids: string[] }>
 >()
 
-/** `projectId`'s band rows (record ids in viewOrder), memoized and returning the previous array
- *  when unchanged, so subscribers re-render only when rows come, go or move. */
 export function selectProjectViewIds(state: BandInput, projectId: string): string[] {
   let perProject = bandCache.get(state.views)
   if (!perProject) {
@@ -47,13 +44,11 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, i) => id === b[i])
 }
 
-/** Nothing in it at all — no chat, no editor tabs. */
 export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | undefined): boolean {
   if (!pane) return false
   return pane.chatId === null && pane.editorTabIds.length === 0
 }
 
-/** Focus rests on a pane holding nothing — the empty stage — so no workspace is focused. */
 export function selectIsFocusedPaneEmpty(state: {
   activePaneId: string
   panes: Record<string, PaneGroup>

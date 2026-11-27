@@ -1,5 +1,3 @@
-// Shared control-width tokens for settings rows. Kept in a plain module (not the
-// settings-section component file) so those component files stay Fast-Refresh-safe.
 export const SETTINGS_CONTROL_WIDTHS = {
   compact: 'w-28 max-w-full',
   default: 'w-36 max-w-full',

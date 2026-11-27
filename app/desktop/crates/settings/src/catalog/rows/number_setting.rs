@@ -1,5 +1,3 @@
-//! The bounds, step and default of a numeric setting, named as data.
-
 use crate::schema::Control;
 use crate::schema::ControlWidth;
 use crate::schema::NumberRange;

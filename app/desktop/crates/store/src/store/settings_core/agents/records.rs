@@ -1,5 +1,3 @@
-//! The Agents page's list, from the daemon's providers.
-
 use daemonapi::Switch;
 use serde_json::{Value, json};
 use settings::{Record, RecordFlag, Tone};

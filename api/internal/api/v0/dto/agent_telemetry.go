@@ -6,9 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// AgentTelemetryDTO is what the provider itself reported about cost and capacity.
-// Fields are pointers because "not reported" differs from zero: an unreported value
-// must draw no gauge, not 0%.
 type AgentTelemetryDTO struct {
 	ObservedAt time.Time              `json:"observedAt"`
 	Source     string                 `json:"source"`
@@ -18,8 +15,6 @@ type AgentTelemetryDTO struct {
 	Model      *AgentModelIdentityDTO `json:"model,omitempty"`
 }
 
-// AgentTelemetryDTOFrom maps the provider's usage report onto the wire — the one
-// conversion the GET and the pushed `telemetry` frame share.
 func AgentTelemetryDTOFrom(report agents.Telemetry) AgentTelemetryDTO {
 	out := AgentTelemetryDTO{ObservedAt: report.ObservedAt, Source: report.Source}
 	if c := report.Context; c != nil {

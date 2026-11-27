@@ -15,7 +15,6 @@ interface SettingSelectProps {
   placeholder?: string
 }
 
-/** A settings row's dropdown: its options, labelled as they are listed. */
 export function SettingSelect({
   options,
   value,

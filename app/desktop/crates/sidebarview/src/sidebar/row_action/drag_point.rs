@@ -1,5 +1,3 @@
-//! Where the pointer is over a target row while another row is dragged.
-
 use gpui::{Bounds, Pixels, Point};
 
 use sidebar::RowId;

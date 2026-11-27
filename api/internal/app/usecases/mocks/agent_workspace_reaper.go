@@ -6,9 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// AgentWorkspaceReaper fakes the chat tree's WorkspaceReaper seam. Reaped records torn-down ids in order
-// (deepest first is the contract); Err/ErrFor fail every/one reap; Roster is the census reaps remove from;
-// Risks answers WorkAtRisk, Consents records each delete's, Takes names the lineage descendants taken.
 type AgentWorkspaceReaper struct {
 	Takes    map[string][]string
 	Reaped   []string
@@ -19,14 +16,10 @@ type AgentWorkspaceReaper struct {
 	Consents []domain.DeleteConsent
 }
 
-// NewAgentWorkspaceReaper returns a reaper that tears everything down happily.
 func NewAgentWorkspaceReaper() *AgentWorkspaceReaper {
 	return &AgentWorkspaceReaper{ErrFor: map[string]error{}}
 }
 
-// NewAgentWorkspaceReaperOver returns a reaper that removes what it reaps from
-// roster, so "is it gone?" is a question about the census rather than about the
-// call log.
 func NewAgentWorkspaceReaperOver(
 	roster *AgentWorkspaceRoster,
 ) *AgentWorkspaceReaper {
@@ -60,7 +53,6 @@ func (s *AgentWorkspaceReaper) DeleteWorkspace(
 	return nil
 }
 
-// DeletionPlan answers the refusal DeleteWorkspace would, else what it takes.
 func (s *AgentWorkspaceReaper) DeletionPlan(
 	_ context.Context,
 	workspaceID string,

@@ -14,9 +14,6 @@ export interface ImportPlan {
   parentCount: number
 }
 
-// Mirrors the server import resolver's parenting for the dialog's hint: per selected branch, walks
-// the open-PR base chain counting ancestors that would be CREATED (not already imported, protected,
-// the default branch, or selected). Advisory; the server re-resolves on import.
 export function computeImportPlan(
   selected: string[],
   prLinks: PRLink[],
@@ -26,7 +23,6 @@ export function computeImportPlan(
   const base = new Map<string, string>()
   for (const l of prLinks) if (l.head && l.base) base.set(l.head, l.base)
 
-  // One pass builds both sets: a branch can be imported AND protected.
   const imported = new Set<string>()
   const protectedSet = new Set<string>()
   for (const b of branches) {
@@ -41,7 +37,7 @@ export function computeImportPlan(
     let cur = base.get(branch)
     while (cur && cur !== defaultBranch && !visited.has(cur)) {
       visited.add(cur)
-      if (imported.has(cur) || protectedSet.has(cur)) break // terminal, not created
+      if (imported.has(cur) || protectedSet.has(cur)) break
       if (!selectedSet.has(cur)) parents.add(cur)
       cur = base.get(cur)
     }

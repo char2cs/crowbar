@@ -71,7 +71,6 @@ afterEach(() => {
 })
 
 describe('MobileSidebarPage', () => {
-  // One touch scale for every kind of row, so a chat, a branch and a thread read alike.
   it('draws every row at the same height and title size', () => {
     render(<MobileSidebarPage />)
     push(snapshot)
@@ -80,7 +79,6 @@ describe('MobileSidebarPage', () => {
     expect(new Set(items.map((el) => el.style.fontSize))).toEqual(new Set(['16px']))
   })
 
-  // The desktop's repo header carries no branch line; only a workspace under it does.
   it('draws a repository header without its branch line', () => {
     render(<MobileSidebarPage />)
     push({
@@ -91,7 +89,6 @@ describe('MobileSidebarPage', () => {
     expect(screen.getByText('feature/pricing')).toBeInTheDocument()
   })
 
-  // One scale: a repo's logo, a branch's mark and a thread's are the same size.
   it('draws every row’s mark at one size', () => {
     render(<MobileSidebarPage />)
     push(snapshot)
@@ -212,7 +209,6 @@ describe('MobileSidebarPage', () => {
     )
   })
 
-  // Icons arrive as data: this page cannot reach the daemon their URLs point at.
   it('draws the project and repo icons it is handed', () => {
     const icon = 'data:image/png;base64,iVBORw=='
     render(<MobileSidebarPage />)
@@ -227,7 +223,6 @@ describe('MobileSidebarPage', () => {
     expect(images.length).toBe(2)
   })
 
-  // The phone chooses its host in Settings: the list has no host control, however many there are.
   it('has no host control, even with two hosts', () => {
     render(<MobileSidebarPage />)
     push({
@@ -243,12 +238,10 @@ describe('MobileSidebarPage', () => {
   describe('dragging a row', () => {
     const OPEN = { before: true, after: true, into: true }
     const SHUT = { before: false, after: false, into: false }
-    // The tree's row, not the lifted copy drawn while it is dragged.
     const rowEl = (label: string) =>
       screen.getAllByText(label)[0].closest<HTMLElement>('[role="treeitem"]')!
     const touch = (y: number) => ({ touches: [{ clientX: 40, clientY: y }] })
 
-    // Hold, then move: the main webview answers where the row may land, then carries out the drop.
     const dragOnto = (target: HTMLElement, y: number, targets: Record<string, typeof OPEN>) => {
       const held = rowEl('Ask about tax')
       fireEvent.touchStart(held, touch(10))
@@ -289,7 +282,6 @@ describe('MobileSidebarPage', () => {
       })
     })
 
-    // A finger held still is the menu's: the page asks the shell to show it, once, and drags nothing.
     it('asks the shell for the row’s menu when the finger is held still', () => {
       const rename = {
         id: 'rename',
@@ -381,7 +373,6 @@ describe('MobileSidebarPage', () => {
       expect(posted).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'rowMenu' }))
     })
 
-    // Opaque on every platform: --chrome-bg is only opaque on iOS, and the idle fill is translucent.
     it('lifts the held row onto the opaque control surface', () => {
       render(<MobileSidebarPage />)
       push(snapshot)
@@ -397,7 +388,6 @@ describe('MobileSidebarPage', () => {
       }
     })
 
-    // The lifted copy sits under the finger, so a hit test finds it first; the row beneath is the target.
     it('drops onto the row under the lifted copy, not onto the copy', () => {
       render(<MobileSidebarPage />)
       push(snapshot)
@@ -416,7 +406,6 @@ describe('MobileSidebarPage', () => {
       const lifted = document
         .querySelector('[data-drag-overlay]')!
         .querySelector<HTMLElement>('[data-sidebar-row-id]')!
-      // dnd-kit positions the copy inside a wrapper of its own, which is also over the finger.
       const wrapper = document.querySelector('[data-drag-overlay]')!.parentElement!
       document.elementsFromPoint = () => [wrapper, lifted, target]
       fireEvent.touchMove(held, touch(132))
@@ -426,7 +415,6 @@ describe('MobileSidebarPage', () => {
       )
     })
 
-    // Two chats under one workspace: the held one lands above or below its sibling.
     it.each([
       ['above', 104, 'before'],
       ['below', 136, 'after'],
@@ -449,7 +437,6 @@ describe('MobileSidebarPage', () => {
       fireEvent.touchStart(held, touch(300))
       act(() => vi.advanceTimersByTime(260))
       fireEvent.touchMove(held, touch(280))
-      // The finger reaches the sibling before the shell has answered, then rests there.
       fireEvent.touchMove(held, touch(finger))
       push({
         ...siblings,

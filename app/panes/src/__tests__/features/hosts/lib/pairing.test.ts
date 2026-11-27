@@ -46,8 +46,6 @@ describe('redeemPairingCode', () => {
   })
 })
 
-// Two rows for one daemon make every one of its projects ambiguous, so a second pairing of the
-// same host is refused. Addresses arrive canonical (normalizeEndpoint), as every saved one is.
 describe('alreadyPairedReason', () => {
   const homelab: Host = {
     id: 'h1',
@@ -69,7 +67,6 @@ describe('alreadyPairedReason', () => {
     )
   })
 
-  // This computer's own daemon is Local, reached over its socket: a second row would be it twice.
   it('this computer’s own daemon, however it is reached, is Local and never a second host', () => {
     expect(alreadyPairedReason([], '192.168.1.20:3737', 'SHA256:local', 'SHA256:local')).toBe(
       'This is this computer, already shown as Local. There is nothing to pair.',
@@ -90,7 +87,6 @@ describe('alreadyPairedReason', () => {
   })
 })
 
-// What the desktop shell rejects with, said as what to do next: never transport or OS words.
 describe('pairingFailureText', () => {
   const at = '1.2.3.4:3737'
   const WRONG_CODE =

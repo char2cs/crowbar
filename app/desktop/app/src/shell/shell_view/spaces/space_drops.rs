@@ -7,7 +7,6 @@ use crate::panes::tracking::open_chats::panes_showing;
 use crate::shell::shell_view::ShellView;
 use crate::shell::window::notice_key::NoticeKey;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/sidebar/lib/pane-drop-actions.ts
 const OTHER_SPACE: &str = "That chat belongs to a different space";
 
 impl ShellView {

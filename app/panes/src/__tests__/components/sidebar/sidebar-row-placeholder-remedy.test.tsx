@@ -9,15 +9,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), show: vi.fn() },
 }))
 
-/**
- * `placeholderReason` composes copy that names two remedies — "detach it to
- * let Crowbar manage this branch" and "Retry to provision it" — and the row
- * rendered neither control, so the user was told to Retry/Detach and given
- * nowhere to do either. The warning glyph carried no reason at all: an
- * `aria-label` reading "Branch needs provisioning" and nothing a sighted user
- * could hover.
- */
-
 const HELD_AT = '/Users/me/repro-data/repo-beta'
 
 const heldRow: SidebarRowType = {
@@ -65,8 +56,6 @@ describe('a branch row whose worktree is held by somebody else', () => {
     expect(controlsOf(heldRow)).toContain('detach')
   })
 
-  // Retry is coded to refuse a held branch (ErrBranchStillHeld), so offering
-  // it here would be a second dead promise, not a fix for the first.
   it('offers no Retry while a holder still has the branch', () => {
     expect(controlsOf(heldRow)).not.toContain('retry-provision')
   })
@@ -91,8 +80,6 @@ describe('a branch row whose worktree is held by somebody else', () => {
     })
   })
 
-  // The failed-provision row is the other half: no holder to detach, so the
-  // verb its copy names is Retry.
   it('offers Retry instead once there is no holder left', () => {
     const controls = controlsOf({
       ...heldRow,
@@ -130,8 +117,6 @@ describe('the glyph on a row with no worktree', () => {
     expect(warning?.querySelector('title')?.textContent).toContain(HELD_AT)
   })
 
-  // The own-checkout row draws the same Lock a managed protected branch does —
-  // the reason is the only thing that tells them apart, so it must be on it.
   it('titles the Lock it draws for the repo’s own checkout', () => {
     const { container } = render(
       <SidebarRow row={heldRow} depth={0} onOpen={vi.fn()} onCreate={vi.fn()} />,

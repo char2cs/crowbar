@@ -1,5 +1,3 @@
-//! The terminal as a GPUI view: grid painting, keyboard, mouse, IME, find bar and scrollbar.
-
 mod api;
 mod event;
 mod input;
@@ -38,7 +36,6 @@ use crate::terminal_view::paint::view_layout::ViewLayout;
 
 const NOTICE_BACKDROP_ALPHA: f32 = 0.8;
 
-/// A terminal attached to a daemon PTY through a [`daemon::Link`].
 pub struct TerminalView {
     pub(crate) terminal: Terminal,
     pub(crate) outbound: Sender<ClientMessage>,
@@ -92,7 +89,6 @@ impl Focusable for TerminalView {
 }
 
 impl TerminalView {
-    /// A terminal reading frames from `link` and writing input, size and theme to it.
     pub fn new(
         link: daemon::Link,
         settings: Settings,

@@ -33,15 +33,6 @@ use crate::transport::{open_channel, send};
 
 const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Redeems the one-time code at the host, trusting only the confirmed fingerprint's certificate,
-/// keeps the token in `tokens` and registers the host. On any failure nothing is left behind: the
-/// registry is restored, no credential is stored, and the token is revoked on the host. Resolves
-/// to the daemon's id for this client, which a server-side revoke (`DELETE /v0/clients/:id`)
-/// names.
-///
-/// # Errors
-/// Any pairing failure: a bad id or address, an unreachable or impostor host, a refused code, or
-/// a host list or keychain that cannot record the pairing ([`Error::NotRecorded`]).
 pub async fn pair_remote_host(
     registry: &Arc<HostRegistry>,
     tokens: &Arc<dyn TokenStore>,
@@ -240,7 +231,6 @@ mod tests {
         }
     }
 
-    /// (status, body, verdict)
     const CASES: [(u16, &str, &str); 6] = [
         (
             200,

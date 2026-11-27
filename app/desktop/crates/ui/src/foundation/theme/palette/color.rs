@@ -1,5 +1,3 @@
-//! Colour construction from the literals of the spec.
-
 use gpui::Rgba;
 
 const BYTE_MASK: u32 = 0xff;

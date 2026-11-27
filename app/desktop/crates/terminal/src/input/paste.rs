@@ -1,5 +1,3 @@
-//! Pasted text on its way to the program.
-
 use crate::input::paste_mode::PasteMode;
 
 const BRACKET_START: &str = "\x1b[200~";

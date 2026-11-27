@@ -25,13 +25,11 @@ import { legacyTreeIndex, type LegacyHome } from './legacy-tree-index'
 import { viewsFromStores, type ProblemLookup } from './views'
 import { createItemRefs, type TreeInput } from './rows'
 
-/** The store reads every project's input is built from. */
 interface Sources {
   repos: readonly Repo[]
   hidden: ReadonlySet<string>
   removals: readonly RemovalEntry[]
   homeTrees: Readonly<Record<string, HomeTree>>
-  /** A project's resolved home workspace and the chat that owns it. */
   homeOf: (projectId: string) => { workspaceId: string | null; owningChatId: string | null }
   operations: readonly Operation[]
   draft: CreateDraft | null
@@ -70,7 +68,6 @@ function inputFrom(src: Sources, projectId: string): TreeInput {
 
 const refKey = (ref: EntityRef): string => `${ref.kind}:${ref.id}`
 
-// An operation's items are rows of the host it ran on, named by raw id.
 function heldOn(s: EntityState, hostId: string | null, ref: EntityRef): boolean {
   return hostId !== null && holdsEntity(s, { ...ref, id: entityKey(hostId, ref.id) })
 }
@@ -80,8 +77,6 @@ const problemsIn =
   (...ids) =>
     newestProblem(failed, ids)
 
-/** One project's input as the stores hold it now, for an event handler: every repo it
- *  holds (or the ones the handler was handed), since a handler acts on rows already drawn. */
 export function treeInputFor(
   projectId: string,
   repos: readonly Repo[] = readSelect(selectRepos),
@@ -107,7 +102,6 @@ export function treeInputFor(
   )
 }
 
-/** Every project's input for a component, re-derived when a store it reads changes. */
 export function useTreeInput(): (projectId: string) => TreeInput {
   const repos = useSelect(selectRepos)
   const removals = useTreeUi((s) => s.removals)
@@ -116,14 +110,12 @@ export function useTreeInput(): (projectId: string) => TreeInput {
   const homes = useHomeWorkspaceStates()
   const ops = useOperations((s) => s.ops)
   const draft = useTreeUi((s) => s.draft)
-  // Shallow: rows re-derive only when some failure changes, not on every frame.
   const failed = useOperations(useShallow(selectFailedOps))
   const operations = useMemo(() => Object.values(ops), [ops])
   const refs = useMemo(
     () => operations.map((op) => ({ op, refs: createItemRefs([op]) })),
     [operations],
   )
-  // The held refs as one key: the input re-derives when one lands or leaves, not on every frame.
   const presentKey = useSyncExternalStore(entityStore.subscribe, () => {
     const s = entityStore.getState()
     const { hostOf } = operationsState()

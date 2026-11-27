@@ -1,5 +1,3 @@
-//! The shell's file choosers on macOS, which gpui opens itself.
-
 use crate::backend::desktop::file_choosing::{ChosenFiles, FileChoosing};
 use crate::backend::native::macos::appkit_platform::AppkitPlatform;
 use crate::chooser::FileChoice;

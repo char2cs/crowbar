@@ -8,14 +8,11 @@ interface TakeBackDeps {
   wsId: string
   chatId: string
   working: boolean
-  /** Returns text to this chat's composer; false when the composer is gone. */
   putBackInComposer: (text: string) => boolean
   withdraw: () => Promise<string | null> | null
   retract: () => Promise<string | null> | null
 }
 
-/** Esc and Stop take a prompt back: its text returns to this chat's composer, or to the
- *  chat's stashes once that composer is gone. */
 export function usePromptTakeBack({
   wsId,
   chatId,

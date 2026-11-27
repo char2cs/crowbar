@@ -1,6 +1,3 @@
-//! Shows a passive layer, opening its owner's pop-up window, a stock window that never takes
-//! the keyboard, on first use.
-
 use gpui::{
     App, AppContext as _, Bounds, Entity, EntityId, Pixels, WindowBackgroundAppearance,
     WindowBounds, WindowDecorations, WindowKind, WindowOptions,

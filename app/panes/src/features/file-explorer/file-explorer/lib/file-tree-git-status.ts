@@ -5,7 +5,6 @@ import { getRelativePath } from '@/utils/path-helpers'
 export interface FileTreeGitStatusDecoration {
   colorClassName: string
   label: string
-  /** Single trailing letter shown after the filename (M / A / U / D / R). */
   statusLetter: string
 }
 

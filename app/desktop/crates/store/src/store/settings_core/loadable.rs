@@ -1,5 +1,3 @@
-//! A list the daemon is asked for: still loading, failed, or read.
-
 use settings::{Record, Records};
 
 #[derive(Debug, Clone)]

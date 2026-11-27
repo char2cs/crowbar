@@ -15,8 +15,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// rebindWorld is one repo with a default checkout ws-a holding thread c1 and
-// its child c2, and a branch b owning ws-b.
 func rebindWorld(t *testing.T) (*mocks.AgentChatPlacements, tree.Usecase) {
 	t.Helper()
 	chats, _, _, gitStatus, uc := newWorkspacePlacementUsecase(t)
@@ -118,8 +116,6 @@ func TestResumeMoves_RunsWhatAPreviousDaemonLeftAskedFor(t *testing.T) {
 	assert.Equal(t, "ws-b", rowOf(chats, "c2").WorkspaceID)
 }
 
-// A thread's parent can live only in the placement tree (its Node), not on its row:
-// it still follows the thread made a branch.
 func TestBranchOut_AThreadPlacedOnlyByItsNodeFollowsToo(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,
@@ -135,8 +131,6 @@ func TestBranchOut_AThreadPlacedOnlyByItsNodeFollowsToo(t *testing.T) {
 	assert.Equal(t, "ws-cut", rowOf(chats, "c2").WorkspaceID)
 }
 
-// A daemon on its way down runs no move: its stores are closing, and the move
-// must stay asked for so the next boot makes it, not fail it.
 func TestStopMoves_ADaemonShuttingDownLeavesTheMoveForTheNextBoot(t *testing.T) {
 	chats, uc := rebindWorld(t)
 	chats.SetBusy("c1", true)
@@ -154,8 +148,6 @@ func TestStopMoves_ADaemonShuttingDownLeavesTheMoveForTheNextBoot(t *testing.T) 
 	assert.Equal(t, "ws-a", rowOf(chats, "c1").WorkspaceID)
 }
 
-// The container a thread lands in decides where it runs: one inside branch b runs in b's
-// workspace, so a drop naming another workspace is refused, not half-made.
 func TestMoveChat_RefusesAContainerOfAnotherWorkspace(t *testing.T) {
 	chats, uc := rebindWorld(t)
 	chats.Rows = append(chats.Rows,
@@ -170,8 +162,6 @@ func TestMoveChat_RefusesAContainerOfAnotherWorkspace(t *testing.T) {
 	assert.Empty(t, waiting)
 }
 
-// A move still waiting for its turn boundary can be withdrawn; the thread then
-// stays where it was when the boundary arrives.
 func TestCancelMove_AWithdrawnMoveNeverRuns(t *testing.T) {
 	chats, uc := rebindWorld(t)
 	chats.SetBusy("c1", true)

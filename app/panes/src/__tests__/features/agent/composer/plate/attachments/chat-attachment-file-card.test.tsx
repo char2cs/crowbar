@@ -26,10 +26,6 @@ describe('chat attachment file card', () => {
         <MarkdownMessageStatic>{'[docs](https://example.com)'}</MarkdownMessageStatic>
       </ChatMarkdownAssetProvider>,
     )
-    // `sanitizeUrl` normalizes a valid absolute URL through `new URL(...).href`
-    // (adding the trailing slash) — same reason the pre-existing
-    // markdown-message-static.test.tsx link assertion uses `toContain`
-    // rather than an exact match.
     const anchor = screen.getByText('docs').closest('a')
     expect(anchor?.getAttribute('href')).toContain('example.com')
     expect(anchor?.className).not.toContain('chat-attachment-file-card')
@@ -56,14 +52,8 @@ describe('chat attachment file card', () => {
     expect(screen.getByText('report.pdf')).toBeInTheDocument()
     expect(container.querySelector('svg')).not.toBeNull()
     await waitFor(() => expect(screen.getByText('2.00 KB')).toBeInTheDocument())
-    // Settled/read-only — no drag handle, unlike the interactive renderer's
-    // card (see the 'renders a drag handle alongside the file card' test
-    // below).
     expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
 
-    // The card itself is the link — clicking it must not throw (same
-    // handleMarkdownAnchorClick path the ordinary LinkElement uses), and a
-    // hover must not bubble past the card either.
     const anchor = screen.getByText('report.pdf').closest('a')
     expect(anchor).toHaveAttribute(
       'href',
@@ -82,7 +72,6 @@ describe('chat attachment file card', () => {
     [10240, '10.0 KB'],
     [1024 ** 2, '1.00 MB'],
     [1024 ** 3, '1.00 GB'],
-    // TB is the last unit: larger sizes keep counting in it rather than reading past the table.
     [1024 ** 5, '1024.0 TB'],
   ])('labels a %i byte attachment %s', async (bytes, label) => {
     vi.stubGlobal(
@@ -112,11 +101,6 @@ describe('chat attachment file card', () => {
         {'[report.pdf](chats/c1/attachments/report.pdf)'}
       </MarkdownMessageStatic>,
     )
-    // A bare `chats/...` ref has no leading `/` and no URL scheme, so
-    // `sanitizeUrl` (platejs' own link-attribute helper, unrelated to this
-    // task) rejects it and LinkElement renders no `href` — same as it always
-    // did for this ref shape. What matters here is that the FILE CARD never
-    // renders without an asset context: no icon, no card wrapper, no size.
     const anchor = screen.getByText('report.pdf').closest('a')
     expect(anchor).not.toBeNull()
     expect(anchor?.className).not.toContain('chat-attachment-file-card')
@@ -136,7 +120,6 @@ describe('chat attachment file card', () => {
 
     const anchor = await screen.findByText('report.pdf')
     expect(anchor).toBeInTheDocument()
-    // Give the rejected fetch a tick to settle before asserting absence.
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
     expect(screen.queryByText(/KB|MB|GB|bytes/)).toBeNull()
 
@@ -144,9 +127,6 @@ describe('chat attachment file card', () => {
   })
 
   it('renders without a working href when the workspace scope cannot be resolved, without crashing', async () => {
-    // asset.wsId is set by the provider regardless of whether that wsId's
-    // project/repo scope was ever recorded — chatAttachmentUrl (and thus the
-    // metadata HEAD request) then has no URL to build against.
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
@@ -166,11 +146,6 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // Interactive-only: a drag handle only makes sense where the block is
-  // actually editable (the composer, and the interactive/streaming
-  // transcript — `MarkdownMessage`, registered on `chatComposerPlugins`),
-  // never on settled read-only history (`MarkdownMessageStatic`, above —
-  // none of which grew a handle). Rendered under the real `DndScope`.
   it('renders a drag handle alongside the file card, and still behaves as a plain link', async () => {
     vi.stubGlobal(
       'fetch',
@@ -191,29 +166,19 @@ describe('chat attachment file card', () => {
     const handle = screen.getByRole('button', { name: /reorder this attachment/i })
     expect(handle).toBeInTheDocument()
 
-    // Review finding 2: nesting the handle <button> inside the card's <a>
-    // is invalid HTML5 (interactive content inside interactive content) and
-    // an accessibility smell — the button must be a SIBLING of the anchor,
-    // never a descendant of it.
     const anchor = screen.getByText('report.pdf').closest('a')
     expect(anchor).not.toBeNull()
     expect(anchor?.contains(handle)).toBe(false)
     expect(handle.closest('a')).toBeNull()
 
-    // Same click/hover behaviour as the static card's own assertions above —
-    // the drag handle is additive, it doesn't change what the card itself does.
     await waitFor(() => expect(screen.getByText('10 bytes')).toBeInTheDocument())
     expect(() => fireEvent.click(anchor!)).not.toThrow()
     expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()
-    // The two controls work independently: clicking the handle must not
-    // navigate the anchor (no onClick wired to it beyond onSelect, which
-    // this render doesn't pass), and must not throw either.
     expect(() => fireEvent.click(handle)).not.toThrow()
 
     vi.unstubAllGlobals()
   })
 
-  // The filename references an uploaded file, not prose to edit, so no caret may enter it.
   it('marks the filename non-editable, so a caret cannot enter it', () => {
     render(
       <DndScope>
@@ -226,7 +191,6 @@ describe('chat attachment file card', () => {
     expect(label.closest('[contenteditable]')?.getAttribute('contenteditable')).toBe('false')
   })
 
-  // Each attachment has a delete button beside its file card.
   it('renders a delete button alongside the file card, which removes the attachment on click', async () => {
     vi.stubGlobal(
       'fetch',
@@ -254,9 +218,6 @@ describe('chat attachment file card', () => {
     vi.unstubAllGlobals()
   })
 
-  // WKWebView treats mousedown+move inside editable content as text selection before a drag can
-  // start, so the handle needs its own contenteditable="false" island. The harness's Slate root is
-  // already read-only, hence asserting a wrapper CLOSER than the editor root.
   it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', async () => {
     vi.stubGlobal(
       'fetch',
@@ -315,16 +276,12 @@ describe('chat attachment file card', () => {
     unmount()
     resolveFetch(new Response(null, { status: 200, headers: { 'content-length': '999' } }))
 
-    // The effect's `cancelled` guard must keep this a no-op — resolving after
-    // unmount must not throw or reject.
     await expect(pending).resolves.toBeInstanceOf(Response)
 
     vi.unstubAllGlobals()
   })
 })
 
-// The card builds its href while rendering, through the host-aware chat base,
-// which throws until the workspace's host is known.
 describe('chat attachment file card on a remote host', () => {
   const pairHost = () => pairRemoteHost('host-1')
   const projectOn = (hostId: string) => remoteProject('p1', hostId)

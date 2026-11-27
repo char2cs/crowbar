@@ -1,5 +1,3 @@
-//! The pinned identity of a remote host: fingerprints, pins and verifiers.
-
 mod config;
 mod fingerprint;
 mod pin;

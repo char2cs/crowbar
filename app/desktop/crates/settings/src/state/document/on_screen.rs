@@ -1,5 +1,3 @@
-//! Reading the values on screen: switches, field text, drafts and what can be reset.
-
 use crate::schema::Control;
 use crate::schema::Issue;
 use crate::schema::Row;
@@ -8,7 +6,6 @@ use crate::state::State;
 use crate::values::Value;
 
 impl State {
-    /// Whether the switch of `row` shows as on.
     pub fn switch_on(
         &self,
         row: &Row,
@@ -22,7 +19,6 @@ impl State {
         stored != inverted
     }
 
-    /// The text of the field `row`: the draft being typed, or the stored value.
     pub fn field_text(
         &self,
         row: &Row,
@@ -30,7 +26,6 @@ impl State {
         self.document.text(row)
     }
 
-    /// The problem with what is typed in `row`, if any.
     pub fn issue(
         &self,
         row: &Row,
@@ -39,7 +34,6 @@ impl State {
         row.control.issue(&text)
     }
 
-    /// Whether the field of `row` holds typing that is not stored yet.
     pub fn is_dirty(
         &self,
         row: &Row,
@@ -47,7 +41,6 @@ impl State {
         self.document.is_dirty(row)
     }
 
-    /// Whether `row` shows its reset icon: it has a default and holds something else.
     pub fn resettable(
         &self,
         row: &Row,

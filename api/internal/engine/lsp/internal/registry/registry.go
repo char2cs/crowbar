@@ -1,27 +1,16 @@
-// Package registry maps file extensions to language-server commands, with defaults for
-// Go, TypeScript/JavaScript, Python, Java and C/C++ that caller overrides replace or extend.
 package registry
 
 import "path/filepath"
 
-// ServerSpec describes how to launch a language server.
 type ServerSpec struct {
-	// Command is the executable name (looked up on PATH).
-	Command string
-	// Args are extra command-line arguments passed to the server.
-	Args []string
-	// LanguageID is the LSP language identifier sent in textDocument items.
-	LanguageID string
-	// Extensions lists the file extensions this spec handles (e.g. ".go").
-	Extensions []string
-	// InitializationOptions is sent in the initialize handshake (nil: none).
+	Command               string
+	Args                  []string
+	LanguageID            string
+	Extensions            []string
 	InitializationOptions map[string]any
 }
 
-// Registry resolves a file path to the ServerSpec that handles it.
 type Registry interface {
-	// ForFile returns the ServerSpec for the given file path and true, or the
-	// zero ServerSpec and false if no server handles the extension.
 	ForFile(path string) (ServerSpec, bool)
 }
 
@@ -29,9 +18,6 @@ type registry struct {
 	index map[string]ServerSpec
 }
 
-// New returns a Registry populated with built-in defaults, with any entries in
-// overrides applied on top. An override keyed by extension (e.g. ".go")
-// replaces the default for that extension; unknown keys extend the registry.
 func New(
 	overrides map[string]ServerSpec,
 ) Registry {
@@ -51,13 +37,11 @@ func (r *registry) ForFile(
 	return spec, ok
 }
 
-// buildDefaults constructs the built-in extension→ServerSpec map.
 func buildDefaults() map[string]ServerSpec {
 	goSpec := ServerSpec{
-		Command:    "gopls",
-		LanguageID: "go",
-		Extensions: []string{".go"},
-		// gopls computes semantic tokens only when asked to (off by default).
+		Command:               "gopls",
+		LanguageID:            "go",
+		Extensions:            []string{".go"},
 		InitializationOptions: map[string]any{"semanticTokens": true},
 	}
 	tsSpec := ServerSpec{
@@ -94,8 +78,6 @@ func buildDefaults() map[string]ServerSpec {
 	return index
 }
 
-// applyOverrides writes each override into index, keyed by its Extensions
-// list. If Extensions is empty, the override is keyed by the map key itself.
 func applyOverrides(
 	index map[string]ServerSpec,
 	overrides map[string]ServerSpec,

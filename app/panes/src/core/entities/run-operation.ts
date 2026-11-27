@@ -10,8 +10,6 @@ import {
   type OperationItem,
 } from '@/core/entities/operations'
 
-/** What a request that starts an operation answers: the daemon's operation
- *  (202), or the items it created inside the request. */
 export type OperationReply = { operation: Operation } | { items: OperationItem[] }
 
 export interface OperationStart {
@@ -22,7 +20,6 @@ export interface OperationStart {
   items?: OperationItem[]
 }
 
-/** The header that carries an operation's client-minted id. */
 export function operationHeaders(opId: string): Record<string, string> {
   return { 'Idempotency-Key': opId }
 }
@@ -33,7 +30,6 @@ function settleLocal(id: string, change: Partial<Operation>): void {
   putLocalOperation({ ...held, ...change, updatedAt: new Date().toISOString() })
 }
 
-/** Records the operation locally at once, then sends it under its id. */
 export function runOperation(
   start: OperationStart,
   send: (opId: string) => Promise<OperationReply | undefined>,
@@ -61,7 +57,6 @@ export function runOperation(
   return local
 }
 
-/** The kind of entity an operation of `kind` creates, whose arrival it waits for. */
 function failureOf(op: Operation): Problem {
   return (
     op.error ??
@@ -72,9 +67,6 @@ function failureOf(op: Operation): Problem {
   )
 }
 
-/** Resolves once the operation succeeded, which the daemon sends after the entities it
- *  wrote on the same scope; rejects with its reason when it failed. No timeout: each
- *  outcome is a fact the daemon sends. */
 export function whenSettled(opId: string): Promise<Operation> {
   return new Promise((resolve, reject) => {
     const stops: (() => void)[] = []
@@ -97,7 +89,6 @@ export function whenSettled(opId: string): Promise<Operation> {
   })
 }
 
-/** Clears a settled operation's reason; the daemon that streamed it records the dismissal. */
 export async function dismissOperation(opId: string): Promise<void> {
   const { ops, hostOf } = operationsState()
   const held = ops[opId]

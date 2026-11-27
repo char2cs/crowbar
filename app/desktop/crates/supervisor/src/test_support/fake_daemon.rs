@@ -6,13 +6,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 
 use crate::health::client::dial::Dial;
 
-/// What the fake daemon answers to the nth dial's request for a path: a status (0 hangs up
-/// without answering) and a body.
 type Answer = Arc<dyn Fn(usize, &str) -> (u16, String) + Send + Sync>;
 type Refusal = Box<dyn Fn(usize) -> Option<std::io::Error> + Send + Sync>;
 
-/// A daemon in memory: each dial gets an in-process connection that serves one HTTP exchange,
-/// and a dial can be made to fail with any OS error. Dials are counted from 0.
 pub(crate) struct FakeDaemon {
     answer: Answer,
     refuse: Refusal,

@@ -45,7 +45,6 @@ func (v chatSessionView) sessionIDs() []string {
 	return out
 }
 
-// argAfter is the argv entry following flag, "" when flag is absent.
 func argAfter(argv []string, flag string) string {
 	for i, arg := range argv {
 		if arg == flag && i+1 < len(argv) {
@@ -63,12 +62,10 @@ func postSessionHook(t *testing.T, l kit.Launch, hookBase, provider, event strin
 	require.Equal(t, http.StatusOK, resp.StatusCode, event)
 }
 
-// completeTurn posts one whole turn on session, as the CLI reports it.
 func completeTurn(t *testing.T, h *harness, l kit.Launch, hookBase, provider, session, prompt string) {
 	t.Helper()
 	postSessionHook(t, l, hookBase, provider, "session_start", map[string]any{"session_id": session, "source": "startup"})
 	postSessionHook(t, l, hookBase, provider, "user_prompt", map[string]any{"session_id": session, "prompt": prompt})
-	// As the CLI reports a reply live: streamed as a final delta, then its Stop.
 	postSessionHook(t, l, hookBase, provider, "message_delta", map[string]any{
 		"session_id": session, "turn_id": uuid.NewString(), "message_id": uuid.NewString(),
 		"index": 0, "final": true, "delta": "ok",
@@ -77,8 +74,6 @@ func completeTurn(t *testing.T, h *harness, l kit.Launch, hookBase, provider, se
 	h.QuiesceReactors()
 }
 
-// promptLaunch submits text, staged onto provider when it is not "", and
-// returns the launch that carries it.
 func promptLaunch(
 	t *testing.T, h *harness, imported importedRepo, fake kit.FakeProvider, chatID, text, provider string,
 ) kit.Launch {
@@ -102,7 +97,6 @@ func killAndAwaitExit(t *testing.T, h *harness, feed *sidebarFeed, chatID string
 	h.QuiesceReactors()
 }
 
-// untilExitedWith waits for chatID's last runner to have ended for reason.
 func untilExitedWith(t *testing.T, h *harness, chatID, reason string) {
 	t.Helper()
 	require.Eventually(t, func() bool { return exitReason(t, h, importedRepo{}, chatID) == reason },
@@ -202,7 +196,7 @@ func TestRegression_Symptom2_OnlyAnExplicitRefusalLosesTheSession(t *testing.T) 
 
 	fake.RefuseResume(t, s, "No conversation found with session ID: "+s)
 	requestID := uuid.NewString()
-	postPrompt(t, h, imported, chatID, "three", requestID) // the CLI may die before the spawn answers
+	postPrompt(t, h, imported, chatID, "three", requestID)
 	assert.False(t, untilSettled(t, h, chatID, requestID).Consumed, "a refused resume took no prompt")
 	untilExitedWith(t, h, chatID, "resume_failed")
 	view = readChatSession(t, h, imported, chatID)
@@ -244,9 +238,6 @@ func TestRegression_Symptom2_AnAnnouncedSessionChangeStaysOnTheChat(t *testing.T
 	assert.Equal(t, []string{s, s2}, ids[len(ids)-2:])
 }
 
-// A chat holding a conversation of its own never takes another chat's session
-// its CLI resumes: it keeps its binding and that CLI is ended, so nothing it
-// does goes unrecorded. A chat that holds nothing takes it (agent_runner_moves).
 func TestRegression_Symptom2_ASessionOwnedByAnotherChatIsNeverTaken(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -307,8 +298,6 @@ func TestRegression_Symptom2_SwitchingBackResumesTheProvidersOwnSession(t *testi
 	assert.Equal(t, s, argAfter(l3.Argv, "--resume"), "switching back resumes the provider's own session")
 }
 
-// dormantRefusingChat is a dormant chat bound to a session its CLI now refuses
-// to resume.
 func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo, spec kit.FakeSpec) (string, string, kit.FakeProvider) {
 	t.Helper()
 	fake := kit.InstallFakeProvider(t, h.home, spec)
@@ -321,7 +310,6 @@ func dormantRefusingChat(t *testing.T, h *harness, imported importedRepo, spec k
 	return chatID, s, fake
 }
 
-// answerOf is path's status and, for a failure, the problem code it carries.
 func answerOf(t *testing.T, h *harness, path string, body any) (int, string) {
 	t.Helper()
 	raw, err := json.Marshal(body)
@@ -339,9 +327,6 @@ func answerOf(t *testing.T, h *harness, path string, body any) (int, string) {
 	return resp.StatusCode, envelope.Code
 }
 
-// requireAnsweredAsLost holds for a launch whose CLI refuses its session: 200
-// when the launch answers before the CLI dies (the feed then says why), else
-// session_lost, never an uncertain delivery. The runner tests pin the second.
 func requireAnsweredAsLost(t *testing.T, status int, code string) {
 	t.Helper()
 	if status == http.StatusOK {
@@ -388,12 +373,9 @@ func TestRegression_C27_AResumeRefusedForALostSessionIsTypedSessionLost(t *testi
 	assert.Equal(t, chatConversationView{ProviderID: "claude", SessionID: s, State: "lost"}, *view.Conversation)
 }
 
-// The CLI refusing a session retires it, and the conversation then carries on from Crowbar's own
-// record: the new session is handed the turns so far, and the transcript says so.
 func TestRegression_C27_ALostSessionContinuesFromCrowbarsRecord(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
-	// The shipped claude line that hands a new session its context, which the fake otherwise drops.
 	handsContext := func(doc map[string]any) {
 		doc["context_inject"] = []any{map[string]any{"pass_arg": map[string]any{"arg": "--append-system-prompt", "value": "{context}"}}}
 	}

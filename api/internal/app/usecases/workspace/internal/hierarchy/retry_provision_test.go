@@ -13,9 +13,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// errBoom2 is a second, distinct sentinel used where a test must prove that
-// one failure (e.g. a best-effort cleanup) does NOT mask another (the real
-// error the caller needs to see).
 var errBoom2 = errors.New("boom2")
 
 func placeholderWS(id, repoID, projectID, branch string) *fakeWorkspace {
@@ -28,8 +25,6 @@ func placeholderWS(id, repoID, projectID, branch string) *fakeWorkspace {
 		},
 	}
 }
-
-// --- RetryProvision: top-level error propagation ---
 
 func TestRetryProvision_GetWorkspaceError(t *testing.T) {
 	ws := &fakeWorkspace{
@@ -49,9 +44,6 @@ func TestRetryProvision_RepoPathError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRetryProvision_RepoRowMissing proves repoPathFor's repo-not-found branch
-// (distinct from a lookup ERROR) surfaces as a plain error rather than
-// dereferencing a nil repo.
 func TestRetryProvision_RepoRowMissing(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
@@ -76,12 +68,9 @@ func TestRetryProvision_HolderResolveError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRetryProvision_DeriveWorktreePathError proves a path-derivation failure
-// (here: an empty ProjectID, which worktreepath.Derive rejects) is surfaced
-// as problem.ErrInvalidArgument rather than reaching git at all.
 func TestRetryProvision_DeriveWorktreePathError(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "", "develop")
-	g := &fakeGit{} // Free: no holder
+	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 	_, err := uc.RetryProvision(context.Background(), "ph")
 	require.Error(t, err)
@@ -90,7 +79,7 @@ func TestRetryProvision_DeriveWorktreePathError(t *testing.T) {
 
 func TestRetryProvision_MaterializeError(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
-	g := &fakeGit{worktreeAddErr: errBoom} // not on origin (default) -> plain WorktreeAdd
+	g := &fakeGit{worktreeAddErr: errBoom}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 	_, err := uc.RetryProvision(context.Background(), "ph")
 	require.ErrorIs(t, err, errBoom)
@@ -109,9 +98,6 @@ func TestRetryProvision_ProvisionInPlaceError_CleansUpWorktree(t *testing.T) {
 	assert.Contains(t, g.ops(), "WorktreeRemove", "the orphaned worktree must be cleaned up when the row never lands")
 }
 
-// TestRetryProvision_ProvisionInPlaceError_CleanupAlsoFails proves the ORIGINAL
-// persist error is still what's returned even when the best-effort worktree
-// cleanup itself fails — the cleanup failure must never mask the real error.
 func TestRetryProvision_ProvisionInPlaceError_CleanupAlsoFails(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	ws.ProvisionInPlaceFn = func(_, _, _ string) (domain.Workspace, error) {
@@ -124,11 +110,6 @@ func TestRetryProvision_ProvisionInPlaceError_CleanupAlsoFails(t *testing.T) {
 	assert.NotErrorIs(t, err, errBoom2)
 }
 
-// TestRetryProvision_NotOnOrigin_RevParseFails_ForkPointNonEssential proves that
-// when a branch is materialised from the LOCAL ref (not on origin) and the
-// follow-up RevParse to record its tip fails, provisioning still succeeds with
-// an empty fork point — the worktree itself is already valid, and the fork
-// point is a nice-to-have, not a correctness requirement here.
 func TestRetryProvision_NotOnOrigin_RevParseFails_ForkPointNonEssential(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	var gotSha string
@@ -138,7 +119,7 @@ func TestRetryProvision_NotOnOrigin_RevParseFails_ForkPointNonEssential(t *testi
 		provisioned = true
 		return domain.Workspace{}, nil
 	}
-	g := &fakeGit{revParseErr: errBoom} // not on origin (default); WorktreeAdd succeeds
+	g := &fakeGit{revParseErr: errBoom}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
 	_, err := uc.RetryProvision(context.Background(), "ph")
@@ -147,11 +128,6 @@ func TestRetryProvision_NotOnOrigin_RevParseFails_ForkPointNonEssential(t *testi
 	assert.Empty(t, gotSha, "an unresolvable fork point must not fail provisioning")
 }
 
-// TestRetryProvision_OriginBranch_FetchRefFails_StillMaterializesFromLocalRef
-// proves originHasBranch's own best-effort contract: when the local
-// remote-tracking ref origin/<branch> is present but refreshing it fails
-// (offline), the branch is still classified as "on origin" and checked out
-// from whatever the LOCAL remote-tracking ref already holds.
 func TestRetryProvision_OriginBranch_FetchRefFails_StillMaterializesFromLocalRef(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	var gotSha string
@@ -168,10 +144,6 @@ func TestRetryProvision_OriginBranch_FetchRefFails_StillMaterializesFromLocalRef
 	assert.Contains(t, g.ops(), "WorktreeAddAtRef", "must still check out via the origin-ref path")
 }
 
-// TestRetryProvision_OriginBranch_MaterializesFromOriginAndTracks proves that
-// when the branch is resolvable via the local remote-tracking ref,
-// RetryProvision checks it out AT origin's ref (not the local branch) and
-// links it back to origin via SetUpstream.
 func TestRetryProvision_OriginBranch_MaterializesFromOriginAndTracks(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	var gotID, gotPath, gotSha string
@@ -201,9 +173,6 @@ func TestRetryProvision_OriginBranch_WorktreeAddAtRefError(t *testing.T) {
 	assert.NotContains(t, g.ops(), "SetUpstream", "no upstream link attempted when the checkout itself failed")
 }
 
-// TestRetryProvision_OriginBranch_SetUpstreamError_IsBestEffort proves a
-// SetUpstream failure never fails provisioning: the checkout content is
-// already correct, only ahead/behind reporting may be degraded.
 func TestRetryProvision_OriginBranch_SetUpstreamError_IsBestEffort(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	var gotSha string
@@ -217,8 +186,6 @@ func TestRetryProvision_OriginBranch_SetUpstreamError_IsBestEffort(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, "originsha", gotSha)
 }
-
-// --- DetachHolder: top-level error propagation (mirrors RetryProvision) ---
 
 func TestDetachHolder_GetWorkspaceError(t *testing.T) {
 	ws := &fakeWorkspace{
@@ -254,9 +221,6 @@ func TestDetachHolder_HolderResolveError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestDetachHolder_HomeLookupError proves that when the freed holder is the
-// repo home, a failure LISTING workspaces (to find the home row) surfaces —
-// the detach already happened, but the home's branch is never cleared blind.
 func TestDetachHolder_HomeLookupError(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	ws.ListFn = func(_ context.Context) ([]domain.Workspace, error) { return nil, errBoom }
@@ -267,9 +231,6 @@ func TestDetachHolder_HomeLookupError(t *testing.T) {
 	assert.Contains(t, g.ops(), "DetachWorktree", "the detach itself must have already run")
 }
 
-// TestDetachHolder_HomeNotFound_SkipsClearBranch proves that when the repo has
-// no default workspace to clear (an edge case, not the common case), DetachHolder
-// still proceeds to provision the placeholder instead of failing.
 func TestDetachHolder_HomeNotFound_SkipsClearBranch(t *testing.T) {
 	ws := placeholderWS("ph", "r1", "p1", "develop")
 	ws.ListFn = func(_ context.Context) ([]domain.Workspace, error) { return nil, nil }
@@ -311,11 +272,8 @@ func TestDetachHolder_ClearBranchError(t *testing.T) {
 	assert.False(t, provisioned, "no provision attempt when the home branch cannot be cleared")
 }
 
-// TestRetryProvision_FreeBranch_ProvisionsInPlace proves Retry on a placeholder
-// (free after resolution) materialises a worktree, records the fork point, and
-// provisions the SAME id in place (spec §3.3).
 func TestRetryProvision_FreeBranch_ProvisionsInPlace(t *testing.T) {
-	g := &fakeGit{revParseSha: "forksha", worktrees: nil} // no holder → Free
+	g := &fakeGit{revParseSha: "forksha", worktrees: nil}
 	var gotID, gotPath, gotSha string
 	ws := &fakeWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
@@ -341,8 +299,6 @@ func TestRetryProvision_FreeBranch_ProvisionsInPlace(t *testing.T) {
 	assert.Contains(t, g.ops(), "WorktreeAdd")
 }
 
-// TestRetryProvision_StillHeld_ReturnsError proves a Retry while the branch is
-// still held by the home returns ErrBranchStillHeld and does NOT provision.
 func TestRetryProvision_StillHeld_ReturnsError(t *testing.T) {
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}}}
 	provisionCalled := false
@@ -366,13 +322,7 @@ func TestRetryProvision_StillHeld_ReturnsError(t *testing.T) {
 	assert.False(t, provisionCalled, "no provision while the branch is still held")
 }
 
-// TestDetachHolder_Home_ClearsBranchThenProvisions proves detaching a home
-// holder detaches the repo folder, clears the home row's branch via ClearBranch,
-// then provisions the placeholder in place (spec §3.5/B6). The second
-// holder.Resolve (inside RetryProvision) sees the freed branch.
 func TestDetachHolder_Home_ClearsBranchThenProvisions(t *testing.T) {
-	// First Resolve: home holds develop. After DetachWorktree the fake frees it,
-	// so RetryProvision's Resolve sees Free.
 	g := &fakeGit{
 		revParseSha:            "forksha",
 		worktrees:              []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
@@ -411,8 +361,6 @@ func TestDetachHolder_Home_ClearsBranchThenProvisions(t *testing.T) {
 	assert.True(t, provisioned, "the placeholder is provisioned after the detach")
 }
 
-// TestDetachHolder_DetachFails_NoPartialState proves a detach failure
-// (mid-merge/rebase) surfaces cleanly: no ClearBranch, no provision.
 func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 	g := &fakeGit{
 		worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Branch: "develop"}},
@@ -442,13 +390,6 @@ func TestDetachHolder_DetachFails_NoPartialState(t *testing.T) {
 	assert.False(t, provisioned, "no provision after a failed detach")
 }
 
-// TestRetryProvision_HeldByManaged_ReturnsError proves a Retry while ANOTHER
-// Crowbar-managed worktree holds the branch refuses with its own sentinel rather
-// than letting `git worktree add` fail deep in materialize. It is NOT
-// ErrBranchStillHeld: detaching is not on offer, because freeing the branch
-// would strand the workspace that owns it. This became reachable when import
-// stopped silently dropping a protected branch held by a managed worktree that
-// outlived its repo row — exactly the row that lands here.
 func TestRetryProvision_HeldByManaged_ReturnsError(t *testing.T) {
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{
 		{Path: "/tmp/crowbar-test/projects/p1/r1/develop/worktree", Branch: "develop"},

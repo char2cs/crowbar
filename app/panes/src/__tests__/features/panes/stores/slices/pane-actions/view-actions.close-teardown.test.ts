@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Isolated from `pane-slice.test.ts` because this file has to mock the daemon
-// calls at module scope: that no close reaches the daemon is the whole subject
-// here, and that suite exercises the real (unmocked) module graph.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
@@ -44,11 +41,6 @@ function expectNoAgentWasEnded() {
   expect(stopChat).not.toHaveBeenCalled()
 }
 
-/**
- * A chat can be open on several clients at once, so closing a view only
- * detaches this window: the agent keeps running and only an explicit Kill ends
- * it. What a close still releases is the browser's own copy of the workspace.
- */
 describe('closing a chat view detaches without ending the agent', () => {
   it('closePane drops the workspace store outside the keep-alive window and kills nothing', () => {
     windowPaneStore

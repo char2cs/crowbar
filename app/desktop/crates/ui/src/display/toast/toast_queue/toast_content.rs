@@ -1,10 +1,7 @@
-//! What a toast says.
-
 use gpui::SharedString;
 
 use crate::display::toast::toast_kind::ToastKind;
 
-/// The tone and text of a toast, with an optional title above the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToastContent {
     pub(crate) kind: ToastKind,
@@ -13,7 +10,6 @@ pub struct ToastContent {
 }
 
 impl ToastContent {
-    /// A toast of `kind` showing `message`.
     pub fn new(
         kind: ToastKind,
         message: impl Into<SharedString>,
@@ -25,7 +21,6 @@ impl ToastContent {
         }
     }
 
-    /// Puts `title` above the message, which then reads as its detail: what failed, then why.
     #[must_use]
     pub fn titled(
         mut self,

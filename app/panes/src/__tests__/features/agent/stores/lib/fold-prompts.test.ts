@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { emptyFeed } from '@/features/agent/stores/lib/fold-rows'
 import { applyRows, ledger } from '@/__tests__/__fixtures__/ledger-rows'
 
-// The pills a transcript draws between turns, folded from their marker rows.
 describe('divider', () => {
   it('draws one switch divider for switches back and forth with nothing said between', () => {
     const l = ledger()

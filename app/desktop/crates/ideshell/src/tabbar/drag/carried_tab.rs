@@ -155,7 +155,6 @@ mod tests {
     use super::*;
     use crate::tabbar::tab_actions::{TabAction, TabActions};
 
-    /// The fixed 160px pill the strip lifted before it took develop's preview.
     const WIDE_PILL: f32 = 160.0;
     use crate::tabbar::look::tab_look::TabLook;
     use crate::tabbar::tab::tab_end::TabEnd;

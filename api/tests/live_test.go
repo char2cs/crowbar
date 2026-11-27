@@ -14,10 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// TestStream_GitScopeSignalsAStatusChange proves the watcher chain on the git
-// scope: the current status arrives on hold, then a real on-disk edit
-// (re-written on a ticker so the test never races the lazily started watcher)
-// is signalled carrying the dirty file.
 func TestStream_GitScopeSignalsAStatusChange(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -34,8 +30,6 @@ func TestStream_GitScopeSignalsAStatusChange(t *testing.T) {
 	c.Signal(t, scope, "git_status", func(m map[string]any) bool { return statusHasFile(m, "README.md") })
 }
 
-// TestStream_FilesScopeSignalsAFileChange proves the watcher chain on the files
-// scope: a real edit is signalled as a FileChangeEvent of that workspace.
 func TestStream_FilesScopeSignalsAFileChange(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -50,8 +44,6 @@ func TestStream_FilesScopeSignalsAFileChange(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, got["wsId"])
 }
 
-// TestStream_FilesScopeSurvivesASubUnsubSub: a mount's back-to-back sub,
-// unsub and sub of the same scope leave it held and its watcher running.
 func TestStream_FilesScopeSurvivesASubUnsubSub(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -68,9 +60,6 @@ func TestStream_FilesScopeSurvivesASubUnsubSub(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, got["wsId"])
 }
 
-// TestStream_GitScopeIsolatesWorkspaces: a client holding A's git scope never
-// hears B's status, even while B is edited. A sentinel edit in A bounds the
-// watch: reaching it having seen only A's scope proves isolation, with no clock.
 func TestStream_GitScopeIsolatesWorkspaces(t *testing.T) {
 	h := newHarness(t)
 	a := importProject(t, h)
@@ -81,7 +70,6 @@ func TestStream_GitScopeIsolatesWorkspaces(t *testing.T) {
 	ca.Hold(t, scopeA)
 	stop := rewriteOnTicker(t, workspaceWorktreePath(t, h, b), "README.md", "edit B\n")
 	defer stop()
-	// B's own holder proves B is live and signalling for the rest of the test.
 	cb := dialStream(t, h)
 	cb.Sub(t, scopeB, 0)
 	cb.Signal(t, scopeB, "git_status", func(m map[string]any) bool { return statusHasFile(m, "README.md") })
@@ -99,9 +87,6 @@ func TestStream_GitScopeIsolatesWorkspaces(t *testing.T) {
 	})
 }
 
-// rewriteOnTicker re-writes name under dir every 100ms with distinct content,
-// guaranteeing a filesystem event lands after the lazily started watcher attaches
-// its inotify/fsevents hook — without a fixed sleep. The returned stop halts it.
 func rewriteOnTicker(
 	t *testing.T,
 	dir string,

@@ -10,13 +10,6 @@ import (
 
 const enginePrefix = "github.com/char2cs/crowbar/api/internal/engine/"
 
-// No engine may import another engine's capability. A capability two engines need is
-// promoted to core/ — which is exactly why terminal now lives there (spec 2026-08-23
-// §2 rule 2).
-//
-// engine/container.go is the single composition root and is exempt by construction:
-// this test walks only the SUBDIRECTORIES of internal/engine, so the root package's
-// own files are never examined.
 func TestEngines_DoNotCrossImport(t *testing.T) {
 	root, err := filepath.Abs(".")
 	if err != nil {
@@ -42,7 +35,7 @@ func TestEngines_DoNotCrossImport(t *testing.T) {
 					continue
 				}
 				if imp == own || strings.HasPrefix(imp, own+"/") {
-					continue // a package importing its own subtree is fine
+					continue
 				}
 				rel, _ := filepath.Rel(root, dir)
 				t.Errorf(
@@ -53,15 +46,11 @@ func TestEngines_DoNotCrossImport(t *testing.T) {
 		})
 	}
 
-	// A walk that examined nothing would pass silently forever.
 	if checked == 0 {
 		t.Fatal("the walk found no engine packages; this guard is not actually checking anything")
 	}
 }
 
-// The engine declares its ports; the app builds the instances. An engine that imports
-// the event-store adapter stops being testable against an in-memory asynx, and drags
-// the persistence stack into a capability package (spec §3.3).
 func TestEngines_DoNotImportTheEventStoreAdapter(t *testing.T) {
 	const forbidden = "github.com/char2cs/crowbar/api/internal/adapter/eventstore"
 

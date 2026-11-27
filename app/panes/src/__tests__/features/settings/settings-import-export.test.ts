@@ -27,7 +27,6 @@ describe('settings import/export', () => {
     )
 
     expect(imported?.fontSize).toBe(17)
-    // A known key with an out-of-range value is normalized, not dropped.
     expect(imported?.fileTreeDensity).toBe('default')
     expect('unknownSetting' in (imported as object)).toBe(false)
   })

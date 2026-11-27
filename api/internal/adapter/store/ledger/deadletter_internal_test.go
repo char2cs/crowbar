@@ -11,8 +11,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 )
 
-// The refusal count runs on every health check, so it reads an index of the
-// reasons rather than scanning every kept payload.
 func TestStore_DeadLetterCountReadsAnIndex(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)

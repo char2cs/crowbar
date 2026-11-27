@@ -1,18 +1,13 @@
-//! The stable id of a settings page.
-
 use std::fmt;
 
-/// A page id such as `appearance`; the deep-link target of the modal.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageId(String);
 
 impl PageId {
-    /// A page id named `id`.
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 
-    /// The id as text.
     pub fn as_str(&self) -> &str {
         &self.0
     }

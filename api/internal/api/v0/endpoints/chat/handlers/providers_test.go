@@ -40,9 +40,6 @@ func TestUploadDescriptor_RejectsOversizedBodyBeforeInstall(t *testing.T) {
 	assert.Nil(t, uc.installRaw)
 }
 
-// TestProviders_Success proves the GET handler forwards the usecase's resolved,
-// enriched provider list (connected + enabled, in priority order) into the wire
-// envelope unchanged.
 func TestProviders_Success(t *testing.T) {
 	uc := &fakeAgentUsecase{resolveProviders: []domain.AgentProvider{
 		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true, Hotswap: true, HasTerminal: true, TerminalStartHere: false, SignIn: "codex login"},
@@ -78,8 +75,6 @@ func TestProviders_Success(t *testing.T) {
 	assert.True(t, env.Data[1].TerminalStartHere)
 }
 
-// TestProviders_UsecaseError proves a ResolveProviders failure surfaces as a
-// mapped error response rather than a 200.
 func TestProviders_UsecaseError(t *testing.T) {
 	uc := &fakeAgentUsecase{resolveErr: assert.AnError}
 	h := newChatHandlers(uc)
@@ -92,8 +87,6 @@ func TestProviders_UsecaseError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// The provider settings read every descriptor's findings — rule, severity,
-// YAML path and line, hint — straight off the validator's report.
 func TestDescriptorReports_ServesEveryFinding(t *testing.T) {
 	uc := &fakeAgentUsecase{descriptorReports: []descriptorcheck.Report{{
 		ID: "codex", Source: "/home/me/.crowbar/descriptors/codex.yaml",
@@ -141,9 +134,6 @@ func TestDescriptorReports_UsecaseError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestUpdateProviderPreferences_ForwardsOrderedPrefs proves the PUT handler binds
-// {providers:[{id,disabled}]} into ordered AgentProviderPreference rows (array
-// index → Priority) and echoes the resolved list the usecase returns.
 func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
 	uc := &fakeAgentUsecase{replaceResult: []domain.AgentProvider{
 		{ID: "codex", DisplayName: "Codex", Enabled: true},
@@ -172,8 +162,6 @@ func TestUpdateProviderPreferences_ForwardsOrderedPrefs(t *testing.T) {
 	assert.Equal(t, "codex", env.Data[0].ID)
 }
 
-// TestUpdateProviderPreferences_BadJSON proves a malformed body is rejected 400
-// without reaching the usecase.
 func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 	uc := &fakeAgentUsecase{}
 	h := newChatHandlers(uc)
@@ -186,9 +174,6 @@ func TestUpdateProviderPreferences_BadJSON(t *testing.T) {
 	assert.Empty(t, uc.replaceCalls)
 }
 
-// TestUpdateProviderPreferences_UnknownProvider_MapsTo400 proves an
-// problem.ErrInvalidArgument from the usecase (an unknown provider id) surfaces as
-// a 400.
 func TestUpdateProviderPreferences_UnknownProvider_MapsTo400(t *testing.T) {
 	uc := &fakeAgentUsecase{replaceErr: problem.ErrInvalidArgument}
 	h := newChatHandlers(uc)

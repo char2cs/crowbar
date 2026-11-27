@@ -1,5 +1,3 @@
-//! Provider icons: SVG markup any paired client may upload, drawn only when it is static artwork.
-
 const MAX_BYTES: usize = 64 * 1024;
 const FORBIDDEN: [&str; 14] = [
     "<script",

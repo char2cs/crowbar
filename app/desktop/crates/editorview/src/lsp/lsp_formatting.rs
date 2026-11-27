@@ -1,5 +1,3 @@
-//! A `textDocument/formatting` answer applied to the text it was asked about.
-
 use gpui_kit::base::input::Rope;
 use lsp_types::TextEdit;
 use serde_json::Value;

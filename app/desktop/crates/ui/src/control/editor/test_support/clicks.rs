@@ -1,4 +1,3 @@
-//! Multi-click mouse input for the unit tests.
 #![cfg(test)]
 
 use gpui::{
@@ -30,7 +29,6 @@ fn up(
     }
 }
 
-/// Presses and releases the left button `clicks` times in a row at `at`, counting clicks as a double or triple click does.
 pub(crate) fn press(
     cx: &mut VisualTestContext,
     at: Point<Pixels>,

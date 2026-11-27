@@ -19,13 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Import refuses a branch that is not on the remote SYNCHRONOUSLY, on the
-// request path, where the caller is still looking.
-//
-// The degradation paths matter as much as the refusal. A fetch that fails, or a
-// ref check that errors, must NOT turn into a refusal: the remote being
-// unreachable is not evidence that a branch is absent, and importing without the
-// check is the weaker but correct answer.
 type fakeRemote struct {
 	fetchErr   error
 	exists     map[string]bool
@@ -78,7 +71,6 @@ const (
 	chatB = "7f0c6a52-6c1e-4d55-9c55-0a9a1b3f0a02"
 )
 
-// importBody is the batch body for branches named with their chat ids in turn.
 func importBody(pairs ...string) string {
 	var b strings.Builder
 	b.WriteString(`{"branches":[`)
@@ -92,11 +84,6 @@ func importBody(pairs ...string) string {
 	return b.String()
 }
 
-// The proof the batch route has to carry is that it resolves the repo facts off
-// :repoId and hands CreateFromImport the identical input — not that it merely
-// answers 202. A loop over POST .../chats would answer 202 too, and drop the
-// PR-graph parenting, the missing-ancestor creation and the held-branch
-// placeholder that only CreateFromImport performs.
 func TestImport_TheBatchRouteHandsCreateFromImportTheRepoFacts(t *testing.T) {
 	hierarchy := &fakeHierarchy{importDone: make(chan struct{})}
 	remote := &fakeRemote{exists: map[string]bool{"feature/x": true, "feature/y": true}}
@@ -124,8 +111,6 @@ func TestImport_TheBatchRouteHandsCreateFromImportTheRepoFacts(t *testing.T) {
 	}, hierarchy.gotImport, "each branch carries its own lock")
 }
 
-// The 202 already names one row per branch, under the chat the client drew it
-// as, so the sidebar has something to draw before any branch lands.
 func TestImport_EachBranchIsARunningItemAtAccept(t *testing.T) {
 	r, _ := importRouterWith(&fakeRemote{exists: map[string]bool{"a": true, "b": true}},
 		&fakeHierarchy{}, &fakeChats{})
@@ -138,8 +123,6 @@ func TestImport_EachBranchIsARunningItemAtAccept(t *testing.T) {
 	}, op.Items)
 }
 
-// The user's bug: a branch that cannot be imported says so, on its own item,
-// and the operation fails as partial while the other branch lands.
 func TestImport_AFailedBranchFailsItsItemWithTheReason(t *testing.T) {
 	hierarchy := &fakeHierarchy{outcomes: []workspace.ImportOutcome{
 		{Branch: "a", ChatID: chatA, WorkspaceID: "ws-a", Err: errors.New("fatal: Not a directory")},
@@ -185,8 +168,6 @@ func TestImport_ATakenChatIDIsAnIDConflict(t *testing.T) {
 	assert.Empty(t, snapshot, "a refused import records no operation")
 }
 
-// Review Focus 1: a retry after the first import created its chats is the same
-// operation, not a refusal by what that attempt made.
 func TestImport_ARetryAfterTheChatsExistIsTheFirstOperation(t *testing.T) {
 	chats := &fakeChats{}
 	r, _ := importRouterWith(&fakeRemote{exists: map[string]bool{"a": true}}, &fakeHierarchy{}, chats)
@@ -206,9 +187,6 @@ func TestImport_ARetryAfterTheChatsExistIsTheFirstOperation(t *testing.T) {
 	assert.Equal(t, first.ID, again.ID)
 }
 
-// The default branch is refused on the relocated route for the same reason it
-// always was: the chain walk terminates there, so a 202 would promise work that
-// creates nothing and leave the caller's optimistic row spinning.
 func TestImport_TheRelocatedRouteStillRefusesTheDefaultBranch(t *testing.T) {
 	rec := do(importRouter(&fakeRemote{exists: map[string]bool{"main": true}}),
 		http.MethodPost, importBatchTarget, importBody("main", chatA))
@@ -225,13 +203,10 @@ func TestImport_RefusesABranchTheRemoteDoesNotHave(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), "feature/ghost")
-	// Refreshed first: the check is against the remote as it is NOW, not as the
-	// clone last heard it.
 	assert.Equal(t, 1, remote.fetchCalls)
 }
 
 func TestImport_ImportsWithoutTheCheckWhenTheFetchFails(t *testing.T) {
-	// An unreachable remote is not evidence that a branch is absent.
 	remote := &fakeRemote{fetchErr: errors.New("network down")}
 
 	rec := do(importRouter(remote), http.MethodPost, importBatchTarget, importBody("feature/x", chatA))
@@ -248,8 +223,6 @@ func TestImport_ImportsWithoutTheCheckWhenTheRefLookupErrors(t *testing.T) {
 }
 
 func TestImport_SkipsTheCheckWithNoRemoteWired(t *testing.T) {
-	// A nil remote degrades rather than panicking — the same wiring contract
-	// WithRemoteRefs documents.
 	rec := do(importRouter(nil), http.MethodPost, importBatchTarget, importBody("feature/x", chatA))
 
 	assert.Less(t, rec.Code, 400)

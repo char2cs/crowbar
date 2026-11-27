@@ -1,14 +1,8 @@
-//! Whether the last press was a key or a pointer button, across every window of the app.
-
 pub(in crate::foundation) mod hearing;
 pub(crate) mod kept_focus;
 
 use gpui::{App, DispatchPhase, FocusHandle, Global, MouseDownEvent, Window};
 
-/// The input modality focus rings follow, as develop's `:focus-visible` does: a key press
-/// turns it to the keyboard, a pointer press turns it back. Pointer moves leave it alone, and
-/// a press in any window counts for all of them, so a click on a toast in the pop-up window
-/// counts for its owner too.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Modality {
     keyboard: bool,
@@ -17,14 +11,11 @@ pub struct Modality {
 impl Global for Modality {}
 
 impl Modality {
-    /// Whether the last press, in any window, was a key.
     pub fn is_keyboard(cx: &App) -> bool {
         cx.try_global::<Self>()
             .is_some_and(|modality| modality.keyboard)
     }
 
-    /// Whether the element `focus` tracks shows its focus ring: it holds the focus and the
-    /// last press was a key.
     pub fn rings(
         focus: &FocusHandle,
         window: &Window,
@@ -33,7 +24,6 @@ impl Modality {
         focus.is_focused(window) && Self::is_keyboard(cx)
     }
 
-    /// Hears every key pressed in any window; [`crate::init`] calls it.
     pub fn install(cx: &mut App) {
         cx.intercept_keystrokes(|_, _, cx| store(Self { keyboard: true }, cx))
             .detach();

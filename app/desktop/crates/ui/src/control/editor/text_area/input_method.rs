@@ -1,5 +1,3 @@
-//! Input-method and text-service interface of [`TextArea`].
-
 use std::ops::Range;
 
 use gpui::{

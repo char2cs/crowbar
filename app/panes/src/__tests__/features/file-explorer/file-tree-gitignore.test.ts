@@ -42,8 +42,6 @@ describe('file tree gitignore rules', () => {
     ])
   })
 
-  // Never synthesize a root .gitignore reference: the backend tree includes dotfiles, so a real
-  // one is surfaced by the walk, and a synthetic one 404s for roots without one.
   it('does not synthesize a root .gitignore reference when the loaded tree has none', () => {
     const references = collectGitIgnoreFileReferences(
       [dir('crowbar', 'crowbar'), dir('desktop', 'desktop')],

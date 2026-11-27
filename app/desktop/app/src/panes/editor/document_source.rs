@@ -9,8 +9,6 @@ use crate::shell::inbox::shell_request::ShellRequest;
 const NOT_FOUND: u16 = 404;
 
 pub(crate) trait DocumentSource {
-    /// Reads `file` of `chat`'s workspace (or of this computer, for an absolute path) and hands
-    /// its text to `done`; an error now means `chat` is not loaded yet.
     fn read(
         &self,
         chat: &str,
@@ -18,7 +16,6 @@ pub(crate) trait DocumentSource {
         done: FileDone<String>,
     ) -> Result<(), store::Error>;
 
-    /// Writes `text` as the whole content of `file` and hands the outcome to `done`.
     fn write(
         &self,
         target: (&str, &DocumentPath),

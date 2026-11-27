@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// live is one conformance run: a private crowbar home holding the descriptor
-// under test, a working directory, and a hook recorder standing in for the
-// daemon's hook server.
 type live struct {
 	opts  LiveOptions
 	d     *spec.Descriptor
@@ -46,7 +43,6 @@ func runLive(ctx context.Context, raw []byte, d *spec.Descriptor, opts LiveOptio
 }
 
 func newLive(ctx context.Context, raw []byte, d *spec.Descriptor, opts LiveOptions) (*live, error) {
-	// Short: a unix socket path is capped near 104 bytes on macOS.
 	scratch, err := os.MkdirTemp("", "cbconf")
 	if err != nil {
 		return nil, fmt.Errorf("scratch dir: %w", err)
@@ -98,8 +94,6 @@ func (l *live) close(ctx context.Context) {
 	}
 }
 
-// templateCtx is what the runner fills for a spawn, with the recorder as the
-// hook server and its stand-in as the crowbar binary.
 func (l *live) templateCtx(tmp string) agents.TemplateCtx {
 	return agents.TemplateCtx{
 		Tmp: tmp, Cwd: l.cwd, CrowbarBin: l.hooks.path, HookBase: l.hooks.url, CrowbarHome: l.home,

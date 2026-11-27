@@ -14,8 +14,6 @@ type sseEvent struct {
 	id, name, data string
 }
 
-// readEvents parses a Server-Sent-Events body, calling emit per dispatched event
-// (and with the id seen, even when an event carries no data) until emit says stop.
 func readEvents(r io.Reader, emit func(sseEvent) bool) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxResponse)
@@ -55,7 +53,6 @@ func readEvents(r io.Reader, emit func(sseEvent) bool) error {
 	return sc.Err()
 }
 
-// openStream starts the stream goroutine once StreamPath has every value it needs.
 func (c *Client) openStream() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -71,7 +68,6 @@ func (c *Client) openStream() {
 	go c.stream(target)
 }
 
-// stream reconnects with Last-Event-ID until MaxReconnects consecutive failures.
 func (c *Client) stream(target string) {
 	defer c.wg.Done()
 	defer c.end.Do(func() { close(c.frames) })
@@ -95,7 +91,6 @@ func (c *Client) stream(target string) {
 	}
 }
 
-// connect reads one stream connection; got reports whether it was accepted.
 func (c *Client) connect(target string, lastID *string) (got bool, err error) {
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, target, nil)
 	if err != nil {

@@ -1,10 +1,3 @@
-//! The settings model of the Crowbar shell without a window.
-//!
-//! The schema ([`Schema`]) says what the settings dialog shows; [`State`] is the pure state
-//! machine (search, selection, drafts, validation, optimistic writes, shortcut capture);
-//! [`Backend`] and [`RecordBackend`] are the only doors to the outside world. The
-//! `settingsview` crate draws it with gpui.
-
 mod catalog;
 mod keys;
 mod records;

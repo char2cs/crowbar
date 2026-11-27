@@ -1,23 +1,16 @@
-//! Frames the daemon sends over a terminal websocket.
-
 const TAG_OUTPUT: u8 = 0;
 const TAG_SNAPSHOT: u8 = 1;
 const EXIT_TYPE: &str = "exit";
 const UNKNOWN_EXIT_CODE: i32 = -1;
 
-/// One message of the PTY stream (api/internal/core/terminal/transport.go).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DaemonFrame {
-    /// Bytes the program wrote; append them.
     Output(Vec<u8>),
-    /// A ground-state redraw of the whole screen; replaces what is shown.
     Snapshot(Vec<u8>),
-    /// The session's process ended.
     Exit(i32),
 }
 
 impl DaemonFrame {
-    /// Decodes a binary message: one tag byte then raw bytes. Unknown tags and empty messages give `None`.
     pub fn from_binary(message: &[u8]) -> Option<Self> {
         let (tag, body) = message.split_first()?;
         match *tag {
@@ -27,7 +20,6 @@ impl DaemonFrame {
         }
     }
 
-    /// Decodes a text message, `{"type":"exit","code":N}`; anything else gives `None`.
     pub fn from_text(message: &str) -> Option<Self> {
         let payload: serde_json::Value = serde_json::from_str(message).ok()?;
         let kind = payload.get("type")?.as_str()?;

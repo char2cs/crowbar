@@ -10,9 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegisterStatic serves the embedded web bundle, falling back to index.html for SPA
-// routes. A build-time `<file>.gz` sibling is served to gzip clients so nothing is
-// compressed per request; content-hashed /assets/* are cached as immutable.
 func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 	fileServer := http.FileServer(http.FS(staticFS))
 
@@ -28,7 +25,6 @@ func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 		if name == "" {
 			name = "index.html"
 		} else if _, err := fs.Stat(staticFS, name); err != nil {
-			// Unknown path: an SPA route, served index.html.
 			c.Request.URL.Path = "/"
 			name = "index.html"
 		}
@@ -42,9 +38,6 @@ func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 	})
 }
 
-// preferGzipSibling points the request at name's precompressed ".gz" sibling when one
-// exists and the client accepts gzip, setting the headers that sibling needs. Any
-// response for a name that has a sibling varies on Accept-Encoding.
 func preferGzipSibling(c *gin.Context, staticFS fs.FS, name string) {
 	info, err := fs.Stat(staticFS, name+".gz")
 	if err != nil || info.IsDir() {
@@ -61,8 +54,6 @@ func preferGzipSibling(c *gin.Context, staticFS fs.FS, name string) {
 	c.Request.URL.Path = "/" + name + ".gz"
 }
 
-// acceptsGzip reports whether the request's Accept-Encoding lists gzip with a
-// non-zero quality.
 func acceptsGzip(r *http.Request) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
 		coding, params, _ := strings.Cut(strings.TrimSpace(part), ";")

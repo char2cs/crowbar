@@ -1,5 +1,3 @@
-//! gpui-kit's global theme as a projection of the shell's theme, which stays its owner (D6).
-
 mod grammars;
 mod highlight;
 pub(crate) mod highlight_name;

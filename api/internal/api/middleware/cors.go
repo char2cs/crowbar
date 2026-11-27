@@ -10,14 +10,8 @@ import (
 
 const defaultAllowHeaders = "Content-Type"
 
-// exposeHeaders names the response headers the webview may read: it fetches the
-// daemon cross-origin, and CORS hides every non-safelisted header from JavaScript.
-// Without X-Crowbar-Diff-Truncated a truncated review patch would read as complete.
 const exposeHeaders = "X-Crowbar-Diff-Truncated"
 
-// CORS echoes allow-listed origins (origin.Allowed) so credentialed requests work,
-// and refuses a disallowed Origin ("null" included) 403 before any handler: a simple
-// POST needs no preflight, so withholding only the response would still allow blind writes.
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if answerCORS(c.Writer, c.Request) {
@@ -28,8 +22,6 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
-// CORSHandler is CORS in front of a handler the API's router does not serve:
-// the boot gate, whose answers the webview reads cross-origin too.
 func CORSHandler(
 	next http.Handler,
 ) http.Handler {
@@ -41,8 +33,6 @@ func CORSHandler(
 	})
 }
 
-// answerCORS sets the headers r's Origin is granted and reports whether it
-// answered r itself: a granted preflight, or any request from a refused Origin.
 func answerCORS(
 	w http.ResponseWriter,
 	r *http.Request,

@@ -1,9 +1,8 @@
 import { create } from 'zustand'
 import type { SidebarView } from '@/features/layout/utils/sidebar-pane-utils'
 
-// Module-level registry — not Zustand state (functions aren't serializable)
 const _terminalFocusRegistry = new Map<string, () => void>()
-const _registrationOrder: string[] = [] // tracks insertion order for recency
+const _registrationOrder: string[] = []
 
 export type SettingsTab =
   | 'editor'
@@ -35,7 +34,6 @@ export interface UIState {
   settingsInitialTab: SettingsTab
   setSettingsInitialTab: (tab: SettingsTab) => void
   isSettingsOpen: boolean
-  /** The phone's host picker sheet. */
   isHostPickerOpen: boolean
   setIsHostPickerOpen: (open: boolean) => void
   setIsSettingsOpen: (open: boolean) => void
@@ -89,7 +87,6 @@ export const useUIState = create<UIState>((set) => ({
   setBottomPaneActiveTab: (tab) => set({ bottomPaneActiveTab: tab, activeBottomTab: tab }),
   registerTerminalFocus: (id: string, fn: () => void) => {
     _terminalFocusRegistry.set(id, fn)
-    // remove existing entry (if re-registering) then push to end
     const idx = _registrationOrder.indexOf(id)
     if (idx !== -1) _registrationOrder.splice(idx, 1)
     _registrationOrder.push(id)

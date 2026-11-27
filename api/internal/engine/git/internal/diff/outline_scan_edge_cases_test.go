@@ -1,5 +1,3 @@
-// Package diff (internal test) exercises an outlineScan branch that a
-// default-configured real git repo cannot reliably reproduce.
 package diff
 
 import (
@@ -42,14 +40,6 @@ func oscHeadSHA(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestOutline_BlankContextLine_SuppressBlankEmptyConfig pins body()'s
-// len(line)==0 branch for real: a blank source line is rendered by git with a
-// single leading space (" ") by default, which is NOT a zero-length line and
-// does not exercise this branch at all. Only with `diff.suppressBlankEmpty`
-// set — a real, user-controllable git config this daemon does not itself set,
-// so a workspace's own gitconfig can enable it — does git actually omit the
-// leading space and emit a truly empty line, which is what this branch exists
-// to count correctly rather than mistaking for the hunk having ended.
 func TestOutline_BlankContextLine_SuppressBlankEmptyConfig(t *testing.T) {
 	dir := oscInitRepo(t)
 	oscGitRun(t, dir, "config", "diff.suppressBlankEmpty", "true")
@@ -63,9 +53,6 @@ func TestOutline_BlankContextLine_SuppressBlankEmptyConfig(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, files, 1)
-	// One correctly-sized 5-line hunk is the proof the blank line was counted
-	// as context rather than closing the hunk early and reopening a second,
-	// spurious one from what remained.
 	assert.Equal(t, []gitdomain.HunkShape{
 		{OldStart: 1, OldLines: 5, NewStart: 1, NewLines: 5},
 	}, files[0].Hunks)

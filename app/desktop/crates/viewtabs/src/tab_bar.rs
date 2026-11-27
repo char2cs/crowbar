@@ -25,9 +25,6 @@ use crate::strip_metrics::{ROW_HEIGHT, ROW_PADDING, slots};
 
 const NO_ROW: f32 = 0.0;
 
-/// The strip of view tabs: one pill per model tab, drag to reorder, drop a chat on one to merge
-/// it, close with the x. It owns no tab state: it renders the [`TabView`]s it was last given and
-/// answers input with [`Event`]s.
 pub struct TabBar {
     pub(crate) tabs: Vec<TabView>,
     pub(crate) active: Option<TabId>,
@@ -59,14 +56,11 @@ impl std::fmt::Debug for TabBar {
 impl EventEmitter<Event> for TabBar {}
 
 impl TabBar {
-    /// Whether the strip is drawn: it takes no room until a view exists.
     #[must_use]
     pub fn has_tabs(&self) -> bool {
         !self.tabs.is_empty()
     }
 
-    /// An empty strip; `first_free_tab` is the first tab id the strip may hand out for tabs a
-    /// drop creates, and it counts up from there.
     pub fn new(first_free_tab: TabId) -> Self {
         Self {
             tabs: Vec::new(),
@@ -84,7 +78,6 @@ impl TabBar {
         }
     }
 
-    /// Shows `tabs` with `active` raised, scrolling the active tab into view when it changed.
     pub fn set_tabs(
         &mut self,
         tabs: Vec<TabView>,
@@ -103,7 +96,6 @@ impl TabBar {
         cx.notify();
     }
 
-    /// Tells the strip whether the sidebar is collapsed, so it shows the re-open toggle.
     pub fn set_sidebar(
         &mut self,
         sidebar: SidebarState,

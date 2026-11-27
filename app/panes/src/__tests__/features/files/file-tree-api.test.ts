@@ -6,9 +6,6 @@ import { apiFetch } from '@/lib/api/fetch'
 import { fetchFileTree, findNode, mergeChildren } from '@/features/files/lib/file-tree-api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// Files are addressed through the chat that holds the worktree, so the api
-// resolves its base from the route-recorded scope's owningChatId. Register one
-// for each test wsId.
 beforeEach(() => {
   setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
   setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-9', owningChatId: 'chat-9' })

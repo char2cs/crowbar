@@ -69,8 +69,6 @@ describe('useSlashCatalog presaving', () => {
     expect(getSlashCatalog).toHaveBeenCalledTimes(2)
   })
 
-  // 422 is the daemon saying this provider has no catalogue to ask for: a stable
-  // answer, so showing the chat again must not put the same question again.
   it('does not re-ask a provider the daemon declared has no catalogue', async () => {
     getSlashCatalog.mockRejectedValue(new ApiError('unavailable', 422))
     const { result, rerender } = mount({ active: true })

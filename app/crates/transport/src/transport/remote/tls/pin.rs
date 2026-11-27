@@ -6,10 +6,7 @@ use crate::transport::remote::tls::fingerprint::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Pin {
-    /// The fingerprint a human confirmed against `crowbar pair`. Truncated, so it pins only
-    /// the pairing dial, which captures the full digest.
     Confirmed(String),
-    /// The whole digest of the certificate pairing verified: every later dial.
     Paired(CertificateDigest),
 }
 

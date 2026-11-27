@@ -1,5 +1,3 @@
-// Package runner (file revive.go) is the server-owned revive: sending to a dormant chat
-// brings its provider back in the same hold as the delivery. The client only sends.
 package runner
 
 import (
@@ -9,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// deliveryLaunch is the provider a send launches itself: the one staged with it
-// when that is not the chat's own (a chat no CLI ever ran on has none), else a
-// dormant chat's. launches=false leaves a live chat's CLI to the ordinary delivery.
 func (rs *Runners) deliveryLaunch(ctx context.Context, chat domain.Chat, staged string) (string, bool, error) {
 	live, isLive := rs.live.byChat(chat.ID)
 	current := chat.ProviderID
@@ -31,8 +26,6 @@ func (rs *Runners) deliveryLaunch(ctx context.Context, chat domain.Chat, staged 
 	return providerID, true, nil
 }
 
-// launchForDelivery launches providerID carrying requestID and the pick staged
-// with it, in place of the chat's CLI if it has one: the send's one launch.
 func (rs *Runners) launchForDelivery(
 	ctx context.Context, h *hold, chat domain.Chat, providerID, requestID, text string,
 	selection *domain.ChatSelection,
@@ -46,8 +39,6 @@ func (rs *Runners) launchForDelivery(
 	return rs.launchCarrying(ctx, h, chat, requestID, text, delivery)
 }
 
-// planCarrying refuses a disabled provider or a working chat before anything
-// is recorded, then plans providerID's launch in place of the chat's CLI, if any.
 func (rs *Runners) planCarrying(ctx context.Context, chat domain.Chat, providerID string) (promptDelivery, error) {
 	if err := rs.providers.RequireProviderEnabled(ctx, providerID); err != nil {
 		return promptDelivery{}, err

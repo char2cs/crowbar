@@ -1,5 +1,3 @@
-//! Resizing the column by dragging or keys.
-
 mod key_step;
 mod resize_drag;
 mod resize_key;

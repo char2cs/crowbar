@@ -25,8 +25,6 @@ func TestHandoffWindow_EmptyInputIsUnchangedAndUnnoted(t *testing.T) {
 	require.Empty(t, recent)
 }
 
-// Up to and including the cap, the whole list comes back as it was, unnoted:
-// the boundary itself does not count as cut.
 func TestHandoffWindow_AtOrUnderTheCapIsUnchanged(t *testing.T) {
 	for _, n := range []int{tools.DefaultChatLogTurnsForTest - 1, tools.DefaultChatLogTurnsForTest} {
 		rows := rowsForTest(n)
@@ -53,8 +51,6 @@ func TestHandoffWindow_OverTheCapUnpinnedKeepsOnlyTheMostRecent(t *testing.T) {
 	require.Contains(t, note, `get_chat_log with chatId="the-chat-id"`)
 }
 
-// A pinned ask outside the recent window leads, and costs one recent slot, so
-// the handoff never grows past the cap.
 func TestHandoffWindow_OverTheCapKeepsThePinnedAskFirst(t *testing.T) {
 	limit := tools.DefaultChatLogTurnsForTest
 	total := limit + 7
@@ -67,7 +63,6 @@ func TestHandoffWindow_OverTheCapKeepsThePinnedAskFirst(t *testing.T) {
 	require.Contains(t, note, fmt.Sprintf("[%d earlier turns are omitted", total-limit))
 }
 
-// A pin already inside the recent window is not repeated ahead of it.
 func TestHandoffWindow_PinInsideTheRecentWindowIsNotRepeated(t *testing.T) {
 	limit := tools.DefaultChatLogTurnsForTest
 	total := limit + 7

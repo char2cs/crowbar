@@ -6,8 +6,6 @@ import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdow
 import { markdownPlugins } from '@/features/editor/markdown/plate/markdown-plugins'
 import { parseMarkdown } from '@/features/editor/markdown/plate/markdown-serialization'
 
-// One `<div>` with no blank line parses as a single mdast `html` node, so every
-// payload below reaches HtmlElement through the same path a README header takes.
 const HOSTILE_HTML = `<div>
 <img src=x onerror="window.__xss=1">
 <script>window.__xss=1</script>
@@ -101,8 +99,6 @@ describe('a raw HTML block', () => {
     expect(block.querySelector('details summary')).not.toBeNull()
   })
 
-  // It comes from an agent's message or a file on another host: nothing in it may restyle the
-  // app around it, take what the user types, or navigate other than through a link click.
   it.each([
     ['a <style> sheet', '<div>x</div><style>*{display:none}</style>', 'style'],
     ['a style attribute', '<div style="position:fixed;inset:0;z-index:9999">x</div>', '[style]'],

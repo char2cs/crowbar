@@ -1,5 +1,3 @@
-//! What a host calls on a terminal view.
-
 use gpui::{App, Context, SharedString, Window};
 
 use crate::settings::Settings;
@@ -7,7 +5,6 @@ use crate::settings::terminal_config;
 use crate::terminal_view::TerminalView;
 
 impl TerminalView {
-    /// Moves keyboard focus to the terminal.
     pub fn focus(
         &self,
         window: &mut Window,
@@ -16,7 +13,6 @@ impl TerminalView {
         window.focus(&self.focus, cx);
     }
 
-    /// Applies new settings: font, spacing, scrollback, cursor.
     pub fn set_settings(
         &mut self,
         settings: Settings,
@@ -29,7 +25,6 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Types `command` and Enter once the shell has drawn its first output.
     pub fn run_after_attach(
         &mut self,
         command: impl Into<String>,
@@ -37,7 +32,6 @@ impl TerminalView {
         self.pending_command = Some(command.into());
     }
 
-    /// Covers the terminal with a message (host unavailable, waiting); `None` removes it.
     pub fn set_notice(
         &mut self,
         notice: Option<SharedString>,
@@ -47,7 +41,6 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Drops the 16px left inset a shell tab has; an agent pane's frame supplies its own.
     pub fn set_flush(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -56,7 +49,6 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Pastes `text` as if typed, bracketed when the program asked for it.
     pub fn paste_text(
         &mut self,
         text: &str,
@@ -66,7 +58,6 @@ impl TerminalView {
         self.send_bytes(&bytes, cx);
     }
 
-    /// Selects everything, scrollback included.
     pub fn select_all(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -75,12 +66,10 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// The selected text.
     pub fn selected_text(&self) -> Option<String> {
         self.terminal.selected_text()
     }
 
-    /// Drops the scrollback.
     pub fn clear_scrollback(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -89,7 +78,6 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Columns and lines of the grid.
     pub fn grid_size(&self) -> (usize, usize) {
         self.terminal.size()
     }

@@ -1,5 +1,3 @@
-//! A move that waits for the end of a chat's turn.
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]

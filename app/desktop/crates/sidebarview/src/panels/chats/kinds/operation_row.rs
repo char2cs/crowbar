@@ -1,5 +1,3 @@
-//! A row standing for a running or failed daemon operation.
-
 use gpui::{
     AnyElement, App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, Pixels,
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,

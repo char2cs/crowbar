@@ -1,17 +1,13 @@
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react'
 
-/** Where a card is among the ones the person steps through: requests waiting, or one prompt's
- *  questions. */
 export interface StepPosition {
   index: number
   total: number
   onPrev: () => void
   onNext: () => void
-  /** What is being stepped through, for the arrows' names. */
   noun: 'request' | 'question'
 }
 
-/** The dots, the arrows and "N of M"; an arrow rests at either end instead of wrapping round. */
 export function ChoiceStepper({ index, total, onPrev, onNext, noun }: StepPosition) {
   return (
     <div className="rq-step" data-testid="agent-choice-position">
@@ -39,7 +35,6 @@ export function ChoiceStepper({ index, total, onPrev, onNext, noun }: StepPositi
   )
 }
 
-/** The cards waiting behind the one on screen, up to two, drawn as edges peeking above it. */
 export function ChoicePeeks({ ahead }: { ahead: number }) {
   return (
     <>

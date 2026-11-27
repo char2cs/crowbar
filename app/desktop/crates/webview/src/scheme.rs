@@ -1,5 +1,3 @@
-//! The crowbar:// scheme handler: requests, responses and the responder.
-
 mod protocol_handler;
 mod protocol_request;
 mod protocol_response;

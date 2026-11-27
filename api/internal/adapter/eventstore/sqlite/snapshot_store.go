@@ -28,9 +28,6 @@ type snapshotStore struct {
 	db *gorm.DB
 }
 
-// NewSnapshotStore returns a GORM-backed asynx SnapshotStore at path, in its OWN db file: the event
-// log is pinned to one connection, and the read path's O(1) snapshot Get must not queue behind an
-// Append. Snapshots are a rebuildable cache. Single connection, WAL, 5s busy timeout, checkpoint on Close.
 func NewSnapshotStore(
 	path string,
 ) (models.SnapshotStore, error) {
@@ -64,8 +61,6 @@ func NewSnapshotStore(
 	return &snapshotStore{db: db}, nil
 }
 
-// Put upserts the one row per aggregate, guarded by WHERE excluded.version > snapshots.version so a
-// stale Put (a slow replay racing a newer write) is a zero-row no-op rather than a regression.
 func (s *snapshotStore) Put(
 	ctx context.Context,
 	aggregateID string,
@@ -89,9 +84,6 @@ func (s *snapshotStore) Put(
 	return nil
 }
 
-// Get returns the stored snapshot for aggregateID. found is false when no
-// snapshot exists yet — the normal state of a never-snapshotted aggregate,
-// which the contract requires be reported as (nil, false, nil), not an error.
 func (s *snapshotStore) Get(
 	ctx context.Context,
 	aggregateID string,
@@ -109,8 +101,6 @@ func (s *snapshotStore) Get(
 	return entry.Data, true, nil
 }
 
-// Delete removes the snapshot for aggregateID. Idempotent — deleting a
-// non-existent aggregateID affects zero rows and is not an error.
 func (s *snapshotStore) Delete(
 	ctx context.Context,
 	aggregateID string,
@@ -124,7 +114,6 @@ func (s *snapshotStore) Delete(
 	return nil
 }
 
-// Close checkpoints the WAL and releases the file handle.
 func (s *snapshotStore) Close() error {
 	sqlDB, err := s.db.DB()
 	if err != nil {

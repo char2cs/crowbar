@@ -24,7 +24,6 @@ import {
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 
-// Mirrors the composer's inline cap (32 KiB): above it a paste or drawing uploads as a file.
 const INLINE_ATTACHMENT_MAX_BYTES = 32 * 1024
 
 const uploadChatAttachmentMock = vi.hoisted(() => vi.fn())
@@ -39,16 +38,6 @@ vi.mock('@/features/agent/composer/lib/attachment-upload', () => ({
 
 let toastError: ReturnType<typeof watchToasts>
 
-// Same pattern chat-markdown-editor.test.tsx uses for its own key-handling
-// plugin, for the same reason: jsdom does not implement `isContentEditable`
-// (it is `undefined`, not `true`/`false`), which is exactly what slate-dom's
-// `hasEditableTarget` checks before delivering a real `paste`/`keydown` DOM
-// event to ANY handler — Slate's own default paste handling included. A
-// `fireEvent.paste` fired at the mounted editable therefore proves nothing
-// here (verified directly: neither this plugin's handler nor Slate's own
-// `ReactEditor.insertData` fallback ever ran). Capturing the raw config
-// `createPlatePlugin` is handed and calling its `handlers` directly is the
-// only reliable way to exercise this plugin under jsdom.
 const createPlatePluginSpy = vi.hoisted(() => vi.fn())
 vi.mock('platejs/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('platejs/react')>()
@@ -87,9 +76,6 @@ type PastePluginHandlers = {
   onPaste: (ctx: { editor: PlateEditor; event: PasteEventStub }) => void
 }
 
-/** Builds the plugin exactly as `chat-markdown-editor.tsx` does, and returns
- *  its REAL (unmodified) `handlers` — captured from the literal config object
- *  handed to `createPlatePlugin`, not re-implemented. */
 function pastePluginHandlers(wsId = 'w1', chatId = 'c1'): PastePluginHandlers {
   createChatPastePlugin({ wsId, chatId })
   const call = createPlatePluginSpy.mock.calls.find(
@@ -99,8 +85,6 @@ function pastePluginHandlers(wsId = 'w1', chatId = 'c1'): PastePluginHandlers {
   return (call[0] as { handlers: PastePluginHandlers }).handlers
 }
 
-/** A headless editor built from the SAME plugin set the real component uses
- *  — `chat-markdown-editor.test.tsx`'s own `editorWith` pattern. */
 function editorWith(markdown: string): PlateEditor {
   return createPlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(markdown) })
 }
@@ -128,16 +112,9 @@ describe('createChatPastePlugin', () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(chatValueToMarkdown(editor.children as never)).toContain('```text-attachment:')
-    // Plate's pipeHandler only skips Slate's own fallback paste insertion
-    // when a plugin handler returns `true` — `preventDefault()` alone does
-    // not stop it. Reported live: the raw pasted text landed a second time,
-    // as a plain paragraph, right below the fence this handler just inserted.
     expect(handled).toBe(true)
   })
 
-  // An over-threshold paste that ALSO exceeds the shared inline
-  // size cap must not become an unsendable inline fence — it uploads as a
-  // `.txt` file instead.
   it('uploads an over-cap pasted text as a file instead of wrapping it inline', async () => {
     uploadAttachmentMarkdownMock.mockResolvedValue(
       '[pasted.txt](chats/c1/attachments/x-pasted.txt)',
@@ -164,7 +141,6 @@ describe('createChatPastePlugin', () => {
         '[pasted.txt](chats/c1/attachments/x-pasted.txt)',
       )
     })
-    // The oversized raw text never lands as an inline fence.
     expect(chatValueToMarkdown(editor.children as never)).not.toContain('text-attachment:')
   })
 
@@ -194,11 +170,6 @@ describe('createChatPastePlugin', () => {
     await waitFor(() => expectMigratingShown(toastError))
   })
 
-  // Defensive-only fallback (`clipboard?.items ?? []`, `clipboard?.getData
-  // (...) ?? ''`): some paste events genuinely carry no `clipboardData` at
-  // all. Neither an image nor an over-threshold paste can be detected from
-  // nothing, so this falls through to Slate's own default handling exactly
-  // like a short plain-text paste does.
   it('does nothing when the paste event carries no clipboardData at all', () => {
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
@@ -239,8 +210,6 @@ describe('createChatPastePlugin', () => {
     expect(editor.children).toBe(before)
   })
 
-  // The key handlers gate on the KEY, not merely on "a key happened" — an
-  // unrelated key must not leave `shiftHeld` somehow stuck on.
   it('still intercepts after an unrelated key is pressed and released', () => {
     const { onKeyDown, onKeyUp, onPaste } = pastePluginHandlers()
     const editor = editorWith('')
@@ -254,8 +223,6 @@ describe('createChatPastePlugin', () => {
     expect(chatValueToMarkdown(editor.children as never)).toContain('```text-attachment:')
   })
 
-  // Releasing Shift re-arms interception — proves `onKeyUp` actually clears
-  // the flag rather than it staying "sticky" for the rest of the session.
   it('resumes intercepting after Shift is released', () => {
     const { onKeyDown, onKeyUp, onPaste } = pastePluginHandlers()
     const editor = editorWith('')
@@ -292,7 +259,6 @@ describe('createChatPastePlugin', () => {
     })
   })
 
-  // The preview must appear synchronously, before the upload resolves.
   it('inserts a local preview immediately, before the upload resolves', () => {
     let resolveUpload!: (value: {
       ref: string
@@ -312,7 +278,6 @@ describe('createChatPastePlugin', () => {
 
     onPaste({ editor, event })
 
-    // No await: the upload above is still pending.
     const markdown = chatValueToMarkdown(editor.children as never)
     expect(markdown).toMatch(/!\[pasted-image\.png\]\(blob:/)
 
@@ -324,8 +289,6 @@ describe('createChatPastePlugin', () => {
     })
   })
 
-  // The brief's own reference guard: a clipboard item can claim `image/*`
-  // and still yield no File (a mid-drag clipboard, a revoked permission).
   it('does nothing further when an image clipboard item yields no file', () => {
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
@@ -365,7 +328,6 @@ describe('createChatPastePlugin', () => {
     await waitFor(() => expectMigratingShown(toastError))
   })
 
-  // A non-image file (a PDF copied in Finder) has no image item and no text payload.
   it('uploads a pasted non-image file through the shared upload/markdown resolver', async () => {
     uploadAttachmentMarkdownMock.mockResolvedValue(
       '[report.pdf](chats/c1/attachments/x-report.pdf)',
@@ -472,8 +434,6 @@ describe('createChatPastePlugin', () => {
     expect(uploadAttachmentMarkdownMock).not.toHaveBeenCalled()
   })
 
-  // The caret left inside the first attachment fence must not read as real code,
-  // or the second paste is appended into the same fence.
   it('TestRegression_twoConsecutivePastesWithNoInterveningKeystrokeProduceTwoSeparateFences', () => {
     const { onPaste } = pastePluginHandlers()
     const editor = editorWith('')
@@ -492,7 +452,6 @@ describe('createChatPastePlugin', () => {
     expect(fences).toHaveLength(2)
     const markdown = chatValueToMarkdown(editor.children as never)
     expect((markdown.match(/```text-attachment:/g) ?? []).length).toBe(2)
-    // Each fence holds ONLY its own paste — no merged/duplicated content.
     expect(markdown).toContain('x'.repeat(500))
     expect(markdown).toContain('y'.repeat(500))
     expect(markdown).not.toContain('x'.repeat(500) + 'y')
@@ -500,9 +459,6 @@ describe('createChatPastePlugin', () => {
   })
 
   describe('caret inside an existing code block', () => {
-    /** A headless editor whose selection sits inside a real `code_block`
-     *  node, built from a genuine fenced-code paste rather than a hand-built
-     *  node shape. */
     function editorInsideCodeBlock(): PlateEditor {
       const editor = editorWith('```js\nconsole.log(1)\n```')
       const idx = editor.children.findIndex(
@@ -539,12 +495,6 @@ describe('createChatPastePlugin', () => {
       expect(uploadChatAttachmentMock).not.toHaveBeenCalled()
     })
 
-    // `isRealCodeBlock`'s `lang` read has to fall back for a fence with NO
-    // language marker at all (a bare ``` ``` ```, `lang: undefined`) — a
-    // genuine, unremarkable real code block, and one Plate's own markdown
-    // deserializer produces routinely. Must bypass exactly like a `js` fence
-    // does, not be mistaken for one of THIS plugin's own (always-`lang`-
-    // prefixed) attachment fences.
     it('still treats a language-less fenced code block as real code, not an attachment fence', () => {
       const { onPaste } = pastePluginHandlers()
       const editor = editorWith('```\nplain\n```')
@@ -552,9 +502,6 @@ describe('createChatPastePlugin', () => {
         (node) => (node as { type?: string }).type === CodeBlockPlugin.key,
       )
       expect(idx).toBeGreaterThanOrEqual(0)
-      // The deserializer leaves a language-less fence's `lang` unset —
-      // `isRealCodeBlock` must not choke on that, only on an ACTUAL
-      // attachment-fence prefix.
       expect((editor.children[idx] as { lang?: unknown }).lang).toBeUndefined()
       const point = editor.api.end([idx])
       editor.selection = { anchor: point!, focus: point! }
@@ -567,28 +514,7 @@ describe('createChatPastePlugin', () => {
   })
 })
 
-/**
- * Every test above extracts this plugin's `handlers` straight from the
- * `createPlatePlugin` config and calls them directly (see the module-level
- * comment on `createPlatePluginSpy`) — proof of the handler's own branching,
- * but NOT proof that `chat-markdown-editor.tsx` actually wires this plugin
- * into the editor a real chat mounts. This block mounts the real
- * `ChatMarkdownEditor` and fires a genuine `paste` DOM event at the editable
- * Plate itself renders, exercising `chat-markdown-editor.tsx`'s own
- * `pastePlugin` conditional and its place in `usePlateEditor`'s plugin list
- * — the registration wiring, not just this file's own logic.
- *
- * jsdom never implements `HTMLElement.prototype.isContentEditable` (always
- * `undefined`), and slate-dom's `hasEditableTarget` — the gate every DOM
- * event (paste included) passes through before Slate/Plate's own handler
- * pipeline ever sees it — reads exactly that property
- * (`node_modules/slate-dom/dist/index.es.js`'s `hasDOMNode`). Unpatched, a
- * `dispatchEvent` here reaches nothing. Overriding `isContentEditable` on
- * just the mounted node is enough to get a REAL DOM event all the way
- * through — nothing else on this path is jsdom-unimplemented.
- */
 describe('createChatPastePlugin, registered through the real ChatMarkdownEditor', () => {
-  /** Under the real `DndScope`, as `AgentChatView` renders it. */
   function renderWithDnd(ui: React.ReactElement) {
     return render(<DndScope>{ui}</DndScope>)
   }
@@ -603,8 +529,6 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
   }
 
   it('uploads and inserts a real pasted image through the actually-mounted composer', async () => {
-    // A manually-resolved promise pins the ordering, so the preview assertion runs while the upload
-    // is provably still in flight.
     let resolveUpload!: (value: {
       ref: string
       filename: string
@@ -630,9 +554,6 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
     )
     const editable = container.querySelector('[data-slate-editor]') as HTMLElement
     expect(editable).toBeTruthy()
-    // Lets the editor's own post-mount effects (selection subscriptions,
-    // the floating toolbar's) settle before dispatching, so the paste
-    // itself is the only state update `firePaste`'s `act()` has to cover.
     await act(async () => {})
 
     const file = new File(['bytes'], 'pasted-image.png', { type: 'image/png' })
@@ -642,17 +563,13 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
       getData: () => '',
     })
 
-    // The upload itself starts synchronously, inside the paste handler.
     expect(uploadChatAttachmentMock).toHaveBeenCalledWith('w1', 'c1', { file })
 
-    // The optimistic local preview renders — proven while the upload above is
-    // still unresolved.
     await waitFor(() => {
       const preview = container.querySelector('img[alt="pasted-image.png"]') as HTMLImageElement
       expect(preview?.src).toMatch(/^blob:/)
     })
 
-    // The upload resolves, and the SAME image node's src swaps to the real ref.
     resolveUpload({
       ref: 'chats/c1/attachments/x-pasted-image.png',
       filename: 'pasted-image.png',
@@ -668,10 +585,6 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
     )
   })
 
-  // `chat-markdown-editor.tsx`'s own `pastePlugin` conditional (its own doc
-  // comment) skips creating this plugin at all when either id is missing —
-  // a real paste then falls through to Slate's default handling rather than
-  // this plugin silently swallowing it.
   it('does not intercept when wsId/chatId are missing, per the conditional in chat-markdown-editor.tsx', async () => {
     const { container } = renderWithDnd(
       <ChatMarkdownEditor
@@ -683,9 +596,6 @@ describe('createChatPastePlugin, registered through the real ChatMarkdownEditor'
     )
     const editable = container.querySelector('[data-slate-editor]') as HTMLElement
     expect(editable).toBeTruthy()
-    // Lets the editor's own post-mount effects (selection subscriptions,
-    // the floating toolbar's) settle before dispatching, so the paste
-    // itself is the only state update `firePaste`'s `act()` has to cover.
     await act(async () => {})
 
     const file = new File(['bytes'], 'pasted-image.png', { type: 'image/png' })

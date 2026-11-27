@@ -4,34 +4,23 @@ import { projectBase, repoBase } from '@/lib/project-url'
 import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
 
-// The placement calls a drop fires: separate from workspace.ts's git mutations, since filing or
-// reordering moves nothing on disk and answers synchronously. `order` is an insert index with the
-// moved row lifted out, as the daemon computes it; a stale index clamps to an end, never refuses.
-
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 function homeBase(projectId: string): string {
   return `${projectBase(projectId)}/home`
 }
 
-/** A workspace's SIDEBAR placement. `folderId` is never a fork parent. */
 export interface WorkspacePlacement {
-  /** Owning folder, or '' for the repo root. Omitted leaves it where it is. */
   folderId?: string
   order?: number
 }
 
-/** One row's decided placement, as a placement PATCH reports it. */
 interface PlacedRow {
   id: string
-  /** A chat id, a folder id, or '' for the root. */
   parentId: string
   order: number
 }
 
-/** {@link placeWorkspace}'s answer: the moved row (its `id` is the Node the
- *  daemon addressed — a locked branch's own workspace, or an ordinary fork's
- *  owning chat) plus every sibling the dense renumber shifted. Apply both. */
 export interface WorkspaceWriteResult {
   workspace: PlacedRow
   shifted: PlacedRow[]
@@ -41,9 +30,6 @@ function toPlacedRow(raw: { id: string; parentId?: string; order?: number }): Pl
   return { id: raw.id, parentId: raw.parentId ?? '', order: raw.order ?? 0 }
 }
 
-// File a locked branch's row via `PATCH .../workspaces/:wsId/placement` — the workspace, not its
-// owning chat: position is a fact about the branch. `folderId` goes as `parentId`, named so it is
-// never mistaken for a fork parent. No frame carries placement, so the answer is the confirmation.
 export function placeWorkspace(
   wsId: string,
   placement: WorkspacePlacement,
@@ -64,24 +50,15 @@ export function placeWorkspace(
   }))
 }
 
-/** A folder's name and placement; every field is optional and only what is
- *  present is changed. */
 export interface FolderPlacement {
   name?: string
-  /** A workspace id, another folder id, or '' for the repo root. */
   parentId?: string
   order?: number
 }
 
-/** One folder mutation's answer: the row asked about, plus every sibling a
- *  dense renumber moved alongside it (folders and workspaces share one
- *  sibling space). Apply all of it. */
 interface FolderWriteResult {
   folder: FolderDTO
-  /** The shifted FOLDER siblings. */
   shifted: FolderDTO[]
-  /** The shifted siblings of any other kind — a locked branch by its
-   *  workspace id — as bare placements. */
   shiftedRows: PlacedRow[]
 }
 
@@ -98,8 +75,6 @@ function toFolderWriteResult(
   }
 }
 
-// Create a folder; answers the row plus its collateral, which performCreateFolder applies at once
-// so the row shows before its folder entity frame lands.
 export async function createFolder(
   projectId: string,
   repoId: string,
@@ -116,7 +91,6 @@ export async function createFolder(
   ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
 }
 
-/** {@link createFolder}, for the project-home workspace instead of a repo. */
 export async function createHomeFolder(
   projectId: string,
   name: string,
@@ -148,7 +122,6 @@ export async function placeFolder(
   ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
 }
 
-/** {@link placeFolder}, for the project-home workspace instead of a repo. */
 export async function placeHomeFolder(
   projectId: string,
   folderId: string,
@@ -164,9 +137,6 @@ export async function placeHomeFolder(
   ).then((raw) => toFolderWriteResult(raw, projectId, ''))
 }
 
-/** Delete a folder, and answer with the rows its children's promotion moved.
- *  Its children reparent to the folder's own parent — a folder holds no
- *  worktrees, so removing one is not removing what it held. */
 export async function deleteFolder(
   projectId: string,
   repoId: string,
@@ -179,7 +149,6 @@ export async function deleteFolder(
   ).then((raw) => partitionShifted(raw?.shifted ?? [], projectId, repoId).folders)
 }
 
-/** {@link deleteFolder}, for the project-home workspace instead of a repo. */
 export async function deleteHomeFolder(
   projectId: string,
   folderId: string,
@@ -191,12 +160,8 @@ export async function deleteHomeFolder(
   ).then((raw) => partitionShifted(raw?.shifted ?? [], projectId, '').folders)
 }
 
-/** A repo's index within its project's section, and the project-home folder
- *  its own entry is filed under. A repo's project is fixed at import. */
 export interface RepoPlacement {
   order?: number
-  /** A project-home folder id, or '' for the project's home root. Omitted
-   *  leaves the repo in whichever folder it already sits in. */
   folderId?: string
 }
 

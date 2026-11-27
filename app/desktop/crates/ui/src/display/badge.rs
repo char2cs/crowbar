@@ -1,5 +1,3 @@
-//! Small status and count pills.
-
 mod badge_size;
 mod badge_variant;
 mod paint;
@@ -15,7 +13,6 @@ use crate::display::badge::paint::Paint;
 use crate::foundation::Surface;
 use crate::foundation::Theme;
 
-/// A pill with a short label or count.
 #[derive(Debug, Clone, IntoElement)]
 pub struct Badge {
     label: SharedString,
@@ -25,7 +22,6 @@ pub struct Badge {
 }
 
 impl Badge {
-    /// A primary, default-size badge.
     pub fn new(label: impl Into<SharedString>) -> Self {
         Self {
             label: label.into(),
@@ -35,7 +31,6 @@ impl Badge {
         }
     }
 
-    /// Chooses the colour variant.
     #[must_use]
     pub fn variant(
         mut self,
@@ -45,7 +40,6 @@ impl Badge {
         self
     }
 
-    /// Chooses the size step.
     #[must_use]
     pub fn size(
         mut self,
@@ -55,7 +49,6 @@ impl Badge {
         self
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,

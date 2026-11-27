@@ -1,7 +1,5 @@
 import type { ChannelContext } from './channel-context'
 
-/** Sends `data` as JSON now on an open socket, or once it opens on a connecting one; a closed or
- *  parked channel drops it. */
 export function sendOn(ctx: ChannelContext, endpoint: string, data: unknown): void {
   const ch = ctx.channels.get(endpoint)
   if (!ch?.socket) return

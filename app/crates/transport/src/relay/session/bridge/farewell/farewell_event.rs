@@ -1,5 +1,3 @@
-//! What saying goodbye to both ends of a bridge logs.
-
 use std::fmt;
 
 use journal::Level;

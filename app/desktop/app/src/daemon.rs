@@ -1,5 +1,3 @@
-//! The daemon: its link and peer socket, the startup screen's actions, backend notices, the diagnostics bundle.
-
 pub(crate) mod backend;
 pub(crate) mod daemon_link;
 pub(crate) mod daemon_peer;

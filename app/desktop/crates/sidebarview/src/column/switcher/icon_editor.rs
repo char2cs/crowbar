@@ -1,5 +1,3 @@
-//! The icon popover of a space or a repository: preview, upload, emoji, GitHub and reset.
-
 mod github;
 mod preview;
 
@@ -23,7 +21,6 @@ use crate::sidebar::scale::{SPACE_LG, SPACE_SM};
 
 const WIDTH: f32 = 222.0;
 
-// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule rfd's GTK chooser with develop's Images filter.
 const ICON_IMAGE: FileChoice = FileChoice {
     title: "Open File",
     kind: ChoiceKind::File,

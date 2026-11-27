@@ -7,8 +7,6 @@ import {
   type NativeChromeIntent,
 } from '@/lib/native-chrome'
 
-/** Feeds the phone's Agents settings page (a webview with no IPC) while the native sheet is up:
- *  `hostId`'s agents via the desktop tab's hooks, pushed whole on change; edits use its writes. */
 export function NativeAgentsSettingsFeed({
   hostId,
   hostName,

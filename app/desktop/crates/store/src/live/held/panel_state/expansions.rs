@@ -1,5 +1,3 @@
-//! The folders open in the Files panel, per workspace, as develop's `expandedPathsByWorkspace`.
-
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Default)]

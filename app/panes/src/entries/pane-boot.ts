@@ -23,7 +23,6 @@ import { followShellSettings } from './follow-shell-settings'
 import { forwardToastsToShell } from './forward-toasts-to-shell'
 import { paintPaneSurface } from './paint-pane-surface'
 
-/** Starts the runtime every pane page shares (appearance, reporting, workspace scopes, the daemon stream and events, the shell's settings and paired hosts, toasts shown in the shell) and connects it to the shell as the `typeId` pane. The caller mounts its UI on `container` and then calls `client.register()`. */
 export function bootPane(typeId: string): BootedPane {
   const channel = shellChannel()
   const container = document.getElementById('root')

@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A project's home folders (RepoID == "") are the ONLY rows a project's
-// GET/PATCH/DELETE .../home/chats/folders may see or touch. tree.Folder
-// carries no project id, so every project's home folders share the one
-// RepoID == "" bucket ListInRepo("") filters on.
 func TestRegression_HomeFoldersAreProjectScoped(t *testing.T) {
 	h := newHarness(t)
 	projectA := createProjectForHome(t, h)
@@ -37,8 +33,6 @@ func TestRegression_HomeFoldersAreProjectScoped(t *testing.T) {
 	assert.False(t, leaked,
 		"project A's home folder list must not carry project B's folder; got %+v", inA)
 
-	// The write side is unscoped by the same id: a PATCH through A's mount
-	// renames B's folder, and a DELETE through A's mount removes it.
 	status := crossProjectRequest(t, h, http.MethodPatch, baseA+"/chats/folders/"+bOnly.ID,
 		`{"name":"renamed-from-A"}`)
 	t.Logf("PATCH via A on B's folder -> %d", status)

@@ -43,10 +43,6 @@ func ParseCallback(
 	return out, nil
 }
 
-// callbackMapping finds the field map for a pushed telemetry report: the
-// `telemetry.callback:` block, else the `events.telemetry` event's map: and
-// rate_limits:, its fields read from the block of the channel the report arrived on.
-// The callback block wins where both exist.
 func callbackMapping(d *spec.Descriptor, channel spec.Channel) (
 	format string,
 	fields spec.FieldMap,
@@ -66,8 +62,6 @@ func callbackMapping(d *spec.Descriptor, channel spec.Channel) (
 			ID: w.ID, Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt,
 		})
 	}
-	// A v3 event payload is the decoded wire frame either transport hands over,
-	// and decode speaks only JSON — which is what both of them carry.
 	return "json", fields, windows, true
 }
 
@@ -143,8 +137,6 @@ func ParseProbe(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry
 	return out, nil
 }
 
-// wrapFields lifts a single-path field table (callback/probe Fields, which take no
-// alternation) into a FieldMap, so mapFacts reads one shape.
 func wrapFields(m map[string]string) spec.FieldMap {
 	out := make(spec.FieldMap, len(m))
 	for k, v := range m {

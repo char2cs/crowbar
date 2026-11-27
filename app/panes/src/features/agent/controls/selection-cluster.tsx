@@ -13,15 +13,11 @@ export interface SelectionClusterProps {
   effort: string
   reportedModel?: string
   switchDisabled?: boolean
-  /** The model chip is lit: the way on is a different model. */
   hot?: boolean
-  /** A chip after the picker on the desktop, a section of the model picker's sheet on the phone. */
   permission?: PermissionTarget
   onSelectionChange: (provider: string, model: string, effort: string) => void
 }
 
-/** Shared by the underbar and the blank document's handle so a chat never names its model or
- *  permission level differently in the two. */
 export function SelectionCluster({
   provider,
   providers,
@@ -35,7 +31,6 @@ export function SelectionCluster({
 }: SelectionClusterProps) {
   return (
     <span className="selpos">
-      {/* One merged control: picking a model already picks its provider. */}
       <AgentSelectionPicker
         provider={provider}
         providers={providers}
@@ -46,9 +41,7 @@ export function SelectionCluster({
         hot={hot}
         permission={permission}
         onSelectionChange={onSelectionChange}
-        // Display only: `model`/`effort` stay '' when unset.
         unsetLabel="Default"
-        // Nothing is guessed: a model the provider has not stated reads as a neutral 'Model'.
         modelUnsetLabel="Model"
       />
       {!IS_MOBILE && permission && <PermissionLevelChip target={permission} />}

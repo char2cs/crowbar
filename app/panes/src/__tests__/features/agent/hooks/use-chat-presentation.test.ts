@@ -1,15 +1,3 @@
-/**
- * `use-chat-presentation.ts` drives two splits: the terminal split hosted
- * inside `agent-chat-pane.tsx` (chat ⇄ terminal — its end-to-end behaviour is
- * covered by `agent-chat-pane-split.test.tsx`; the persistence of WHICH one a
- * chat lands back on is covered directly below, since it lives entirely in
- * this hook) and, generalized here, the pane-level chat-view ⇄ editor-view
- * split spec §7.2 describes, consumed by `pane-container.tsx`.
- *
- * `usePaneViewPresentation` is pure geometry over `PaneGroup.editorOpen` — there is
- * nothing to "choose", so unlike `useChatPresentation` it has no
- * `setPresentation`/`chosen` pair to test.
- */
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -22,7 +10,7 @@ import { useSettingsStore } from '@/features/settings/store'
 import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
 const platform = vi.hoisted(() => ({ mobile: false }))
-const SIDE_BY_SIDE_MIN_PX = 780 // the pane floor the hook documents
+const SIDE_BY_SIDE_MIN_PX = 780
 
 vi.mock('@/utils/platform', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/platform')>()),
@@ -31,7 +19,6 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   },
 }))
 
-// The phone lands on the chat, but the provider's TUI is one tap away and the pick sticks.
 describe('useChatPresentation — on the phone', () => {
   beforeEach(() => {
     useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
@@ -76,7 +63,6 @@ describe('useChatPresentation — on the phone', () => {
   })
 })
 
-// A provider without hot-swap has one view; the daemon's, not a pick or a preference.
 describe('useChatPresentation — a view the daemon holds', () => {
   const withSplit = (enabled: boolean) =>
     useSettingsStore.setState({
@@ -120,7 +106,6 @@ describe('useChatPresentation — a view the daemon holds', () => {
     expect(result.current.presentation).toBe('chat')
   })
 
-  // The phone opens on the chat by default, but a chat the daemon holds on its TUI is there.
   it('shows the terminal it holds on the phone too', () => {
     platform.mobile = true
     expect(render('terminal').current.presentation).toBe('terminal')
@@ -146,17 +131,14 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
       ({ chatId }) => useChatPresentation(chatId, container),
       { initialProps: { chatId: 'chat-a' } },
     )
-    expect(result.current.presentation).toBe('chat') // the global default
+    expect(result.current.presentation).toBe('chat')
 
     act(() => result.current.setPresentation('terminal'))
     expect(result.current.presentation).toBe('terminal')
 
-    // Switch to a different chat in the same pane — the ordinary re-seed path
-    // (a runner move, or picking another tab).
     rerender({ chatId: 'chat-b' })
     expect(result.current.presentation).toBe('chat')
 
-    // ...and back to chat A, on the 'terminal' the user left it on, not the default.
     rerender({ chatId: 'chat-a' })
     expect(result.current.presentation).toBe('terminal')
   })
@@ -169,41 +151,18 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
     act(() => first.current.setPresentation('chat'))
     expect(first.current.presentation).toBe('chat')
 
-    // Closing a chat's view deletes its pane outright (`closePane`,
-    // pane-slice.ts) rather than hiding it — this pane's own React state,
-    // including `chosen`, dies with it.
     unmountFirst()
 
-    // Another chat's pane mounts and unmounts in between, same as a user
-    // browsing elsewhere before coming back.
     const containerB = { current: null }
     const { unmount: unmountSecond } = renderHook(() => useChatPresentation('chat-b', containerB))
     unmountSecond()
 
-    // Reopening chat A from its Recents row mounts a BRAND NEW AgentChatPane —
-    // a fresh `renderHook`, not a rerender of the same instance. The chat's own
-    // choice must survive this, exactly like the bug report says: "the chat
-    // mode should never be lost."
     const containerA2 = { current: null }
     const { result: second } = renderHook(() => useChatPresentation('chat-a', containerA2))
     expect(second.current.presentation).toBe('chat')
   })
 })
 
-/**
- * THE BUG: "can't start chats directly on a CLI, it always obligates me to
- * use the native chat". `chatIsDefaultPresentation` (chat-presentation.ts)
- * genuinely seeds a brand-new chat's landing surface from the user's global
- * preference — that plumbing was never broken. What never existed is a way
- * to land ONE new chat on Terminal without also flipping that preference for
- * every other chat: no creation entry point (space-content-actions.ts's
- * `handleCreate`, use-pane-keyboard.ts's ⌘N) offers a choice at all, they
- * only ever accept whatever the global default happens to be.
- *
- * `presetChatLandingPresentation` is the fix's one new capability: a creation
- * call site records a chat's landing surface into the SAME map an in-pane
- * pick already writes, before that chat's pane ever mounts.
- */
 describe('presetChatLandingPresentation — choosing a new chat’s surface at creation', () => {
   beforeEach(() => {
     chatStore.setState({ presentations: {} })
@@ -224,8 +183,6 @@ describe('presetChatLandingPresentation — choosing a new chat’s surface at c
     const { result } = renderHook(() => useChatPresentation('new-chat-1', container))
     expect(result.current.presentation).toBe('terminal')
 
-    // The preset named exactly one chat — everyone else still lands on
-    // whatever the (untouched) global default says.
     expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
     const otherContainer = { current: null }
     const { result: other } = renderHook(() =>
@@ -294,8 +251,6 @@ describe('usePaneViewPresentation', () => {
   })
 })
 
-/** A sash drag rewrites flex-basis on every pointermove; `usePaneViewPresentation` must re-render
- *  only when one of its three arrangements changes, not once per pixel of the whole pane subtree. */
 describe('usePaneViewPresentation — a resize that does not change the answer does not re-render', () => {
   function withObservedResize(run: (fire: () => void) => void) {
     const callbacks: ResizeObserverCallback[] = []
@@ -334,8 +289,6 @@ describe('usePaneViewPresentation — a resize that does not change the answer d
       expect(result.current).toBe('side-by-side')
       const rendersAtRest = renders
 
-      // A drag's worth of width changes, every one of them still landscape and
-      // still above the side-by-side floor.
       for (let w = 1200; w > 900; w -= 5) {
         box.clientWidth = w
         fire()
@@ -343,7 +296,6 @@ describe('usePaneViewPresentation — a resize that does not change the answer d
       expect(result.current).toBe('side-by-side')
       expect(renders).toBe(rendersAtRest)
 
-      // Crossing a real threshold still lands, immediately.
       box.clientWidth = 700
       box.clientHeight = 500
       fire()

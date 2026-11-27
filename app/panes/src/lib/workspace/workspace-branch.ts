@@ -1,7 +1,5 @@
 import type { Repo } from '@/core/entities/repo-types'
 
-/** Names for workspaces shown side by side: each branch, qualified with its repo where two share
- *  one, and its id when it has no branch. */
 export function workspaceNames(
   repos: readonly Repo[],
   workspaceIds: readonly string[],

@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// TestProjects_ImportThenList proves the import flow end to end: POST /v0/projects
-// adopts a real git repo (202 + WS), GET /v0/projects lists it, and
-// GET /v0/projects/:p/repos surfaces the discovered repository.
 func TestProjects_ImportThenList(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -36,13 +33,6 @@ func TestProjects_ImportThenList(t *testing.T) {
 	assert.Equal(t, imported.repoPath, repos[0].Path)
 }
 
-// TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk proves the delete flow
-// end to end: import a project, create a crowbar-managed child workspace, then
-// DELETE /v0/projects/:projectId. The delete is async (202 + WS tombstone): a
-// deleted-status ProjectDTO is broadcast once the cascade completes. The
-// project, its repos, and its workspaces then vanish from every list; the user's
-// real repository directory survives on disk while the crowbar-created child
-// worktree directory is removed.
 func TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -69,12 +59,6 @@ func TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk(t *testing.T) {
 	repos := listRepos(t, h, imported.projectID)
 	assert.Empty(t, repos, "repo records must be gone")
 
-	// The repo was cascade-deleted, so its chat list is no longer reachable: the
-	// repo scope guard 404s a :repoId that no longer belongs to the project. That
-	// the repo scope is gone (alongside the empty repos list above) proves the
-	// workspaces under it were removed by the cascade. (The dedicated .../workspaces
-	// list route is itself gone — spec §8 step 6 — so it would 404 unconditionally
-	// and prove nothing; .../chats is the live route the scope guard still runs on.)
 	h.raw(http.MethodGet,
 		"/v0/projects/"+imported.projectID+"/repos/"+imported.repoID+"/chats",
 		nil, http.StatusNotFound)
@@ -87,9 +71,6 @@ func TestProjects_DeleteCascadesRecordsKeepsRealRepoOnDisk(t *testing.T) {
 		"the crowbar-created child worktree directory must be removed")
 }
 
-// TestProjects_DeleteMissing proves DELETE /v0/projects/:projectId returns the
-// 404 error envelope when the project does not exist (synchronous validation,
-// before the 202 async path).
 func TestProjects_DeleteMissing(t *testing.T) {
 	h := newHarness(t)
 
@@ -97,21 +78,10 @@ func TestProjects_DeleteMissing(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// TestRegression_HomeWorkspaceProvisionedOnCreate verifies that importing a
-// project auto-provisions a home workspace with Kind=home.
-//
-// TODO(task-5): The harness exposes no direct repository access, so this test
-// cannot verify the home workspace via GetHomeForProject. Once Task 5 adds
-// GET /v0/projects/:id/home, replace the assertion below with an HTTP call.
 func TestRegression_HomeWorkspaceProvisionedOnCreate(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 
-	// The home workspace has no repo — it is not listed under
-	// /v0/projects/:p/repos/:r/chats. Task 5 will surface it at
-	// GET /v0/projects/:id/home. For now we assert the project itself exists,
-	// which proves the import pipeline (including home-workspace provisioning)
-	// completed without error.
 	var projects []struct {
 		ID string `json:"id"`
 	}
@@ -121,9 +91,6 @@ func TestRegression_HomeWorkspaceProvisionedOnCreate(t *testing.T) {
 		"project must be persisted: home-workspace provisioning must not have failed the import")
 }
 
-// worktreePathOf resolves a child workspace's on-disk worktree path (the daemon's
-// human-readable <home>/projects/<P>/<slug>/<branch> layout, spec §3.9). It is a
-// readability alias for workspaceWorktreePath.
 func worktreePathOf(
 	t *testing.T,
 	h *harness,

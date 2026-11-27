@@ -1,5 +1,3 @@
-//! A followed host as the shell holds it: a slot of the hub and the dial of its stream.
-
 use std::sync::Arc;
 
 use daemonapi::{CORE_ORIGIN, Dial, RelayDial};

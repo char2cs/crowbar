@@ -1,5 +1,3 @@
-// `default` adds no overrides (registry chords). `compact` is a populated alternate that moves
-// Reopen closed tab, proving a preset switch re-resolves live bindings.
 import { TAB_REOPEN_CLOSED } from '@/features/keymaps/registry'
 import type { KeymapPreset, KeymapPresetId } from '@/features/keymaps/types'
 

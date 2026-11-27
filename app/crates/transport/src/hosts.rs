@@ -1,5 +1,3 @@
-//! The host registry: paired hosts, their endpoints and the hosts file.
-
 mod adapters;
 mod document;
 mod endpoint;

@@ -1,5 +1,3 @@
-//! One page entry of the rail.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ElementId, InteractiveElement, IntoElement, ParentElement, SharedString,

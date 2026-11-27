@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// descriptor builds a probe descriptor from a single-path field map per event; fieldMap
-// lifts each path into an Expr.
 func descriptor(events map[string]map[string]string, require_ ...string) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{}}
 	d.Runtime.Hooks.Format = "json"
@@ -32,9 +30,6 @@ func fieldMap(fields map[string]string) spec.FieldMap {
 	return out
 }
 
-// descriptorWithFields is descriptor()'s counterpart for a test that needs a
-// REAL multi-path (first_present:-shaped) field, which a plain
-// map[string]string cannot express.
 func descriptorWithFields(canonical string, fields spec.FieldMap) *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		canonical: {In: spec.WireRef{canonical}, Map: fields},
@@ -43,8 +38,6 @@ func descriptorWithFields(canonical string, fields spec.FieldMap) *spec.Descript
 	return d
 }
 
-// parse is inbound.Parse pinned to the hooks channel; the descriptors here have no channel
-// blocks, so the channel changes nothing (TestParse_ChannelSelectsItsOwnBlock covers it).
 func parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEvent, error) {
 	return inbound.Parse(d, canonical, raw, spec.ChannelHooks)
 }
@@ -82,8 +75,6 @@ func TestParse_MapsDescriptorDeclaredTurnStatus(t *testing.T) {
 	assert.Equal(t, "interrupted", ev.TurnStatus)
 }
 
-// --- required: (design spec 2.3) -------------------------------------------
-
 func TestParse_RequiredFieldMissingIsAHardError(t *testing.T) {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookUserPrompt: {
@@ -104,8 +95,6 @@ func TestParse_RequiredFieldMissingIsAHardError(t *testing.T) {
 	assert.Equal(t, "session_id", missing.Field, "must name the SPECIFIC missing field")
 }
 
-// A required field present but resolving to the empty string is exactly as
-// missing as an absent key — an empty session id names no conversation.
 func TestParse_RequiredFieldPresentButEmptyIsStillAHardError(t *testing.T) {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookUserPrompt: {
@@ -141,8 +130,6 @@ func TestParse_EveryRequiredFieldPresentSucceeds(t *testing.T) {
 	assert.Equal(t, "hi", ev.Message)
 }
 
-// An event with no required: list at all is untouched — this is the
-// pre-existing, unmigrated shape most events still have.
 func TestParse_NoRequiredListMeansNoCheck(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}})
 
@@ -233,24 +220,12 @@ func TestParse_ADescriptorDeclaringNoGuardIsUnaffected(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload is the bug
-// reported live: codex's session_start/user_prompt/turn_stop declare no
-// per-event transport override, so on codex's own mixed-transport descriptor
-// they inherit the runtime default of "api" — but codex's spawn config still
-// ALSO fires them hooks-shaped for its internal memory-consolidation session
-// (transcript_path: null, byte-identical to a real /new otherwise). The guard
-// used to be skipped outright for any event whose DECLARED transport is api,
-// which let this exact payload through and re-opened the chat-theft bug
-// require_payload_fields exists to close. Confirmed live against the real
-// codex.yaml before this fix: accepted, no rejection.
 func TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload(t *testing.T) {
 	d := descriptor(
 		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
 		"transcript_path",
 	)
 	d.Runtime.Transport = "api"
-	// No per-event Transport override — exactly codex.yaml's own shape for
-	// session_start/user_prompt/turn_stop, inheriting the runtime default.
 
 	_, err := parse(d, spec.HookUserPrompt,
 		[]byte(`{"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION","transcript_path":null}`))
@@ -260,10 +235,6 @@ func TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload(t *testing.T
 			"EVENT's declared transport is api")
 }
 
-// TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload guards the failure
-// mode the old transport-wide skip existed to prevent in the first place: an
-// api-transport payload structurally never carries transcript_path at all
-// (absent, not empty), and must not be rejected for lacking it.
 func TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload(t *testing.T) {
 	d := descriptor(
 		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
@@ -305,8 +276,6 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	assert.Equal(t, 42, post.Tool.DurationMS)
 }
 
-// A tool call may name the subagent it spawned or addresses; the descriptor
-// supplies the path, Go never learns why the field is there.
 func TestParse_ToolPostCarriesTheScopesItNames(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPost: {
@@ -463,12 +432,6 @@ func TestDeclared_ListsTheMappedKindsSorted(t *testing.T) {
 	assert.Nil(t, inbound.Declared(nil))
 }
 
-// --- channel selection: the chat-theft class, made explicit -----------------
-
-// channelSplitDescriptor is the design spec's own tool_pre example
-// (docs/plans/2026-09-22-descriptor-channel-split.md, 2.1): ONE canonical
-// event, two channel blocks with DIFFERENT wire names and DIFFERENT field
-// maps for the same conversational fact.
 func channelSplitDescriptor() *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookToolPre: {
@@ -492,14 +455,6 @@ func channelSplitDescriptor() *spec.Descriptor {
 	return d
 }
 
-// TestParse_ChannelSelectsItsOwnBlock is the chat-theft class made explicit:
-// the SAME canonical event, the SAME descriptor, two payloads shaped for two
-// DIFFERENT channels. This package's own doc comment on Parse (and hooks.go's
-// on ownsConversation) records the live bug this replaces — a canonical event
-// resolved by its STATIC declared transport, instead of the channel THIS
-// delivery actually arrived on, let a foreign hooks-shaped payload of an
-// api-default event through unchecked. Parse must read each payload through
-// its OWN channel's block.
 func TestParse_ChannelSelectsItsOwnBlock(t *testing.T) {
 	d := channelSplitDescriptor()
 
@@ -520,25 +475,6 @@ func TestParse_ChannelSelectsItsOwnBlock(t *testing.T) {
 	assert.Equal(t, "Bash", ev.Tool.Name)
 }
 
-// TestRegression_ChannelSelectionDoesNotReadTheOtherShapesFields is the
-// isolation proof: parsing a payload through the WRONG channel's block must
-// resolve NOTHING — the api-shaped payload's threadId/item.id must not
-// accidentally satisfy the hooks block's session_id/tool_use_id paths (and
-// vice versa). If channel selection degenerated back into reading both
-// shapes at once (the old || cross-shape fallback this design replaces),
-// this would start passing something.
-//
-// tool_pre declares session_id required:, so the isolation now surfaces as a
-// RequiredFieldError rather than a successful event with empty fields — a
-// STRONGER proof than before: the wrong-channel delivery is not just hollow,
-// it is REJECTED, exactly what required: (design spec 2.3) exists for.
-//
-// The api-channel direction is rejected EARLIER than that, and by something
-// stricter: the api block's own when: (item.type) cannot resolve in a
-// hooks-shaped payload at all, so the discriminator refuses the delivery
-// before required: is ever consulted. Both halves still prove the one thing
-// this test exists for — a payload read through the wrong channel's block
-// resolves NOTHING and is refused, never half-parsed.
 func TestRegression_ChannelSelectionDoesNotReadTheOtherShapesFields(t *testing.T) {
 	d := channelSplitDescriptor()
 
@@ -560,10 +496,6 @@ func TestRegression_ChannelSelectionDoesNotReadTheOtherShapesFields(t *testing.T
 			"missing required field")
 }
 
-// TestParse_AChannelTheEventDoesNotDeclareIsRefusedNotHalfParsed is design
-// spec 2.1's own consequence: "a channel a provider does not use is simply
-// absent; its payloads are refused with a named error rather than silently
-// half-parsed."
 func TestParse_AChannelTheEventDoesNotDeclareIsRefusedNotHalfParsed(t *testing.T) {
 	d := channelSplitDescriptor()
 
@@ -572,10 +504,6 @@ func TestParse_AChannelTheEventDoesNotDeclareIsRefusedNotHalfParsed(t *testing.T
 	assert.ErrorIs(t, err, inbound.ErrUndeclaredEvent)
 }
 
-// permissionChannelSplitDescriptor mirrors codex.yaml's own migrated
-// permission shape (docs/plans/2026-09-22-descriptor-channel-split.md P2b):
-// an ASK-direction event, channel-split, api: and hooks: naming DIFFERENT
-// wire methods and DIFFERENT field paths for the same conversational fact.
 func permissionChannelSplitDescriptor() *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookPermission: {
@@ -599,19 +527,6 @@ func permissionChannelSplitDescriptor() *spec.Descriptor {
 	return d
 }
 
-// TestRegression_AskChannelSelectionDoesNotReadTheOtherShapesFields is
-// TestRegression_ChannelSelectionDoesNotReadTheOtherShapesFields's
-// ASK-direction counterpart (the P3 gap report this phase closes): permission
-// resolving through the WRONG channel's block must resolve NOTHING — the
-// api-shaped payload's threadId/reason/tool must not satisfy the hooks
-// block's session_id/message/tool_name paths, and vice versa. This is the
-// same chat-theft class TestRegression_ACodexPermissionIsAnsweredFromCrowbar
-// AndReachesTheCLI (internal/app/usecases/chat/answers_test.go) exercises
-// end to end; this pins the field-resolution level underneath it.
-//
-// permission declares session_id required:, so — same upgrade as
-// TestRegression_ChannelSelectionDoesNotReadTheOtherShapesFields — the
-// isolation now surfaces as a RequiredFieldError, not a hollow success.
 func TestRegression_AskChannelSelectionDoesNotReadTheOtherShapesFields(t *testing.T) {
 	d := permissionChannelSplitDescriptor()
 
@@ -630,11 +545,6 @@ func TestRegression_AskChannelSelectionDoesNotReadTheOtherShapesFields(t *testin
 	assert.Equal(t, "session_id", missing.Field)
 }
 
-// TestParse_AskChannelSelectsItsOwnBlock is
-// TestParse_ChannelSelectsItsOwnBlock's ask-direction counterpart: the
-// GENUINE delivery on each channel must still resolve correctly through its
-// own block — the isolation proof above only means something once the happy
-// path is proven too.
 func TestParse_AskChannelSelectsItsOwnBlock(t *testing.T) {
 	d := permissionChannelSplitDescriptor()
 
@@ -656,25 +566,6 @@ func TestParse_AskChannelSelectsItsOwnBlock(t *testing.T) {
 	assert.Equal(t, "hooks-tool", ev.Choice.ToolName)
 }
 
-// --- when: on the hooks channel --------------------------------------------
-//
-// `when:` used to be read by dispatch.Resolve alone, which the API transport is
-// the only caller of: it turns a provider's own method name back into a
-// canonical event, and a sum-type method needs the discriminator to pick which.
-// The hooks channel never needed it, because a hook relay is invoked WITH the
-// canonical name (settings.json bakes one command per wire hook), so there was
-// nothing to resolve.
-//
-// That made one wire hook mean exactly one canonical event, forever — and claude
-// needs one wire hook (Notification) to mean two: an idle report when it says it
-// is waiting for the human, and nothing at all when the same hook carries a
-// permission prompt. Two relay commands deliver it twice under two canonical
-// names, and the `when:` below is the only thing that can tell the two deliveries
-// apart. Without it the permission copy would read as an idle report and end
-// a live turn.
-
-// idleVariantDescriptor is the two-events-one-wire-hook shape: `idle` is gated
-// on a discriminator, `notification` takes every delivery of the same hook.
 func idleVariantDescriptor() *spec.Descriptor {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookIdle: {
@@ -715,8 +606,6 @@ func TestParse_HooksChannelRefusesADeliveryItsWhenDoesNotMatch(t *testing.T) {
 	assert.Equal(t, string(spec.ChannelHooks), mismatch.Channel)
 }
 
-// The UNGATED sibling of the same wire hook still takes every delivery: a
-// discriminator selects one variant IN, it never filters the others OUT.
 func TestParse_AnUngatedEventTakesEveryDeliveryOfTheSameWireHook(t *testing.T) {
 	d := idleVariantDescriptor()
 
@@ -730,9 +619,6 @@ func TestParse_AnUngatedEventTakesEveryDeliveryOfTheSameWireHook(t *testing.T) {
 	}
 }
 
-// A payload missing the discriminator field entirely is a MISS, never a match —
-// mapping.Match's own rule, asserted here because a variant selector that
-// applied to payloads lacking the discriminator would be the unsafe direction.
 func TestParse_ADeliveryWithNoDiscriminatorFieldIsRefused(t *testing.T) {
 	d := idleVariantDescriptor()
 
@@ -741,9 +627,6 @@ func TestParse_ADeliveryWithNoDiscriminatorFieldIsRefused(t *testing.T) {
 	assert.ErrorIs(t, err, inbound.ErrVariantMismatch)
 }
 
-// The discriminator runs BEFORE required:, so the error a mismatched variant
-// reports names the real reason rather than blaming a field the other variant
-// happens not to carry.
 func TestParse_TheDiscriminatorIsCheckedBeforeRequiredFields(t *testing.T) {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookIdle: {
@@ -763,8 +646,6 @@ func TestParse_TheDiscriminatorIsCheckedBeforeRequiredFields(t *testing.T) {
 		"a different variant of the same hook is not a missing required field")
 }
 
-// A channel-scoped event reads its OWN block's when:, the same way it already
-// reads its own map: — WhenFor(channel), never the other channel's.
 func TestParse_AChannelScopedEventReadsItsOwnBlocksWhen(t *testing.T) {
 	d := &spec.Descriptor{ID: "probe", Events: map[string]spec.EventSpec{
 		spec.HookIdle: {

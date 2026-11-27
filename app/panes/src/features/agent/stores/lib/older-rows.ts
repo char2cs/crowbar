@@ -7,7 +7,6 @@ const RECORDS = [
   ...['efforts', 'providers', 'models', 'calls'],
 ] as const satisfies readonly (keyof TurnFacts)[]
 
-/** What the older turns knew, under what the held ones say: their live state is the held feed's. */
 function mergeFacts(held: TurnFacts, older: TurnFacts): TurnFacts {
   const facts = { ...held }
   for (const key of RECORDS) Object.assign(facts, { [key]: { ...older[key], ...held[key] } })
@@ -15,8 +14,6 @@ function mergeFacts(held: TurnFacts, older: TurnFacts): TurnFacts {
   return facts
 }
 
-/** `feed` with the whole turns of `rows` (the page that ends at its `from`) laid above, as folding
- *  the ledger from `from` would have left them: the held items and order are shared, not refolded. */
 export function prependOlder(feed: ChatFeed, rows: LedgerRow[], from: number): ChatFeed {
   const fold = new FeedFold(emptyFeed())
   fold.startAt(from)
@@ -36,7 +33,6 @@ export function prependOlder(feed: ChatFeed, rows: LedgerRow[], from: number): C
   }
 }
 
-/** `feed` with item `id` holding what `row`, the whole of the row its preview was cut from, says. */
 export function fillFull(feed: ChatFeed, id: string, row: LedgerRow): ChatFeed {
   const item = feed.items.get(id)
   if (!item) return feed

@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// toolFrame is a tool.start or tool.complete frame as the descriptor reads it.
 func toolFrame(typ, name string) []byte {
 	return []byte(`{"type":"` + typ + `","session_id":"s1","payload":{"tool_id":"t1","name":"` + name + `","args":{}}}`)
 }

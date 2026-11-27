@@ -8,14 +8,6 @@ function editable(container: HTMLElement): HTMLElement {
   return node
 }
 
-// Cmd+Enter and Escape are deliberately NOT exercised here. A keydown
-// dispatched at a Slate editable under jsdom never reaches a listener on that
-// element — measured: window-capture and document-capture see the event, the
-// editable's own listeners never do, and dispatchEvent returns already
-// default-prevented. A test that fired one and asserted "did not submit" would
-// pass for that reason alone, and would keep passing if the handler were
-// deleted. What those keystrokes MEAN is pinned in comment-editor-keys.test.ts;
-// that they arrive is checked in the running app.
 describe('CommentComposer', () => {
   it('has no Write/Preview modes — the editable IS the preview', () => {
     render(<CommentComposer onSubmit={vi.fn()} onCancel={vi.fn()} />)
@@ -53,7 +45,6 @@ describe('CommentComposer', () => {
       <CommentComposer initialValue="a **bold** word" onSubmit={vi.fn()} onCancel={vi.fn()} />,
     )
 
-    // The whole point of the swap: `**` is not on screen, weight is.
     expect(editable(container).textContent).toBe('a bold word')
     expect(container.querySelector('strong')).not.toBeNull()
   })
@@ -78,15 +69,6 @@ describe('CommentComposer', () => {
   })
 
   it('carries its own opt-outs from the diff <pre> it gets slotted into', () => {
-    // Both are inherited from the diff's <pre>: the code font, and
-    // `white-space: pre` — which turns every newline between a rendered
-    // comment's tags into a visible blank line.
-    //
-    // Asserted on the composer's OWN root, not on a wrapper, because that is
-    // the whole claim: the draft variant is slotted straight into the
-    // annotation with no ReviewThreadItem above it to supply either class. The
-    // gutter button that opens that variant only mounts under real hover, which
-    // the automation bridge cannot produce, so this is the gate on it.
     const { container } = render(<CommentComposer onSubmit={vi.fn()} onCancel={vi.fn()} />)
     const root = container.firstElementChild?.className ?? ''
     expect(root).toContain('ui-font')

@@ -17,8 +17,6 @@ import type { ChatMarkdownEditorHandle } from '@/features/agent/composer/plate/c
 import * as tauriDrop from '@/features/file-system/lib/tauri-file-drop'
 import * as reports from '@/__tests__/__fixtures__/reports'
 
-// The real canvas mounts `@excalidraw/excalidraw`, which jsdom cannot host; its
-// `onSave` is captured so a test can save the way the canvas's button would.
 let latestExcalidrawOnSave: ((result: { sceneJson: string; pngFile: File }) => void) | null = null
 let latestExcalidrawInitialScene: ParsedExcalidrawScene | undefined
 vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
@@ -45,7 +43,6 @@ beforeEach(() => {
   localStorage.clear()
   latestExcalidrawInitialScene = undefined
   upload = vi.spyOn(uploadApi, 'uploadChatAttachment')
-  // A no-op under jsdom (`isTauri()` is false); its `onDrop` is invoked directly.
   tauriHook = vi.spyOn(tauriDrop, 'useTauriFileDrop').mockImplementation(() => {})
   toastError = reports.watchToasts()
 })
@@ -136,7 +133,6 @@ describe('AgentComposer', () => {
     expect(screen.getByRole('button', { name: 'Send prompt' })).toBeEnabled()
   })
 
-  // Inline under `.dock` (absolutely positioned) the takeover was sized to the dock.
   it('portals the takeover into takeoverContainer when one is given, not inline under the composer', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -167,7 +163,6 @@ describe('AgentComposer', () => {
     expect(latestExcalidrawInitialScene).toBeUndefined()
   })
 
-  // A transcript diagram's Edit reaches the composer only through this store.
   it('opens the takeover preloaded when the store requests an excalidraw edit for this chat, and clears the request', async () => {
     const scene: ParsedExcalidrawScene = { elements: [{ id: 'from-agent' }], appState: {} }
     draw()
@@ -207,7 +202,6 @@ describe('AgentComposer', () => {
     )
   })
 
-  // Under the real DndScope the inserted fence resolves to a draggable preview.
   it('uploads via the excalidraw takeover and inserts both markdown blocks into the field', async () => {
     upload.mockResolvedValueOnce(
       uploaded('chats/c1/attachments/x-diagram.png', 'x-diagram.png', 'image/png'),
@@ -309,12 +303,10 @@ describe('AgentComposer drag-and-drop', () => {
     expect(upload).not.toHaveBeenCalled()
   })
 
-  // A leave onto the pill's own child is not a leave: the border would flicker.
   it('keeps the drag-over state when drag-leave lands on a still-contained child', () => {
     const { pill } = draw()
     fireEvent.dragOver(pill(), { dataTransfer: { types: ['Files'] } })
 
-    // jsdom's DragEvent drops an init `relatedTarget`; React reads this one.
     const leave = new Event('dragleave', { bubbles: true, cancelable: false })
     Object.defineProperty(leave, 'relatedTarget', { value: pill(), configurable: true })
     fireEvent(pill(), leave)
@@ -354,8 +346,6 @@ describe('AgentComposer drag-and-drop', () => {
     expect(upload).not.toHaveBeenCalled()
   })
 
-  // On the real editable, slate-react's own drop would also insert the raw CSV
-  // text unless the editor's drop guard claims the event.
   it('drops a CSV onto the real editable node without duplicating its raw text anywhere in the document', async () => {
     const { container, markdown } = draw()
     const editable = container.querySelector('[data-slate-editor]')!
@@ -367,7 +357,6 @@ describe('AgentComposer drag-and-drop', () => {
       items: [],
       getData: (type: string) => (type === 'text/plain' ? csvText : ''),
     }
-    // jsdom implements no caretRangeFromPoint, which slate-react's drop needs.
     document.caretRangeFromPoint = () => {
       const range = document.createRange()
       range.setStart(editable, 0)
@@ -414,7 +403,6 @@ describe('AgentComposer drag-and-drop', () => {
     expect(markdown()).not.toContain('![b.pdf]')
   })
 
-  // A native OS drop reaches the app only through the Tauri hook's callback.
   it('uploads each Tauri-reported host path and clears the drag-over state', async () => {
     upload.mockResolvedValue(uploaded('chats/c1/attachments/z-c.txt', 'c.txt', 'text/plain'))
     const { pill, markdown } = draw()
@@ -428,7 +416,6 @@ describe('AgentComposer drag-and-drop', () => {
     await waitFor(() => expect(markdown()).toContain('[c.txt](chats/c1/attachments/z-c.txt)'))
   })
 
-  // A fresh handler per render would re-subscribe Tauri's drop channel over IPC.
   it('passes the same onDrop identity to useTauriFileDrop across a re-render', () => {
     const { rerenderWith } = draw()
     const first = tauriHook.mock.calls.at(-1)?.[1]
@@ -460,7 +447,6 @@ describe('AgentComposer drag-and-drop', () => {
     await waitFor(() => reports.expectMigratingShown(toastError))
   })
 
-  // An upload that outlives the pane must not throw when it tries to insert.
   it('does not throw when the composer unmounts before an in-flight upload resolves', async () => {
     let resolveUpload: ((value: UploadedChatAttachment) => void) | undefined
     upload.mockImplementation(() => new Promise((resolve) => (resolveUpload = resolve)))
@@ -475,7 +461,6 @@ describe('AgentComposer drag-and-drop', () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
-  // Attachment reordering (dnd-kit) must not swallow a native file drop.
   it('still uploads a dropped native file over the pill with a real attachment drag source mounted', async () => {
     upload.mockResolvedValue(uploaded('chats/c1/attachments/y-b.pdf', 'b.pdf', 'application/pdf'))
     const { pill, markdown, load } = draw({}, { dnd: true })
@@ -489,7 +474,6 @@ describe('AgentComposer drag-and-drop', () => {
     expect(upload).toHaveBeenCalledTimes(1)
   })
 
-  // A CLI parked on its own prompt holds the prompt sent to it: the bar must still stop it.
   it('lets a prompt held behind a terminal wait be stopped from the signpost', () => {
     const onStop = vi.fn()
     draw({ terminalWait: { kind: 'workspace_trust' }, sending: true, canStop: true, onStop })

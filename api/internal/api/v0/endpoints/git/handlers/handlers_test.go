@@ -127,7 +127,6 @@ func newRouterWith(g handlers.Git) *gin.Engine {
 	return newRouterWithOps(g, newOps(func(domain.Operation) {}))
 }
 
-// newOps is an operation service over an in-memory store; publish hears every saved row.
 func newOps(publish func(domain.Operation)) *operation.Service {
 	db, err := storesqlite.OpenDB(":memory:")
 	if err != nil {
@@ -140,11 +139,6 @@ func newOps(publish func(domain.Operation)) *operation.Service {
 	return operation.New(opStore, publish, time.Now)
 }
 
-// newRouterWithOps wires the git handlers onto the flat chat-scoped group
-// the way router.go does, with a stand-in for chatScoped's
-// resolveChatWorktree middleware: the resolved workspace's id is the :chatId
-// path param, so the fixed "ws1" segment in the ws const below still names
-// the workspace every existing assertion in this file expects.
 func newRouterWithOps(
 	g handlers.Git,
 	ops handlers.Operations,

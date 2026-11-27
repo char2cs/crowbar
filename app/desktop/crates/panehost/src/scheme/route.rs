@@ -2,16 +2,16 @@ use protocol::{ExtensionId, HostId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Route {
-    /// A file of the core pane bundle.
-    CoreBundle { path: String },
-    /// A file of an extension's pane bundle.
+    CoreBundle {
+        path: String,
+    },
     ExtensionBundle {
         extension: ExtensionId,
         path: String,
     },
-    /// The daemon of `host`.
-    Relay { host: HostId },
-    /// A native menu the page asks the shell to pop up.
+    Relay {
+        host: HostId,
+    },
     Menu,
     Daemon {
         host: HostId,

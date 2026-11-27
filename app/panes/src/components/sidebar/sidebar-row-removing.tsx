@@ -18,8 +18,6 @@ import {
   useRowMetrics,
 } from '@/components/sidebar/lib/row-metrics'
 
-// A row held in the removal tray, drawn in place: its glyph and label, with the countdown, Keep
-// and the "+N" count where its actions were.
 export function RemovingSidebarRow({
   row,
   depth,
@@ -32,8 +30,6 @@ export function RemovingSidebarRow({
   const metrics = useRowMetrics()
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: rowIndent(depth, metrics) }}>
-      {/* A held row keeps its id so its children and the context menu still
-          resolve it; the drag attributes stay off, it is no drop target. */}
       <div
         data-sidebar-row-id={row.id}
         className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}
@@ -59,8 +55,6 @@ export function RemovingSidebarRow({
             +{removal.extra}
           </span>
         )}
-        {/* From the deadline, not a tick: `removal-tray.tsx`'s shared clock
-            does the counting outside React. */}
         <span
           data-removal-secs={removal.entryId}
           className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
@@ -91,8 +85,6 @@ export function RemovingSidebarRow({
             <path d="M6 3L2.5 6.5 6 10M2.5 6.5H10a3.5 3.5 0 0 1 0 7H7" />
           </svg>
         </button>
-        {/* `data-essential-motion` keeps this under prefers-reduced-motion: it shows how long is
-            left before a delete, not decoration. */}
         <span
           data-removal-drain=""
           data-essential-motion=""

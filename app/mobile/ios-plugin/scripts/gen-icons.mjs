@@ -1,6 +1,3 @@
-// Generates ios/Sources/CrowbarIcon.swift from the Phosphor icons the web ships
-// (@phosphor-icons/react defs) so the phone's native UI draws the desktop's own glyphs.
-// Usage: node scripts/gen-icons.mjs [--check]   (--check fails if the file is stale)
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,14 +9,12 @@ const out = join(here, '../../ios/Sources/CrowbarIcon.swift')
 
 const num = (n) => String(Math.round(n * 1000) / 1000)
 
-// Tokenise SVG path data into absolute M/L/C/Z with arcs and quadratics turned into cubics.
 function normalise(d) {
   const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e-?\d+)?/g) ?? []
   const res = []
   let i = 0, cmd = '', x = 0, y = 0, sx = 0, sy = 0, lcx = 0, lcy = 0, lastC = false, lqx = 0, lqy = 0, lastQ = false
   const next = () => parseFloat(tokens[i++])
   const flag = () => {
-    // arc flags may be glued to the next number ("a1 1 0 011 1"): split a multi-digit token
     const t = tokens[i]
     if (t.length > 1 && /^[01]/.test(t) && !t.includes('.')) {
       tokens[i] = t.slice(1)

@@ -1,5 +1,3 @@
-//! The wall clock.
-
 use std::time::SystemTime;
 
 pub(crate) fn now() -> SystemTime {

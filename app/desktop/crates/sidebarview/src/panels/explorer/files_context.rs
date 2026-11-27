@@ -1,5 +1,3 @@
-//! What the Files panel needs besides the rows to draw them: the menu scope and the open input.
-
 use sidebar::{
     CopyNote, Editing, Expansion, FileDrop, FileKind, FileRow, GitStatus, MenuScope, NewEntry,
 };

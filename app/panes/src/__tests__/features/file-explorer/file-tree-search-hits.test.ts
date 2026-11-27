@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { computeFileTreeSearchHits } from '@/features/file-explorer/lib/visible-file-tree-rows'
 import type { FileEntry } from '@/features/file-system/types/app'
 
-// computeFileTreeSearchHits turns the query into the hits filterFileTreeForFffHits prunes by.
 const tree: FileEntry[] = [
   { name: 'README.md', path: 'README.md', isDir: false },
   { name: 'Makefile', path: 'Makefile', isDir: false },
@@ -26,8 +25,6 @@ describe('computeFileTreeSearchHits', () => {
   })
 
   it('matches a directory by its own name (filename match, not full path)', () => {
-    // 'index.ts' / 'readme-helper.ts' don't contain "src" in their NAME, so only
-    // the folder matches. (The UI then shows the folder with its children.)
     expect(computeFileTreeSearchHits(tree, 'src').map((h) => h.path)).toEqual(['src'])
   })
 

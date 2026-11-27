@@ -66,7 +66,6 @@ describe('OperationsWatcher', () => {
     expect(toast.show).not.toHaveBeenCalled()
   })
 
-  // Work the daemon started on its own (a purge that gave up) is first seen failed.
   it('toasts an operation first seen failed on a live frame', () => {
     render(<OperationsWatcher />)
     act(() =>
@@ -100,7 +99,6 @@ describe('OperationsWatcher', () => {
     expect(useConnectionStore.getState().migrating).toEqual({ message: migrating.message })
   })
 
-  // The shape the daemon settles a partly failed import with (worktree/handlers/import.go).
   it('a partly failed import names each failed branch and its reason', () => {
     const branch = (id: string, label: string) => ({ ref: { kind: 'chat' as const, id }, label })
     const running = op({ kind: 'branch.import', label: 'Import 3 branches' })

@@ -3,7 +3,6 @@ use std::io;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tracing::subscriber::DefaultGuard;
 
-/// Every line the current thread's journal writes, until the guard is dropped.
 pub(crate) fn listen() -> (UnboundedReceiver<String>, DefaultGuard) {
     let (sender, lines) = unbounded_channel();
     let subscriber = tracing_subscriber::fmt()

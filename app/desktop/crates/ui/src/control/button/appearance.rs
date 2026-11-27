@@ -1,11 +1,8 @@
-//! Builder methods that choose how a button looks.
-
 use gpui::Pixels;
 
 use super::{Button, ButtonSize, ButtonVariant, IconName, Surface};
 
 impl Button {
-    /// Adds a leading icon to a labelled button.
     #[must_use]
     pub fn icon(
         mut self,
@@ -15,7 +12,6 @@ impl Button {
         self
     }
 
-    /// Draws the icon at `size` whatever the size step, as an icon with its own size class does.
     #[must_use]
     pub fn icon_size(
         mut self,
@@ -25,7 +21,6 @@ impl Button {
         self
     }
 
-    /// Chooses the colour variant.
     #[must_use]
     pub fn variant(
         mut self,
@@ -35,7 +30,6 @@ impl Button {
         self
     }
 
-    /// Chooses the size step.
     #[must_use]
     pub fn size(
         mut self,
@@ -45,7 +39,6 @@ impl Button {
         self
     }
 
-    /// Paints the button with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,

@@ -1,5 +1,3 @@
-//! Every file under a directory of the followed workspace.
-
 use sidebar::Error;
 
 use crate::live::FileEntry;
@@ -39,11 +37,6 @@ async fn walk(
 }
 
 impl SidebarCommands {
-    /// Lists the workspace-relative paths of every file under `directory` (the workspace root
-    /// when empty), sorted, through the daemon's tree route.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open; a listing that fails reaches `done`.
     pub fn list_files(
         &self,
         directory: &str,

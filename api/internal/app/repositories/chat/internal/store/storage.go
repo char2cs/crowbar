@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// agentChatRow is the durable read-model row for one AgentChat in
-// agent_chats_read. WorkspaceID is indexed for a WHERE workspace_id = ? query,
-// though ListByWorkspace filters in Go while chats-per-workspace stay few.
 type agentChatRow struct {
 	ID          string `gorm:"primaryKey;column:id"`
 	WorkspaceID string `gorm:"column:workspace_id;index"`
@@ -38,7 +35,6 @@ type storage interface {
 		ctx context.Context,
 		id string,
 	) (*domain.Chat, error)
-	// FindAll answers every row that decodes, and the ids of those that do not.
 	FindAll(
 		ctx context.Context,
 	) ([]domain.Chat, []string, error)

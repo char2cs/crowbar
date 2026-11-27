@@ -1,4 +1,3 @@
-// Ten per row of the menu's ten-column grid, darkest row last.
 export const TABLE_CELL_COLORS = [
   { isBrightColor: false, name: 'black', value: '#000000' },
   { isBrightColor: false, name: 'dark grey 4', value: '#434343' },

@@ -18,12 +18,8 @@ interface AddHostScreenProps {
   onCancel?: () => void
 }
 
-/** The phone app's way in: the brand on its green, with a native glass button that opens a
- *  native sheet for pairing with a remote daemon, the only kind the phone has. The brand rises
- *  to the top while the sheet is up. Opened from the app, it starts on the sheet. */
 export function AddHostScreen({ onPaired, onCancel }: AddHostScreenProps) {
   const [connecting, setConnecting] = useState(onCancel !== undefined)
-  // Each opening of the sheet is its own pairing attempt.
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => () => setNativeChrome({}), [])
@@ -36,7 +32,6 @@ export function AddHostScreen({ onPaired, onCancel }: AddHostScreenProps) {
 
   return (
     <main className="relative h-dvh overflow-hidden bg-brand-ground">
-      {/* Larger while it is the whole screen; it settles at its top place and size for the sheet. */}
       <div
         data-state={connecting ? 'open' : 'closed'}
         className="group absolute inset-x-0 top-1/2 flex -translate-y-[calc(50%+3rem)] flex-col items-center gap-4 px-6 text-center transition-[top,translate] duration-500 ease-out data-[state=open]:top-[calc(env(safe-area-inset-top)+2.5rem)] data-[state=open]:translate-y-0 motion-reduce:transition-none"
@@ -71,14 +66,12 @@ interface NativeConnectProps {
   onPaired: (hostId: string) => void
 }
 
-/** One pairing attempt, drawn by the native chrome: it renders nothing of its own. */
 function NativeConnect({ open, onStart, onDismiss, onPaired }: NativeConnectProps) {
   const [pending, setPending] = useState<PairingPending>(null)
   const flow = usePairingFlow({ onPaired, pending, onPendingChange: setPending })
   const { stage, name, address, code, fingerprint } = flow
   const error = flow.error ?? (flow.turnedAway ? CODE_SHAPE_NOTICE : null)
   const busy = pending !== null
-  // The accent is read from CSS, so a light/dark flip must hand it over again.
   const themeVersion = useThemeVersion()
   const appearance = useSettingsStore((s) => s.settings.themeMode)
 

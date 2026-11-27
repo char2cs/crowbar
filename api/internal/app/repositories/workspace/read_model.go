@@ -12,13 +12,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ReadModel is the durable workspace read model (state/store/workspace.db). It
-// is opened before axWorkspace so it can be that instance's durable subscriber.
 type ReadModel struct {
 	st *projections.Store
 }
 
-// OpenReadModel opens the read model over storeDB.
 func OpenReadModel(
 	storeDB *gormdb.DB,
 ) (*ReadModel, error) {
@@ -29,16 +26,12 @@ func OpenReadModel(
 	return &ReadModel{st: st}, nil
 }
 
-// Subscriber is the builder option that makes rm axWorkspace's durable subscriber.
 func Subscriber(
 	rm *ReadModel,
 ) func(*asynx.Builder[domain.Workspace]) {
 	return projections.Subscriber(rm.st)
 }
 
-// RegisterHubProjection registers the hub (WS fan-out) projection on repo's
-// axWorkspace: each event's frame is built from evt.Aggregate, enriched with the
-// container's overlays, broadcast, and its tombstone reported to the read model.
 func RegisterHubProjection[F any](
 	repo Workspace,
 	enrich func(ctx context.Context, ws domain.Workspace) F,

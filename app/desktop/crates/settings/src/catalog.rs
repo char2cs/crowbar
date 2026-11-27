@@ -1,5 +1,3 @@
-//! The pages that ship with the shell.
-
 mod agents;
 mod appearance;
 mod browser;
@@ -16,37 +14,21 @@ mod terminal;
 use crate::schema::Schema;
 use crate::values::Error;
 
-/// Source name of the agents list, to be answered by a [`crate::RecordBackend`].
 pub const AGENT_RECORDS: &str = agents::AGENTS;
-/// Source name of the descriptor checks list.
 pub const DESCRIPTOR_RECORDS: &str = agents::DESCRIPTORS;
-/// Source name of the active sessions list.
 pub const SESSION_RECORDS: &str = sessions::SESSIONS;
-/// Source name of the hosts list.
 pub const HOST_RECORDS: &str = machines::hosts::HOSTS;
-/// Source name of the paired devices list.
 pub const DEVICE_RECORDS: &str = machines::devices::DEVICES;
-/// Whether other devices may connect to this computer's daemon, which stores it.
 pub const DEVICE_CONNECTIONS: &str = machines::devices::ALLOW;
-/// The address the daemon listens on for devices.
 pub const DEVICE_ADDRESS: &str = machines::devices::ADDRESS;
-/// Where devices reach the daemon while connections are allowed.
 pub const DEVICE_LISTENING: &str = machines::devices::LISTENING;
-/// The setting that stores custom keybindings.
 pub const KEYBINDING_OVERRIDES: &str = keybindings::OVERRIDES;
-/// The setting that stores the active keybinding preset.
 pub const KEYBINDING_PRESET: &str = keybindings::PRESET;
 
-/// The chords the preset `preset` binds, keyed by command id.
 pub fn preset_overrides(preset: &str) -> std::collections::BTreeMap<String, String> {
     keybindings::preset_overrides(preset)
 }
 
-/// The eleven pages of the shell: Appearance, Editor, Files, Git, Terminal, Browser, Agents,
-/// Active sessions, Keybindings, Hosts and Devices, in rail order.
-///
-/// # Errors
-/// [`Error::Duplicate`] when the built-in pages repeat an id or key, which the tests rule out.
 pub fn default_schema() -> Result<Schema, Error> {
     Schema::new(vec![
         appearance::page(),

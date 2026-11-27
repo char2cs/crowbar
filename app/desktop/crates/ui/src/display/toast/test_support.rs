@@ -1,5 +1,3 @@
-//! A toast queue in a test window, shared by the toast and timer tests.
-
 use std::time::Duration;
 
 use gpui::{AppContext as _, Entity, TestAppContext};

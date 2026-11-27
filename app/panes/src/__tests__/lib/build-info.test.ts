@@ -10,7 +10,6 @@ interface BuildEnv {
 
 afterEach(() => vi.unstubAllEnvs())
 
-/** What the build stamped into `import.meta.env`, read through the public entry. */
 function resolveBuildInfo(env: BuildEnv) {
   vi.stubEnv('DEV', env.DEV)
   vi.stubEnv('VITE_BUILD_CHANNEL', env.VITE_BUILD_CHANNEL)

@@ -7,9 +7,6 @@ function sameRenderedBufferList(a: PaneContent[], b: PaneContent[]): boolean {
   return a.length === b.length && a.every((buffer, i) => sameRenderedBuffer(buffer, b[i]))
 }
 
-/** A pane's buffers, the same array until a painted field changes (`s.buffers` is new per
- *  keystroke); other fields may be stale. Equality is in `isEqual`, not a selector-written ref:
- *  Zustand v5 may run selectors for discarded renders, and a self-caching one never settles. */
 export function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
   return useStoreWithEqualityFn(
     windowPaneStore,

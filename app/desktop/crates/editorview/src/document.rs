@@ -1,7 +1,3 @@
-//! One open file's text and undo history, shown by every view over it, and what is known of it:
-//! the text last saved, the latest save, a change on disk, and its language server, as develop's
-//! document registry keeps one Monaco model and its saved state per document.
-
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Subscription, Task};
@@ -20,7 +16,6 @@ mod shared_text;
 
 pub(crate) use shared_text::SharedText;
 
-/// One open document, shared by every view that shows it.
 pub struct Document {
     text: Entity<SharedText>,
     path: String,
@@ -34,8 +29,6 @@ pub struct Document {
 }
 
 impl Document {
-    /// The document `opening` describes, told to `server` (when it has one) from now until it
-    /// goes, as develop's `document-lsp.ts` attaches once per model.
     pub fn new(
         opening: DocumentOpening,
         server: Option<Rc<dyn LanguageServer>>,
@@ -75,13 +68,11 @@ impl Document {
         self.lsp.clone()
     }
 
-    /// The path the document is the file at, or its `untitled:` name.
     #[must_use]
     pub fn path(&self) -> &str {
         &self.path
     }
 
-    /// The text the document holds now.
     #[must_use]
     pub fn text(
         &self,
@@ -90,7 +81,6 @@ impl Document {
         self.text.read(cx).text().to_string()
     }
 
-    /// Whether the text differs from the text last saved (or opened).
     #[must_use]
     pub fn is_dirty(
         &self,
@@ -99,7 +89,6 @@ impl Document {
         self.text.read(cx).text() != &self.saved
     }
 
-    /// The document is now the file at `path`: its language and its language server follow it.
     pub fn rebind(
         &mut self,
         path: &str,
@@ -112,7 +101,6 @@ impl Document {
         cx.emit(DocumentEvent::Rebound);
     }
 
-    /// `text` is now on disk: the document is clean again while it still holds that text.
     pub fn mark_saved(
         &mut self,
         text: &str,

@@ -1,8 +1,3 @@
-//! The macro that gives a crate its one `emit` function.
-
-/// Defines `pub(crate) fn emit(event: &dyn journal::Event)` in the invoking module, logging
-/// under `target` (the crate name, so `RUST_LOG=<crate>=debug` keeps working) with the
-/// event's `source` and `name` as fields. Invoke it once per crate.
 #[macro_export]
 macro_rules! sink {
     ($target:literal) => {

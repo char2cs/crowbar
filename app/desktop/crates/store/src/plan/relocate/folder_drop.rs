@@ -1,8 +1,3 @@
-//! A folder filed somewhere else. The daemon reads a re-sent parent as a move, so a reorder
-//! sends only the order.
-//!
-//! Spec: develop `web/src/components/sidebar/lib/drop-plan-tree.ts`.
-
 use daemonapi::{Call, Route};
 use serde_json::{Map, Value, json};
 use sidebar::{Row, RowKind};

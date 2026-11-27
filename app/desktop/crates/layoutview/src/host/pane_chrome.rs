@@ -1,12 +1,7 @@
-//! The strip reserved above a pane's content.
-
 use gpui::{AnyView, App, Window};
 use protocol::PaneId;
 
-/// The strip reserved above a pane's content.
 pub trait PaneChrome {
-    /// Height in logical pixels of the strip reserved at the top of the pane's content for
-    /// [`PaneChrome::chrome`]; the pane's hole starts below it.
     fn chrome_height(
         &self,
         _pane: &PaneId,
@@ -14,8 +9,6 @@ pub trait PaneChrome {
         0.0
     }
 
-    /// The view drawn in the chrome strip, such as a browser address bar. Called only for panes
-    /// whose [`PaneChrome::chrome_height`] is above zero.
     fn chrome(
         &self,
         _pane: &PaneId,

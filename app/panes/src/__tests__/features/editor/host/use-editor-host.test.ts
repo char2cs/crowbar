@@ -2,8 +2,6 @@ import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 
-// Every load of the Monaco chunk fails, as it does offline or after a deploy
-// replaced the asset hash.
 const { loads } = vi.hoisted(() => ({ loads: { count: 0 } }))
 vi.mock('@/features/editor/lib/monaco-adapters', () => {
   loads.count++

@@ -9,9 +9,6 @@ const ENCODED_ESCAPES: [&str; 4] = ["%2e", "%2f", "%5c", "%00"];
 const FIRST_PRINTABLE: u8 = 0x20;
 const DELETE: u8 = 0x7f;
 
-/// Header the transport sets on every extension-scoped request, HTTP and WebSocket alike, and
-/// strips from every other, so a daemon can apply its own per-origin check without trusting the
-/// page. Its value is the extension id.
 pub const EXTENSION_HEADER: &str = "x-crowbar-extension";
 
 pub(crate) fn ensure_path_allowed(
@@ -83,7 +80,6 @@ mod tests {
         Extension(&'static str),
     }
 
-    /// (who asks, the request target, whether the scope lets it through)
     const CASES: [(Who, &str, bool); 29] = [
         (Who::Core, "/v0", true),
         (Who::Core, "/v0/projects?x=1", true),

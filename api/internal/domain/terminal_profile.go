@@ -1,6 +1,5 @@
 package domain
 
-// TerminalProfile is a server-stored PTY launch profile.
 type TerminalProfile struct {
 	ID               string   `gorm:"primaryKey" json:"id"`
 	Name             string   `json:"name"`

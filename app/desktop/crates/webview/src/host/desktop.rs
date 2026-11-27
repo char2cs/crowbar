@@ -7,8 +7,6 @@ use crate::error::Result;
 use crate::menu::MenuRequest;
 use crate::view::ParentWindow;
 
-/// The desktop's own file chooser, context menu and message dialog, shown over a shell window on
-/// the platform thread of a [`Host`](crate::Host).
 #[derive(Clone)]
 pub struct Desktop {
     platform: Rc<dyn Platform>,
@@ -28,10 +26,6 @@ impl Desktop {
         Self { platform }
     }
 
-    /// Opens a chooser for `choice` over `parent`; `answer` hears the chosen paths.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped or cannot show it over `parent`.
     pub fn choose(
         &self,
         parent: ParentWindow,
@@ -41,10 +35,6 @@ impl Desktop {
         self.platform.choose_files(parent, choice, answer)
     }
 
-    /// Pops `request` up over `parent`; `answer` hears the chosen entry.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped or cannot show it over `parent`.
     pub fn popup(
         &self,
         parent: ParentWindow,
@@ -54,10 +44,6 @@ impl Desktop {
         self.platform.popup_menu(parent, request, answer)
     }
 
-    /// Asks `request` over `parent`; `answer` hears the pressed button.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped or cannot show it over `parent`.
     pub fn ask(
         &self,
         parent: ParentWindow,
@@ -67,10 +53,6 @@ impl Desktop {
         self.platform.ask_alert(parent, request, answer)
     }
 
-    /// Draws the chooser, menus and dialogs in `scheme` from now on.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn draw_widgets_in(
         &self,
         scheme: ColorScheme,

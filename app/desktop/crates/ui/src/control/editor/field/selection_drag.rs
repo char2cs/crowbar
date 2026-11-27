@@ -1,5 +1,3 @@
-//! A text field that keeps selecting while the pointer is held, wherever it moves.
-
 use gpui::{App, Context, DispatchPhase, Entity, MouseMoveEvent, Pixels, Point, Window};
 
 pub(crate) trait SelectionDrag: Sized + 'static {

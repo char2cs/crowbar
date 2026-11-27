@@ -1,8 +1,3 @@
-/**
- * Code lenses and code actions carry server commands; the providers turn
- * them into one Monaco command that has the daemon execute them and applies
- * the edits the server made while they ran.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as Monaco from 'monaco-editor'
 
@@ -31,7 +26,6 @@ vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
       getEditors: () => [],
     },
     languages: {
-      // language-contributions (reached through monaco-adapters) registers at import.
       getLanguages: () => [],
       register: () => {},
       setMonarchTokensProvider: () => {},
@@ -179,7 +173,6 @@ describe('LSP commands', () => {
       start: { line: 0, character },
       end: { line: 0, character },
     })
-    // The second edit's range is against the text the first one left.
     request.mockResolvedValue({
       result: null,
       edits: [
@@ -210,7 +203,6 @@ describe('LSP commands', () => {
   })
 })
 
-// A command a remote host failed names that host under the command's own title.
 describe('a failed LSP command on a remote host', () => {
   afterEach(() => {
     destroyHostRuntime('h1')

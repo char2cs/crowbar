@@ -6,25 +6,6 @@ import {
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { imageMarkdown } from '@/features/agent/composer/lib/attachment-markdown'
 
-/**
- * The composer half of the leading-`!` shell-mode bug.
- *
- * An image attached BEFORE anything is typed serializes to `![alt](ref)`,
- * whose own first character is `!` — which both shipped CLIs read as "run the
- * rest as a shell command". Measured on codex-cli 0.149.1: the message never
- * reached the model, codex ran `[screenshot.png](/…/shot.png)` instead.
- *
- * The fix is NOT here. This string is also the durable ledger text and what
- * the sent bubble renders, so escaping it here would show the person a
- * backslash, or a link where their image was. The `!` is neutralised on the
- * DISPATCH COPY only, in Go — see runner.guardLeadingAttachmentSigil, which
- * recognises exactly the shapes pinned below.
- *
- * So these tests pin the CONTRACT that guard is written against: what the
- * composer hands the backend for an attachment sent first, and that a `!` a
- * person typed themselves is carried through untouched.
- */
-
 const REF = 'chats/chat-1/attachments/ab12-screenshot.png'
 
 describe('TestRegression_ComposerLeadingSigil', () => {

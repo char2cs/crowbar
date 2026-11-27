@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { WriteQueue } from '@/lib/persistence/write-queue'
 
-/** A job that runs until released, then settles as `outcome` says. */
 function heldJob(ran: string[], outcome: 'resolves' | 'rejects') {
   let settle: (failure?: Error) => void = () => {}
   const done = new Promise<void>((resolve, reject) => {

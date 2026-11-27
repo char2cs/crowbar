@@ -1,5 +1,3 @@
-//! Sending a held row's delete and putting the row back when it is refused.
-
 use gpui::Context;
 use sidebar::{Command, Error, Hold, RowId};
 use ui::{ToastContent, ToastKind, ToastLifetime};
@@ -34,8 +32,6 @@ fn refusal_toast(
 }
 
 impl Sidebar {
-    /// Shows `row` again after its delete was refused, under a toast titled by the row that
-    /// gives `reason`.
     pub fn removal_refused(
         &mut self,
         row: &RowId,
@@ -49,7 +45,6 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// Names the chats a delete's cascade took beyond the selection, under a toast counting them.
     pub fn also_removed(
         &mut self,
         titles: &[String],

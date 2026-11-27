@@ -1,11 +1,8 @@
-//! What came back from the backend: acknowledgements, refusals and remote changes.
-
 use crate::state::State;
 use crate::values::Key;
 use crate::values::Value;
 
 impl State {
-    /// The backend stored `key`.
     pub fn acknowledged(
         &mut self,
         key: &Key,
@@ -13,7 +10,6 @@ impl State {
         self.document.acknowledge(key);
     }
 
-    /// The backend refused `key`: its value goes back.
     pub fn write_failed(
         &mut self,
         key: &Key,
@@ -22,7 +18,6 @@ impl State {
         self.refresh();
     }
 
-    /// The label of the row that stores `key`, or the key itself when no row does.
     pub fn label_of(
         &self,
         key: &Key,
@@ -33,7 +28,6 @@ impl State {
             .map_or_else(|| key.to_string(), |row| row.label.clone())
     }
 
-    /// The backend reports a new value for `key`.
     pub fn remote_changed(
         &mut self,
         key: &Key,

@@ -22,17 +22,6 @@ func shippedAgent(t *testing.T, id string) engineagents.Agent {
 	return a
 }
 
-// TestRegression_ACodexChatBornOnTheTerminalOpensNoAPIConnection is the bug
-// the user reported: a brand-new codex chat landed on the terminal surface and
-// found nothing there ("This agent has no terminal view attached right now"),
-// because every codex spawn opened an app-server connection — which forks a
-// thread of its own, makes the PTY beside it a companion nobody is looking at,
-// and has the DTO hide that PTY outright (HasLiveAPIConnection, dto/agent.go).
-// The only way back to the terminal was SwitchToTerminal, whose `codex resume
-// {id}` needs a flushed rollout codex does not write until a turn completes.
-//
-// codex's terminal surface is declared on the HOOKS channel, so a chat living
-// there is fed by that PTY and needs no connection at all.
 func TestRegression_ACodexChatBornOnTheTerminalOpensNoAPIConnection(t *testing.T) {
 	codex := shippedAgent(t, "codex")
 
@@ -41,9 +30,6 @@ func TestRegression_ACodexChatBornOnTheTerminalOpensNoAPIConnection(t *testing.T
 		"a codex chat born on the terminal must be driven by its own PTY, not an api connection")
 }
 
-// The chat surface is codex's api-channel one, and is still the default: a
-// chat that named no surface must fork byte-identically to one created before
-// surfaces existed.
 func TestAPITransportDrivesSurface_CodexChatSurfaceAndTheDefaultBothKeepTheConnection(t *testing.T) {
 	codex := shippedAgent(t, "codex")
 
@@ -51,9 +37,6 @@ func TestAPITransportDrivesSurface_CodexChatSurfaceAndTheDefaultBothKeepTheConne
 	assert.True(t, apiTransportDrivesSurface(codex, surfaceForSpawn(codex, "")))
 }
 
-// claude speaks no api transport at all, so the question is moot for it either
-// way — pinned so a future hooks provider that grows one inherits the same
-// answer from the surface rather than from a provider name.
 func TestAPITransportDrivesSurface_ClaudeIsDrivenByItsPTYOnEverySurface(t *testing.T) {
 	claude := shippedAgent(t, "claude")
 
@@ -81,10 +64,6 @@ surfaces:
   chat: { channel: api, start_here: true }
 `
 
-// A surface the chosen provider does not declare launchable DEGRADES to that
-// provider's default rather than refusing: domain.Chat.Surface outlives a
-// provider switch, and a chat born on one provider's terminal must still come
-// up after being switched to a provider that has no such landing surface.
 func TestSurfaceForSpawn_FallsBackWhenTheProviderDeclaresNoSuchLandingSurface(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
@@ -98,17 +77,6 @@ func TestSurfaceForSpawn_FallsBackWhenTheProviderDeclaresNoSuchLandingSurface(t 
 		"falling back to the default landing must keep that provider's own transport")
 }
 
-// TestRegression_ATerminalBornChatIsShowingItsNativeView is the collision the
-// surface-birth work left behind: THREE notions of "which surface" that could
-// disagree. surfaceGated (ingress/ingest.go) derives the surface from
-// ShowingNativeView, which was true only for a chat that SWITCHED to the TUI
-// — so a chat BORN there read `chat` while the user was looking at its
-// terminal, and every event the descriptor gates to [chat] would have been
-// ingested from a view nobody was watching.
-//
-// Inert only while the gated events are api-only, which a terminal-surface
-// chat has none of. It stops being inert the moment codex declares a
-// hooks-side delta.
 func TestRegression_ATerminalBornChatIsShowingItsNativeView(t *testing.T) {
 	rs := &Runners{attached: newAttachRegistry(), surfaces: newSurfaceRegistry()}
 	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal)
@@ -117,8 +85,6 @@ func TestRegression_ATerminalBornChatIsShowingItsNativeView(t *testing.T) {
 		"how the chat GOT to the terminal cannot matter; only which surface it is on now")
 }
 
-// A chat on the api-channel chat surface is not showing a native view, born
-// there or switched back to it.
 func TestShowingNativeView_AChatSurfaceRunnerIsNot(t *testing.T) {
 	rs := &Runners{attached: newAttachRegistry(), surfaces: newSurfaceRegistry()}
 	rs.surfaces.set("runner-1", engineagents.SurfaceChat)
@@ -126,18 +92,12 @@ func TestShowingNativeView_AChatSurfaceRunnerIsNot(t *testing.T) {
 	assert.False(t, rs.ShowingNativeView("runner-1"))
 }
 
-// The provider's DEFAULT landing ("") is Crowbar's own chat — it is what
-// every spawn that predates surfaces resolves to, and reading it as the
-// terminal would gate every [chat] event off for all of them.
 func TestShowingNativeView_TheProviderDefaultLandingIsTheChatSurface(t *testing.T) {
 	rs := &Runners{attached: newAttachRegistry(), surfaces: newSurfaceRegistry()}
 
 	assert.False(t, rs.ShowingNativeView("never-recorded"))
 }
 
-// SwitchToTerminal's attach registry stays the single answer to "which
-// terminal session IS the native view", but it is no longer an independent
-// answer to which SURFACE: the surface it moved to is what this reports.
 func TestShowingNativeView_ASwitchedRunnerReadsTheSurfaceItSwitchedTo(t *testing.T) {
 	rs := &Runners{attached: newAttachRegistry(), surfaces: newSurfaceRegistry()}
 	rs.surfaces.set("runner-1", engineagents.SurfaceChat)
@@ -146,9 +106,6 @@ func TestShowingNativeView_ASwitchedRunnerReadsTheSurfaceItSwitchedTo(t *testing
 	assert.True(t, rs.ShowingNativeView("runner-1"))
 }
 
-// A spawn SEEDS the current surface from the chat's own durable one, so a
-// terminal-born chat is on the terminal from its very first event — with no
-// switch ever having happened, which is the whole point.
 func TestRegression_ASpawnSeedsTheRunnersCurrentSurfaceFromTheChat(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceTerminal)
 
@@ -159,8 +116,6 @@ func TestRegression_ASpawnSeedsTheRunnersCurrentSurfaceFromTheChat(t *testing.T)
 	assert.True(t, h.rs.ShowingNativeView("runner-1"))
 }
 
-// And a chat-surface spawn seeds the chat surface, so nothing that predates
-// surfaces changes behaviour.
 func TestSpawnRunner_AChatSurfaceSpawnSeedsTheChatSurface(t *testing.T) {
 	h := newSpawnHarness(t, "")
 
@@ -171,10 +126,6 @@ func TestSpawnRunner_AChatSurfaceSpawnSeedsTheChatSurface(t *testing.T) {
 	assert.False(t, h.rs.ShowingNativeView("runner-1"))
 }
 
-// A surface the provider cannot launch onto DEGRADES at spawn
-// (surfaceForSpawn), and the seeded current surface has to degrade with it —
-// otherwise a chat switched to a provider with no terminal surface would
-// report a native view that provider cannot show.
 func TestSpawnRunner_ASeededSurfaceDegradesWithTheProvidersOwn(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceTerminal)
 
@@ -182,17 +133,9 @@ func TestSpawnRunner_ASeededSurfaceDegradesWithTheProvidersOwn(t *testing.T) {
 		spawnInput{runnerID: "runner-1"})
 	require.NoError(t, err)
 
-	// claude declares surfaces.terminal.start_here, so this one does NOT
-	// degrade — it is a real landing for it too, and must read as such.
 	assert.True(t, h.rs.ShowingNativeView("runner-1"))
 }
 
-// TestRegression_ARespawnRebuildsOnTheSurfaceTheUserIsOnNow is what the
-// whole "current, not birth" change buys: every respawn (a restart_tui
-// prompt, a model change, a resume after the daemon restarted) reads the
-// chat's surface again — so a chat the user SWITCHED to the terminal comes
-// back on the terminal, with no api connection opened beside the PTY that is
-// now its session.
 func TestRegression_ARespawnRebuildsOnTheSurfaceTheUserIsOnNow(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceTerminal)
 
@@ -206,9 +149,6 @@ func TestRegression_ARespawnRebuildsOnTheSurfaceTheUserIsOnNow(t *testing.T) {
 	assert.Len(t, h.term.created, 1, "that PTY is the session, so it is the one thing forked")
 }
 
-// A runner's surface is forgotten when the runner is, beside the echo guard
-// it sits next to — otherwise the mirror grows for the life of the daemon and
-// a recycled id could read a dead runner's surface.
 func TestReconcileRunnerExit_ForgetsTheRunnersSurface(t *testing.T) {
 	rs, _ := ptylessRunners(t)
 	rs.surfaces.set("runner-1", engineagents.SurfaceTerminal)
@@ -218,8 +158,6 @@ func TestReconcileRunnerExit_ForgetsTheRunnersSurface(t *testing.T) {
 	assert.False(t, rs.ShowingNativeView("runner-1"))
 }
 
-// spySurfaceChats records every SetSurface write, so a test can assert on the
-// DURABLE surface rather than only on the in-process mirror of it.
 type spySurfaceChats struct {
 	stubChatsForSpawn
 	written chan string
@@ -232,9 +170,6 @@ func newSpySurfaceChats() *spySurfaceChats {
 	}
 }
 
-// lastWritten is a NON-BLOCKING read: the write happens inside the call under
-// test and has already returned by the time a test asks, so an empty channel
-// means the write never happened — never that it has not happened yet.
 func (s *spySurfaceChats) lastWritten(t *testing.T) string {
 	t.Helper()
 	select {
@@ -253,12 +188,6 @@ func (s *spySurfaceChats) SetSurface(
 	return s.chat, nil
 }
 
-// TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface: the switch
-// endpoints are the two moments Crowbar is actually TOLD the user moved, so
-// they are what makes domain.Chat.Surface a current fact instead of a birth
-// record. Without this the chat came back from a daemon restart (or any
-// respawn) believing it was still on the surface it was created on, and
-// rebuilt the wrong transport underneath the view the user was looking at.
 func TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface(t *testing.T) {
 	rs, chats := switchSurfaceFixture(t)
 
@@ -270,8 +199,6 @@ func TestRegression_SwitchToTerminalWritesTheChatsCurrentSurface(t *testing.T) {
 		"the in-process mirror moves with the durable field, never independently of it")
 }
 
-// TestRegression_SwitchToNativeWritesTheChatsCurrentSurface is the reverse:
-// a chat handed back to Crowbar's own chat must stop reporting a native view.
 func TestRegression_SwitchToNativeWritesTheChatsCurrentSurface(t *testing.T) {
 	rs, chats := switchSurfaceFixture(t)
 
@@ -285,9 +212,6 @@ func TestRegression_SwitchToNativeWritesTheChatsCurrentSurface(t *testing.T) {
 	require.False(t, rs.ShowingNativeView("runner-1"))
 }
 
-// switchSurfaceFixture stands up the smallest Runners that can complete a
-// real SwitchToTerminal: a live api connection over this file's in-process
-// server, a completed turn on the runner's own session, and an idle chat.
 func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 	t.Helper()
 	stdio := fakeServe(t, nil)
@@ -318,8 +242,6 @@ func switchSurfaceFixture(t *testing.T) (*Runners, *spySurfaceChats) {
 	return rs, chats
 }
 
-// A hot-swap provider's one process serves both views, so the pane's tab IS the
-// surface: each switch moves where asks are answered and whether compact is offered.
 func TestHotswapChat_AsksAndCompactFollowEveryTabSwitch(t *testing.T) {
 	chats := &trackedSurfaceChats{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}}
 	rs := &Runners{
@@ -354,8 +276,6 @@ func TestHotswapChat_AsksAndCompactFollowEveryTabSwitch(t *testing.T) {
 	onTerminal()
 }
 
-// trackedSurfaceChats keeps the last surface written, as the chat row does, so
-// Compact's gate reads what the switches recorded.
 type trackedSurfaceChats struct {
 	stubChatsForSpawn
 	chat domain.Chat

@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// EstablishSession runs canonical's Fresh (no session id) or Resume steps once per
-// connection and returns values merged with the captures. It is separate from
-// Dispatch so an attach argv can name the session before anything is said on it.
 func (drv *Driver) EstablishSession(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -33,9 +30,6 @@ func (drv *Driver) EstablishSession(
 	remembered := cloneValues(drv.remembered)
 	drv.mu.Unlock()
 	if already {
-		// A later caller may pass blank values (a pure api resume announces no
-		// session), so blanks are filled from what this connection established;
-		// its own session wins over whatever the caller named.
 		out = fillBlanksFromRemembered(out, remembered)
 		if id := remembered["session_id"]; id != "" {
 			out["session_id"] = id
@@ -55,8 +49,6 @@ func (drv *Driver) EstablishSession(
 	if !resuming {
 		steps = ev.Fresh
 	}
-	// Every session this connection opens is reported, so the chat binds the
-	// one its ingress filters against.
 	settle := drv.originate()
 	if err := drv.runSteps(ctx, steps, out); err != nil {
 		settle("")
@@ -73,9 +65,6 @@ func (drv *Driver) EstablishSession(
 	return out, nil
 }
 
-// markEstablished latches this connection as established and remembers its
-// session id. Resume captures none, so the id is kept from its input, or a later
-// blank caller (EstablishSession's established branch) has nothing to fall back to.
 func (drv *Driver) markEstablished(out map[string]string) {
 	if out["session_id"] == "" {
 		return
@@ -86,9 +75,6 @@ func (drv *Driver) markEstablished(out map[string]string) {
 	drv.remembered["session_id"] = out["session_id"]
 }
 
-// sessionLost reports whether err is the provider saying it does not have the
-// session we named: the descriptor's session.refused code AND one of its lines,
-// since a code alone is often the protocol's generic "invalid request".
 func (drv *Driver) sessionLost(err error) bool {
 	var callErr *jsonrpc.CallError
 	r := drv.d.Session.Refused
@@ -100,9 +86,6 @@ func (drv *Driver) sessionLost(err error) bool {
 	})
 }
 
-// reopen is the value set a re-establish runs with: the session's birth values
-// overlaid with the caller's. It clears established, all of remembered (a
-// turn_id among them) and the frame values, which belong to the session being left.
 func (drv *Driver) reopen(values map[string]string) map[string]string {
 	drv.mu.Lock()
 	out := cloneValues(drv.birth)
@@ -118,8 +101,6 @@ func (drv *Driver) reopen(values map[string]string) map[string]string {
 	return out
 }
 
-// reestablish re-enters, via the event's Resume steps, a session the provider
-// paged out of memory and now refuses.
 func (drv *Driver) reestablish(
 	ctx context.Context, ev spec.EventSpec, values map[string]string, sessionID string,
 ) (map[string]string, error) {
@@ -135,9 +116,6 @@ func (drv *Driver) reestablish(
 	return out, nil
 }
 
-// recoverLostSession answers an Action the provider refused because it does not
-// have the session: re-enter it and re-run the Action, so the message still
-// lands. A session the provider refuses to resume as well is lost.
 func (drv *Driver) recoverLostSession(
 	ctx context.Context, ev spec.EventSpec, values map[string]string, lostSessionID string,
 ) (map[string]string, error) {
@@ -154,8 +132,6 @@ func (drv *Driver) recoverLostSession(
 	return out, drv.runSteps(ctx, ev.Action, out)
 }
 
-// fillBlanksFromRemembered fills every blank value in out from what this
-// connection remembered at establish; a blank caller value never overwrites it.
 func fillBlanksFromRemembered(out, remembered map[string]string) map[string]string {
 	for k, v := range out {
 		if v != "" {
@@ -168,9 +144,6 @@ func fillBlanksFromRemembered(out, remembered map[string]string) map[string]stri
 	return out
 }
 
-// Dispatch establishes canonical's session if this connection has not, then runs
-// its Action steps. The established latch never clears itself, so an Action
-// refused because the session is gone is recovered once (recoverLostSession).
 func (drv *Driver) Dispatch(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -205,10 +178,6 @@ func (drv *Driver) Dispatch(
 	return recovered, nil
 }
 
-// InjectAt runs the inject step declared for lifecycle moment at, if any. A
-// context inject runs once, right after a resume loads a session that existed
-// before this connection: a fresh one's creating call already carries it. A step
-// that leads a prompt makes no call: its document waits for the next prompt.
 func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]string) error {
 	step := drv.injectAt(at)
 	if step != nil && step.PromptLead != "" {
@@ -235,10 +204,6 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 	return nil
 }
 
-// runSteps runs one Fresh/Resume/Action list in order, folding each Capture
-// into values. A field about to be recaptured is dropped from remembered while the
-// call is in flight, so a racing Send fails on an empty id rather than naming a
-// finished turn; a null or absent reply puts the previous value back.
 func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
 	for _, step := range steps {
 		prior := drv.withdraw(step.Capture)
@@ -284,14 +249,11 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 	return nil
 }
 
-// heldValue is a remembered capture set aside while its step is in flight.
 type heldValue struct {
 	value         string
 	literal, held bool
 }
 
-// withdraw removes the fields a step will recapture from remembered, returning what
-// they held.
 func (drv *Driver) withdraw(capture map[string]string) map[string]heldValue {
 	if len(capture) == 0 {
 		return nil

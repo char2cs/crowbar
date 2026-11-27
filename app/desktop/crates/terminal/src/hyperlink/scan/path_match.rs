@@ -1,5 +1,3 @@
-//! A path found in text.
-
 use std::ops::Range;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

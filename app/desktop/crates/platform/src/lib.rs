@@ -1,17 +1,3 @@
-//! Desktop services of the Crowbar shell, and the one home of its `unsafe` code.
-//!
-//! [`follow_link`] decides where a link may go (stay in the app, leave for the system browser or
-//! be refused). [`open_external`] and [`reveal_in_file_manager`] hand a link or a path to the
-//! desktop's own tools. The command lines are built by pure functions so they are tested without
-//! a desktop; only starting the launcher touches the system.
-//!
-//! The OS layer sits in `linux/` and `macos/`: the native parent windows web views are embedded
-//! into (`XlibParent`, `AppkitParent`), the X keyboard focus (`InputFocus`), the pop-up window
-//! above a shell window (`FloatPlacer`), the holes cut out of web views (`PageShape`), the drag
-//! proxy (`XdndProxy`), the X keyboard mapping (`KeyMap`) and the X11 session switch
-//! (`force_x11`). Every `unsafe` block of the desktop app lives there, behind a safe type or
-//! function (see the README).
-
 mod desktop;
 mod error;
 mod launch;

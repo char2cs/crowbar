@@ -51,8 +51,6 @@ describe('playArrival', () => {
 
     expect(node.style.transition).toBe('transform 320ms cubic-bezier(0, 0, 0.2, 1)')
     expect(node.style.transform).toBe('')
-    // Still arriving — the underbar stays hidden until the slide actually ends,
-    // not merely once it has been told to start.
     expect(node.dataset.arriving).toBe('true')
   })
 
@@ -66,8 +64,6 @@ describe('playArrival', () => {
     expect(node.style.transition).toBe('')
   })
 
-  // A transitionend for some OTHER property (or bubbled from a descendant)
-  // must not end the arrival early — the underbar would flash in mid-slide.
   it('ignores a transitionend for a different property', () => {
     playArrival(node, { top: 120 })
     vi.runOnlyPendingTimers()

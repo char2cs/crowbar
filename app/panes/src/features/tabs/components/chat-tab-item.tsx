@@ -10,11 +10,7 @@ interface ChatTabItemProps {
   onSelect: () => void
 }
 
-/** The chat's entry in the collapsed ('tabs') presentation's strip. Never closable or reorderable,
- *  so it sits outside the sortable list, but ghost-styled like TabBarItem to read as a tab. */
 export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
-  // `null` = the store holds no record for this chat; the tab says so rather
-  // than borrowing an untitled chat's words.
   const title = useChatTitle(chatId)
   const working = useChatWorking(chatId)
   const providerId = useChatField(chatId, (chat) => chat?.activeProviderId ?? '')

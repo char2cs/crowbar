@@ -1,5 +1,3 @@
-//! Shortcut capture: the held modifier key, pressed keys, the capture rule, chord sources, refusals and shortcut groups.
-
 mod capture;
 mod chord_capture;
 mod chord_source;

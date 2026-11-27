@@ -1,6 +1,3 @@
-// Package handlers_test exercises the pairing HTTP surface end to end
-// against gin's test harness, with a fake pairing.Usecase and client store —
-// no real DB.
 package handlers_test
 
 import (
@@ -34,7 +31,6 @@ func TestMain(m *testing.M) {
 
 const testFingerprint = "SHA256:aaaa bbbb cccc dddd eeee ffff"
 
-// fakeAccess is the device listener's state a mint reads.
 type fakeAccess struct{ st exposure.Status }
 
 func (f fakeAccess) Status() exposure.Status { return f.st }
@@ -104,7 +100,6 @@ func (f *fakeRegistry) FindByKey(_ context.Context, id string) (*domain.Client, 
 	return nil, nil
 }
 
-// fakeStreams records which clients' streams were ended.
 type fakeStreams struct {
 	disconnected []string
 }
@@ -113,10 +108,6 @@ func (f *fakeStreams) Disconnect(clientID string) {
 	f.disconnected = append(f.disconnected, clientID)
 }
 
-// newTestRouter mounts each handler method directly, the way routes.go's
-// RegisterOpen/RegisterGuarded do in production — this package has no
-// Register of its own (route mounting is the outer pairing package's job,
-// covered by its own routes_test.go).
 func newTestRouter(pairingUC *fakePairing, registry *fakeRegistry) *gin.Engine {
 	return newTestRouterWithStreams(pairingUC, registry, &fakeStreams{})
 }
@@ -164,8 +155,6 @@ func TestMintCode_MintError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// A paired device reaches this route over TLS, past the bearer guard the router
-// puts in front of it, so it can add another device from the remote's own UI.
 func TestMintCode_OverTLS_Mints(t *testing.T) {
 	r := newTestRouter(&fakePairing{mintCode: "123456"}, &fakeRegistry{})
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/pair/code", nil)
@@ -175,8 +164,6 @@ func TestMintCode_OverTLS_Mints(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
-// A code minted over TLS names the device that asked, so the owner can tell
-// who let another device in; the code itself is never logged.
 func TestRegression_MintCode_OverTLS_LogsWhoMinted(t *testing.T) {
 	var logs bytes.Buffer
 	prev := slog.Default()
@@ -236,8 +223,6 @@ func TestPair_InternalError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code, "a non-pairing-sentinel error must not be reported as an invalid code")
 }
 
-// TestRegression_MintCode_WhileNotListening_Refuses proves a daemon whose device
-// listener is closed mints no code: no device can reach it to redeem one.
 func TestRegression_MintCode_WhileNotListening_Refuses(t *testing.T) {
 	pairingUC := &fakePairing{mintCode: "123456"}
 	r := gin.New()
@@ -252,7 +237,6 @@ func TestRegression_MintCode_WhileNotListening_Refuses(t *testing.T) {
 	assert.Zero(t, pairingUC.mints, "no code may be minted")
 }
 
-// postPair posts body to POST /pair on r.
 func postPair(
 	t *testing.T,
 	r *gin.Engine,
@@ -266,9 +250,6 @@ func postPair(
 	return rec
 }
 
-// TestRegression_Pair_OversizedBodyIsRefused proves an anonymous caller cannot
-// make the daemon read more than a pairing request's few bytes: the body is
-// cut off at the cap and the code is never tried.
 func TestRegression_Pair_OversizedBodyIsRefused(t *testing.T) {
 	pairingUC := &fakePairing{redeemTok: "sometoken"}
 	r := newTestRouter(pairingUC, &fakeRegistry{})
@@ -279,8 +260,6 @@ func TestRegression_Pair_OversizedBodyIsRefused(t *testing.T) {
 	assert.Zero(t, pairingUC.redeems, "an oversized request must not reach the code")
 }
 
-// TestRegression_Pair_NameIsCappedAt64Runes proves the client name a paired
-// device is listed under is bounded in characters, not bytes.
 func TestRegression_Pair_NameIsCappedAt64Runes(t *testing.T) {
 	pairingUC := &fakePairing{redeemTok: "sometoken"}
 	r := newTestRouter(pairingUC, &fakeRegistry{})
@@ -318,9 +297,6 @@ func TestListClients_StoreError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestRevokeClient_MarksRevokedAndEndsItsStreams proves a revoke both persists
-// and ends the streams the client already holds, which no later request of
-// its own would ever re-check.
 func TestRevokeClient_MarksRevokedAndEndsItsStreams(t *testing.T) {
 	registry := &fakeRegistry{clients: []domain.Client{{ID: "c1"}, {ID: "c2"}}}
 	streams := &fakeStreams{}
@@ -333,8 +309,6 @@ func TestRevokeClient_MarksRevokedAndEndsItsStreams(t *testing.T) {
 	assert.Equal(t, []string{"c1"}, streams.disconnected)
 }
 
-// TestRevokeClient_SaveError_LeavesStreamsOpen proves a revoke that failed to
-// persist does not end the streams of a client that is still paired.
 func TestRevokeClient_SaveError_LeavesStreamsOpen(t *testing.T) {
 	registry := &fakeRegistry{clients: []domain.Client{{ID: "c1"}}, saveErr: errors.New("disk full")}
 	streams := &fakeStreams{}

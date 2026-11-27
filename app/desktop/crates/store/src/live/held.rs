@@ -1,5 +1,3 @@
-//! The data the state holds, with no async and no hub: host slots and specs, links, pending rows, icons, settings, entities and panel state.
-
 mod entities;
 mod host_slot;
 mod host_spec;

@@ -1,5 +1,3 @@
-//! Why a host cannot be paired a second time.
-
 use crate::live::HostNotes;
 use crate::live::Hub;
 

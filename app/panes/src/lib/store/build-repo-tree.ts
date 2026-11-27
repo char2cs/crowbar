@@ -4,7 +4,6 @@ import { createdInstant } from '@/lib/store/created-instant'
 import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/core/entities/repo-types'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
-// Re-export the canonical §5 DTOs so importers keep one source of truth.
 export type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const AVATAR_COLORS = [
@@ -35,15 +34,10 @@ function repoAvatarColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 }
 
-// Status passes straight through (locked, pr-conflicts and deleted are WorkspaceStatus values);
-// `working` is a separate in-progress flag, not a status.
 function toSidebarStatus(ws: WorkspaceDTO): WorkspaceStatus {
   return ws.status as WorkspaceStatus
 }
 
-// A custom emoji wins (an `emoji:<char>` marker), then the repo's /icon URL on its own host so
-// WKWebView can load it; else undefined (initials). An unresolved host gets the initials too:
-// the rebuild that follows once it resolves redraws it.
 function repoAvatarURL(repo: RepoDTO): string | undefined {
   if (repo.avatarEmoji) return `emoji:${repo.avatarEmoji}`
   if (!repo.avatarUrl || !isHostResolved({ projectId: repo.projectId })) return undefined
@@ -52,9 +46,6 @@ function repoAvatarURL(repo: RepoDTO): string | undefined {
 
 function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
   return {
-    // Every field present, never conditionally spread: applyWorkspaceDTO merges `{...w, ...ws}`,
-    // so an omitted key keeps its previous value, while a cleared field ('' / undefined — a move to
-    // root, a PR closing, a Retry clearing heldByPath) must overwrite.
     id: ws.id,
     branch: ws.branch,
     parentId: ws.parentId || undefined,
@@ -79,8 +70,6 @@ function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
 
 export function toSidebarFolder(folder: FolderDTO): Folder {
   return {
-    // Every field present, as in toSidebarWorkspace: a folder dragged to the repo root arrives
-    // with an empty parentId that must overwrite the previous one.
     id: folder.id,
     repoId: folder.repoId,
     parentId: folder.parentId || undefined,
@@ -90,8 +79,6 @@ export function toSidebarFolder(folder: FolderDTO): Folder {
   }
 }
 
-/** ChatDTO -> the sidebar's Chat, every field present (as toSidebarFolder): a chat dragged to the
- *  root arrives with an empty parentId that must overwrite the previous one. */
 export function toSidebarChat(chat: ChatDTO): Chat {
   return {
     id: chat.id,
@@ -99,8 +86,6 @@ export function toSidebarChat(chat: ChatDTO): Chat {
     type: chat.type,
     parentId: chat.parentId || undefined,
     workspaceId: chat.workspaceId || undefined,
-    // Undefined, not false, when the cached row predates the field: false asserts "a bubble",
-    // while undefined lets deriveRows fall back to the Workspace.owningChatId join.
     ...(chat.ownsWorktree === undefined ? {} : { ownsWorktree: chat.ownsWorktree }),
     title: chat.title,
     order: chat.order ?? 0,
@@ -108,12 +93,8 @@ export function toSidebarChat(chat: ChatDTO): Chat {
   }
 }
 
-/** Missing order sorts last. */
 const NO_ORDER = Number.MAX_SAFE_INTEGER
 
-/** The daemon's sibling sort (tree/node.go compareNodes: order, createdAt, id),
- *  so an undragged level is drawn in the sequence a drop index is counted in —
- *  the cache yields by key, and an arrival tiebreak would draw it in id order. */
 function compareByPlacement(
   a: { id: string; order?: number; createdAt?: string },
   b: { id: string; order?: number; createdAt?: string },
@@ -139,9 +120,6 @@ function toSidebarRepo(
 ): Repo {
   const repoWs = sortByPlacement(workspaces.filter((ws) => ws.repoId === repo.id))
   const repoFolders = folders.filter((folder) => folder.repoId === repo.id)
-  // The cross-repo guard, and the reason a chat row carries a repoId at all:
-  // the entity cache is deliberately cross-repo and long-lived, so an
-  // unfiltered read would hand every repo every other repo's chats.
   const repoChats = chats.filter((chat) => chat.repoId === repo.id)
   const defaultWs = repoWs.find((ws) => ws.isDefault)
   const sidebarWorkspaces: Workspace[] = []
@@ -151,35 +129,22 @@ function toSidebarRepo(
   return {
     id: repo.id,
     projectId: repo.projectId,
-    // Never conditionally spread: a repo dragged back to index 0 emits `order: 0`, which must
-    // overwrite the previous order.
     order: repo.order ?? 0,
-    // Same rule: a repo dragged out of a folder emits `folderId: ''`.
     folderId: repo.folderId ?? '',
     name: repo.name,
     avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),
     avatarURL: repoAvatarURL(repo),
     workspaces: sidebarWorkspaces,
-    // Omitted when the repo has none, keeping a folderless repo's shape unchanged.
     ...(repoFolders.length > 0 ? { folders: repoFolders } : {}),
-    // Omitted when none, like `folders`: a repo whose chat seed hasn't landed has no `chats`.
     ...(repoChats.length > 0 ? { chats: repoChats } : {}),
     ...(repo.deleting ? { deleting: true } : {}),
-    // The default workspace is the repo header, filtered out of `workspaces`, so its live `working`
-    // is lifted onto the repo for the header and context pill to spin its icon.
     ...(defaultWs
       ? {
           defaultWorkspaceId: defaultWs.id,
           defaultBranch: defaultWs.branch,
           defaultWorking: defaultWs.working,
-          // Its status is lifted too: adopted protected branches are locked AND
-          // default, and mutation gating (isWorkspaceLockedInSidebar) must see
-          // the lock even though the default ws is not a tree row.
           defaultWorkspaceStatus: toSidebarStatus(defaultWs),
-          // Lifted for the same reason: the default ws is never a member of
-          // `workspaces` below, so there is no `Workspace.owningChatId`
-          // `deriveRows` can read for it directly — see `Repo`'s own doc.
           defaultOwningChatId: defaultWs.owningChatId ?? '',
         }
       : {}),
@@ -187,22 +152,15 @@ function toSidebarRepo(
   }
 }
 
-// Repos in sidebar order. `order` is per project, so the flat list interleaves projects — fine,
-// since the sidebar buckets by projectId and reads each bucket in order. Ties break as the daemon
-// does (compareByPlacement, by id), so an undragged level never reshuffles between rebuilds.
 function sortReposByOrder(repos: readonly Repo[]): Repo[] {
   return sortByPlacement(repos)
 }
 
-// Groups workspaces under their repos into the nested Repo[] the sidebar renders. Project-agnostic
-// on purpose: each repo keeps its own projectId, so the sidebar can hold several projects at once.
 export function buildRepoTree(
   repos: RepoDTO[],
   workspaces: WorkspaceDTO[],
   folders: Folder[] = [],
   chats: Chat[] = [],
 ): Repo[] {
-  // Sorted here: the entity cache is a key-value store with no order, so an unsorted rebuild would
-  // paint the user's arrangement in whatever sequence IndexedDB yields.
   return sortReposByOrder(repos.map((repo) => toSidebarRepo(repo, workspaces, folders, chats)))
 }

@@ -11,21 +11,15 @@ import { setDropHover } from '@/features/panes/stores/drag-store'
 import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
-/** Facts a row's own tree-walk knows that `SidebarRow` itself does not carry. */
 export interface RowDragExtra {
-  /** The ancestor chain, delimited on both sides (`/root/a/`), for the cycle guard;
-   *  absent reads as no known ancestry (a Recents entry), which allows every drop. */
   path?: string
   expanded?: boolean
   hasChildren?: boolean
-  /** Published only by a Recents tab (`view-row.tsx`): spec §8.1 gives the same geometry over a Recents
-   *  entry another meaning than over a tree row, and `SidebarRow` cannot tell them apart. */
   inRecents?: boolean
 }
 
 export type DragRow = SidebarRow & RowDragExtra
 
-/** One attribute per row kind, so a hit test tells a row apart with one sweep. */
 const SIDEBAR_DRAG_ROW_SPEC: DropRowSpec = {
   kinds: {
     branch: 'data-sidebar-branch-drop',
@@ -44,9 +38,6 @@ const SIDEBAR_DRAG_ROW_SPEC: DropRowSpec = {
 
 export const rowDom = createDropRowDom<DragRow>(SIDEBAR_DRAG_ROW_SPEC)
 
-/** A row may not drop into its own descendant: the matrix never reads ancestry, so the
- *  row's published chain is tested for each subject's id (delimited, so `/ab/` never
- *  matches `a`). */
 export function cycleSafeAllowedModes(subjects: readonly DragRow[], target: DragRow) {
   const allowed = SIDEBAR_DROP_POLICY.allowedModes(subjects, target)
   if (!anyModeAllowed(allowed)) return allowed
@@ -59,7 +50,6 @@ const SIDEBAR_DRAG_POLICY: DropPolicy<DragRow, DragRow> = {
   edgeBandFor: SIDEBAR_DROP_POLICY.edgeBandFor,
 }
 
-/** The zones a pane resolves to (spec §8.1): center opens into it, an edge splits it. */
 export type SidebarPaneZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
 export interface SidebarPaneHit {
@@ -68,14 +58,10 @@ export interface SidebarPaneHit {
   zone: SidebarPaneZone
 }
 
-/** A droppable pane element carries this, valued with its pane id. */
 export const PANE_DROP_ATTR = 'data-pane-drop'
 
-/** Painted onto the pane element a release would land in, for its CSS ring (spec §8.2). */
 const PANE_HIT_ATTR = 'data-pane-hit'
 
-/** The pane hit plus the element `elementsFromPoint` resolved: pane ids repeat across the
- *  retained (hidden) workspaces, so only the painted element names the right node. */
 export interface ResolvedPaneHit extends SidebarPaneHit {
   el: Element
 }
@@ -100,7 +86,6 @@ export const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit>(
 
 export type Hit = ReturnType<typeof hitTest>
 
-/** Moves the hairline to `hit`'s slot, writing only the styles that changed. */
 export function paintDropLine(el: HTMLDivElement | null, hit: Hit): void {
   if (!el) return
   if (hit?.kind !== 'row' || hit.row.mode === 'into') {
@@ -121,7 +106,6 @@ export function paintDropLine(el: HTMLDivElement | null, hit: Hit): void {
   if (el.style.width !== width) el.style.width = width
 }
 
-/** While the list edge-scrolls the line tracks it, so its transition would only trail. */
 export function setDropLineTracking(el: HTMLDivElement | null, tracking: boolean): void {
   if (!el) return
   el.style.transition = tracking ? 'none' : ''
@@ -132,16 +116,12 @@ export function samePaneHit(a: SidebarPaneHit | null, b: SidebarPaneHit | null):
   return a.paneId === b.paneId && a.zone === b.zone
 }
 
-/** Moves the pane ring to `next`'s element. Gated on the element, not the pane id: two
- *  elements share an id, and a center-to-edge move on one pane keeps its ring. */
 export function paintPaneHit(prev: ResolvedPaneHit | null, next: ResolvedPaneHit | null): void {
   if ((prev?.el ?? null) === (next?.el ?? null)) return
   prev?.el.removeAttribute(PANE_HIT_ATTR)
   next?.el.setAttribute(PANE_HIT_ATTR, '')
 }
 
-/** The split preview goes through the drag store, the channel a file drag already uses:
- *  the pane lives outside the sidebar, and the store dedups its own writes. */
 export function publishPaneZonePreview(hit: SidebarPaneHit | null): void {
   setDropHover({ paneId: hit?.paneId ?? null, zone: hit?.zone ?? null })
 }

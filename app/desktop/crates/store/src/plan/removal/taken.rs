@@ -1,5 +1,3 @@
-//! The chats a delete's git cascade took beyond what the user selected.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;

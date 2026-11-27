@@ -64,8 +64,6 @@ describe('useChatTelemetry', () => {
     expect(result.current?.context?.usedPercent).toBe(42)
   })
 
-  // A gauge belonging to the previous chat is worse than no gauge: it is a
-  // confident number about the wrong conversation.
   it('drops the previous chat’s reading the moment the chat changes', () => {
     act(() => report('c1', 1, 10))
     const { result, rerender } = renderHook(({ chatId }) => useChatTelemetry(chatId), {
@@ -83,9 +81,6 @@ describe('limitResetsAt', () => {
     expect(limitResetsAt(telemetry(10))).toBeUndefined()
   })
 
-  // The window that stopped the turn is the one closest to SPENT, not the one
-  // that resets soonest — sending someone back in ten minutes to hit the same
-  // wall is worse than telling them to come back tomorrow.
   it('names the most-consumed window, not the earliest one', () => {
     const resets = limitResetsAt({
       observedAt: '2026-08-24T12:00:00Z',

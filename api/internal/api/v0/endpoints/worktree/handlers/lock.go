@@ -8,15 +8,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// lockRequest is the POST .../chats/:id/lock body. Locked is a pointer because omitting it clears
-// the user's override, so the branch is locked iff protected (see domain.Workspace.LockOverride).
 type lockRequest struct {
 	Locked *bool `json:"locked"`
 }
 
-// ChatLock handles POST .../chats/:id/lock synchronously: it is one aggregate write with no git, and
-// its refusals (project home, placeholder) must reach the user while the menu is open. The updated
-// workspace still arrives on the workspaces stream.
 func (h *Handlers) ChatLock(
 	c *gin.Context,
 ) {

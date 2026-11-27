@@ -25,11 +25,9 @@ describe('buffer slice auto-eviction', () => {
       doc: workspaceRef('test-ws', '/c.ts'),
       name: 'c.ts',
     })
-    // /a.ts should be evicted (was first, least recent)
     expect(store.getState().buffers).toHaveLength(2)
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('a.ts')
     expect(store.getState().buffers.map((b) => b.name)).toContain('c.ts')
-    // The evictee's tab must also be gone from the pane that held it.
     expect(store.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(idA)
   })
 
@@ -53,7 +51,6 @@ describe('buffer slice auto-eviction', () => {
       doc: workspaceRef('test-ws', '/c.ts'),
       name: 'c.ts',
     })
-    // b.ts should be evicted; a.ts (pinned) stays
     expect(store.getState().buffers.map((b) => b.name)).toContain('a.ts')
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('b.ts')
   })
@@ -73,13 +70,10 @@ describe('buffer slice auto-eviction', () => {
       doc: workspaceRef('test-ws', '/b.ts'),
       name: 'b.ts',
     })
-    // Terminal stays, a.ts evicted
     expect(store.getState().buffers.map((b) => b.type)).toContain('terminal')
     expect(store.getState().buffers.map((b) => b.name)).not.toContain('a.ts')
   })
 
-  // Buffers are one window-wide list, so the cap and evictee search stay within the buffer's
-  // own workspace: opening a file in A must never discard B's tab.
   it('does not evict a buffer belonging to a DIFFERENT workspace at the cap', () => {
     const store = createWindowPaneStore()
     store.setState({ maxOpenTabs: 2 })
@@ -94,8 +88,6 @@ describe('buffer slice auto-eviction', () => {
       doc: workspaceRef('ws-b', '/x.ts'),
       name: 'x.ts',
     })
-    // ws-b is nowhere near its own cap (only 1 buffer) — ws-a opening a
-    // second file must never touch ws-b's tab.
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('ws-a', '/b.ts'),
@@ -129,9 +121,6 @@ describe('buffer slice auto-eviction', () => {
       return s
     })
 
-    // a.ts is dirty and would otherwise be the least-recent evictable
-    // candidate — it must survive, and the new buffer still opens (this is a
-    // silent-data-loss guard, not a hard cap).
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/c.ts'),
@@ -147,17 +136,14 @@ describe('buffer slice auto-eviction', () => {
     const store = createWindowPaneStore()
     store.setState({ maxOpenTabs: 1 })
 
-    // Terminal is protected — cannot be evicted
     store.getState().bufferActions.openContent({ type: 'terminal', workspaceId: 'test-ws' })
     expect(store.getState().buffers).toHaveLength(1)
 
-    // Opening a new buffer proceeds even though we're at the limit (nothing evictable)
     store.getState().bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/a.ts'),
       name: 'a.ts',
     })
-    // Terminal stays (protected), editor is also created — intentionally exceeds limit
     expect(store.getState().buffers).toHaveLength(2)
     expect(store.getState().buffers.map((b) => b.type)).toContain('terminal')
     expect(store.getState().buffers.map((b) => b.name)).toContain('a.ts')

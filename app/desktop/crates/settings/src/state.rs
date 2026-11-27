@@ -1,5 +1,3 @@
-//! The pure state machine of the settings modal.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::keys::ChordCapture;
@@ -26,11 +24,6 @@ pub use effect::Effect;
 pub use navigation::RailMove;
 pub use prompt::Prompt;
 
-/// Everything the modal remembers: the schema, the values on screen, the selected page, the search,
-/// the field being edited, the shortcut being captured and the confirmation being asked.
-///
-/// Methods that change a setting return an [`Effect`](crate::state::effect::Effect); the view performs it against the backend and
-/// reports the outcome with [`State::acknowledged`] or [`State::write_failed`].
 #[derive(Debug, Clone)]
 pub struct State {
     schema: Schema,
@@ -46,7 +39,6 @@ pub struct State {
 }
 
 impl State {
-    /// A state over `schema` and `snapshot`, opened on `page` (the first visible page when `None` or unknown).
     pub fn new(
         schema: Schema,
         snapshot: Snapshot,

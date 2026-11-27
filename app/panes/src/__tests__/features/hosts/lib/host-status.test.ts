@@ -33,7 +33,6 @@ afterEach(() => {
   delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
 })
 
-// Between two probes, the streams are the first to know.
 describe('startHostStatus', () => {
   it('flags a stream’s identity change before the next probe, and the probe keeps it', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -76,7 +75,6 @@ describe('hostStatusOf', () => {
     expect(hostStatusOf('h1')).toBe('needs-repair')
   })
 
-  // The local daemon is never probed: its own streams are all that say it is reachable.
   it('reads the local daemon’s status from its own streams', () => {
     expect(hostStatusOf('local')).toBe('unknown')
     reportChannelState('/v0/projects', true, 'local')
@@ -86,7 +84,6 @@ describe('hostStatusOf', () => {
   })
 })
 
-// The one signal that a host is reachable again, for whatever waits on it (a terminal).
 describe('onHostUp', () => {
   it('fires each time a remote host’s status becomes up; its channels opening say nothing', () => {
     const up = vi.fn()

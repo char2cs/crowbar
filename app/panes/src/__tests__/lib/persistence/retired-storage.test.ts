@@ -3,7 +3,6 @@ import { openDB } from 'idb'
 import { IDBFactory } from 'fake-indexeddb'
 import { retireOrphanedStorage } from '@/lib/persistence/retired-storage'
 
-// Exactly what the base build (70ec430) wrote and nothing in this build reads.
 const RETIRED_SETTINGS = {
   'crowbar:settings:editorEngine': '"monaco"',
   'crowbar:settings:formatter': '"prettier"',
@@ -11,7 +10,6 @@ const RETIRED_SETTINGS = {
   'crowbar:settings:externalEditor': '"none"',
   'crowbar:settings:customEditorCommand': '""',
   'debug-scroll': 'true',
-  // Boot used to store every default, so a stored readout switch is not a choice anyone made.
   'crowbar:settings:showBuildReadout': 'true',
 }
 

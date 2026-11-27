@@ -1,5 +1,3 @@
-//! Reads the emulator into a [`Snapshot`].
-
 use std::ops::Range;
 
 use alacritty_terminal::event::EventListener;

@@ -1,5 +1,3 @@
-//! How much of its row a button takes.
-
 use gpui::{Div, Styled};
 
 use crate::control::Button;
@@ -23,7 +21,6 @@ impl Fill {
 }
 
 impl Button {
-    /// Shares its row's width with the other growing buttons, as Tailwind's `flex-1` does.
     #[must_use]
     pub fn grow(mut self) -> Self {
         self.fill = Fill::Share;

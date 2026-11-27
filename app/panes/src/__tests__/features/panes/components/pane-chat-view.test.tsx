@@ -16,14 +16,11 @@ vi.mock('@/features/agent/components/agent-chat-pane-gate', () => ({
 type Module = typeof import('@/features/panes/components/pane-chat-view') &
   typeof import('@/features/panes/lib/chat-surface-loader')
 
-// Collection has no test timeout: transform the whole graph here, so a test's timer
-// measures its render and act rather than a cold import under a loaded run.
 await Promise.all([
   import('@/features/panes/components/pane-chat-view'),
   import('@/features/panes/lib/chat-surface-loader'),
 ])
 
-// Each test starts from a module that has not loaded the chat surface yet.
 async function freshModule(): Promise<Module> {
   vi.resetModules()
   const [view, loader] = await Promise.all([
@@ -71,7 +68,6 @@ describe('PaneChatView chat surface loading', () => {
     expect(screen.getByTestId('chat-surface')).toBeTruthy()
   })
 
-  // A type swap from the lazy wrapper to the loaded surface would remount the chat.
   it('keeps the same chat surface when it re-renders after the chunk lands', async () => {
     const mod = await freshModule()
     const { blur } = renderView(mod)

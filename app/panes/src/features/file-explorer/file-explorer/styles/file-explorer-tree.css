@@ -1,4 +1,3 @@
-/* Enable proper mouse wheel scrolling with horizontal overflow */
 .file-tree-container {
   overflow-y: auto !important;
   overflow-x: auto !important;
@@ -6,33 +5,18 @@
   position: relative !important;
   scroll-behavior: auto !important;
   pointer-events: auto !important;
-  /* The sticky-ancestor stack's reserved space (file-explorer-tree.tsx's
-     paddingTop, grown by stickyStackHeight) is inserted ABOVE the visible
-     viewport as you scroll deeper into a folder. Chrome's scroll anchoring
-     "helpfully" adjusts scrollTop to cancel out exactly that kind of
-     above-the-fold size change, silently undoing the reservation on every
-     scroll frame — verified live: the reserved space landed in the DOM but
-     the sticky header still painted over the next row, because scrollTop
-     had already been nudged to compensate. This is the one container where
-     that compensation is never wanted. */
   overflow-anchor: none !important;
 }
 
-/* Apply UI font family to file tree */
 .file-tree-container {
   font-family: var(--font-sans);
 }
 
-/* Cover gap above sticky headers to prevent content bleeding through (only when stuck) */
-/* Removed JS-managed .is-stuck marker; pure CSS sticky remains */
-
-/* Ensure file tree content wrapper stretches to full scrollable area */
 .file-tree-container > .file-tree-scroll-body {
   width: max-content !important;
   min-width: 100% !important;
 }
 
-/* File tree item containers need to stretch full width */
 .file-tree-item {
   width: 100% !important;
   min-width: 100% !important;
@@ -41,8 +25,6 @@
   --tree-guide-color: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
 }
 
-/* The phone's file drawer: the chat list's touch type, caret and glyph column (row pitch
-   and icon size come from TOUCH_ROW_METRICS). */
 .file-tree-touch .file-tree-item {
   --file-tree-guide-icon-offset: 8px;
 }
@@ -66,7 +48,6 @@
   font-size: 12px;
 }
 
-/* Rows sit above their indent guides; the guides show through the row's wash. */
 .file-tree-row {
   position: relative;
   z-index: 2;
@@ -84,7 +65,6 @@
   padding: 0 1px;
 }
 
-/* Yields to the row's own hover and selected washes. */
 .file-tree-search-match:not(:hover):not([aria-selected='true']) {
   background-color: color-mix(in srgb, var(--accent) 7%, transparent);
 }

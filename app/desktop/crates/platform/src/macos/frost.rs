@@ -1,5 +1,3 @@
-//! The blur behind a transparent window, as Tauri's `window_chrome.rs` set it up.
-
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSAppearance, NSAppearanceCustomization as _};
 use objc2_foundation::NSString;
@@ -11,12 +9,9 @@ use crate::macos::appkit_parent::AppkitParent;
 // PLATFORM: macos the tag `window-vibrancy` gives the blur view it adds.
 const BLUR_VIEW_TAG: isize = 91_376_254;
 
-/// The tone the blur behind a window is rendered in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Frost {
-    /// Over a light theme.
     Light,
-    /// Over a dark theme.
     Dark,
 }
 
@@ -30,15 +25,6 @@ impl Frost {
     }
 }
 
-/// Blurs what is behind the window showing the view at `address`, in the tone of `frost`.
-///
-/// The blur view lies under everything the window's content view holds, and only it takes the
-/// appearance: pinning the window's would freeze its web views' colour scheme.
-///
-/// # Errors
-///
-/// [`Error::Frost`] off the main thread or when no open window shows the view,
-/// [`Error::Vibrancy`] when `AppKit` refuses the effect.
 pub fn frost_window(
     address: usize,
     frost: Frost,

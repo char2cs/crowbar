@@ -10,11 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// repoHeaderLevel reads a repo header's rendered children exactly as
-// rows-from-repo.ts draws them (every row buildSidebarTree roots): the repo's
-// root folders, its locked branches, and the threads filed on the header
-// row (whose parent is the default checkout's owning chat, which the tree
-// hides), sorted on the one order field they all share.
 func repoHeaderLevel(t *testing.T, h *harness, imported importedRepo, headerChatID string) []topRow {
 	t.Helper()
 	base := repoBase(imported)
@@ -51,8 +46,6 @@ func repoHeaderLevel(t *testing.T, h *harness, imported importedRepo, headerChat
 		}
 		rows = append(rows, topRow{id: w.ID, kind: "branch", order: w.Order})
 	}
-	// buildSidebarTree's own tie-break: order, then arrival (folders, then
-	// branches, then chats).
 	rank := map[string]int{"folder": 0, "branch": 1, "chat": 2}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].order != rows[j].order {
@@ -63,13 +56,6 @@ func repoHeaderLevel(t *testing.T, h *harness, imported importedRepo, headerChat
 	return rows
 }
 
-// A repo header's children are ONE rendered level — its root folders, its
-// locked branches and the threads started on the header row — but the
-// backend keeps them in two containers: folders and locked anchors sit at
-// the bare root "", while a thread on the header is filed under the default
-// checkout's owning chat id (what the sidebar posts as placementParentId).
-// A thread reorder therefore counts only the other threads, and the drop
-// index the sidebar computed against the whole level lands somewhere else.
 func TestRegression_ThreadOnRepoHeaderCannotBeOrderedBeforeALockedBranch(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -94,8 +80,6 @@ func TestRegression_ThreadOnRepoHeaderCannotBeOrderedBeforeALockedBranch(t *test
 	before := repoHeaderLevel(t, h, imported, headerChatID)
 	t.Logf("before: %+v", before)
 	require.Len(t, before, 3, "locked main + two header threads")
-	// Rendered (ties: branches then chats): [main, t1, t2]. Drag t2 to the
-	// very top — the write drop-actions.ts makes for that drop line.
 	h.patch(base+"/chats/"+t2+"/placement", map[string]any{"parentId": headerChatID, "order": 0}, nil)
 	h.Quiesce()
 

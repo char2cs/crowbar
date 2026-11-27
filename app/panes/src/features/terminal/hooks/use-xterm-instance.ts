@@ -12,13 +12,10 @@ import { resolveTerminalFont } from '../utils/resolve-font'
 
 interface UseXtermInstanceOptions {
   sessionId: string
-  /** The workspace this terminal belongs to and the pane it is shown in; links open there. */
   workspaceId: string
   paneId?: string
   container: HTMLDivElement | null
-  /** False until the view has been shown once: a never-seen tab builds nothing. */
   enabled: boolean
-  /** Sends input the terminal itself produces (key overrides, drops, IME replacements). */
   write: (data: string, origin: string) => void
 }
 
@@ -27,8 +24,6 @@ export interface XtermInstance {
   addons: TerminalAddons | null
 }
 
-/** Builds the xterm once its container has a box and tracks settings. Knows nothing of the PTY:
- *  I/O is useTerminalConnection's, size usePtySizeSync's. */
 export function useXtermInstance({
   sessionId,
   workspaceId,
@@ -68,13 +63,9 @@ export function useXtermInstance({
     terminalCursorBlink: cursorBlink,
   }
 
-  // The options a new xterm is born with, read through a ref so the build effect
-  // runs once per container rather than once per settings change.
   const optionsRef = useRef({ settings, fontSize, letterSpacing, cursorWidth, getTerminalTheme })
   optionsRef.current = { settings, fontSize, letterSpacing, cursorWidth, getTerminalTheme }
 
-  // Build — once the container has a box. A container that is still 0×0 (laid out
-  // later, or display:none) is watched with a ResizeObserver instead of polled.
   const [hasBox, setHasBox] = useState(false)
   useEffect(() => {
     if (!enabled || !container || hasBox) return
@@ -140,7 +131,6 @@ export function useXtermInstance({
 
   const { terminal, addons } = instance
 
-  // Keep a live xterm's options in step with the settings.
   useEffect(() => {
     if (!terminal || !addons) return
     let cancelled = false

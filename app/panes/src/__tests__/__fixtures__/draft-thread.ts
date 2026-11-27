@@ -7,15 +7,10 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 export const FIRST_PROMPT: DraftPrompt = { text: 'hello', provider: '', model: '', effort: '' }
 
-/** The pane currently holding a draft thread, if any. */
 export function draftPaneId(): string | undefined {
   return Object.values(windowPaneStore.getState().panes).find((p) => isDraftChatId(p.chatId))?.id
 }
 
-/**
- * "+ thread" as a person uses it: the click, then — when it opened a blank
- * draft rather than creating a chat outright — the first send.
- */
 export async function createThread(
   parentId: string,
   ...rest: [navigate: Parameters<typeof handleCreate>[2], presentation?: 'chat' | 'terminal']
@@ -25,7 +20,6 @@ export async function createThread(
   if (paneId) await promoteDraftThread(paneId, FIRST_PROMPT, () => '')
 }
 
-/** The project-home "New thread", then the first send from its draft. */
 export async function createHomeThread(
   projectId: string,
   homeWorkspaceId: string,

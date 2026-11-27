@@ -28,16 +28,11 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	return d
 }
 
-// scriptedCall is one JSON-RPC request the fake app-server answers, in order.
 type scriptedCall struct {
 	method string
 	result string
 }
 
-// scriptedServer is serve on the far end of a stdio pipe: it completes the
-// api-transport handshake exactly as apidriver.Start expects, then replays
-// script's call/response pairs in order, recording each call's raw params so a
-// test can assert on the actual wire payload APIConn's facade produced.
 func scriptedServer(t *testing.T, script []scriptedCall) (stdio protocol.APIStdio, seenParams *[]string) {
 	t.Helper()
 	seen := make([]string, 0, len(script))
@@ -49,10 +44,10 @@ func scriptedServer(t *testing.T, script []scriptedCall) (stdio protocol.APIStdi
 				Method string          `json:"method"`
 				Params json.RawMessage `json:"params"`
 			}
-			if peer.ReadJSON(&req) != nil { // the client hung up; the test sees that on its own side
+			if peer.ReadJSON(&req) != nil {
 				return
 			}
-			if i == -1 { // the initialized notification
+			if i == -1 {
 				continue
 			}
 			result := json.RawMessage(`{}`)
@@ -67,14 +62,6 @@ func scriptedServer(t *testing.T, script []scriptedCall) (stdio protocol.APIStdi
 	return protocol.APIStdio{In: in, Out: out}, &seen
 }
 
-// TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver pins that
-// protocol.APIConn — the only api-transport handle callers outside this
-// package's own internal/ boundary may hold — actually forwards ctx,
-// canonical and values to *apidriver.Driver and hands back its answers
-// unchanged. apidriver's own tests already prove the DRIVER's behaviour;
-// nothing exercises THIS facade's wiring, so a dropped argument or a
-// swapped method on APIConn's own EstablishSession/Dispatch/InjectAt would
-// ship silently.
 func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"sid-1"}}`},
@@ -108,9 +95,6 @@ func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.
 	require.Len(t, *seen, 3, "Dispatch on an already-established session skips straight to the action call")
 }
 
-// TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade proves the
-// no-wire-call contract for an undeclared inject moment survives being
-// reached through APIConn rather than the driver directly.
 func TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade(t *testing.T) {
 	stdio, seen := scriptedServer(t, nil)
 
@@ -127,9 +111,6 @@ func TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade(t *testing.T) {
 	assert.Empty(t, *seen, "an undeclared moment must never reach the wire")
 }
 
-// TestStartAPIDriver_PropagatesTheUnderlyingStartFailure pins the error path:
-// StartAPIDriver must hand back (nil, err) rather than a half-built
-// connection when serve hangs up before it answers the handshake.
 func TestStartAPIDriver_PropagatesTheUnderlyingStartFailure(t *testing.T) {
 	in, out, peer := testutil.StdioPipe(t)
 	require.NoError(t, peer.Close())
@@ -141,8 +122,6 @@ func TestStartAPIDriver_PropagatesTheUnderlyingStartFailure(t *testing.T) {
 	assert.Nil(t, conn)
 }
 
-// TestCheckVersion_DelegatesToTheDescriptorsDeclaredRange pins protocol.
-// CheckVersion's delegation to descriptor.CheckProtocolVersion.
 func TestCheckVersion_DelegatesToTheDescriptorsDeclaredRange(t *testing.T) {
 	d := &spec.Descriptor{ProtocolVersion: &spec.VersionRange{Min: "1.0", Max: "1.9"}}
 

@@ -1,5 +1,3 @@
-//! A unit-range colour channel as a byte.
-
 use terminal::floor_cells;
 
 const BYTE_MAX: f32 = 255.0;

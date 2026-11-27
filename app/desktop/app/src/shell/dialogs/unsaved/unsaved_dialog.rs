@@ -1,5 +1,3 @@
-//! The question asked before closing panes with unsaved changes.
-
 use crate::shell::dialogs::unsaved::close_choice::CloseChoice;
 
 const LISTED_NAMES: usize = 5;

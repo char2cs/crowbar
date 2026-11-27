@@ -11,7 +11,6 @@ const fn entry(
 
 const NEW_TAB: CommandEntry = entry(ShellCommand::NewTab, "tabs.new", "mod+t");
 
-// SPEC: app/panes/src/features/keymaps/registry.ts is the table these ids and chords follow.
 const TABLE: &[CommandEntry] = &[
     NEW_TAB,
     entry(ShellCommand::NewChat, "agent.newChat", "mod+n"),
@@ -82,12 +81,10 @@ const TABLE: &[CommandEntry] = &[
 ];
 
 impl ShellCommand {
-    /// Every command, in menu order.
     pub fn all() -> impl Iterator<Item = Self> {
         TABLE.iter().map(|entry| entry.command)
     }
 
-    /// The command with id `id`, `None` for one a pane or extension serves.
     #[must_use]
     pub fn parse(id: &str) -> Option<Self> {
         TABLE
@@ -96,7 +93,6 @@ impl ShellCommand {
             .map(|entry| entry.command)
     }
 
-    /// The command id used in settings and in `command.run` frames.
     #[must_use]
     pub fn id(self) -> &'static str {
         self.entry().id
@@ -109,7 +105,6 @@ impl ShellCommand {
         )
     }
 
-    /// The chord the command has until the user rebinds it.
     #[must_use]
     pub fn default_chord(self) -> &'static str {
         self.entry().chord

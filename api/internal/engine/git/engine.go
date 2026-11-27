@@ -29,14 +29,12 @@ type (
 type engine struct {
 	exec      execFn
 	execStdin execStdinFn
-	mu        sync.Map // key: common dir (string) -> *sync.RWMutex
+	mu        sync.Map
 	commonDir sync.Map
 	verdicts  mergeVerdicts
 	tips      tipMemory
 }
 
-// repoMutex returns (or creates) the per-repo mutex for repoPath, keyed by the git common dir so every
-// worktree of a clone serializes on one lock. It falls back to the raw path outside a git repo.
 func (e *engine) repoMutex(ctx context.Context, repoPath string) *sync.RWMutex {
 	key := e.resolveCommonDir(ctx, repoPath)
 	actual, _ := e.mu.LoadOrStore(key, &sync.RWMutex{})
@@ -71,22 +69,16 @@ func (e *engine) computeCommonDir(ctx context.Context, repoPath string) string {
 	return filepath.Clean(abs)
 }
 
-// lockRepo takes the exclusive write lock for repoPath's clone, for any
-// operation that mutates the working tree, index, refs, or touches the
-// network.
 func (e *engine) lockRepo(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
 	return timedLock(mu.Lock, mu.Unlock, "lock.write")
 }
 
-// lockRepoRead takes the clone's shared read lock for read-only inspection. Reads never block each
-// other, only writes (including origin-sync fetches), and never observe a torn mutation.
 func (e *engine) lockRepoRead(ctx context.Context, repoPath string) func() {
 	mu := e.repoMutex(ctx, repoPath)
 	return timedLock(mu.RLock, mu.RUnlock, "lock.read")
 }
 
-// timedLock takes a lock and returns its release, recording the wait and hold under name when perf is on.
 func timedLock(lock, unlock func(), name string) func() {
 	if !perf.Enabled() {
 		lock()
@@ -102,7 +94,6 @@ func timedLock(lock, unlock func(), name string) func() {
 	}
 }
 
-// New returns a new Engine that shells out to the system git binary.
 func New() Engine {
 	return &engine{
 		exec:      gitexec.Git,
@@ -112,17 +103,12 @@ func New() Engine {
 
 var _ Engine = (*engine)(nil)
 
-// netTransferTimeout and netQueryTimeout bound remote git calls so a dead TCP connection cannot hold the
-// per-repo mutex for the OS retransmission timeout. netListRefreshTimeout is far tighter: a user waits on
-// it, and failure only leaves the listing on cached remote-tracking refs.
 var (
 	netTransferTimeout    = 3 * time.Minute
 	netQueryTimeout       = 30 * time.Second
 	netListRefreshTimeout = 45 * time.Second
 )
 
-// execNet runs a network git command under timeout, reporting a deadline kill as an explicit timeout
-// error instead of exit -1; a cancelled parent context keeps ordinary classification.
 func (e *engine) execNet(ctx context.Context, op string, timeout time.Duration, repoPath string, args ...string) error {
 	r, err := e.runNet(ctx, op, timeout, repoPath, args...)
 	if err != nil {
@@ -131,7 +117,6 @@ func (e *engine) execNet(ctx context.Context, op string, timeout time.Duration, 
 	return classifyGitError(op, r)
 }
 
-// runNet is execNet before classification; its error is only the timeout.
 func (e *engine) runNet(
 	ctx context.Context,
 	op string,
@@ -211,9 +196,6 @@ func (e *engine) UnstageHunk(ctx context.Context, repoPath, filePath, hunkID str
 
 func (e *engine) Discard(ctx context.Context, repoPath, filePath string) error {
 	defer e.lockRepo(ctx, repoPath)()
-	// Call status.Parse directly, NOT e.Status: e.Status now takes RLock, and
-	// this method already holds the exclusive Lock — Go's sync.RWMutex is not
-	// reentrant, so going through e.Status here would deadlock.
 	st, err := status.Parse(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("git: discard: status: %w", err)
@@ -265,15 +247,11 @@ func (e *engine) FetchRef(ctx context.Context, repoPath, branch string) error {
 	return e.execNet(ctx, "fetch ref", netTransferTimeout, repoPath, "fetch", "origin", branch)
 }
 
-// FetchPrune runs `git fetch --prune origin` so a remote-branch listing reflects the remote now rather
-// than at clone time; nothing else fetches all refs. It touches no local branch, so reads may run it.
 func (e *engine) FetchPrune(ctx context.Context, repoPath string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fetch prune", netListRefreshTimeout, repoPath, "fetch", "--prune", "origin")
 }
 
-// FastForwardBranch runs `git fetch origin <branch>:<branch>`, updating the local branch (not just the
-// tracking ref) before it is checked out into a worktree.
 func (e *engine) FastForwardBranch(ctx context.Context, repoPath, branch string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	return e.execNet(ctx, "fast-forward branch", netTransferTimeout, repoPath, "fetch", "origin", branch+":"+branch)
@@ -315,8 +293,6 @@ func (e *engine) StashDrop(ctx context.Context, repoPath, id string) error {
 	return stash.Drop(ctx, repoPath, id)
 }
 
-// Reset runs `git reset --<mode> [<commit>]`. git reset rejects a `--` before a commit, so the guard is
-// the usecase boundary's mode allowlist and leading-dash check on commit.
 func (e *engine) Reset(ctx context.Context, repoPath, mode, commit string) error {
 	defer e.lockRepo(ctx, repoPath)()
 	flag := "--" + mode
@@ -363,8 +339,6 @@ func (e *engine) OperationAbort(ctx context.Context, repoPath string) error {
 	return e.operationAbort(ctx, repoPath)
 }
 
-// OperationInProgress reports the in-progress git operation from .git marker files only, taking no repo
-// lock: recovery calls it on worktrees that may be mid-operation.
 func (e *engine) OperationInProgress(ctx context.Context, repoPath string) (string, error) {
 	return detectInProgressOp(ctx, repoPath), nil
 }
@@ -378,20 +352,16 @@ func (e *engine) WorkingTreeSummary(
 	return e.computeWorkingTreeSummary(ctx, repoPath, forkPointSha)
 }
 
-// ComputeStatus implements watch.GitStatusProvider.
 func (e *engine) ComputeStatus(ctx context.Context, repoPath string) (gitdomain.GitStatus, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return status.Parse(ctx, repoPath)
 }
 
-// ResolveDiffBase implements watch.GitStatusProvider.
 func (e *engine) ResolveDiffBase(ctx context.Context, repoPath, base string) gitdomain.DiffBase {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return e.diffBase(ctx, repoPath, base)
 }
 
-// DiffStat implements watch.GitStatusProvider: the +N/-N of the working tree
-// against an already-resolved commit.
 func (e *engine) DiffStat(ctx context.Context, repoPath, commit string) (int, int, error) {
 	defer e.lockRepoRead(ctx, repoPath)()
 	return e.numstatFromBase(ctx, repoPath, commit)

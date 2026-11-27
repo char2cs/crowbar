@@ -25,16 +25,12 @@ interface SidebarToastOverlayProps {
 
 type SidebarToast = ReturnType<typeof Toast.useToastManager>['toasts'][number]
 
-/** How many toasts the sidebar's narrow column shows at once. */
 const SIDEBAR_TOAST_LIMIT = 3
 
-/** A `timeout: 0` toast is removed only when its condition clears (e.g. "Backend unavailable"). */
 function isPinned(toast: SidebarToast): boolean {
   return toast.timeout === 0
 }
 
-// Window the list WITHOUT dropping a pinned toast: a pinned one evicted by newer failures could
-// never come back. Pinned are all kept; transient fill the remaining slots, newest-first.
 function selectVisibleToasts(toasts: SidebarToast[]): SidebarToast[] {
   const pinnedCount = toasts.reduce((count, toast) => count + (isPinned(toast) ? 1 : 0), 0)
   let transientSlots = Math.max(0, SIDEBAR_TOAST_LIMIT - pinnedCount)
@@ -74,8 +70,6 @@ function SidebarToastItem({
             <div
               className="[&>svg]:h-lh [&>svg]:w-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
               data-slot="toast-icon"
-              // The variant-class spin escapes index.css's .animate-spin reduced-motion exemption;
-              // this keeps the spinner (status, not decoration) running under reduced motion.
               data-essential-motion=""
             >
               <Icon className="in-data-[type=loading]:animate-spin in-data-[type=error]:text-destructive in-data-[type=info]:text-info in-data-[type=success]:text-success in-data-[type=warning]:text-warning in-data-[type=loading]:opacity-80" />
@@ -143,9 +137,6 @@ function SidebarToastOverlayInner({ sidebarOpen, sidebarSide }: SidebarToastOver
   )
 }
 
-// The ONE viewport for `toastManager`, mounted by IDEShell or the OOBE route, never both: each
-// `Toast.Provider` builds its own copy of the list, so a second one renders every toast twice.
-// Toasts fired while none is mounted (boot) wait in the manager.
 export function SidebarToastOverlay({ sidebarOpen, sidebarSide }: SidebarToastOverlayProps) {
   return (
     <Toast.Provider toastManager={toastManager}>

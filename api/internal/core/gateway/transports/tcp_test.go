@@ -22,9 +22,6 @@ func TestNewTCP_ValidAddress(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// TestNewTCP_Loopback_WarnsItIsUnauthenticated proves the plaintext dev bind
-// announces itself loudly: nothing on it checks who is calling, so it must
-// never be reverse-proxied or port-forwarded.
 func TestNewTCP_Loopback_WarnsItIsUnauthenticated(t *testing.T) {
 	var logged bytes.Buffer
 	restore := slog.Default()
@@ -52,16 +49,6 @@ func TestNewTCP_NonLoopback_NoIdentity_Refused(t *testing.T) {
 	assert.ErrorContains(t, err, "TLS identity")
 }
 
-// TestNewTCP_NonLoopback_ServerTLSOnly_NoClientCertRequired proves the TLS
-// config NewTCP wraps a non-loopback bind with never requests a client
-// certificate. It dials tlsListen directly over a loopback listener — the
-// same wrapping NewTCP applies to a real non-loopback bind — rather than
-// binding 0.0.0.0 itself, which on macOS can block on an "accept incoming
-// connections" prompt with no one there to answer it. A tls.Listener only
-// completes a handshake once something calls Accept on it — production gets
-// that from http.Server's own accept loop, so the test drives it with one of
-// its own, in a goroutine so it runs concurrently with the blocking client
-// dial below.
 func TestNewTCP_NonLoopback_ServerTLSOnly_NoClientCertRequired(t *testing.T) {
 	dir := t.TempDir()
 	id, err := tlsid.Load(dir)
@@ -91,8 +78,6 @@ func TestNewTCP_NonLoopback_ServerTLSOnly_NoClientCertRequired(t *testing.T) {
 		handshaked <- tlsConn.HandshakeContext(t.Context())
 	}()
 
-	// Dial without presenting any client certificate — must succeed the
-	// handshake (server-TLS-only, not mTLS).
 	dialer := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}
 	conn, err := dialer.DialContext(t.Context(), "tcp", ln.Addr().String())
 	if err != nil {
@@ -105,8 +90,6 @@ func TestNewTCP_NonLoopback_ServerTLSOnly_NoClientCertRequired(t *testing.T) {
 	}
 }
 
-// acceptOne accepts a single connection on ln and completes its TLS handshake,
-// reporting the accepted type alongside the handshake's outcome.
 func acceptOne(
 	t *testing.T,
 	ln net.Listener,
@@ -130,9 +113,6 @@ func acceptOne(
 	return handshaked
 }
 
-// TestTLSListen_TerminatesOnlyTLS13 proves the listener an exposed bind gets
-// speaks TLS 1.3 only. It binds loopback: an exposed name would need DNS, and a
-// wildcard bind prompts the macOS firewall.
 func TestTLSListen_TerminatesOnlyTLS13(t *testing.T) {
 	id, err := tlsid.Load(t.TempDir())
 	require.NoError(t, err)
@@ -158,9 +138,6 @@ func TestTLSListen_TerminatesOnlyTLS13(t *testing.T) {
 	assert.Error(t, <-handshaked, "the server must refuse the TLS 1.2 handshake")
 }
 
-// TestIsNonLoopbackBind proves R17's bind classifier: wildcard/LAN/DNS addresses
-// are flagged as network-exposed (requiring a TLS identity), loopback addresses
-// are not.
 func TestIsNonLoopbackBind(t *testing.T) {
 	cases := []struct {
 		addr string
@@ -189,9 +166,6 @@ func TestIsNonLoopbackBind(t *testing.T) {
 	}
 }
 
-// TestRegression_NewTCP_DNSNameShapedLikeLoopbackIsExposed proves a DNS name
-// that merely starts with "127." resolves wherever its owner points it, so it
-// must take the TLS path, never the plaintext loopback one.
 func TestRegression_NewTCP_DNSNameShapedLikeLoopbackIsExposed(t *testing.T) {
 	const host = "tcp://127.example.com:3737"
 	assert.True(t, IsNetworkExposed(host))

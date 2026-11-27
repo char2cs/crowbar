@@ -1,5 +1,3 @@
-//! What floats over the column: menus, the peek card, toasts and dialogs.
-
 mod dialogs;
 mod peek;
 pub(crate) mod popup;

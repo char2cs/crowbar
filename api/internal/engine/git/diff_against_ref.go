@@ -7,7 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
-// DiffAgainstRef returns the working-tree-inclusive diff against ref.
 func (e *engine) DiffAgainstRef(
 	ctx context.Context,
 	repoPath string,

@@ -14,16 +14,10 @@ import (
 )
 
 const (
-	// markersDir is where the pre-engine daemon left an empty file per legacy
-	// step it finished. Adopting a step is the only reader of a marker.
 	markersDir = "upgrades"
-	// adoptedKey checkpoints an adoption before the marker is deleted.
 	adoptedKey = "adopted-marker"
 )
 
-// Adopting is impl for legacy step number, except where an older daemon left the
-// step's marker: there the step is adopted without applying or verifying. The adoption
-// is recorded before the marker is deleted, so an interrupted attempt never re-runs it.
 func Adopting(
 	number int,
 	impl migrate.Impl,
@@ -54,9 +48,6 @@ func Adopting(
 	}
 }
 
-// adopting reports whether the step adopts its marker instead of running: an
-// older daemon left the marker, or an attempt recorded the adoption (done) and
-// was stopped before the step finished. Plan and Apply decide by it alike.
 func adopting(
 	h home.Home,
 	name string,
@@ -83,7 +74,6 @@ func adopt(
 	return removeMarker(h, name)
 }
 
-// markerSubject is the marker's path as a plan shows it, relative to the home.
 func markerSubject(
 	name string,
 ) string {
@@ -105,8 +95,6 @@ func markerPresent(
 	}
 }
 
-// removeMarker deletes the step's marker, then the markers directory once it
-// holds nothing else; either may already be gone.
 func removeMarker(
 	h home.Home,
 	name string,

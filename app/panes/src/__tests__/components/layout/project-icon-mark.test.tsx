@@ -16,7 +16,6 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
   apiFetch,
 }))
 
-/** The mark a project shows, wherever it is shown, so the sidebar row and the pill agree. */
 describe('ProjectIconMark', () => {
   const project = { id: 'p1', name: 'Crowbar' }
 
@@ -28,9 +27,6 @@ describe('ProjectIconMark', () => {
   })
 
   it('prefers an emoji over an uploaded image', () => {
-    // The daemon clears a stored image when an emoji is set and vice versa, so
-    // the two can never both be live; this order mirrors that, it does not
-    // invent one.
     const { container } = render(
       <ProjectIconMark
         project={{ ...project, avatarEmoji: '🚀', avatarUrl: '/v0/projects/p1/icon' }}
@@ -75,9 +71,6 @@ describe('ProjectIconMark', () => {
     })
 
     it('stacks its own version for a surface that can change the icon', () => {
-      // The daemon's `?v=` only moves once the updated ProjectDTO has come back
-      // over the WS stream; this one moves as soon as the upload resolves, which
-      // is what stops a re-upload showing the previous bytes.
       const { container } = render(
         <ProjectIconMark project={{ ...project, avatarUrl: url }} size="lg" version={7} />,
       )
@@ -87,13 +80,6 @@ describe('ProjectIconMark', () => {
   })
 })
 
-/**
- * The project switcher's click-to-edit icon — mirrors EditableRepoIcon's own
- * test suite (repo-icon-mark.test.tsx). Built in cf422bc5 as
- * `project-icon-popover.tsx`, deleted in the tree retirement along with the
- * row that hosted it (project-home-row.tsx); this is a fresh, thin wrapper
- * against today's IconPopover/ProjectIconMark, not a resurrection.
- */
 describe('EditableProjectIcon', () => {
   const project = { id: 'p1', name: 'harbour' }
 
@@ -143,12 +129,6 @@ describe('EditableProjectIcon', () => {
   })
 
   it('resolves a stored image URL for the browser, same as the read-only mark', () => {
-    // The visible TRIGGER mark (EditableProjectIcon's `trigger` render-prop
-    // draws ProjectIconMark directly), not the popover's own internal Avatar
-    // preview — that one is base-ui's load-gated Image, which jsdom never
-    // fires the load event for, so it never mounts an <img> here at all.
-    // The trigger always carries IconPopover's own cache-bust version (an
-    // editing surface, per ProjectIconMark's own doc), starting at 0.
     const { container } = render(
       <EditableProjectIcon project={{ ...project, avatarUrl: '/v0/projects/p1/icon' }} size="lg" />,
     )
@@ -158,8 +138,6 @@ describe('EditableProjectIcon', () => {
   })
 })
 
-// The icon URL is built during render, from the project's own host: an unplaceable project
-// draws the default mark, and a remote project's image is never fetched from the local daemon.
 describe('a project on a remote host', () => {
   const project = { id: 'p1', name: 'harbour', avatarUrl: '/v0/projects/p1/icon?v=1' }
   const row = (hostId: string) => projectOn('p1', hostId)

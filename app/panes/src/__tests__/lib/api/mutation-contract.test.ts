@@ -4,10 +4,6 @@ import { apiFetch } from '@/lib/api/fetch'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
-// answers 202 Accepted with an EMPTY body and the real entity arrives over the
-// scoped WS broadcaster. These tests pin the URLs/methods and that the client
-// treats a 202-no-body as success returning undefined (never a synchronous id).
 let fetchMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -36,8 +32,6 @@ describe('hierarchical mutations', () => {
     expect(res).toBeUndefined()
   })
 
-  // Batch import moved onto the chat surface with the rest of creation: a
-  // worktree is created and held by a chat, never by a route of its own.
   test('POST .../chats/import-batch sends each branch with its chat id and lock, and the operation key', async () => {
     const branches = [
       { name: 'feature/x', chatId: 'c1', lock: true },
@@ -51,11 +45,6 @@ describe('hierarchical mutations', () => {
     expect(JSON.parse(init.body as string)).toEqual({ branches })
   })
 
-  // It stays ONE call over the set rather than N single-branch creates. Only the
-  // batch route resolves the repo's open-PR graph ACROSS the branches, creates
-  // the ancestors they are parented under, and falls back to a placeholder row
-  // for a branch another worktree already holds; a loop would drop all three
-  // silently, and answer 202 while doing so.
   test('sends every branch in ONE request, never one request per branch', async () => {
     const branches = ['a', 'b', 'c'].map((name) => ({ name, chatId: `chat-${name}`, lock: false }))
     await importBranches('p1', 'r1', branches, 'op1')
@@ -64,10 +53,6 @@ describe('hierarchical mutations', () => {
     expect(JSON.parse(init.body as string).branches).toEqual(branches)
   })
 
-  // A branch rename is a WORKTREE verb, so it is addressed by the chat holding
-  // it — beside lock/merge/reparent on the same repo-scoped chat prefix, not on
-  // a workspace route of its own. The old PATCH .../workspaces/:w also relocated
-  // the worktree directory; this one renames the git ref and nothing else.
   test('PATCH .../chats/:chatId/branch body {branch}', async () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1', owningChatId: 'c1' })
     await renameWorkspaceBranch('p1', 'r1', 'w1', 'feature/renamed')

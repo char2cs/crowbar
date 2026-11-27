@@ -24,19 +24,14 @@ import { IdbViewedOwner } from '@/features/git/lib/idb-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import { installAppEditor } from '@/features/editor/host/app-editor'
 
-// No native shell here (mobile, web): the page owns the viewed maps and its Monaco editor itself.
 installViewedOwner(new IdbViewedOwner())
 installAppEditor()
 
-// First in boot: perf marks are no-ops until the observer exists, and it self-gates via
-// perfEnabled(), so it is safe in every build.
 installPerfObserver()
 
-// Every rejection nothing handled reaches the user, not only the console.
 const uninstallGlobalReporting = installGlobalReporting()
 import.meta.hot?.dispose(uninstallGlobalReporting)
 
-// The one stream, holding the projects scope every route and the sidebar read.
 const stopStream = startStream()
 const stopFollowingChats = followChatLifecycle()
 const stopFollowingScopes = followWorkspaceScopes()
@@ -48,43 +43,27 @@ if (import.meta.hot) {
   })
 }
 
-// Required for Zustand stores that use immer middleware with Set/Map state
 enableMapSet()
 
-// Every paired host's status, for the app's life: its probes and its streams' refusals.
 const stopHostStatus = startHostStatus()
 if (import.meta.hot) import.meta.hot.dispose(() => stopHostStatus())
 
-// Wire up daemon event listeners for cache invalidation.
-// Cleanup is registered with Vite HMR so hot-reloading doesn't leak listeners.
 const disconnectDaemonEvents = connectDaemonEvents()
 import.meta.hot?.dispose(disconnectDaemonEvents)
 
-// Register all built-in icon themes with the registry before React renders
-// so the icon theme dropdown in settings is populated when first opened
 initializeIconThemes()
 
-// Kick off settings load. The store starts with defaults and updates
-// asynchronously when localStorage values are loaded — this fires the
-// subscriptions in settings-store.ts which propagate to editor/theme/etc.
 void initializeSettingsStore()
 
-// The phone's settings sheet is another webview saving to the same localStorage.
 const stopSettingsStorageSync = startSettingsStorageSync()
 if (import.meta.hot) import.meta.hot.dispose(() => stopSettingsStorageSync())
 
-// Once startup settles, so neither first file-open nor cold launch pays for the editor chunks;
-// here rather than in pane-container module scope so it runs exactly once.
 prefetchEditorChunks()
 
-// react-scan is opt-in even in dev (it costs about half of dev-mode performance):
-//   localStorage.setItem('crowbar:react-scan', '1') then reload.
 if (import.meta.env.DEV && localStorage.getItem('crowbar:react-scan') === '1') {
   void import('react-scan').then(({ scan }) => scan({ enabled: true, log: false }))
 }
 
-// Report INP (Interaction to Next Paint) into the shared perf ring buffer
-// whenever perf instrumentation is armed (dev, or __CROWBAR_PERF__ in prod).
 if (perfEnabled()) {
   void import('web-vitals').then(({ onINP }) => {
     onINP(
@@ -106,13 +85,8 @@ const router = createRouter({ routeTree, history: createHashHistory() })
 function renderApp() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      {/* One global gate defers every framer-motion animation to the OS prefers-reduced-motion
-          (WCAG 2.3.3) instead of threading useReducedMotion() through each. */}
       <MotionConfig reducedMotion="user">
         <TooltipProvider>
-          {/* primitiveConfirm/alert/prompt render through this host; without it
-              every primitive dialog request queues forever and callers (terminal
-              link confirm, multi-line paste guard) look silently dead. */}
           <PrimitiveDialogProvider>
             <RouterProvider router={router} />
           </PrimitiveDialogProvider>

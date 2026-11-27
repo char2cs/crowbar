@@ -1,5 +1,3 @@
-//! The channel pair between a view and its daemon session: the view end, the host end and frame batches.
-
 mod frame_batch;
 mod link;
 mod peer;

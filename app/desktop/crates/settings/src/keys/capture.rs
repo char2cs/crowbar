@@ -1,5 +1,3 @@
-//! The rule for turning a key press into a chord.
-
 use crate::keys::modifier_key::ModifierKey;
 use crate::keys::pressed::Pressed;
 use crate::keys::refusal::Refusal;
@@ -9,22 +7,16 @@ use chord::Primary;
 const MODIFIER_KEYS: [&str; 6] = ["control", "alt", "shift", "meta", "platform", "function"];
 const LAST_FUNCTION_KEY: u8 = 24;
 
-/// What a key press does while a shortcut is being captured.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Capture {
-    /// A modifier on its own: keep waiting.
     Ignored,
-    /// Escape without a modifier: leave capture, change nothing.
     Cancelled,
-    /// Not allowed: keep waiting and tell the user why.
     Refused(Refusal),
-    /// The chord to store.
     Accepted(Chord),
 }
 
 impl Capture {
-    /// Applies the rule: a chord needs `mod` or Alt, or is a function key; bare Escape cancels; bare printable keys are refused.
     pub fn interpret(
         pressed: &Pressed,
         primary: Primary,

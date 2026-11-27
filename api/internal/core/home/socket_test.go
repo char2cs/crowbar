@@ -52,8 +52,6 @@ func TestSocket_OverrideLivesInTempKeyedByTheHome(t *testing.T) {
 	assert.Equal(t, filepath.Join(os.TempDir(), socketName(root)), h.Socket())
 }
 
-// One spelling of a home gets one socket: a trailing slash or a dot segment
-// must not name a different daemon.
 func TestSocket_OverrideHashesTheCleanedHome(t *testing.T) {
 	base := t.TempDir()
 	for _, given := range []string{base + "/", base + "//", base + "/./", base + "/x/.."} {
@@ -72,9 +70,6 @@ func TestSocketName_IsStable(t *testing.T) {
 	assert.Equal(t, "crowbar-a4c579b364108993.sock", socketName("/dev/crowbar-home/"))
 }
 
-// Every in-PTY callback bakes a concrete --home into its command line, even on
-// the plain default home. Hashing that spelled-out default sent each hook to a
-// temp-dir socket the real daemon never listens on.
 func TestRegression_SocketPath_HomeEnvSpellingOutThePlainDefaultIsNotAnOverride(t *testing.T) {
 	shortTemp(t)
 	if runtime.GOOS == "windows" {
@@ -98,8 +93,6 @@ func TestRegression_SocketPath_HomeEnvSpellingOutThePlainDefaultIsNotAnOverride(
 		"must not fall into the dev-isolation hash path just because CROWBAR_HOME is set")
 }
 
-// The other side of the fix above: a home that differs from the plain default
-// must keep its own hashed, isolated socket.
 func TestRegression_SocketPath_ARealOverrideStillIsolates(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	realOverride := filepath.Join(t.TempDir(), "some-worktree", ".crowbar")
@@ -111,8 +104,6 @@ func TestRegression_SocketPath_ARealOverrideStillIsolates(t *testing.T) {
 	assert.Equal(t, filepath.Join(os.TempDir(), socketName(realOverride)), h.Socket())
 }
 
-// A home deep enough that its socket would not fit in sun_path binds a short
-// name in the user's runtime dir instead, the same for every client.
 func TestSocket_APathTooLongToBindFallsBackToTheRuntimeDir(t *testing.T) {
 	shortTemp(t)
 	userHome := filepath.Join(t.TempDir(), strings.Repeat("deep/", 24))
@@ -127,8 +118,6 @@ func TestSocket_APathTooLongToBindFallsBackToTheRuntimeDir(t *testing.T) {
 	assert.Equal(t, filepath.Join(runtimeDir, socketName(h.Root())), h.Socket())
 }
 
-// Without a usable runtime dir the short socket lives in a per-user directory
-// under /tmp, whatever TMPDIR says.
 func TestSocket_WithoutARuntimeDirTheFallbackIsPerUserUnderTmp(t *testing.T) {
 	root := t.TempDir()
 	h, err := At(root)
@@ -141,8 +130,6 @@ func TestSocket_WithoutARuntimeDirTheFallbackIsPerUserUnderTmp(t *testing.T) {
 	assert.LessOrEqual(t, len(h.Socket()), maxSocketPath())
 }
 
-// shortTemp points the temp dir at /tmp, so a home made under it has a socket
-// path that fits in sun_path whatever TMPDIR the test run was given.
 func shortTemp(t *testing.T) {
 	t.Helper()
 	t.Setenv("TMPDIR", "/tmp")

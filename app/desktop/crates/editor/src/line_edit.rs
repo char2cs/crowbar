@@ -11,8 +11,6 @@ use line_block::LineBlock;
 use line_table::LineTable;
 use rewrite::Rewrite;
 
-/// One replacement over whole lines that a line command makes (Monaco's move, copy and delete
-/// line actions), with where the selections go after it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineEdit {
     range: Range<usize>,
@@ -21,8 +19,6 @@ pub struct LineEdit {
 }
 
 impl LineEdit {
-    /// The lines under `selections` moved one line `toward`, swapping with the line beside them
-    /// (alt+Up / alt+Down); `None` when a block already touches that end of the text.
     #[must_use]
     pub fn moved(
         text: &str,
@@ -42,8 +38,6 @@ impl LineEdit {
         Some(Self::of(&rewrite, rewrite.placed(selections, toward)))
     }
 
-    /// The lines under `selections` copied beside themselves; the selections follow the copy
-    /// `toward` (Monaco's copy line up and down).
     #[must_use]
     pub fn copied(
         text: &str,
@@ -56,8 +50,6 @@ impl LineEdit {
         Some(Self::of(&rewrite, rewrite.placed(selections, toward)))
     }
 
-    /// The lines under `selections` deleted with their line breaks, each caret on the line that
-    /// takes their place at its old column (ctrl+shift+k).
     #[must_use]
     pub fn deleted(
         text: &str,
@@ -84,19 +76,16 @@ impl LineEdit {
         }
     }
 
-    /// The text range the edit replaces.
     #[must_use]
     pub fn range(&self) -> Range<usize> {
         self.range.clone()
     }
 
-    /// The text that replaces the range.
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    /// The selections after the edit, as offsets into the edited text.
     #[must_use]
     pub fn selections(&self) -> &[Range<usize>] {
         &self.selections

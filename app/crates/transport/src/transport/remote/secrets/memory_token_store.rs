@@ -4,7 +4,6 @@ use std::sync::{Mutex, MutexGuard};
 use crate::error::Error;
 use crate::transport::remote::secrets::token_store::TokenStore;
 
-/// A [`TokenStore`] that keeps entries in memory only.
 #[derive(Debug, Default)]
 pub struct MemoryTokenStore(Mutex<HashMap<String, String>>);
 

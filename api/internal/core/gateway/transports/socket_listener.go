@@ -8,9 +8,6 @@ import (
 	"os"
 )
 
-// socketListener wraps a Unix domain net.Listener and removes the socket file
-// on Close, so a clean shutdown never leaves a stale socket behind for the next
-// daemon launch to trip over.
 type socketListener struct {
 	net.Listener
 	path string

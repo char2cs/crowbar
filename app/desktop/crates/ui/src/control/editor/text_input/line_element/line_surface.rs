@@ -1,5 +1,3 @@
-//! What the text element needs from the field it paints.
-
 use gpui::EntityInputHandler;
 
 use crate::control::editor::field::Blinking;

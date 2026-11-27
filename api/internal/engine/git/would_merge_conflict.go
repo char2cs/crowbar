@@ -7,32 +7,22 @@ import (
 	"sync"
 )
 
-// MergePair is one dry-run: whether merging Theirs into Ours would conflict,
-// both named as branches.
 type MergePair struct {
 	Ours   string
 	Theirs string
 }
 
-// MergeVerdict answers one MergePair. A non-nil Err means the check could not
-// run (an unresolvable branch, a missing repo); the caller fails OPEN, and
-// Conflict is then false.
 type MergeVerdict struct {
 	Conflict bool
 	Err      error
 }
 
-// mergeVerdictCap bounds the verdict memory. Verdicts are facts about a pair of
-// commits, so nothing ever invalidates one; the cap alone keeps it bounded.
 const mergeVerdictCap = 4096
 
-// mergeDryRunConcurrency bounds the merge-trees one batch runs at once.
 const mergeDryRunConcurrency = 4
 
 type commitPair struct{ ours, theirs string }
 
-// mergeVerdicts remembers merge-tree results by the two COMMITS merged, never by
-// branch name: a branch that moves names different commits and so misses.
 type mergeVerdicts struct {
 	mu sync.Mutex
 	m  map[commitPair]bool
@@ -54,9 +44,6 @@ func (c *mergeVerdicts) put(k commitPair, conflict bool) {
 	c.m[k] = conflict
 }
 
-// mergeTreeConflicts dry-runs `git merge-tree --write-tree`, touching no worktree, index
-// or ref; the caller holds the read lock. Exit 1 is a conflict only when git printed a
-// tree: a failure to run also exits non-zero with no stdout, and is an error instead.
 func (e *engine) mergeTreeConflicts(
 	ctx context.Context,
 	repoPath string,
@@ -75,9 +62,6 @@ func (e *engine) mergeTreeConflicts(
 	)
 }
 
-// WouldMergeConflicts answers every pair against one read of the branch tips. Pairs
-// already dry-run come from memory, the rest run concurrently and bounded; a branch not
-// among the tips is dry-run by name.
 func (e *engine) WouldMergeConflicts(
 	ctx context.Context,
 	repoPath string,
@@ -110,8 +94,6 @@ func (e *engine) WouldMergeConflicts(
 	return out
 }
 
-// resolveTips names p's two commits, or — when either branch is not among the
-// tips — falls back to the branch names, known false so nothing is remembered.
 func resolveTips(
 	tips map[string]string,
 	p MergePair,

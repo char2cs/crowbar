@@ -244,9 +244,6 @@ function useTableCellPresentation(element: TTableCellElement) {
   }
 }
 
-// Selects the row. Rows were never draggable in the file editor: the drag
-// plumbing this handle once carried needed a Plate dnd plugin the editor never
-// registered.
 function RowSelectHandle({ onSelect }: { onSelect: () => void }) {
   return (
     <Button

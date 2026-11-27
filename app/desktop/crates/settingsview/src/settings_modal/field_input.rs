@@ -1,5 +1,3 @@
-//! Builds the text field of a row and wires it to the modal.
-
 use gpui::{AppContext as _, Context, Entity, EventEmitter, Focusable, Subscription, Window};
 use settings::{Control, Row};
 use ui::{TextArea, TextAreaSize, TextInput, TextInputEvent, TextInputStyle};

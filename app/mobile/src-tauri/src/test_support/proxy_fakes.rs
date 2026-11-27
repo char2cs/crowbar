@@ -1,5 +1,3 @@
-//! Stand-in remote daemons and a keychain for the proxy tests.
-
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

@@ -1,5 +1,3 @@
-//! A remote branch as the daemon lists it.
-
 use daemonapi::Switch;
 use serde::Deserialize;
 

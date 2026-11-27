@@ -1,5 +1,3 @@
-// Package operation runs work that outlives its request as an operation: a row
-// with an id, a state and an outcome, published on every change.
 package operation
 
 import (
@@ -21,9 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Spec describes an operation to start. Validate, when set, runs only for a
-// key the service has not seen, so a retry is never refused by what the first
-// attempt created.
 type Spec struct {
 	ID        string
 	Kind      domain.OperationKind
@@ -34,36 +29,29 @@ type Spec struct {
 	Validate  func(context.Context) error
 }
 
-// Progress is how work reports an item: one with the same Label is replaced,
-// any other is appended.
 type Progress interface {
 	Item(item domain.OperationItem)
 }
 
-// Work is what an operation runs.
 type Work func(ctx context.Context, p Progress) error
 
 const interruptedMessage = "Crowbar stopped before this finished"
 
-// Service records operations and runs their work.
 type Service struct {
 	store   store.Store[domain.Operation, string]
 	publish func(domain.Operation)
 	clock   func() time.Time
 	booted  time.Time
 
-	// mu orders every write, so versions reach the store and the stream in order.
 	mu       sync.Mutex
 	stopping bool
 	saveErrs []error
 
 	work    sync.WaitGroup
 	cancels map[*context.CancelFunc]struct{}
-	// busy is the running hierarchy verb per workspace, guarded by mu.
-	busy map[domain.EntityRef]string
+	busy    map[domain.EntityRef]string
 }
 
-// New builds the service over the operations store; publish hears every saved row.
 func New(
 	opStore store.Store[domain.Operation, string],
 	publish func(domain.Operation),
@@ -75,8 +63,6 @@ func New(
 	}
 }
 
-// Start records spec as accepted and runs work detached from ctx. A key seen
-// before returns that operation, whatever its state, and runs nothing.
 func (s *Service) Start(
 	ctx context.Context,
 	spec Spec,
@@ -93,8 +79,6 @@ func (s *Service) Start(
 	return op, nil
 }
 
-// Run is Start on the caller's goroutine, returning the settled operation. It
-// is for boot, where nothing may be served before the work is done.
 func (s *Service) Run(
 	ctx context.Context,
 	spec Spec,
@@ -105,11 +89,9 @@ func (s *Service) Run(
 		return op, err
 	}
 	defer run.release()
-	// Boot runs it before anything can stop the service, so the caller's ctx is its ctx.
 	return s.execute(ctx, op, work), nil
 }
 
-// Fail records work the daemon started that has already failed with cause.
 func (s *Service) Fail(
 	ctx context.Context,
 	spec Spec,
@@ -119,7 +101,6 @@ func (s *Service) Fail(
 	op, run, err := s.admit(ctx, spec, domain.OpFailed, &failure)
 	if run != nil {
 		logFailure(ctx, op, cause)
-		// Before release, so a Shutdown that returns has no prune left in flight.
 		s.mu.Lock()
 		s.pruneLocked(ctx)
 		s.mu.Unlock()
@@ -128,7 +109,6 @@ func (s *Service) Fail(
 	return op, err
 }
 
-// Dismiss marks a settled operation dismissed.
 func (s *Service) Dismiss(
 	ctx context.Context,
 	id string,
@@ -153,8 +133,6 @@ func (s *Service) Dismiss(
 	return op, nil
 }
 
-// DismissFailed dismisses every failed kind operation naming subject: work the
-// daemon finished later, such as a purge the boot sweep completed.
 func (s *Service) DismissFailed(
 	ctx context.Context,
 	kind domain.OperationKind,
@@ -178,7 +156,6 @@ func (s *Service) DismissFailed(
 	return nil
 }
 
-// Snapshot is every retained operation, oldest change first.
 func (s *Service) Snapshot(ctx context.Context) ([]domain.Operation, error) {
 	ops, err := s.store.FindAll(ctx)
 	if err != nil {
@@ -188,9 +165,6 @@ func (s *Service) Snapshot(ctx context.Context) ([]domain.Operation, error) {
 	return ops, nil
 }
 
-// Shutdown refuses later Starts and cancels running work at once, which
-// settles as interrupted; it waits for that work until ctx ends. Work that
-// ignores cancel (a git lock wait) is left behind rather than eat the drain.
 func (s *Service) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.stopping = true
@@ -214,15 +188,11 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	return errors.Join(append(slices.Clone(s.saveErrs), waitErr)...)
 }
 
-// admitted is a new operation's work context, cancellable by Shutdown from
-// the moment admit returns; release ends it.
 type admitted struct {
 	ctx     context.Context
 	release func()
 }
 
-// admit applies the key rules and, for a new key, saves the first row in
-// state and returns its work context, which holds one count on s.work.
 func (s *Service) admit(
 	ctx context.Context,
 	spec Spec,
@@ -262,7 +232,6 @@ func (s *Service) admit(
 	if err := s.saveLocked(ctx, &op); err != nil {
 		return domain.Operation{}, nil, err
 	}
-	// Registered under mu with the stopping check, so no Shutdown misses it.
 	workCtx, cancel := context.WithCancel(ctx)
 	s.cancels[&cancel] = struct{}{}
 	s.work.Add(1)
@@ -281,9 +250,6 @@ func (s *Service) admit(
 	}}, nil
 }
 
-// Replay is the operation already recorded under key, so a retry answers with it
-// before any check its first attempt changed the answer to (the entity it
-// deleted is gone). An empty key replays nothing; other work is a conflict.
 func (s *Service) Replay(
 	ctx context.Context,
 	key string,
@@ -306,8 +272,6 @@ func (s *Service) Replay(
 	return *known, true, nil
 }
 
-// knownLocked is the operation already recorded under id, if any. Same key,
-// kind and subject is the same request whatever its body.
 func (s *Service) knownLocked(
 	ctx context.Context,
 	id string,
@@ -333,16 +297,11 @@ func deref(op *domain.Operation) domain.Operation {
 	return *op
 }
 
-// exclusive kinds rewrite a workspace's branch, parent or worktree, or tear a
-// repo or project down, so one runs per subject at a time. git.* verbs are not
-// among them: git serialises those itself, and a push beside a sync is legitimate.
 func exclusive(kind domain.OperationKind) bool {
 	return strings.HasPrefix(string(kind), "workspace.") ||
 		kind == domain.OpRepoDelete || kind == domain.OpProjectDelete
 }
 
-// refuseBusyLocked refuses subject while its hierarchy verb runs. The holder
-// is released after its terminal frame, so a settled row means free.
 func (s *Service) refuseBusyLocked(
 	ctx context.Context,
 	subject domain.EntityRef,
@@ -374,13 +333,11 @@ func operationID(key string) (string, error) {
 	return key, nil
 }
 
-// execute runs work and settles op from its outcome.
 func (s *Service) execute(
 	ctx context.Context,
 	op domain.Operation,
 	work Work,
 ) domain.Operation {
-	// The running row owns its items: the caller may still be encoding the accepted one.
 	op.Items = slices.Clone(op.Items)
 	run := &running{s: s, ctx: ctx, op: op}
 	run.update(func(o *domain.Operation) { o.State = domain.OpRunning })
@@ -393,7 +350,6 @@ func (s *Service) execute(
 	return run.snapshot()
 }
 
-// call runs work, turning a panic into the operation's failure.
 func call(
 	ctx context.Context,
 	kind domain.OperationKind,
@@ -410,8 +366,6 @@ func settled(state domain.OperationState) bool {
 	return state == domain.OpSucceeded || state == domain.OpFailed
 }
 
-// saveLocked bumps op's version, saves and publishes it; s.mu is held. The
-// save outlives a cancelled ctx: the outcome of interrupted work is recorded too.
 func (s *Service) saveLocked(
 	ctx context.Context,
 	op *domain.Operation,
@@ -427,7 +381,6 @@ func (s *Service) saveLocked(
 	return nil
 }
 
-// running is one operation's in-memory row while its work runs.
 type running struct {
 	s   *Service
 	ctx context.Context
@@ -446,8 +399,6 @@ func (r *running) Item(item domain.OperationItem) {
 	})
 }
 
-// update applies change and saves; a failed save has no caller to return to,
-// so it is logged and kept for Shutdown.
 func (r *running) update(change func(*domain.Operation)) {
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()

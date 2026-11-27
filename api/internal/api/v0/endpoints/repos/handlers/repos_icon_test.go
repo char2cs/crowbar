@@ -22,9 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestIcon_ServesFromTheInjectedCrowbarHome pins that icon storage is rooted at
-// the home the constructor was given, never at a home the handler resolves
-// itself.
 func TestIcon_ServesFromTheInjectedCrowbarHome(t *testing.T) {
 	devHome := t.TempDir()
 
@@ -88,7 +85,7 @@ func TestIcon_OversizeOnDiskFile_Returns404(t *testing.T) {
 }
 
 func TestIcon_FileMissingOnDisk_Returns404(t *testing.T) {
-	home := t.TempDir() // AvatarHasIcon=true but no file written at all
+	home := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", AvatarHasIcon: true}}
 	r := iconRouter(store, home, nil, http.MethodGet, iconRoute)
 
@@ -98,10 +95,6 @@ func TestIcon_FileMissingOnDisk_Returns404(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
-
-// ---------------------------------------------------------------------------
-// PutIconEmoji extra error paths
-// ---------------------------------------------------------------------------
 
 func TestPutIconEmoji_MultiCharString_Returns400(t *testing.T) {
 	home := t.TempDir()
@@ -160,7 +153,6 @@ func TestPutIconEmoji_SaveError_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// A save the store refused for a full queue is a busy daemon, not a crash.
 func TestPutIconEmoji_AFullQueueIsUnavailable(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
 	store.SaveFn = func(context.Context, domain.Repository) error {
@@ -177,10 +169,6 @@ func TestPutIconEmoji_AFullQueueIsUnavailable(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.JSONEq(t, `{"success":false,"code":"unavailable","error":"dispatch: asynx: queue full"}`, rec.Body.String())
 }
-
-// ---------------------------------------------------------------------------
-// DeleteIcon extra error paths
-// ---------------------------------------------------------------------------
 
 func TestDeleteIcon_StoreLookupError_Returns404(t *testing.T) {
 	home := t.TempDir()
@@ -223,11 +211,6 @@ func TestDeleteIcon_HomeResolutionFails_StillClearsFlag(t *testing.T) {
 	assert.False(t, saved.AvatarHasIcon)
 	assert.Empty(t, saved.AvatarEmoji)
 }
-
-// ---------------------------------------------------------------------------
-// PutIcon / readIconFromPath / readIconFromMultipart / storeIconBytes extra
-// error paths.
-// ---------------------------------------------------------------------------
 
 func TestPutIcon_StoreLookupError_Returns404(t *testing.T) {
 	home := t.TempDir()
@@ -272,7 +255,6 @@ func TestPutIcon_Multipart_MissingField_Returns400(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
 
 	var buf bytes.Buffer
-	// Valid multipart body but no "icon" part.
 	buf.WriteString("--X\r\nContent-Disposition: form-data; name=\"other\"\r\n\r\nvalue\r\n--X--\r\n")
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/v0/projects/p1/repos/r1/icon", &buf)
 	req.Header.Set("Content-Type", "multipart/form-data; boundary=X")
@@ -352,15 +334,8 @@ func TestPutIcon_LargerThanMax_ViaMultipart_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// ---------------------------------------------------------------------------
-// storeIconBytes: MkdirAll and WriteFile failure branches, exercised through
-// PutIcon (the only exported caller of the unexported storeIconBytes).
-// ---------------------------------------------------------------------------
-
 func TestPutIcon_MkdirAllFails_Returns500(t *testing.T) {
 	home := t.TempDir()
-	// Pre-create a *file* (not a directory) at the path storeIconBytes needs to
-	// MkdirAll through, so MkdirAll fails with ENOTDIR.
 	blocker := filepath.Join(home, "projects", "p1")
 	require.NoError(t, os.MkdirAll(filepath.Dir(blocker), 0o755))
 	require.NoError(t, os.WriteFile(blocker, []byte("i am a file, not a dir"), 0o644))
@@ -381,9 +356,6 @@ func TestPutIcon_MkdirAllFails_Returns500(t *testing.T) {
 
 func TestPutIcon_WriteFileFails_TargetIsDirectory_Returns500(t *testing.T) {
 	home := t.TempDir()
-	// Pre-create a *directory* at the exact icon file path, so the parent
-	// MkdirAll succeeds but the final os.WriteFile fails (can't write a file
-	// where a directory already exists).
 	iconPath := filepath.Join(home, "projects", "p1", "r1", "icon")
 	require.NoError(t, os.MkdirAll(iconPath, 0o755))
 
@@ -400,10 +372,6 @@ func TestPutIcon_WriteFileFails_TargetIsDirectory_Returns500(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
-
-// ---------------------------------------------------------------------------
-// PutIconGithub extra branches not covered by the original suite.
-// ---------------------------------------------------------------------------
 
 func TestPutIconGithub_NoLocalPath_Returns422(t *testing.T) {
 	home := t.TempDir()

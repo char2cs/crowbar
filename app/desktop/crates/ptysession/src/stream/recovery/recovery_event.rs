@@ -1,5 +1,3 @@
-//! What a session logs while it waits to reattach its lost stream.
-
 use std::fmt;
 use std::time::Duration;
 

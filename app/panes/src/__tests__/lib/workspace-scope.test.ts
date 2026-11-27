@@ -19,9 +19,6 @@ import { workspaceBase } from '@/lib/workspace-scope-url'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// The IDE shell renders WorkspaceView, whose subtree builds scoped URLs, during the same render
-// that reads the route — so the scope must be recorded synchronously from the path, not in an
-// effect, or the first render throws "no project/repo scope recorded".
 beforeEach(() => {
   useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
 })
@@ -30,7 +27,6 @@ describe('recordWorkspaceScopeFromPath', () => {
   it('records the hierarchical scope for an /ide/:p/:r/:w path so workspaceBase resolves synchronously', () => {
     const scope = recordWorkspaceScopeFromPath('/ide/proj-1/repo-2/ws-3')
     expect(scope).toEqual({ projectId: 'proj-1', repoId: 'repo-2', wsId: 'ws-3' })
-    // Resolvable immediately — no route effect needed.
     expect(getWorkspaceScope('ws-3')).toEqual({
       projectId: 'proj-1',
       repoId: 'repo-2',
@@ -45,8 +41,6 @@ describe('recordWorkspaceScopeFromPath', () => {
     expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
   })
 
-  // The workspace in view is the registry's to name; asking for no workspace ('') must
-  // never hand back its scope.
   it('answers nothing for an empty id, whichever workspace is in view', () => {
     recordWorkspaceScopeFromPath('/ide/p1/r1/ws-active')
     setActiveWorkspaceId('ws-active')
@@ -66,8 +60,6 @@ describe('recordWorkspaceScopeFromPath', () => {
   })
 })
 
-// Workspace effects can mount before the sidebar records the owning chat, so the subscription must
-// fire on the write that ADDS the chat id, not only the route's first chat-less write.
 describe('subscribeToWorkspaceScope', () => {
   it('notifies a listener when recordWorkspaceScope later adds an owning chat id', () => {
     recordWorkspaceScopeFromPath('/ide/p/r/ws1')
@@ -116,7 +108,6 @@ describe('a write that records nothing new', () => {
     const onChange = vi.fn()
     subscribeToWorkspaceScope('ws1', onChange)
 
-    // The route's write carries no chat, so it keeps the one the sidebar recorded.
     recordWorkspaceScopeFromPath('/ide/p/r/ws1')
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws1', owningChatId: 'chat-1' })
     expect(onChange).not.toHaveBeenCalled()
@@ -126,8 +117,6 @@ describe('a write that records nothing new', () => {
   })
 })
 
-// IDEShell re-records the routed workspace's scope during every render, and it renders on
-// every project-list change: the change that moves a mounted workspace's host answer.
 describe('re-recording the routed scope while the host answer moves', () => {
   const project = (id: string, hostId: string): Project => ({
     id,

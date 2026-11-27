@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// Codex ends its own turn the instant it delegates to a subagent, so only the
-// ledger's background-work clause keeps the chat busy while that subagent
-// runs. Sampled against a real codex delegation, with no synthetic hooks.
 func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 	requireCLI(t, "codex")
 	h := newHarness(t)
@@ -83,8 +80,6 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 
 	awaitTurnComplete(t, h, wsID, chatID, "codex")
 
-	// awaitTurnComplete releases once the ledger reads idle: a wait call still
-	// running then is the same defect, seen from the barrier.
 	for _, c := range toolRuns(t, h, chatID) {
 		if isSubagentWaitCall(c.Name) {
 			lastWaitClosed = c.Closed
@@ -109,8 +104,6 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 			"the barrier itself agrees the turn is over before the subagent actually is")
 }
 
-// isSubagentWaitCall matches the delegation's wait call under either
-// transport's name for it: "wait" over api, "…wait_agent" over hooks.
 func isSubagentWaitCall(name string) bool {
 	return strings.Contains(strings.ToLower(name), "wait")
 }

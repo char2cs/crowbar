@@ -1,5 +1,3 @@
-// Adapted from the Plate registry (block-menu-kit.json -> `block-context-menu`): the per-block
-// right-click menu, through the shared native-first `ContextMenu` instead of Radix.
 'use client'
 
 import * as React from 'react'
@@ -42,9 +40,6 @@ export function BlockContextMenu({ children }: { children: React.ReactNode }) {
     [editor],
   )
 
-  // Closes both trackers together: this component's own popup state, and
-  // Plate's `openId` — which `BlockSelectionPlugin` reads internally to decide
-  // whether a block menu is currently open for a selected block.
   const handleClose = React.useCallback(() => {
     close()
     api.blockMenu.hide()

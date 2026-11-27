@@ -11,10 +11,8 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 type PairingStage = 'address' | 'fingerprint' | 'code'
 
-/** The host's answer the flow is waiting on; nothing may dismiss it meanwhile. */
 export type PairingPending = 'probe' | 'pair' | null
 
-/** How a code submission ended, for a form that moves focus by it. */
 type CodeOutcome = 'busy' | 'invalid' | 'failed' | 'paired'
 
 export const CODE_SHAPE_NOTICE = 'A pairing code is exactly 6 digits.'
@@ -25,16 +23,13 @@ export interface PairingFlow {
   address: string
   fingerprint: string
   code: string
-  /** The code was turned away for not being exactly 6 digits; the next change to it ends that. */
   turnedAway: boolean
   error: string | null
   pending: PairingPending
   setName: (name: string) => void
   setAddress: (address: string) => void
   setCode: (code: string) => void
-  /** Keeps an over-long entry whole, as no code, and says why. */
   refuseCode: (code: string) => void
-  /** Fields given here (a native form holds its own drafts) replace the typed ones. */
   submitAddress: (fields?: { name: string; address: string }) => Promise<void>
   confirmFingerprint: () => void
   back: () => void
@@ -43,13 +38,10 @@ export interface PairingFlow {
 
 interface PairingFlowOptions {
   onPaired: (hostId: string) => void
-  /** Held by the owner that must refuse to be dismissed while the host is answering. */
   pending: PairingPending
   onPendingChange: (pending: PairingPending) => void
 }
 
-// Lowercase letters, digits and hyphens only, per register_remote_host's accepted hostId shape;
-// a random suffix keeps two hosts named the same from colliding.
 function makeHostId(name: string): string {
   const slug = name
     .trim()
@@ -59,9 +51,6 @@ function makeHostId(name: string): string {
   return `${slug || 'host'}-${crypto.randomUUID().slice(0, 8)}`
 }
 
-/** Pairing as stages: probe the certificate, confirm its fingerprint, redeem a `crowbar pair`
- *  code. The code stage pins exactly the fingerprint the user confirmed, never a re-probed one.
- *  Mount one per attempt: state lives as long as the caller, so a confirm never carries over. */
 export function usePairingFlow({
   onPaired,
   pending,
@@ -74,12 +63,9 @@ export function usePairingFlow({
   const [code, setCodeValue] = useState('')
   const [turnedAway, setTurnedAway] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Minted with the probe, so every code tried after one confirm pairs the same host id.
   const hostId = useRef('')
-  // The canonical address that probe dialed: the code is redeemed at, and saved as, exactly it.
   const dialed = useRef('')
 
-  // A failure about the old address is stale the moment the address changes.
   function setAddress(next: string) {
     setAddressValue(next)
     if (next !== address) setError(null)
@@ -131,7 +117,6 @@ export function usePairingFlow({
     setStage((current) => (current === 'code' ? 'fingerprint' : 'address'))
   }
 
-  // A failure about the old code is stale the moment the code changes.
   function setCode(next: string) {
     setCodeValue(next)
     setError(null)
@@ -146,7 +131,6 @@ export function usePairingFlow({
 
   async function submitCode(entered = code): Promise<CodeOutcome> {
     if (pending) return 'busy'
-    // A code with no confirmed fingerprint has no host to pair: nothing is dialed.
     if (stage !== 'code') return 'invalid'
     if (entered !== code) setCode(entered)
     if (!/^\d{6}$/.test(entered)) {

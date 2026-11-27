@@ -7,7 +7,6 @@ import { viewsFromStores, type ProblemLookup } from '@/features/workspace/tree/v
 import { deriveRows, type TreeInput } from '@/features/workspace/tree/rows'
 import { treeInputFor } from '@/features/workspace/tree/input'
 
-/** A tree input built from store-shaped data, the way `treeInputFor` builds one. */
 export function inputOf(over: {
   repos?: readonly Repo[]
   home?: LegacyHome | null
@@ -31,12 +30,10 @@ export function inputOf(over: {
   }
 }
 
-/** One repo's rows, as its project's panel draws them. */
 export function repoRows(repo: Repo, problemOf?: ProblemLookup): SidebarRow[] {
   return deriveRows(inputOf({ repos: [repo], problemOf }))
 }
 
-/** A project home's rows: its chats and folders, flat at the root. */
 export function homeRows(
   workspaceId: string,
   chats: readonly Chat[] = [],
@@ -46,7 +43,6 @@ export function homeRows(
   return deriveRows(inputOf({ home: { workspaceId, owningChatId, chats, folders } }))
 }
 
-/** The rows a project's in-flight creates draw, as the stores hold them now. */
 export function operationRows(projectId: string): SidebarRow[] {
   return deriveRows(treeInputFor(projectId)).filter((r) => r.operation !== undefined)
 }
@@ -70,10 +66,8 @@ export const makeChat = (over: Partial<Chat> & { id: string; title: string }): C
   ...over,
 })
 
-/** The id of the row every fixture repo's home checkout is drawn as: its owning chat. */
 export const HOME_ROW_ID = 'home-branch-row'
 
-/** A workspace and the chat that owns it (`Workspace.owningChatId`). */
 export function makeOwnedWorkspace(
   wsOver: Partial<Workspace> & { id: string; branch: string },
   chatOver: Partial<Chat> & { id: string },
@@ -82,7 +76,6 @@ export function makeOwnedWorkspace(
   return { workspace: makeWorkspace({ ...wsOver, owningChatId: chat.id }), chat }
 }
 
-/** A repo whose home checkout, when it has one, is owned by `HOME_ROW_ID`. */
 export function makeRepo(over: Partial<Repo> = {}): Repo {
   const repo: Repo = {
     id: 'r1',

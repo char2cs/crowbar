@@ -1,5 +1,3 @@
-//! The blink phase a field keeps for its caret.
-
 use crate::control::editor::field::Blink;
 
 pub(crate) trait Blinking: Sized + 'static {

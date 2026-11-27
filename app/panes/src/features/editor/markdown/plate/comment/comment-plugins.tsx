@@ -30,9 +30,6 @@ import {
   CommentTableRowElement,
 } from './comment-nodes'
 
-// The review comment editor's plugins. Register everything a comment can contain (a missing plugin
-// drops that node on edit; HtmlKit carries any raw HTML), but no page-editor furniture: no MathKit
-// (katex), SlashKit (reviewers type `/`), BlockMenuKit, BlockPlaceholderKit, or mermaid rendering.
 export const commentPlugins = [
   ...BasicNodesKit,
   ...ListKit,
@@ -54,9 +51,6 @@ export const commentPlugins = [
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],
-      // Same punctuation the file editor pins (see markdown-plugins.ts): both
-      // write to the same kind of storage and a comment moved between them
-      // should not be re-punctuated.
       remarkStringifyOptions: { emphasis: '*', bullet: '-' },
       rules: { ...calloutMarkdownRules, ...htmlMarkdownRules },
     },

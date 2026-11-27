@@ -1,5 +1,3 @@
-//! Whether a popover is open and the focus handle of its panel.
-
 use gpui::FocusHandle;
 
 #[derive(Debug)]

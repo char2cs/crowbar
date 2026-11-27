@@ -1,12 +1,9 @@
-//! What the merge box offers for one [`MergeBox`].
-
 use crate::shell::git::merge_box::MergeBox;
 use crate::shell::git::merge_work::MergeWork;
 
 const MERGING_LABEL: &str = "Merging…";
 const COMMITTING_LABEL: &str = "Committing…";
 
-/// The titles, labels and allowed actions of the merge box, read from one [`MergeBox`].
 #[derive(Debug, Clone, Copy)]
 pub struct MergeFacts<'a> {
     merge: &'a MergeBox,
@@ -20,13 +17,10 @@ fn verb(merge: &MergeBox) -> &'static str {
 }
 
 impl<'a> MergeFacts<'a> {
-    /// The facts of this merge box.
     pub fn of(merge: &'a MergeBox) -> Self {
         Self { merge }
     }
 
-    /// "Merge into `<parent>`", "Merged into `<parent>`" once landed, or plain "Merge" when
-    /// the box has no parent.
     pub fn title(self) -> String {
         let verb = verb(self.merge);
         self.merge
@@ -35,18 +29,14 @@ impl<'a> MergeFacts<'a> {
             .map_or_else(|| "Merge".to_owned(), |parent| format!("{verb} {parent}"))
     }
 
-    /// Whether the box shows its controls; a merged box shows only its title.
     pub fn shows_content(self) -> bool {
         !self.merge.merged
     }
 
-    /// Whether the commit form shows, because uncommitted files block the merge.
     pub fn offers_commit(self) -> bool {
         !self.merge.uncommitted.is_empty()
     }
 
-    /// The commit button's text for `ticked` selected files, e.g. "Commit 2 changes".
-    /// It reads "Committing…" while the commit runs.
     pub fn commit_label(
         self,
         ticked: usize,
@@ -58,7 +48,6 @@ impl<'a> MergeFacts<'a> {
         }
     }
 
-    /// Whether the commit button is enabled: nothing is running and at least one file is ticked.
     pub fn can_commit(
         self,
         ticked: usize,
@@ -66,7 +55,6 @@ impl<'a> MergeFacts<'a> {
         self.merge.work == MergeWork::Idle && ticked > 0
     }
 
-    /// The merge button's text: the chosen strategy's verb, or "Merging…" while a merge runs.
     pub fn confirm_label(self) -> &'static str {
         if self.merge.work == MergeWork::Merging {
             return MERGING_LABEL;
@@ -74,14 +62,10 @@ impl<'a> MergeFacts<'a> {
         self.merge.strategy.confirm()
     }
 
-    /// Whether the merge button is enabled: not yet merged, nothing running and nothing
-    /// blocking.
     pub fn can_merge(self) -> bool {
         !self.merge.merged && self.merge.work == MergeWork::Idle && self.merge.blocked.is_none()
     }
 
-    /// Whether "Stop and merge" shows, because the daemon refused the merge while an agent
-    /// is mid-turn.
     pub fn offers_stop(self) -> bool {
         self.merge.working.is_some()
     }

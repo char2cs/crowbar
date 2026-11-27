@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The backfill only ever fills a missing value: a row that already says what
-// its worktree is — or no row at all — is refused, so a re-run is a no-op.
 func TestBackfillProvisioning_RefusesARowThatAlreadyHasOne(t *testing.T) {
 	cmd := BackfillProvisioning{ID: "w1"}
 	require.ErrorIs(t, cmd.Validate(nil), asynxModels.ErrValidation)
@@ -20,8 +18,6 @@ func TestBackfillProvisioning_RefusesARowThatAlreadyHasOne(t *testing.T) {
 	assert.NoError(t, cmd.Validate(&domain.Workspace{ID: "w1"}))
 }
 
-// A home or default row is the user's own checkout even when a path would say
-// "managed"; only an empty path is a placeholder.
 func TestBackfillProvisioning_ReadsTheLegacyEncodingOnce(t *testing.T) {
 	cases := map[string]struct {
 		ws   domain.Workspace

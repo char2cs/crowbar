@@ -1,5 +1,3 @@
-//! The shared clock that keeps every skeleton on the same shimmer phase.
-
 use std::time::{Duration, Instant};
 
 use gpui::{App, Global};

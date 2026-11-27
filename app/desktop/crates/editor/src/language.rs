@@ -7,15 +7,12 @@ use known::{
     GIT_INFO_ATTRIBUTES, GIT_INFO_EXCLUDE, Known, LANGUAGES, PLAIN_TEXT,
 };
 
-/// The language a document is written in, by develop's ids (`typescript`, `rust`, `text`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Language {
     id: &'static str,
 }
 
 impl Language {
-    /// The language of the file at `path`, as develop's `getLanguageIdFromPath` resolves it;
-    /// Plain Text when nothing names one.
     #[must_use]
     pub fn of_path(path: &str) -> Self {
         let id = by_whole_path(path)
@@ -25,13 +22,11 @@ impl Language {
         Self { id }
     }
 
-    /// The language's id, as develop names it.
     #[must_use]
     pub fn id(self) -> &'static str {
         self.id
     }
 
-    /// The name the toolbar's language chip shows ("TypeScript", "Plain Text").
     #[must_use]
     pub fn display_name(self) -> &'static str {
         LANGUAGES

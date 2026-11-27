@@ -1,4 +1,3 @@
-// web/src/features/workspace/stores/workspace-store.ts
 import { createStore, type StoreApi } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { WorkspaceState } from './workspace-store.types'

@@ -10,12 +10,6 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
 
-/**
- * A pane stood in by a marker that counts its own EFFECT-mounts — the same
- * instrument `pane-container.test.tsx` uses for the identical question, and
- * the only one that can tell "re-rendered" from "torn down and rebuilt". A
- * render counter would not: React re-renders a surviving component too.
- */
 const { mounts } = vi.hoisted(() => ({ mounts: { current: new Map<string, number>() } }))
 vi.mock('@/features/panes/components/pane-container', () => ({
   PaneContainer: ({ pane, showing }: { pane: { id: string }; showing?: boolean }) => {
@@ -29,7 +23,6 @@ vi.mock('@/features/panes/components/pane-container', () => ({
   },
 }))
 
-// Neither is relevant to which view renders, and both drag in real chrome.
 vi.mock('@/features/window/stores/ui-state-store', () => ({
   useUIState: (sel: (s: { isBottomPaneVisible: boolean }) => unknown) =>
     sel({ isBottomPaneVisible: false }),
@@ -49,9 +42,7 @@ afterEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-/** Parked views mount one idle slot at a time after the showing view. */
 async function mountParkedViews() {
-  // Each slot's effect re-arms the next one only after React commits it.
   for (let slot = 0; slot < 5; slot++) {
     await act(async () => {
       await vi.runAllTimersAsync()
@@ -59,8 +50,6 @@ async function mountParkedViews() {
   }
 }
 
-/** Two views, each one pane. The first is the promoted stage, so its view id
- *  is `ROOT_PANE_ID` too; returns the second's pane and view ids. */
 function openSecondView(): { pane: string; view: string } {
   const { paneActions } = windowPaneStore.getState()
   paneActions.openChat('chat-1')
@@ -82,8 +71,6 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     expect(showing.getAttribute('data-showing')).toBe('true')
     expect(parked.getAttribute('data-showing')).toBe('false')
 
-    // The parked view's wrapper is what removes it from the layout — and it
-    // is `inert`, so nothing off screen is focusable or clickable.
     const parkedRoot = document.querySelector(`[data-view-root="${ROOT_PANE_ID}"]`)!
     expect(parkedRoot.getAttribute('style')).toContain('display: none')
     expect(parkedRoot.hasAttribute('inert')).toBe(true)
@@ -92,14 +79,6 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     )
   })
 
-  /**
-   * THE REGRESSION. Rendering the showing view in one place and the parked
-   * ones in another keeps every view "mounted" in the loosest sense and is
-   * still wrong: switching moves a subtree between two parents, which React
-   * can only do by unmounting it and mounting a new one. Measured live, that
-   * destroyed a parked view's xterm — and because xterm re-initialisation is
-   * gated on `isVisible`, it never came back.
-   */
   it('switching views does NOT remount either view — parking is not a teardown', async () => {
     const { pane: second, view: secondView } = openSecondView()
     await act(async () => {
@@ -115,7 +94,6 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`).getAttribute('data-showing')).toBe('true')
     expect(screen.getByTestId(`pane-${second}`).getAttribute('data-showing')).toBe('false')
 
-    // ...and back again, so neither direction of the swap is a teardown.
     await act(async () => {
       windowPaneStore.getState().paneActions.activateView(secondView)
     })
@@ -136,8 +114,6 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
       windowPaneStore.getState().paneActions.activateView(ROOT_PANE_ID)
     })
 
-    // Identity, not just presence: a remount would hand back a different node
-    // even though the query still finds one.
     expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`)).toBe(before)
   })
 
@@ -177,8 +153,6 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
 
     expect(screen.queryByTestId(`pane-${second}`)).toBeNull()
     expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`).getAttribute('data-showing')).toBe('true')
-    // The revealed view was parked, not rebuilt — it is the same instance it
-    // has been since it was opened.
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
   })
 
@@ -248,7 +222,6 @@ describe('SplitViewRoot — parked views mount after the showing one', () => {
     for (const chat of ['chat-1', 'chat-2', 'chat-3']) paneActions.openChat(chat)
     const paneOf = (chat: string) => chatPaneIndex(windowPaneStore.getState().panes).get(chat)!
     const viewOf = (chat: string) => windowPaneStore.getState().panes[paneOf(chat)].viewId!
-    // chat-1 was used after chat-2; chat-3 is showing.
     paneActions.activateView(viewOf('chat-1'))
     paneActions.activateView(viewOf('chat-3'))
 

@@ -3,12 +3,13 @@
 package v0_test
 
 import (
-	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -19,9 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/logring"
 )
 
-// TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted drives the mounted
-// /v0/console/logs route over a real WebSocket: a replayed record, one ready
-// frame, then a live record whose secret field never leaves the daemon.
 func TestConsoleLogs_WithRing_StreamsReplayReadyAndLiveRedacted(t *testing.T) {
 	tc := newApp(t)
 	ring := logring.New()

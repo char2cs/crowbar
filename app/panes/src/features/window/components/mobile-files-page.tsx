@@ -34,8 +34,6 @@ function useVisibleRows(snapshot: NativeFiles, query: string) {
   }, [snapshot, query])
 }
 
-/** The phone file drawer, drawn from the main webview's snapshot with the sidebar's file rows.
- *  Only the search box is its own state; a fold or a pick goes back as an intent. */
 export function MobileFilesPage() {
   useSurfaceThemeColor()
   const [snapshot, setSnapshot] = useState<NativeFiles | null>(null)
@@ -102,7 +100,6 @@ function FilesList({ snapshot, query }: { snapshot: NativeFiles; query: string }
     getScrollElement: () => scrollRef.current,
     overscan: 10,
   })
-  // `auto` scrolls only when the open file is off screen, so a fold above it never jumps.
   const activeIndex = rows.findIndex((row) => row.file.path === snapshot.activePath)
   useEffect(() => {
     if (activeIndex >= 0) virtualizer.scrollToIndex(activeIndex, { align: 'auto' })

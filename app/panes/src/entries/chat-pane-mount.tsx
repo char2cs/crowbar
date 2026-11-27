@@ -15,7 +15,6 @@ import { ChatPaneHost } from './chat-pane-host'
 import { chatSession } from './chat-session'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 
-/** Mounts and unmounts the chat page's React tree as the shell's lifecycle messages arrive. */
 export class ChatPaneMount {
   private root: Root | null = null
 
@@ -24,7 +23,6 @@ export class ChatPaneMount {
     private readonly client: PaneClient,
   ) {}
 
-  /** Starts following the shell's lifecycle messages. */
   start(): void {
     this.client.onLifecycle((message) => this.handle(message))
     this.client.onGroup((fillsGroup) => chatSession.setState({ fillsGroup }))

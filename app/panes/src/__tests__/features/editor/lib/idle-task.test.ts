@@ -1,16 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { scheduleIdleTask } from '@/features/editor/lib/idle-task'
 
-/**
- * The deferred-LSP-open primitive. The load-bearing guarantee for LSP
- * `didOpen`/`didClose` lifecycle safety is that a CANCELLED task never runs —
- * so a rapid open→open→open swap sequence (each swap cancels the previous
- * pending open) ends with exactly one open document (the last).
- */
 describe('scheduleIdleTask', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    // Force the setTimeout fallback path (deterministic under fake timers).
     vi.stubGlobal('requestIdleCallback', undefined)
     vi.stubGlobal('cancelIdleCallback', undefined)
   })
@@ -47,18 +40,14 @@ describe('scheduleIdleTask', () => {
   })
 
   it('rapid swap: cancelling pending opens leaves exactly one open (the last)', () => {
-    // Simulate the LSP deferred-open lifecycle: each swap cancels the previous
-    // pending open before scheduling its own. Only the final, un-cancelled open
-    // should fire.
     const opens: string[] = []
     const open = (file: string) => scheduleIdleTask(() => opens.push(file))
 
     let pending = open('a.ts')
-    pending.cancel() // swap to b
+    pending.cancel()
     pending = open('b.ts')
-    pending.cancel() // swap to c
+    pending.cancel()
     open('c.ts')
-    // no further swap; c's open is allowed to fire
 
     vi.runAllTimers()
     expect(opens).toEqual(['c.ts'])

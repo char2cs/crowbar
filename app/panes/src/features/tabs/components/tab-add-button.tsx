@@ -7,8 +7,6 @@ interface TabAddButtonProps {
   onNewTab: () => void
 }
 
-/** The strip's "+", opening a New Tab page. The last child of the scrolling tab container, so it
- *  moves with the tabs like a browser's; never sortable, so never draggable. */
 const TabAddButton = React.memo(function TabAddButton({
   isBottomPane,
   onNewTab,

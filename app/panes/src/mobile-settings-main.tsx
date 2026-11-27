@@ -9,7 +9,6 @@ import { initializeSettingsStore } from '@/features/settings/store'
 initializeIconThemes()
 void initializeSettingsStore()
 startSettingsStorageSync()
-// The page's surface on body too: its theme-color is read from it.
 document.body.classList.add('bg-background')
 
 createRoot(document.getElementById('root')!).render(

@@ -1,5 +1,3 @@
-//! Size steps of a [`crate::TextArea`] (`size` of the React `Textarea`).
-
 use gpui::{Pixels, px};
 
 use crate::foundation::tokens::radius;
@@ -19,23 +17,17 @@ const FIELD_ACROSS: f32 = 8.0;
 const FIELD_DOWN: f32 = 6.0;
 const FIELD_LINE: f32 = 18.0;
 
-/// How roomy a text area is: the minimum height and the padding around the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum TextAreaSize {
-    /// Three rows of 14px text.
     Small,
-    /// Three rows of 14px text with the usual padding.
     #[default]
     Default,
-    /// Taller padding for a prominent field.
     Large,
-    /// Two 18px rows of 12px text with tight padding on a muted fill, as a settings row's list field.
     Field,
 }
 
 impl TextAreaSize {
-    /// Height of the empty field, border included.
     pub fn min_height(self) -> Pixels {
         px(BORDER * 2.0
             + match self {

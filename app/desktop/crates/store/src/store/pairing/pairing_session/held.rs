@@ -1,5 +1,3 @@
-//! What a pairing attempt keeps between its stages.
-
 use crate::live::PairingRequest;
 use crate::store::pairing::pairing_session::host_id_text;
 use crate::store::pairing::pairing_session::pairing_pending::PairingPending;

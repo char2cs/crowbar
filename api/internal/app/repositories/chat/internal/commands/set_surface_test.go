@@ -26,10 +26,6 @@ func TestSetSurface_RejectsASurfaceNobodyCanBeOn(t *testing.T) {
 	}
 }
 
-// TestRegression_SetSurfaceMovesTheChatRatherThanRecordingItsBirth is the
-// whole point of the command: Surface used to be written once, at Create, and
-// meant "born here". It is the CURRENT surface now — birth only seeds it —
-// so a switch has to be able to move it.
 func TestRegression_SetSurfaceMovesTheChatRatherThanRecordingItsBirth(t *testing.T) {
 	out := commands.SetSurface{ChatID: "c1", Surface: domain.SurfaceTerminal}.
 		EmitEvent(&domain.Chat{ID: "c1", Surface: domain.SurfaceChat, Title: "kept"})
@@ -42,9 +38,6 @@ func TestRegression_SetSurfaceMovesTheChatRatherThanRecordingItsBirth(t *testing
 	}
 }
 
-// "" is the provider's own default landing and a legitimate value to move
-// BACK to — the chat surface under another name — so it must not be refused
-// the way an unknown one is.
 func TestSetSurface_TheProviderDefaultLandingIsAcceptable(t *testing.T) {
 	if err := (commands.SetSurface{ChatID: "c1"}).Validate(&domain.Chat{ID: "c1"}); err != nil {
 		t.Fatalf("the default landing must be acceptable: %v", err)

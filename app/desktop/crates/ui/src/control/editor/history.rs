@@ -1,5 +1,3 @@
-//! Undo and redo snapshots of an editable text.
-
 mod edit;
 
 pub(crate) use edit::Edit;

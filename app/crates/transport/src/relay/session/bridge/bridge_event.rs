@@ -1,5 +1,3 @@
-//! What pumping messages between a client and its upstream logs.
-
 use std::fmt;
 use std::fmt::Debug;
 

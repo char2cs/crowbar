@@ -1,8 +1,6 @@
 import { ApiError } from '@/lib/errors/api-error'
 import { OperationFailedError } from '@/lib/errors/operation-failed'
 
-/** The daemon's closed code enum (`domain/problem`), same spelling, plus the
- *  desktop proxy's own `daemon_unavailable`, `host_unreachable` and `host_identity_changed`. */
 export type ProblemCode =
   | 'invalid_argument'
   | 'unauthorized'
@@ -53,13 +51,11 @@ export type ProblemCode =
   | 'host_unreachable'
   | 'host_identity_changed'
 
-/** A failure as the client reads it: the daemon's code and message. */
 export interface Problem {
   code: ProblemCode
   message: string
 }
 
-/** Any thrown value as a Problem, so every surface words a failure the same way. */
 export function problemOf(error: unknown): Problem {
   if (error instanceof ApiError || error instanceof OperationFailedError) return error.problem
   if (error instanceof Error) return { code: 'internal', message: error.message }

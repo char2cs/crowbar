@@ -37,23 +37,18 @@ func TestResolve_ReturnsTheWireEventAndTheFilledPayload(t *testing.T) {
 	}
 }
 
-// Capability is key-presence: an undeclared outbound event must report false rather
-// than silently producing an empty call.
 func TestResolve_AnUndeclaredEventReportsFalse(t *testing.T) {
 	if _, _, ok := outbound.Resolve(desc(), "never_declared", nil); ok {
 		t.Fatal("an undeclared event must not resolve")
 	}
 }
 
-// An INBOUND event is not something Crowbar can send.
 func TestResolve_AnInboundEventIsNotSendable(t *testing.T) {
 	if _, _, ok := outbound.Resolve(desc(), "session_start", nil); ok {
 		t.Fatal("an inbound event must not resolve as outbound")
 	}
 }
 
-// A literal with no placeholder passes through untouched — this is how claude's
-// compact_start carries the bare slash command.
 func TestResolve_ALiteralPassesThroughUnchanged(t *testing.T) {
 	wire, send, ok := outbound.Resolve(desc(), "compact_start", nil)
 	if !ok || wire != "prompt" {
@@ -64,8 +59,6 @@ func TestResolve_ALiteralPassesThroughUnchanged(t *testing.T) {
 	}
 }
 
-// An unsupplied placeholder must resolve to empty, not leave the brace in the payload —
-// a provider receiving a literal "{session_id}" is a bug that reaches the wire.
 func TestResolve_AnUnsuppliedPlaceholderBecomesEmpty(t *testing.T) {
 	_, send, ok := outbound.Resolve(desc(), "interrupt", nil)
 	if !ok {
@@ -85,8 +78,6 @@ func TestResolve_SubstitutesEveryOccurrence(t *testing.T) {
 	}
 }
 
-// A leaf that is exactly one {name} keeps a captured number or bool as that JSON type;
-// anything mixed, a string capture, or a caller-supplied value stays a string.
 func TestResolveTyped_AnExactPlaceholderKeepsTheCapturedJSONType(t *testing.T) {
 	d := &spec.Descriptor{ID: "acme", Events: map[string]spec.EventSpec{
 		"interrupt": {Out: spec.WireRef{"cancel"}, Send: map[string]any{
@@ -111,7 +102,6 @@ func TestResolveTyped_AnExactPlaceholderKeepsTheCapturedJSONType(t *testing.T) {
 	}
 }
 
-// The string-only view (hooks transports) renders typed leaves as their text.
 func TestResolve_ATypedLiteralRendersAsText(t *testing.T) {
 	d := &spec.Descriptor{ID: "acme", Events: map[string]spec.EventSpec{
 		"interrupt": {Out: spec.WireRef{"cancel"}, Send: map[string]any{"retries": 3}},

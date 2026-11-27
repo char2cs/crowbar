@@ -13,7 +13,6 @@ const BROWSER_TIMERS = {
   clear: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 }
 
-/** Shows the daemon log while the pane is mounted: the log stream is open exactly then. */
 export class ConsolePaneMount {
   private root: Root | null = null
   private controller: ConsoleController | null = null
@@ -23,7 +22,6 @@ export class ConsolePaneMount {
     private readonly client: PaneClient,
   ) {}
 
-  /** Starts following the shell's lifecycle messages. */
   start(): void {
     this.client.onLifecycle(({ event }: LifecycleMessage) => {
       if (event === 'mount') this.mount()

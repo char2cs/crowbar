@@ -12,7 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// StashPush POST /v0/chats/:chatId/git/stash
 func (h *Handlers) StashPush(
 	ctx *gin.Context,
 ) {
@@ -34,7 +33,6 @@ func (h *Handlers) StashPush(
 	ctx.Status(http.StatusOK)
 }
 
-// StashApply POST /v0/chats/:chatId/git/stash-apply
 func (h *Handlers) StashApply(
 	ctx *gin.Context,
 ) {
@@ -58,7 +56,6 @@ func (h *Handlers) StashApply(
 	ctx.Status(http.StatusOK)
 }
 
-// StashPop POST /v0/chats/:chatId/git/stash-pop
 func (h *Handlers) StashPop(
 	ctx *gin.Context,
 ) {
@@ -82,8 +79,6 @@ func (h *Handlers) StashPop(
 	ctx.Status(http.StatusOK)
 }
 
-// resolveStashIndex takes the stash index from the bound body, falling back to
-// ?index=. A non-empty reason means the index is missing or not an integer.
 func resolveStashIndex(
 	ctx *gin.Context,
 	bodyIndex *int,
@@ -102,7 +97,6 @@ func resolveStashIndex(
 	return idx, ""
 }
 
-// StashDrop DELETE /v0/chats/:chatId/git/stash
 func (h *Handlers) StashDrop(
 	ctx *gin.Context,
 ) {
@@ -130,8 +124,6 @@ func (h *Handlers) StashDrop(
 	ctx.Status(http.StatusNoContent)
 }
 
-// bindOptional decodes an optional JSON body into body: an empty one keeps the
-// defaults, one that does not decode is a 400.
 func bindOptional(
 	ctx *gin.Context,
 	body any,

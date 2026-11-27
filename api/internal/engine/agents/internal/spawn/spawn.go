@@ -41,9 +41,6 @@ func Plan(
 	return plan, nil
 }
 
-// PrependArgs puts d.Spawn.Args, the flags every INTERACTIVE invocation needs, at
-// the front of plan.Argv. The primary spawn and api attach both use it; api serve
-// does not, as it runs a non-interactive subcommand the flags don't apply to.
 func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnPlan) {
 	args := make([]string, len(d.Spawn.Args))
 	for i, a := range d.Spawn.Args {
@@ -52,12 +49,8 @@ func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnP
 	plan.Argv = append(args, plan.Argv...)
 }
 
-// KnownVerb reports whether verb names an inject step Crowbar can apply.
 func KnownVerb(verb string) bool { return verbs.Known(verb) }
 
-// Inject applies a descriptor's MCPInject, ConfigInjection, HooksInjection and
-// AddDirs steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
-// reports over the hooks channel, so it is the one process that gets hooks.
 func Inject(
 	d *spec.Descriptor,
 	ctx models.TemplateCtx,
@@ -67,9 +60,6 @@ func Inject(
 	return inject(d, ctx, plan, extra, true)
 }
 
-// InjectServe is Inject for an api-transport `serve` process: the same MCP
-// server and session config, but no hook wiring — that process reports over
-// the api channel, and one process must never report an event twice.
 func InjectServe(
 	d *spec.Descriptor,
 	ctx models.TemplateCtx,
@@ -79,8 +69,6 @@ func InjectServe(
 	return inject(d, ctx, plan, extra, false)
 }
 
-// WriteMCPFiles runs only the write_file steps of mcp_injection. A dialed server takes no
-// argv, but its MCP relay still reads the runner token from a file.
 func WriteMCPFiles(d *spec.Descriptor, ctx models.TemplateCtx) error {
 	for _, step := range d.MCPInject {
 		if step.Verb != "write_file" {
@@ -148,8 +136,6 @@ func PromptSteps(d *spec.Descriptor, resume bool) ([]spec.InjectStep, bool) {
 	return spec.CloneSteps(steps), true
 }
 
-// removeTmp deletes a spawn's scratch directory. A teardown has no caller to
-// hand a failure to, so it is logged.
 func removeTmp(dir string) {
 	if err := os.RemoveAll(dir); err != nil {
 		slog.Warn("agents: spawn: remove the scratch directory", "dir", dir, "err", err)

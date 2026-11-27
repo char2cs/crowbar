@@ -93,8 +93,6 @@ func TestContentType_SVGGetsItsOwnMIMEType(t *testing.T) {
 	assert.Equal(t, "image/svg+xml", attachments.ContentType(svg))
 }
 
-// Additional tests for complete coverage
-
 func TestStore_CreatesDirectoryIfNeeded(t *testing.T) {
 	baseDir := t.TempDir()
 	nestedDir := filepath.Join(baseDir, "nested", "attachment", "dir")
@@ -125,14 +123,12 @@ func TestContentType_PDF(t *testing.T) {
 }
 
 func TestContentType_SVGInLargeData(t *testing.T) {
-	// Test that SVG is detected even when data exceeds 512 bytes
 	svg := make([]byte, 600)
 	copy(svg, []byte("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"))
 	assert.Equal(t, "image/svg+xml", attachments.ContentType(svg))
 }
 
 func TestContentType_SVGShortData(t *testing.T) {
-	// Test SVG detection with short data
 	svg := []byte("<svg></svg>")
 	assert.Equal(t, "image/svg+xml", attachments.ContentType(svg))
 }
@@ -223,7 +219,6 @@ func TestStore_SanitizesMultipleWhitespace(t *testing.T) {
 	dir := t.TempDir()
 	fileName, _, err := attachments.Store(dir, "ab12", "my   file.png", []byte("x"))
 	require.NoError(t, err)
-	// Multiple spaces should collapse to single underscore
 	assert.NotContains(t, fileName, "   ")
 }
 
@@ -263,20 +258,16 @@ func TestStore_OriginalNameWithOnlyExtension(t *testing.T) {
 
 func TestRead_FileTooLargeIsNotFound(t *testing.T) {
 	dir := t.TempDir()
-	// Create a file that's too large
 	fileName := "toolarge.bin"
-	// Write a file larger than MaxBytes
 	oversized := make([]byte, attachments.MaxBytes+1)
 	err := os.WriteFile(filepath.Join(dir, fileName), oversized, 0o600)
 	require.NoError(t, err)
 
-	// Try to read it - should get ErrNotFound
 	_, _, err = attachments.Read(dir, fileName)
 	assert.ErrorIs(t, err, attachments.ErrNotFound)
 }
 
 func TestStore_OriginalNameBecomesEmptyAfterSanitization(t *testing.T) {
-	// Names that sanitize to empty should be rejected
 	_, _, err := attachments.Store(t.TempDir(), "ab12", ".", []byte("x"))
 	assert.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
@@ -294,45 +285,35 @@ func TestStore_OriginalNameAsPathSeparator(t *testing.T) {
 func TestRead_OpenErrorReturnsNotFound(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
-	// Create a file with restricted permissions (unreadable)
 	fileName := "forbidden.bin"
 	filePath := filepath.Join(dir, fileName)
 	err := os.WriteFile(filePath, []byte("data"), 0o000)
 	require.NoError(t, err)
-	defer func() { _ = os.Chmod(filePath, 0o644) }() // Restore for cleanup
+	defer func() { _ = os.Chmod(filePath, 0o644) }()
 
-	// Try to read it - should get ErrNotFound due to permission denied
 	_, _, err = attachments.Read(dir, fileName)
 	assert.ErrorIs(t, err, attachments.ErrNotFound)
 }
 
 func TestStore_MkdirAllFailureReturnsError(t *testing.T) {
 	dir := t.TempDir()
-	// Pre-create a plain file at the path where we want to create a dir
 	blockingFile := filepath.Join(dir, "blocked")
 	err := os.WriteFile(blockingFile, []byte("x"), 0o600)
 	require.NoError(t, err)
 
-	// Try to store with this blocking file as the target dir
-	// os.MkdirAll will fail with ENOTDIR (not a directory)
 	_, _, err = attachments.Store(blockingFile, "ab12", "test.png", []byte("data"))
 	assert.Error(t, err)
-	// Should NOT be a conflict error - it's an MkdirAll failure
 	assert.NotErrorIs(t, err, problem.ErrConflict)
 }
 
 func TestStore_OpenFileFailureReturnsError(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()
-	// Pre-create the dir, then restrict write permissions
-	err := os.Chmod(dir, 0o500) // r-x------: can read/search but not write
+	err := os.Chmod(dir, 0o500)
 	require.NoError(t, err)
-	defer func() { _ = os.Chmod(dir, 0o755) }() // Restore for cleanup
+	defer func() { _ = os.Chmod(dir, 0o755) }()
 
-	// Try to create a file in the write-protected dir
-	// os.OpenFile will fail with EACCES (permission denied) on the create
 	_, _, err = attachments.Store(dir, "ab12", "test.png", []byte("data"))
 	assert.Error(t, err)
-	// Should NOT be a conflict error - it's a create/permission failure
 	assert.NotErrorIs(t, err, problem.ErrConflict)
 }

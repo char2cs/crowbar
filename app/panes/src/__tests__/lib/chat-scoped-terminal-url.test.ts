@@ -13,11 +13,6 @@ import {
 import { recordWorkspaceScope, setWorkspaceScope, getOwningChatId } from '@/lib/workspace-scope'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// The PTY routes are chat-scoped: `/v0/chats/:chatId/terminals[...]`. A terminal
-// belongs to the CHAT that opened it, never to the worktree it runs in — sibling
-// chats share worktrees and must not share shells. These tests pin the URL shape
-// and the wsId→chatId bridge that gets a workspace-holding caller there.
-
 class FakeWebSocket {
   static instances: FakeWebSocket[] = []
   onopen: (() => void) | null = null
@@ -72,7 +67,6 @@ describe('terminalsBaseForWorkspace', () => {
       owningChatId: 'chat-1',
     })
 
-    // The old shape is gone from the daemon; building it would 404 silently.
     expect(terminalsBaseForWorkspace('ws-1')).not.toContain('/workspaces/')
     expect(terminalsBaseForWorkspace('ws-1')).not.toContain('ws-1')
   })
@@ -83,8 +77,6 @@ describe('terminalsBaseForWorkspace', () => {
     expect(() => terminalsBaseForWorkspace('ws-2')).toThrow(/no owning chat/)
   })
 
-  // A home shell never needs the home's owner chat: the daemon serves /home/terminals
-  // project-scoped, like /home/files.
   it('keeps the project home on its own /home/terminals mount, owner or not', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
 
@@ -92,9 +84,6 @@ describe('terminalsBaseForWorkspace', () => {
   })
 
   it('leaves the hierarchical workspaceBase alone for the routes that still nest', () => {
-    // The editor/LSP routes have not moved yet, and the home group never will
-    // (it is deleted, not re-keyed) — this proves the chat-scoped cutovers did
-    // not drag workspaceBase itself along with them.
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'c1' })
 
     expect(workspaceBase('ws-1')).toBe('/v0/projects/p1/repos/r1/workspaces/ws-1')
@@ -102,8 +91,6 @@ describe('terminalsBaseForWorkspace', () => {
 })
 
 describe('filesBaseForWorkspace', () => {
-  // files completes spec §4.2's SHARED bucket: one worktree, one tree, and
-  // every chat holding it reads and writes the same files.
   it('builds the flat chat-scoped files base for the chat holding the worktree', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
 
@@ -125,11 +112,6 @@ describe('filesBaseForWorkspace', () => {
     expect(filesBaseForWorkspace('ws-b')).toBe('/v0/chats/chat-b/files')
   })
 
-  // The one workspace that is NOT addressed by a chat, and the reason this
-  // builder is not the straight chat lookup gitBaseForWorkspace is. The project
-  // home has files but no worktree, so no chat resolves to it; the daemon serves
-  // it from its own /home/files group. Reaching for an owning chat here would
-  // throw on a workspace that is working perfectly.
   it('keeps the project home on its own project-level base', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
 
@@ -144,10 +126,6 @@ describe('filesBaseForWorkspace', () => {
 })
 
 describe('gitBaseForWorkspace', () => {
-  // git is spec §4.2's SHARED bucket: one worktree, one answer, and every chat
-  // holding it reads the same state. It is addressed through a chat not because
-  // a chat owns it — several chats share it — but because a chat is the only
-  // thing a route may name.
   it('builds the flat chat-scoped git base for the chat holding the worktree', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
 
@@ -161,8 +139,6 @@ describe('gitBaseForWorkspace', () => {
     expect(gitBaseForWorkspace('ws-1')).not.toContain('ws-1')
   })
 
-  // Two chats over ONE worktree is the ordinary shape, not the exotic one: each
-  // subscribes to its own URL, and the daemon fans a single push out to both.
   it('gives each chat sharing a worktree its own base', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-a', owningChatId: 'chat-a' })
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-b', owningChatId: 'chat-b' })
@@ -179,10 +155,6 @@ describe('gitBaseForWorkspace', () => {
 })
 
 describe('owning-chat recording', () => {
-  // The IDE route (/ide/:projectId/:repoId/:wsId) carries no chat id, so the
-  // route-derived write must MERGE rather than overwrite. Without this, merely
-  // navigating to a workspace would erase the chat the sidebar had recorded and
-  // every terminal URL for it would start throwing.
   it('a later route-derived scope write does not erase the sidebar-recorded chat', () => {
     recordWorkspaceScope({
       projectId: 'p1',
@@ -230,7 +202,6 @@ describe('terminalCreate', () => {
     expect(requestedUrl).not.toContain('/workspaces/')
     expect(fetchSpy.mock.calls[0][1]).toMatchObject({ method: 'POST' })
 
-    // Creating does not dial: the view that shows the session opens its own stream.
     expect(FakeWebSocket.instances).toHaveLength(0)
   })
 
@@ -258,11 +229,6 @@ describe('terminalCreate', () => {
   })
 })
 
-// The seven worktree LIFECYCLE verbs (backend spec §4.3) are the one part of
-// the chat surface that KEPT its project/repo nesting: creation and repo-level
-// listing stay hierarchical (§7.1), and these mount beside the chat's own
-// promote/rename/placement verbs rather than in a second chat surface. So they
-// deliberately do NOT use chatBase's flat `/v0/chats/:chatId` shape.
 describe('worktreeVerbBaseForWorkspace', () => {
   it('addresses the verb to the chat HOLDING the worktree, under its repo', () => {
     recordWorkspaceScope({
@@ -286,8 +252,6 @@ describe('worktreeVerbBaseForWorkspace', () => {
     expect(base).toContain('/repos/r1/')
   })
 
-  // A missing owning chat is a scope-recording bug. Guessing would build
-  // `/chats//lock`, which 404s identically to every other cause.
   it('throws when the workspace has no recorded owning chat', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-orphan' })
     expect(() => worktreeVerbBaseForWorkspace('ws-orphan')).toThrow(/no owning chat/)
@@ -304,16 +268,12 @@ describe('worktreeVerbBaseForWorkspace', () => {
   })
 })
 
-// The repo-scoped chats COLLECTION: where a chat is created and the repo's
-// chats are listed. Both keep the project/repo prefix for the same reason.
 describe('repoChatsBaseForWorkspace', () => {
   it('nests under the workspace’s own project and repo', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'c1' })
     expect(repoChatsBaseForWorkspace('ws-1')).toBe('/v0/projects/p1/repos/r1/chats')
   })
 
-  // The project HOME has no repo — and no worktree, so no chat owns it. It
-  // keeps its own /home mount, exactly as its files surface does.
   it('falls back to the project-home mount for a repo-less workspace', () => {
     setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
     expect(repoChatsBaseForWorkspace('ws-home')).toBe('/v0/projects/p1/home/chats')

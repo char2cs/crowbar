@@ -1,4 +1,3 @@
-// Package replace applies regexp-based replacements to files atomically.
 package replace
 
 import (
@@ -12,11 +11,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/match"
 )
 
-// ErrLocked is returned when a replace is attempted on a locked workspace.
 var ErrLocked = errors.New("workspace is locked")
 
-// ApplyToFile atomically replaces all matches of re in absPath with replacement (temp
-// file then rename), skipping binary files. Returns ErrLocked if locked is true.
 func ApplyToFile(
 	absPath string,
 	re *regexp.Regexp,
@@ -27,7 +23,6 @@ func ApplyToFile(
 		return ErrLocked
 	}
 
-	// Stat before anything else so we can restore permissions later.
 	info, err := os.Stat(absPath)
 	if err != nil {
 		return fmt.Errorf("replace: stat %s: %w", absPath, err)
@@ -39,7 +34,7 @@ func ApplyToFile(
 		return err
 	}
 	if binary {
-		return nil // skip binary files silently
+		return nil
 	}
 
 	data, err := os.ReadFile(absPath) //nolint:gosec // path is controlled by the caller
@@ -56,7 +51,6 @@ func ApplyToFile(
 	return nil
 }
 
-// sniffBinary reports whether the first 8 KB of absPath look binary.
 func sniffBinary(
 	absPath string,
 ) (binary bool, err error) {
@@ -77,9 +71,6 @@ func sniffBinary(
 	return match.IsBinary(sample[:n]), nil
 }
 
-// writeAtomic writes content to a sibling temp file, sets its permissions to
-// match originalMode, then renames it over dst. A failure removes the temp, and
-// a removal that fails too is reported with it.
 func writeAtomic(
 	dst string,
 	content string,

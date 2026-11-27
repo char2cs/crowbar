@@ -1,5 +1,3 @@
-//! Carrying out a plan: the requests in order, the local row meanwhile, the outcome after.
-
 use daemonapi::Call;
 use serde::Deserialize;
 use serde_json::Value;

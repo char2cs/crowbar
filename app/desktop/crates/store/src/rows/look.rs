@@ -1,5 +1,3 @@
-//! How a record's state reads on a sidebar row.
-
 use daemonapi::Switch;
 use sidebar::{Activity, Lock, Nesting, Titling};
 

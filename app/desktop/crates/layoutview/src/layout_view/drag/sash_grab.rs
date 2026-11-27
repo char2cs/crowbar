@@ -1,7 +1,5 @@
 use layout::{Axis, Branch, Command, PaneSlot, Rect, Sash, SplitNode, Tab, TabId};
 
-/// A sash held by the pointer: where the split's first child started and where the pointer was,
-/// so every move maps to the first child's new size.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SashGrab {
     tab: TabId,
@@ -13,8 +11,6 @@ pub struct SashGrab {
 }
 
 impl SashGrab {
-    /// Starts a drag of `sash` with the pointer at `pointer` (window coordinates) in a tab laid
-    /// out in `bounds`.
     #[must_use]
     pub fn begin(
         tab: &Tab,
@@ -33,7 +29,6 @@ impl SashGrab {
         })
     }
 
-    /// The model command that puts the split where the pointer is now.
     #[must_use]
     pub fn resize(
         &self,
@@ -48,7 +43,6 @@ impl SashGrab {
         }
     }
 
-    /// The model command for a double click: both children share the space equally again.
     #[must_use]
     pub fn reset(&self) -> Command {
         Command::ResetSplit {

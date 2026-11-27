@@ -40,7 +40,6 @@ function SessionRow({ session }: { session: ActiveSession }) {
   )
 }
 
-/** Settings → Active sessions: every agent running right now, however it was left. */
 export function ActiveSessionsSettings() {
   const sessions = useActiveSessionList()
 

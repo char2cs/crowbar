@@ -1,5 +1,3 @@
-//! The selection and the composition range of a field.
-
 use std::ops::Range;
 
 pub(crate) trait Selection {

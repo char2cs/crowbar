@@ -1,5 +1,3 @@
-//! What the current values show: rows, blocks, options and descriptions.
-
 use crate::schema::ChoiceSource;
 use crate::schema::Control;
 use crate::schema::Row;
@@ -7,7 +5,6 @@ use crate::state::State;
 use crate::values::Choice;
 
 impl State {
-    /// Whether the search leaves `row` visible.
     pub fn row_visible(
         &self,
         row: &Row,
@@ -15,7 +12,6 @@ impl State {
         self.visibility.row(row)
     }
 
-    /// Whether the search leaves the non-row block `index` of the selected page visible.
     pub fn block_visible(
         &self,
         index: usize,
@@ -23,7 +19,6 @@ impl State {
         self.visibility.block(self.navigation.active(), index)
     }
 
-    /// The description under the label: the invalid-value text while the field is invalid.
     pub fn description<'a>(
         &self,
         row: &'a Row,
@@ -46,7 +41,6 @@ impl State {
         worded.map_or(row.description.as_deref(), |(_, text)| Some(text.as_str()))
     }
 
-    /// Whether the control of `row` takes changes: it is drawn disabled while it is frozen.
     pub fn row_enabled(
         &self,
         row: &Row,
@@ -56,7 +50,6 @@ impl State {
             .is_none_or(|rule| !rule.holds(&self.scope()))
     }
 
-    /// The options of the select `row`.
     pub fn choices(
         &self,
         row: &Row,
@@ -70,7 +63,6 @@ impl State {
         }
     }
 
-    /// The index of the option the select `row` currently stores.
     pub fn selected_index(
         &self,
         row: &Row,

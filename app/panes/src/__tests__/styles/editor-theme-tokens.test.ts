@@ -3,14 +3,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-// See theme-tokens.test.ts for why the directory is derived from
-// import.meta.url before joining rather than via a vite-rewritten URL.
 const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../styles/editor-theme.css'),
   'utf8',
 )
 
-/** Pull a :root-block value of a CSS var (last definition wins). */
 function rootValue(name: string): string | null {
   const matches = [...css.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
   return matches.length === 0 ? null : matches[matches.length - 1][1].trim()
@@ -22,8 +19,6 @@ describe('editor-theme.css font tokens', () => {
   })
 
   it('aliases the branch-review diff font to the editor font', () => {
-    // @pierre/diffs reads its code font only from `--diffs-font-family`; aliasing it to Monaco's
-    // variable makes a font-setting change reach both surfaces.
     expect(rootValue('--diffs-font-family')).toBe('var(--editor-font-family)')
   })
 

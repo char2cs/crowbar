@@ -1,5 +1,3 @@
-//! The theme colours the painter uses besides the cell colours.
-
 use gpui::{App, Hsla, Rgba, hsla};
 use ui::{Surface, Theme};
 

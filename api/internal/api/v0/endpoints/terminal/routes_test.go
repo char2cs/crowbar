@@ -45,9 +45,6 @@ func (stubEngine) SessionExists(
 	_ context.Context,
 	_ string,
 ) bool {
-	// True so the PTY /ws route's handler proceeds past the existence guard;
-	// the non-Upgrade request then 400s, proving the route is mounted (not a
-	// router 404).
 	return true
 }
 
@@ -65,9 +62,6 @@ func (stubEngine) ListSessionsForChat(
 	return nil
 }
 
-// SetHostTheme is a no-op here: the host theme's behaviour is covered where it has an
-// observable effect (a session's OSC 11 answer at birth, in the terminal engine's own
-// tests) and at the endpoint, by the recording engine in hosttheme_test.go.
 func (stubEngine) SetHostTheme(_, _ color.Color) {}
 
 func (stubEngine) HostTheme() (bg, fg color.Color) { return nil, nil }
@@ -105,10 +99,6 @@ func (stubProfiles) Delete(
 	return nil
 }
 
-// stubWorktreeScope stands in for v0's resolveChatWorktree middleware: the
-// chat-scoped group resolves the chat to a workspace and stashes it before any
-// terminal handler runs, so the mount test exercises the same wiring the router
-// builds.
 func stubWorktreeScope(
 	c *gin.Context,
 ) {
@@ -121,8 +111,6 @@ func TestRegisterMountsRoutes(
 ) {
 	r := gin.New()
 	rg := r.Group("/v0")
-	// Session lifecycle + PTY routes mount on the flat chat-scoped group; the
-	// profile CRUD mounts on the top-level /v0 group (mirroring the router).
 	chatScoped := rg.Group("/chats/:chatId")
 	chatScoped.Use(stubWorktreeScope)
 	terminal.Register(

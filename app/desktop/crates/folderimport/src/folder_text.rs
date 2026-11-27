@@ -1,5 +1,3 @@
-//! Reading a typed folder path as develop's dialogs do.
-
 pub(crate) const NOT_ABSOLUTE: &str = "Enter an absolute path (e.g. /Users/you/code/my-repo)";
 
 pub(crate) fn absolute(path: &str) -> bool {

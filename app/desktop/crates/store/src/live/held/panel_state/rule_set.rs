@@ -1,5 +1,3 @@
-//! The patterns of one `.gitignore` file and the directory they rule.
-
 use ignore::Match;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 

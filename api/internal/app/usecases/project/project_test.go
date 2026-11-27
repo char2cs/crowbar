@@ -27,8 +27,6 @@ func newProjectUsecase(
 	return projects, repos, uc
 }
 
-// newProjectUsecaseWithWorkspaces additionally exposes the project-home lookup
-// fake, for the tests that seed a project home.
 func newProjectUsecaseWithWorkspaces(
 	t *testing.T,
 ) (
@@ -46,9 +44,6 @@ func newProjectUsecaseWithWorkspaces(
 	return projects, repos, workspaces, uc
 }
 
-// newProjectUsecaseWithNodes additionally exposes the Node fake a repo's own
-// position now lives on, for tests that seed a repo's Node row directly,
-// assert on the writes made against it, or inject a failure into one.
 func newProjectUsecaseWithNodes(
 	t *testing.T,
 ) (
@@ -65,7 +60,6 @@ func newProjectUsecaseWithNodes(
 	return repos, nodes, uc
 }
 
-// name and index are pointer literals for the partial RepoUpdate fields.
 func name(v string) *string { return &v }
 func index(v int) *int      { return &v }
 
@@ -102,9 +96,6 @@ func TestProjectUsecase_Get_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, problem.ErrNotFound)
 }
 
-// TestProjectUsecase_Get_StoreError covers a lookup failure (e.g. a DB error),
-// which must surface distinctly from the not-found case above rather than
-// being folded into it.
 func TestProjectUsecase_Get_StoreError(t *testing.T) {
 	projects, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
@@ -115,8 +106,6 @@ func TestProjectUsecase_Get_StoreError(t *testing.T) {
 	assert.NotErrorIs(t, err, problem.ErrNotFound, "a lookup failure is not a not-found")
 }
 
-// TestProjectUsecase_List_StoreError covers List surfacing the underlying
-// store's read failure rather than an empty list.
 func TestProjectUsecase_List_StoreError(t *testing.T) {
 	projects, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
@@ -134,7 +123,6 @@ func TestProjectUsecase_TouchProjectActivity_HappyPath(t *testing.T) {
 	_ = projects.Save(ctx, domain.Project{ID: "p1", Name: "alpha"})
 	_ = repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"})
 
-	// no error returned — best-effort
 	uc.TouchProjectActivity(ctx, "r1", now)
 
 	got, err := projects.FindByKey(ctx, "p1")
@@ -146,7 +134,6 @@ func TestProjectUsecase_TouchProjectActivity_HappyPath(t *testing.T) {
 func TestProjectUsecase_TouchProjectActivity_RepoMissing_LogsNotPanics(t *testing.T) {
 	_, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
-	// repo not in store — must not panic, must not return error
 	uc.TouchProjectActivity(ctx, "r-gone", time.Now())
 }
 
@@ -167,14 +154,9 @@ func TestProjectUsecase_TouchProjectActivity_SaveFails_LogsNotPanics(t *testing.
 	_ = repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"})
 	projects.SaveErr = errors.New("db down")
 
-	// must not panic
 	uc.TouchProjectActivity(ctx, "r1", now)
 }
 
-// Update is the partial write behind the sidebar's project rename and its icon.
-// Both go through one load-mutate-save so the fields a change must NOT disturb
-// travel through untouched — Path above all, which is where the project's repos
-// actually live and which a rename must never follow.
 func TestProjectUsecase_UpdateRenames(t *testing.T) {
 	projects, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
@@ -184,10 +166,7 @@ func TestProjectUsecase_UpdateRenames(t *testing.T) {
 	got, err := uc.Update(ctx, "p1", project.Update{Name: &name})
 
 	require.NoError(t, err)
-	// Trimmed at the edge, so no name reaches the store wearing the whitespace
-	// an inline editor makes it easy to leave behind.
 	assert.Equal(t, "harbour", got.Name)
-	// The rename touches the LABEL only.
 	assert.Equal(t, "/on/disk", got.Path)
 
 	stored, err := projects.FindByKey(ctx, "p1")
@@ -209,9 +188,6 @@ func TestProjectUsecase_UpdateRejectsABlankName(t *testing.T) {
 }
 
 func TestProjectUsecase_UpdateSetsTheIconAsOneChoice(t *testing.T) {
-	// Emoji and stored image are one three-state choice, not two independent
-	// flags: setting either has to clear the other, or a project shows an emoji
-	// it was told to replace with an image.
 	projects, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "harbour", AvatarEmoji: "🦊"}))
@@ -226,8 +202,6 @@ func TestProjectUsecase_UpdateSetsTheIconAsOneChoice(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.AvatarHasIcon)
 	assert.Empty(t, got.AvatarEmoji)
-	// New bytes behind a stable URL: the version has to move or the webview's
-	// image cache keeps serving the icon that was replaced.
 	assert.Equal(t, int64(1), got.AvatarVersion)
 }
 
@@ -267,8 +241,6 @@ func TestProjectUsecase_UpdateSurfacesAFailedLoad(t *testing.T) {
 }
 
 func TestProjectUsecase_UpdateSurfacesAFailedSave(t *testing.T) {
-	// The read succeeded, so the caller would otherwise get a Project back that
-	// reads as renamed while the store still holds the old row.
 	projects, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p1", Name: "old"}))
@@ -280,9 +252,6 @@ func TestProjectUsecase_UpdateSurfacesAFailedSave(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestProjectUsecase_Reorder_ListError covers Reorder surfacing a failure
-// listing every project (the sidebar's full sibling space) before any row is
-// touched.
 func TestProjectUsecase_Reorder_ListError(t *testing.T) {
 	projects, _, uc := newProjectUsecase(t)
 	projects.FindAllErr = errors.New("db down")

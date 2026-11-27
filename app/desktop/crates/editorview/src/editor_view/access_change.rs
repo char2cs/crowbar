@@ -4,7 +4,6 @@ use super::EditorView;
 use crate::Access;
 
 impl EditorView {
-    /// Typing edits the view again, or stops editing it, as its workspace unlocks or locks.
     pub fn set_access(
         &mut self,
         access: Access,

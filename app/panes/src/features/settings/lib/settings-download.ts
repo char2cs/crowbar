@@ -3,7 +3,6 @@ import type { Settings } from '@/features/settings/types/settings'
 
 const SETTINGS_EXPORT_FILENAME = 'crowbar-settings.json'
 
-/** The versioned export envelope, pretty-printed. */
 function buildSettingsExportFile(settings: Settings): {
   filename: string
   contents: string
@@ -15,7 +14,6 @@ function buildSettingsExportFile(settings: Settings): {
   }
 }
 
-/** Downloads the settings as JSON. DOM only. */
 export function downloadSettingsFile(settings: Settings): void {
   const { filename, contents } = buildSettingsExportFile(settings)
   const blob = new Blob([contents], { type: 'application/json' })

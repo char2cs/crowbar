@@ -35,7 +35,6 @@ describe('validateLoadedBuffers', () => {
   it('repoints activeEditorTabId when it pointed at a dropped buffer', () => {
     const out = validateLoadedBuffers(snapshot, ROOT)
     expect(out.panes.root.activeEditorTabId).toBe('e-1')
-    // Nothing left to activate — null, never a dangling id.
     expect(out.panes.split.activeEditorTabId).toBeNull()
   })
 
@@ -112,8 +111,6 @@ describe('validateLoadedBuffers', () => {
   })
 
   it('heals a pre-existing stranded id even when nothing was dropped (Finding 1)', () => {
-    // No unknown-type buffers at all — the guard must still fire the heal,
-    // not bail out early, since a pane holds an id with no backing buffer.
     const strandedOnly = {
       buffers: [{ id: 'e-1', type: 'editor', path: '/a.ts', name: 'a.ts' }],
       panes: {
@@ -173,8 +170,6 @@ describe('validateLoadedBuffers', () => {
   })
 
   it('drops a buffer whose content type this build no longer has', () => {
-    // A saved layout outlives the code that wrote it: a type with no renderer would paint
-    // blank, so it is dropped (graceful fallback, not migration).
     const stale = {
       buffers: [
         { id: 'old-1', type: 'diff', path: 'diff://commit/abc/all-files', name: 'Commit abc' },
@@ -188,7 +183,6 @@ describe('validateLoadedBuffers', () => {
     const out = validateLoadedBuffers(stale, ROOT)
 
     expect(out.buffers.map((b) => b.id)).toEqual(['e-1'])
-    // The pane must not be left pointing at the id that just vanished.
     expect(out.panes.root.editorTabIds).toEqual(['e-1'])
     expect(out.panes.root.activeEditorTabId).toBe('e-1')
   })
@@ -217,8 +211,6 @@ describe('validateLoadedBuffers', () => {
     expect(out.panes.root.activeEditorTabId).toBe('br-1')
   })
 
-  // Distinct from the retired `newTab` placeholder above, which old layouts
-  // still carry and must keep dropping.
   it('restores a New Tab page where it was, beside the layouts that predate it', () => {
     const live = {
       buffers: [

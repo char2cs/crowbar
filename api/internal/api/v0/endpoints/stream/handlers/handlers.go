@@ -1,4 +1,3 @@
-// Package handlers upgrades GET /v0/stream and hands the socket to the hub.
 package handlers
 
 import (
@@ -15,26 +14,20 @@ import (
 	appstream "github.com/char2cs/crowbar/api/internal/app/stream"
 )
 
-// Server serves one client socket until it ends.
 type Server interface {
 	Serve(ctx context.Context, conn appstream.Conn) error
 }
 
-// Handlers serves the stream route.
 type Handlers struct {
 	hub  Server
 	keep KeepAlive
 }
 
-// New builds the handlers over the hub; keep bounds each socket.
 func New(hub Server, keep KeepAlive) *Handlers { return &Handlers{hub: hub, keep: keep} }
 
-// readLimit is far above a sub's size; a scope is capped well below it.
 const readLimit = 1024
 
-// The stream carries every fact the client shows, so a page on another origin must not open it.
 var upgrader = websocket.Upgrader{
-	// Replays are JSON text that deflates several-fold: a client on a slow link offers it.
 	EnableCompression: true,
 	CheckOrigin: func(r *http.Request) bool {
 		o := r.Header.Get("Origin")
@@ -46,11 +39,10 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// Stream GET /v0/stream upgrades and serves the socket.
 func (h *Handlers) Stream(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		return // Upgrade already answered the client
+		return
 	}
 	conn.SetReadLimit(readLimit)
 	done := make(chan struct{})
@@ -70,7 +62,6 @@ type socket struct {
 	write time.Duration
 }
 
-// WriteJSON writes v; a peer that cannot take it within the write bound is gone.
 func (s socket) WriteJSON(v any) error {
 	if err := s.SetWriteDeadline(time.Now().Add(s.write)); err != nil {
 		return fmt.Errorf("stream: write deadline: %w", err)
@@ -81,7 +72,6 @@ func (s socket) WriteJSON(v any) error {
 	return nil
 }
 
-// CloseWith sends the close frame, then closes the socket so a stuck write returns.
 func (s socket) CloseWith(code int, reason string) error {
 	msg := websocket.FormatCloseMessage(code, reason)
 	werr := s.WriteControl(websocket.CloseMessage, msg, time.Now().Add(s.write))

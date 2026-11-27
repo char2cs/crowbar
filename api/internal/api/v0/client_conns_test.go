@@ -20,8 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// echoStream upgrades and echoes every message back, reporting the upgrade's
-// outcome on upgraded.
 func echoStream(
 	upgraded chan<- error,
 ) gin.HandlerFunc {
@@ -42,7 +40,6 @@ func echoStream(
 	}
 }
 
-// streamServer serves echoStream behind requireBearerAuth over TLS.
 func streamServer(
 	t *testing.T,
 	clients clientAuthStore,
@@ -80,7 +77,6 @@ func dialStream(
 	return conn, nil
 }
 
-// requireEcho proves conn is still live: a message round-trips.
 func requireEcho(
 	t *testing.T,
 	conn *websocket.Conn,
@@ -93,7 +89,6 @@ func requireEcho(
 	assert.Equal(t, "ping", string(msg))
 }
 
-// requireClosed proves the server closed conn; the deadline only bounds a failure.
 func requireClosed(
 	t *testing.T,
 	conn *websocket.Conn,
@@ -128,8 +123,6 @@ func pairedStore(
 	return store
 }
 
-// TestClientConns_DisconnectEndsOnlyThatClientsStreams proves Disconnect
-// closes every stream the named client's token opened and no other client's.
 func TestClientConns_DisconnectEndsOnlyThatClientsStreams(t *testing.T) {
 	conns := newClientConns()
 	srv, upgraded := streamServer(t, pairedStore("c1", "c2"), conns)
@@ -152,8 +145,6 @@ func TestClientConns_DisconnectEndsOnlyThatClientsStreams(t *testing.T) {
 	assert.Equal(t, 1, held(conns), "only the other client's stream is still held")
 }
 
-// TestClientConns_ClosedStreamLeavesTheRegistry proves a stream that ends on
-// its own is forgotten, so the registry is bounded by live streams.
 func TestClientConns_ClosedStreamLeavesTheRegistry(t *testing.T) {
 	conns := newClientConns()
 	srv, upgraded := streamServer(t, pairedStore("c1"), conns)
@@ -167,8 +158,6 @@ func TestClientConns_ClosedStreamLeavesTheRegistry(t *testing.T) {
 	require.Eventually(t, func() bool { return held(conns) == 0 }, 10*time.Second, time.Millisecond)
 }
 
-// revokedAfterFirstLookup is a client revoked between the bearer guard's
-// lookup and the upgrade's hijack.
 type revokedAfterFirstLookup struct {
 	clientAuthStore
 	lookups atomic.Int32
@@ -186,9 +175,6 @@ func (s *revokedAfterFirstLookup) FindWhere(ctx context.Context, match domain.Cl
 	return found, err
 }
 
-// TestClientConns_RevokeDuringUpgradeRefusesTheStream proves a revoke landing
-// after the guard's check but before the hijack registered the connection
-// still ends it: the hijack re-reads the client once registered.
 func TestClientConns_RevokeDuringUpgradeRefusesTheStream(t *testing.T) {
 	conns := newClientConns()
 	srv, upgraded := streamServer(t, &revokedAfterFirstLookup{clientAuthStore: pairedStore("c1")}, conns)
@@ -200,8 +186,6 @@ func TestClientConns_RevokeDuringUpgradeRefusesTheStream(t *testing.T) {
 	assert.Equal(t, 0, held(conns))
 }
 
-// TestClientConns_PlaintextStreamIsNotTracked proves a stream over the local,
-// unauthenticated transport is never registered: it has no client to revoke.
 func TestClientConns_PlaintextStreamIsNotTracked(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	conns := newClientConns()

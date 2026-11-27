@@ -1,6 +1,3 @@
-// Package reconcile runs a deduplicated, one-shot background reconcile on a workspace's first Get:
-// bounded git/provider IO, then a pure sync SendWait and a corrected broadcast. List never triggers it:
-// a per-workspace network fan-out would bring back the blocking wake-storm.
 package reconcile
 
 import (
@@ -19,26 +16,18 @@ import (
 
 const defaultReconcileTimeout = 2 * time.Minute
 
-// DeriveFunc does the cancelable, bounded git+provider IO and returns the pure sync command (no IO).
-// A vanished workspace wraps problem.ErrNotFound, an idempotent skip.
 type DeriveFunc func(
 	ctx context.Context,
 	wsID string,
 ) (asynxModels.Command[domain.Workspace], error)
 
-// SendWaitFunc dispatches the pure command and blocks until projections applied it — the single
-// sanctioned crash-recovery SendWait (axWorkspace.SendWait in production).
 type SendWaitFunc func(
 	ctx context.Context,
 	cmd asynxModels.Command[domain.Workspace],
 ) (asynxModels.Event[domain.Workspace], error)
 
-// Opt configures the reconciler's bounded-IO tunables. Production wiring uses the
-// defaults; tests inject a short timeout for deterministic assertions.
 type Opt func(*Reconciler)
 
-// WithTimeout bounds the whole background reconcile (derive IO + SendWait).
-// Non-positive values are ignored.
 func WithTimeout(
 	d time.Duration,
 ) Opt {
@@ -49,8 +38,6 @@ func WithTimeout(
 	}
 }
 
-// Reconciler dispatches deduplicated, one-shot, background reconcile tasks off
-// the per-id read path. OnOpen is safe for concurrent use.
 type Reconciler struct {
 	derive    DeriveFunc
 	sendWait  SendWaitFunc
@@ -63,8 +50,6 @@ type Reconciler struct {
 	inflight map[string]struct{}
 }
 
-// New builds a Reconciler over injected derive, sendWait and broadcast, so this package holds no
-// git/provider dependency. Tasks join drainWG so shutdown can wait them out.
 func New(
 	derive DeriveFunc,
 	sendWait SendWaitFunc,
@@ -86,8 +71,6 @@ func New(
 	return r
 }
 
-// OnOpen dispatches a deduplicated background reconcile for wsID and returns at once; the work runs
-// on a detached, bounded context to outlive the read. A blank id is ignored.
 func (r *Reconciler) OnOpen(
 	ctx context.Context,
 	wsID string,
@@ -99,8 +82,6 @@ func (r *Reconciler) OnOpen(
 		return
 	}
 	if !r.gate.Enter() {
-		// Draining: no run goroutine will release the claim, so undo it here or wsID stays "in flight"
-		// and never reconciles again.
 		r.release(wsID)
 		return
 	}
@@ -139,8 +120,6 @@ func (r *Reconciler) run(
 	r.reconcile(bg, wsID)
 }
 
-// reconcile re-derives, folds via a pure SendWait, then broadcasts. Idempotent: ErrNotFound and
-// ErrValidation are silent no-ops.
 func (r *Reconciler) reconcile(
 	ctx context.Context,
 	wsID string,

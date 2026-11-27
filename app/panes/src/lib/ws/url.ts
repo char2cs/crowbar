@@ -4,9 +4,6 @@ import { inShell } from '@/lib/ws/in-shell'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 
-// Resolve a relative WS path ("/v0/ws/git?wsId=x") to an absolute ws(s):// URL at connect time,
-// since WebSocket rejects relative URLs. Precedence mirrors API_BASE (Tauri bridge, VITE_API_URL,
-// page origin); a non-'local' hostId resolves through apiBaseFor, as apiFetch does.
 export function wsUrl(path: string, hostId = 'local'): string {
   if (/^wss?:\/\//i.test(path)) return path
 
@@ -20,9 +17,6 @@ export function wsUrl(path: string, hostId = 'local'): string {
   return resolved.toString()
 }
 
-// Whether live streaming is available: on desktop ws_bridge carries any `/v0/...` WS route over
-// the unix socket via TauriWebSocket, and the GPUI shell's relay carries them for its panes; in the browser only http(s)/ws(s) bases can. When false,
-// callers skip live channels and features degrade to HTTP only.
 export function isWebSocketCapable(): boolean {
   if (isTauri() || inShell()) return true
   const base = crowbar?.api || import.meta.env.VITE_API_URL || window.location.origin

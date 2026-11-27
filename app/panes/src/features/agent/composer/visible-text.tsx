@@ -1,6 +1,5 @@
 import { visibleParts } from '@/features/agent/composer/lib/ask-request'
 
-/** Text with every character that would not draw as itself written out. */
 export function Visible({ text }: { text: string }) {
   return visibleParts(text).map((part, i) =>
     part.escaped ? (

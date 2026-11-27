@@ -13,8 +13,6 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
-// An OS drop carries host paths, which name their own files: they open into the pane they
-// landed on, whichever workspace is in view.
 describe('usePaneDropHandlers', () => {
   beforeEach(() => {
     vi.clearAllMocks()

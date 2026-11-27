@@ -1,5 +1,3 @@
-//! A file pane arriving: reading its document and sharing it.
-
 pub(crate) mod arrival;
 pub(crate) mod chat_reads;
 pub(crate) mod followed;

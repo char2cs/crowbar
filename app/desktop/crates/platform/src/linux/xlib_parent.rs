@@ -2,12 +2,10 @@ use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, WindowHandle, XlibWindowHandle,
 };
 
-/// An X11 window that a native web view can be embedded into, presented as an Xlib window handle.
 #[derive(Debug, Clone, Copy)]
 pub struct XlibParent(u32);
 
 impl XlibParent {
-    /// The parent for the X11 window with id `window`.
     pub fn new(window: u32) -> Self {
         Self(window)
     }

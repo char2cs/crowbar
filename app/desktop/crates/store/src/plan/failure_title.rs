@@ -1,5 +1,3 @@
-//! The title develop's failure toast gives each sidebar command, over the daemon's reason.
-
 use sidebar::Command;
 
 use crate::live::State;

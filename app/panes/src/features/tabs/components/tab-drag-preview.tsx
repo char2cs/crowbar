@@ -4,10 +4,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { LIFTED } from '@/components/layout/drag-ghost'
 import { cn } from '@/lib/utils'
 
-/** The lifted tab under the pointer while a tab is dragged. */
 export function TabDragPreview({ buffer }: { buffer: PaneContent | null }) {
-  // In the body, so the preview sits among the other body-level overlays that hide a browser
-  // tab's native webview.
   return createPortal(
     <DragOverlay dropAnimation={null}>
       {buffer ? (

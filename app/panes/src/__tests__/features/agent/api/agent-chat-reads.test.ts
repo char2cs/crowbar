@@ -7,11 +7,6 @@ vi.mock('@/lib/api/fetch', () => ({
   apiFetch: (...a: unknown[]) => apiFetch(...a),
   apiFetchRaw: (...a: unknown[]) => apiFetchRaw(...a),
 }))
-// Only the scope REGISTRY is faked; the URL builders themselves run for real,
-// so these assertions pin the actual paths this client dials rather than a
-// stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
-// repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
-// falls back to the still-live /home mount; anything else is unrecorded scope.
 vi.mock('@/lib/workspace-scope', () => ({
   bindActiveWorkspaceId: () => {},
   getWorkspaceScope: (id: string) => {
@@ -44,13 +39,10 @@ describe('agent-chat-reads', () => {
   beforeEach(() => {
     apiFetch.mockReset()
     resetChatStore()
-    // A listed chat is placed by its own row, whichever workspace owns it.
     writeChat({ id: 'chat/1' })
     writeChat({ id: 'c1' })
   })
 
-  // A blob read goes through the shared raw fetch: it retries a transport
-  // failure and reports a daemon refusal like every other read.
   it('reads a payload a row names by its blob ref, and null once it is swept', async () => {
     apiFetchRaw
       .mockResolvedValueOnce(new Response('full output'))
@@ -95,8 +87,6 @@ describe('agent-chat-reads', () => {
     )
   })
 
-  // Every chat read is grounded once, so nothing downstream has to remember
-  // that an absent parent and a root parent are the same thing.
   it('mapChat grounds an absent parent, order, model and effort', () => {
     const chat = api.mapChat({ id: 'c1', workspaceId: 'w1' } as never)
     expect(chat).toMatchObject({ parentId: '', order: 0, model: '', effort: '' })

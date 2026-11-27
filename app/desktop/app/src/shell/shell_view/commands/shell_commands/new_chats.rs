@@ -1,5 +1,3 @@
-//! The shell commands that start a chat in the active project.
-
 use gpui::Context;
 use sidebar::{ActiveSpace as _, PaneFocus as _, Sink as _};
 

@@ -28,8 +28,6 @@ func TestPlacementTreeStep_AFreshHomeHasNothingToDo(t *testing.T) {
 	assert.True(t, planOf(t, h, StepPlacementTree).Empty())
 }
 
-// A home older than the position rows still has chat placements to copy, so
-// the run writes the Tree and the plan asks for a backup.
 func TestPlacementTreeStep_AHomeWithChatsButNoNodeLogStillRewritesState(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/events/"+legacyChatLog, "rows")

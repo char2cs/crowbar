@@ -1,5 +1,3 @@
-//! What handing the theme to the pane web views tells the log.
-
 use std::fmt;
 
 use journal::Level;

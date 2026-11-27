@@ -1,5 +1,3 @@
-//! A field in a test window, with the number of times that window was drawn.
-
 use std::cell::Cell;
 use std::rc::Rc;
 

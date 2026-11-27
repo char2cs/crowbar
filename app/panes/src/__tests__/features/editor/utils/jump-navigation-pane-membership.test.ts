@@ -4,9 +4,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { workspaceRef } from '@/lib/api/documents'
 
-// A pane renders only an active buffer among its own `editorTabIds` (see pane-container.tsx);
-// `activateEditorTabInPane` refuses a non-member, so jump navigation must never use it for a
-// buffer the target pane does not already hold.
 const rendersSomething = (paneId: string): boolean => {
   const pane = windowPaneStore.getState().panes[paneId]
   if (!pane?.activeEditorTabId) return false
@@ -35,12 +32,9 @@ describe('jump navigation — pane membership invariant', () => {
       name: 'a.ts',
     })
 
-    // Detach the tab while the buffer stays alive, the state jump navigation lands in after the
-    // file's tab was closed; activateEditorTabInPane must still refuse to point the pane at `id`.
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
     windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, id)
 
-    // The pane never points at something it does not hold (a tab strip with nothing rendered).
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).not.toBe(id)
     expect(rendersSomething(ROOT_PANE_ID)).toBe(false)
   })
@@ -54,7 +48,6 @@ describe('jump navigation — pane membership invariant', () => {
     }
     const id = windowPaneStore.getState().bufferActions.openContent(spec)
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
-    // The pane let go of its last reference: the buffer is gone.
     expect(windowPaneStore.getState().buffers).toEqual([])
 
     windowPaneStore.getState().bufferActions.openContent(spec)

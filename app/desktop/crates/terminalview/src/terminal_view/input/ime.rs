@@ -1,5 +1,3 @@
-//! Input-method support: composition shows at the cursor and commits as typed text.
-
 use std::ops::Range;
 
 use gpui::{

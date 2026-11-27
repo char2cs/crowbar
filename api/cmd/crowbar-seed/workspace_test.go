@@ -2,9 +2,6 @@ package main
 
 import "testing"
 
-// Import leaves two rows reporting the default branch: the isDefault "home"
-// row for the unmanaged repo folder, and the locked worktree Crowbar
-// actually owns. Only the locked one is a legal fork parent.
 func TestPickBaseChatSkipsTheHomeRow(t *testing.T) {
 	list := []chatDTO{
 		{ID: "home", Worktree: &chatWorktreeDTO{Branch: "main", IsDefault: true, LocalPath: "/repo"}},
@@ -48,8 +45,6 @@ func TestPickBaseChatHonoursANonMainDefaultBranch(t *testing.T) {
 	}
 }
 
-// The seed commits into the feature chat's worktree, so a row whose worktree
-// is not on disk yet is not usable and the poll must keep waiting.
 func TestPickFeatureChatWaitsForTheWorktreeOnDisk(t *testing.T) {
 	list := []chatDTO{{ID: "ws", Worktree: &chatWorktreeDTO{Branch: seedFeatureBranch, LocalPath: ""}}}
 
@@ -93,8 +88,6 @@ func TestPickProjectIgnoresUnrelatedProjects(t *testing.T) {
 	}
 }
 
-// GET /v0/projects/:projectId/repos answers with every repo the daemon knows,
-// so a same-named repo under another project must not be adopted.
 func TestPickRepoRejectsAnotherProjectsRepo(t *testing.T) {
 	list := []repoDTO{{ID: "a", ProjectID: "other", Name: seedRepoName}}
 

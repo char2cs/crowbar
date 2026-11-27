@@ -1,5 +1,3 @@
-//! Dragging the scrollbar thumb with the pointer.
-
 use std::cell::Cell;
 use std::rc::Rc;
 

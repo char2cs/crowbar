@@ -41,8 +41,6 @@ func TestEventFields_ReadsTheEventTable(t *testing.T) {
 	}
 }
 
-// Outbound events are things Crowbar SENDS. Listing them as observations would make
-// Capabilities claim the provider reports something it does not.
 func TestDeclaredEvents_ExcludesOutboundAndIsSorted(t *testing.T) {
 	got := v3().DeclaredEvents()
 	want := []string{"observed_only", "permission", "session_start"}
@@ -63,8 +61,6 @@ func TestAnswerFor_ReturnsTheDecisionChannel(t *testing.T) {
 	}
 }
 
-// answerable:false is the declared form of "visible but a decision reaches nobody",
-// which is what a missing v2 answer block meant silently.
 func TestAnswerFor_RefusesAnObservedOnlyEvent(t *testing.T) {
 	if _, ok := v3().AnswerFor("observed_only"); ok {
 		t.Fatal("answerable:false must not report an answer channel")
@@ -115,7 +111,6 @@ func TestTransportFor_FallsBackToTheRuntimeDefault(t *testing.T) {
 	}
 }
 
-// Design spec P6b tag 2: nil surfaces: means every surface.
 func TestEventSurfaces_AbsentMeansNil(t *testing.T) {
 	d := v3()
 	if got := d.EventSurfaces("session_start"); got != nil {

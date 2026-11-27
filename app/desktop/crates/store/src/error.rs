@@ -1,35 +1,23 @@
-//! Errors of the shell data layer.
-
 use std::path::PathBuf;
 
-/// Why a daemon request, a stream or a settings file failed.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// A request to a daemon or its stream failed.
     #[error(transparent)]
     Daemon(#[from] daemonapi::Error),
-    /// The followed host or the row a request needs is not there.
     #[error("shell data: stream: {0}")]
     Stream(String),
-    /// A file of the shell could not be read or written.
     #[error("shell data: {path}: {source}")]
     File {
-        /// The file.
         path: PathBuf,
-        /// The cause.
         #[source]
         source: std::io::Error,
     },
-    /// The thread that saves the settings file could not start.
     #[error("shell data: settings writer: {0}")]
     Writer(#[source] std::io::Error),
-    /// A file of the shell holds invalid JSON.
     #[error("shell data: {path} is not valid JSON: {source}")]
     Json {
-        /// The file.
         path: PathBuf,
-        /// The cause.
         #[source]
         source: serde_json::Error,
     },
@@ -44,7 +32,6 @@ impl Error {
     }
 }
 
-/// The result of this crate.
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

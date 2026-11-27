@@ -3,7 +3,6 @@ import type { Repo } from '@/core/entities/repo-types'
 import { RepoImportDialog } from './repo-import-dialog'
 import { resolveRow } from './open-actions'
 
-/** The import dialog for the project-home row `repoRowId` (null: closed), importing into its repo. */
 export function RowBranchImportDialog({
   repoRowId,
   repos,

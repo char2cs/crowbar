@@ -13,8 +13,6 @@ beforeEach(() => {
   vi.spyOn(reads, 'getSlashCatalog').mockResolvedValue(slashCatalog())
 })
 
-// One chat, one name for the model: the blank handle and the underbar are the same
-// control, and a live runner's raw launch id must not replace the reported name.
 describe('AgentChatView model name', () => {
   const selectable = [
     provider('provider-b', 'Provider B', { modelSelect: true, models: ['model-five'] }),

@@ -6,7 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TerminalProfileStore is a fake store.Store[domain.TerminalProfile, string].
 type TerminalProfileStore struct {
 	Saved   []domain.TerminalProfile
 	Deleted []string
@@ -16,7 +15,6 @@ type TerminalProfileStore struct {
 	FindAllErr error
 }
 
-// NewTerminalProfileStore returns an empty TerminalProfileStore.
 func NewTerminalProfileStore() *TerminalProfileStore {
 	return &TerminalProfileStore{}
 }

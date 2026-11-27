@@ -27,7 +27,6 @@ describe('markdown round-trip (GFM core)', () => {
 
   it('preserves a GFM table', () => {
     const md = '| a | b |\n| --- | --- |\n| 1 | 2 |\n'
-    // Table cell padding may be re-canonicalized; assert structure survives.
     const out = roundTrip(md)
     expect(out).toMatch(/\| a\s*\| b\s*\|/)
     expect(out).toMatch(/\| 1\s*\| 2\s*\|/)
@@ -46,10 +45,6 @@ describe('markdown round-trip (GFM core)', () => {
 })
 
 describe('markdown round-trip (underline)', () => {
-  // @platejs/markdown's default `underline` rule serializes to an mdast
-  // `mdxJsxTextElement`, which `mdast-util-to-markdown` has no handler for —
-  // it throws on every serialize, which Plate's onChange triggers on every
-  // op. See markdown-underline-rules.ts for the fix and why `<u>` specifically.
   it('serializes underlined text without throwing, as <u>', () => {
     const value = [
       { type: 'p', children: [{ text: 'plain ' }, { text: 'under', underline: true }] },
@@ -82,17 +77,8 @@ describe('markdown round-trip (callout)', () => {
   it('preserves a GitHub-alert callout, including its type and body', () => {
     const md = '> [!NOTE]\n> Something here.\n'
     const out = roundTrip(md)
-    // remark-stringify defensively backslash-escapes a paragraph-leading `[`
-    // (any text starting with `[` gets this, not just alert markers — it's
-    // disambiguation against link/reference syntax) — so the marker survives
-    // as `\[!NOTE]` rather than byte-identical `[!NOTE]`. The type and body
-    // are still both fully present; a callout that goes into the editor
-    // never comes out silently retyped as a plain quote or missing its
-    // variant.
     expect(out).toContain('[!NOTE]')
     expect(out).toContain('Something here.')
-    // ...and it's genuinely a callout under the hood, not a blockquote that
-    // happens to contain the literal text "[!NOTE]".
     const value = parseMarkdown(md).value
     expect(value).toEqual([
       {
@@ -120,8 +106,6 @@ describe('markdown round-trip (callout)', () => {
 })
 
 describe('markdown round-trip (mermaid)', () => {
-  // A ```mermaid block stays an ordinary fenced code block in the document model: rendered
-  // specially in the rich editor (mermaid-code-block.tsx) but round-tripped like any ```lang block.
   it('preserves a mermaid code fence byte-exactly', () => {
     const md = '```mermaid\nflowchart LR\n  A --> B\n```\n'
     expect(roundTrip(md)).toBe(md)
@@ -145,15 +129,11 @@ describe('markdown round-trip (math + callout fixed point)', () => {
     const first = roundTrip(md)
     const second = roundTrip(first)
     expect(second).toBe(first)
-    // Sanity: this isn't trivially true because everything got dropped —
-    // both constructs are still actually present in the fixed-point output.
     expect(first).toContain('[!WARNING]')
     expect(first).toContain('E=mc^2')
     expect(first).toContain('x^2 + y^2 = z^2')
   })
 
-  // A mermaid block alongside a table and math must reach a fixed point too, so a pristine
-  // open-then-save of a doc mixing all three never rewrites it a second time.
   it('is a fixed point with a mermaid block, a table, and math all present', () => {
     const md =
       '# Doc\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\nInline $E = mc^2$ too.\n'
@@ -167,19 +147,16 @@ describe('markdown round-trip (math + callout fixed point)', () => {
   })
 })
 
-// What a save writes: the value over the text it was parsed from.
 const save = (md: string, edit: (value: Value) => Value = (value) => value) => {
   const { value, source } = parseMarkdown(md)
   return plateValueToMarkdown(edit(value), source)
 }
 
-// Appends text to the node at `index`, as typing at its end would.
 const appendTo = (index: number, text: string) => (value: Value) =>
   value.map((node, i) =>
     i === index ? { ...node, children: [...node.children, { text }] } : node,
   ) as Value
 
-// vitest runs from app/panes/, so the repo root is two levels up.
 const REPO = join(process.cwd(), '..', '..')
 const repoDocs = [
   'README.md',

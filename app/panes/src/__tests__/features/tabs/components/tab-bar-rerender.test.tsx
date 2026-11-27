@@ -8,11 +8,6 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
-// ── Per-item render probe ────────────────────────────────────────────
-// Each TabBarItem renders FileExplorerIcon INLINE (it is not independently
-// memoized), so the mock's invocation count for a given fileName is exactly
-// the number of times that item's TabBarItem re-rendered. Keyed by fileName
-// (== buffer.name), which the dirty-toggle test deliberately keeps stable.
 const iconRenderCounts = new Map<string, number>()
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: ({ fileName }: { fileName: string }) => {
@@ -21,9 +16,6 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   },
 }))
 
-// TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
-// irrelevant to tab rendering. Stub it so the suite needn't stand up a
-// SidebarProvider; `open: true` keeps the reopen toggle out of the tree.
 vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
   return {
@@ -32,9 +24,6 @@ vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   }
 })
 
-// Stub the context menu down to a marker that echoes the buffer it was opened
-// for — lets the delegation sweep assert the right buffer reached
-// handleContextMenu without the real menu's portal/positioning machinery.
 vi.mock('@/features/tabs/components/tab-context-menu', () => ({
   default: ({ isOpen, buffer }: { isOpen: boolean; buffer: { id: string } | null }) =>
     isOpen && buffer
@@ -42,8 +31,6 @@ vi.mock('@/features/tabs/components/tab-context-menu', () => ({
       : null,
 }))
 
-// Imported AFTER the mocks above (vi.mock is hoisted regardless, but keep the
-// intent explicit).
 import TabBar from '@/features/tabs/components/tab-bar'
 
 function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): EditorContent {
@@ -62,8 +49,6 @@ function makeEditorBuffer(i: number, overrides: Partial<EditorContent> = {}): Ed
   }
 }
 
-// Panes and buffers live in the window-level `windowPaneStore`; the workspace store returned
-// here only feeds WorkspaceStoreContext.
 function setupStore(buffers: EditorContent[]) {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
@@ -106,13 +91,9 @@ describe('TabBar render isolation', () => {
       renderTabBar(store)
     })
 
-    // Baseline captured AFTER mount effects settle (edge-detection layout
-    // effect + auto-scroll effect each may trigger one extra render pass).
     const before = new Map(iconRenderCounts)
     expect(before.get('file-2.ts')).toBeGreaterThan(0)
 
-    // Flip an INACTIVE buffer's dirty flag while REUSING every other buffer's
-    // object reference — only buf-2's identity changes, as a store write does.
     act(() => {
       windowPaneStore.setState((s) => {
         s.buffers = s.buffers.map((b) =>
@@ -122,7 +103,6 @@ describe('TabBar render isolation', () => {
       })
     })
 
-    // Exactly the mutated tab re-renders; the other four are memoized out.
     expect(iconRenderCounts.get('file-2.ts')).toBe((before.get('file-2.ts') ?? 0) + 1)
     for (const i of [0, 1, 3, 4]) {
       expect(iconRenderCounts.get(`file-${i}.ts`)).toBe(before.get(`file-${i}.ts`))
@@ -214,7 +194,6 @@ describe('TabBar handler delegation', () => {
       renderTabBar(store)
     })
 
-    // The close Button is the 2nd button inside each tab's group container.
     const tab2 = screen.getByRole('tab', { name: /file-2\.ts/ }).closest('.group\\/tab')
     const closeBtn = tab2?.querySelectorAll('button')[1] as HTMLElement
     act(() => {
@@ -226,11 +205,6 @@ describe('TabBar handler delegation', () => {
   })
 })
 
-// TabBarItem's memo (asserted above) isolates WHICH tab repaints. This closes
-// TabBar's OWN re-render: a buffer write that leaves every rendered field
-// unchanged must not re-render the strip at all (no sort, no remap). The
-// icon-count probe can't see this — TabBarItem's memo already bails — so we
-// count commits of the TabBar subtree with a Profiler instead.
 describe('TabBar strip-level render isolation', () => {
   afterEach(() => {
     vi.clearAllMocks()
@@ -263,9 +237,6 @@ describe('TabBar strip-level render isolation', () => {
     const baseline = commits
     expect(baseline).toBeGreaterThan(0)
 
-    // Change ONLY the language override (a non-rendered field) while reusing
-    // every other buffer's reference. No rendered field moves, so the strip
-    // must not commit again.
     act(() => {
       windowPaneStore.setState((s) => {
         s.buffers = s.buffers.map((b) =>

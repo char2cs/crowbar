@@ -16,8 +16,6 @@ const (
 	eventTurnStop = "turn_stop"
 )
 
-// boot starts the TUI the way a chat does and keeps it up for the hook and
-// turn steps that need a live process.
 func (l *live) boot(ctx context.Context) []Step {
 	start := time.Now()
 	tmp, err := l.tmpDir("boot")
@@ -42,9 +40,6 @@ func (l *live) boot(ctx context.Context) []Step {
 	return []Step{s, l.hookStep(), turn}
 }
 
-// watchBoot holds the TUI for the boot window: an exit fails it, and a
-// terminal prompt parks it (a user answers that in the terminal; the
-// harness never does, since a default answer may be "exit").
 func (l *live) watchBoot(ctx context.Context, t *term) (Step, bool) {
 	deadline := time.Now().Add(l.opts.BootWindow)
 	for time.Now().Before(deadline) {
@@ -68,7 +63,6 @@ func promptName(kind string) string {
 	return fmt.Sprintf("%q", kind)
 }
 
-// turn types one prompt and waits for the turn to end, when asked to.
 func (l *live) turn(ctx context.Context, t *term) Step {
 	if !l.opts.Turn {
 		return skip("turn", "not requested (--turn runs one real model turn)")
@@ -77,7 +71,6 @@ func (l *live) turn(ctx context.Context, t *term) Step {
 	if err := t.send(l.opts.Prompt); err != nil {
 		return fail("turn", err.Error())
 	}
-	// A TUI reads a burst as a paste; the Enter must arrive after it.
 	if ended, _ := t.exited(time.Second); ended {
 		return fail("turn", "the CLI exited while the prompt was typed")
 	}
@@ -98,7 +91,6 @@ func (l *live) turn(ctx context.Context, t *term) Step {
 	return fail("turn", fmt.Sprintf("no turn_stop within %s: %s", l.opts.TurnTimeout, tail(t.text(), 240)))
 }
 
-// hookStep parses every recorded hook with the descriptor, as the daemon would.
 func (l *live) hookStep() Step {
 	records := l.hooks.records()
 	if len(records) == 0 {
@@ -123,7 +115,7 @@ func (l *live) parseHook(rec hookRecord) error {
 		return err
 	}
 	if _, declared := l.d.Events[rec.event]; !declared {
-		return nil // wired for a relay-side purpose (idle), not an event
+		return nil
 	}
 	_, err := l.agent.ParseHook(rec.event, rec.payload, agents.ChannelHooks)
 	return err

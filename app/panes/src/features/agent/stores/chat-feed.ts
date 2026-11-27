@@ -40,30 +40,20 @@ interface Attachment {
   hostId: string
   refs: number
   release: () => void
-  /** Live rows and deltas since the last animation frame, applied there in one write. */
   pending: LiveFrame[]
   frame: number | null
-  /** A synced disagreed with the last applied row and the scope was asked for again. */
   reasked: boolean
-  /** A fresh window is replaying: the next sub asks for it, not for rows after the head. */
   widening: boolean
-  /** An older page is on its way. */
   paging: boolean
-  /** The shown feed came from the stored copy and the daemon has not confirmed it yet. */
   cached: boolean
 }
 
-/** A long chat opens on about three screens of its newest rows; older ones replay as the
- *  reader nears them. Sized by what is seen (`feed-window`), not by a fixed row count. */
 const openWindow = () => openRows(typeof window === 'undefined' ? 0 : window.innerHeight)
 
-/** How many chats keep their folded feed after their last view detaches. */
 const KEPT_FEEDS = 8
 
 const attachments = new Map<string, Attachment>()
-/** chat → the host of a feed kept with no view, oldest first. */
 const kept = new Map<string, string>()
-/** host → the daemon run its stream's ready named: a feed synced under another drops its live tail. */
 const epochs = new Map<string, string>()
 
 const scopeOf = (chatId: string) => `chat:${chatId}`
@@ -77,7 +67,6 @@ function flush(chatId: string, attachment: Attachment) {
   applyFeedBatch(chatId, frames)
 }
 
-/** Writes the shown feed to the cache, when it is a settled copy of the daemon's. */
 function persist(chatId: string, attachment: Attachment) {
   const feed = chatStore.getState().feeds[chatId]
   if (feed?.status === 'live' && feed.seq > 0 && !attachment.cached) {
@@ -85,7 +74,6 @@ function persist(chatId: string, attachment: Attachment) {
   }
 }
 
-// No frame callback runs in a hidden tab: what is queued applies as the tab hides, and is saved there.
 if (typeof document !== 'undefined') {
   const flushAll = () => {
     for (const [chatId, attachment] of attachments) {
@@ -97,8 +85,6 @@ if (typeof document !== 'undefined') {
   window.addEventListener('pagehide', flushAll)
 }
 
-// Each save copies the feed, so a running turn's rows wait for its end: a replay's ready, the
-// turn's end, a hide and the last detach write it, and a crash costs the daemon a short resume.
 chatStore.subscribe((state, prev) => {
   for (const [chatId, attachment] of attachments) {
     const next = state.feeds[chatId]
@@ -114,7 +100,6 @@ function release(chatId: string, attachment: Attachment) {
   if (attachments.get(chatId) === attachment) attachments.delete(chatId)
 }
 
-/** The stream's frame as the chat store folds it; a delta or a refusal is not one. */
 function feedFrameOf(hostId: string, f: Frame): FeedFrame | undefined {
   switch (f.t) {
     case 'row':
@@ -127,8 +112,6 @@ function feedFrameOf(hostId: string, f: Frame): FeedFrame | undefined {
   return undefined
 }
 
-/** A live row or delta, queued for the next animation frame; anything else, or any
- *  frame of a replay, applies at once behind what is queued. */
 function liveFrameOf(chatId: string, f: Frame): LiveFrame | undefined {
   if (f.t === 'delta') return { type: 'delta', delta: f.delta as unknown as FeedDelta }
   if (f.t !== 'row' || f.from !== undefined || !foldsLive(chatId)) return undefined
@@ -157,8 +140,6 @@ function onFrame(chatId: string, attachment: Attachment, f: Frame) {
   persist(chatId, attachment)
 }
 
-/** A synced names the ledger's head: one past the last applied row means rows
- *  were dropped, so the scope is asked for again once, then the feed fails. */
 function checkHead(chatId: string, attachment: Attachment, head: number | undefined) {
   const seq = chatStore.getState().feeds[chatId]?.seq
   if (head === undefined || seq === undefined || head === seq) {
@@ -172,8 +153,6 @@ function checkHead(chatId: string, attachment: Attachment, head: number | undefi
   resubscribe(attachment.hostId, scopeOf(chatId))
 }
 
-/** The stored copy does not line up with the daemon's ledger: it is forgotten, and a fresh
- *  window replays behind it and replaces it at ready in one write, so nothing blinks. */
 function reconcile(chatId: string, attachment: Attachment, ask: boolean) {
   attachment.cached = false
   attachment.widening = true
@@ -182,8 +161,6 @@ function reconcile(chatId: string, attachment: Attachment, ask: boolean) {
   if (ask) resubscribe(attachment.hostId, scopeOf(chatId))
 }
 
-/** Shows what the cache holds for a chat nothing has filled yet; the scope is held after, so its
- *  one sub resumes from the cursor (or asks for a window when the stored run is not the daemon's). */
 function showStored(chatId: string, attachment: Attachment, stored: ChatFeed | undefined) {
   if (!stored || !showStoredFeed(chatId, stored)) return
   attachment.cached = true
@@ -191,7 +168,6 @@ function showStored(chatId: string, attachment: Attachment, stored: ChatFeed | u
   if (run !== undefined && run !== stored.epoch) reconcile(chatId, attachment, false)
 }
 
-/** Drops the kept feeds of `hostId`: their rows belong to a ledger this client no longer follows. */
 function dropKeptOn(hostId: string) {
   for (const [chatId, on] of kept) {
     if (on !== hostId) continue
@@ -206,15 +182,12 @@ forgetWithChat((chatId) => {
 })
 
 registerScopeKind('chat', {
-  // Rows after the head the feed holds, or (a negative since) a window of the newest rows.
   since: (hostId, chatId) => {
     const attachment = attachments.get(chatId)
     const held = attachment?.hostId === hostId && !attachment.widening
     return (held && chatStore.getState().feeds[chatId]?.seq) || -openWindow()
   },
-  // A replay of any kind sends its rows as previews within this size.
   bytes: () => PAGE_BYTES,
-  // A kept feed's seq means nothing in another run's ledger: it replays from the newest rows.
   epoch: (hostId, next) => {
     const was = epochs.get(hostId)
     epochs.set(hostId, next)
@@ -222,7 +195,6 @@ registerScopeKind('chat', {
       dropKeptOn(hostId)
       void forgetHostFeeds(hostId)
     }
-    // A stored copy of another run answers to that run's ledger: it shows until the window replaces it.
     for (const [chatId, attachment] of attachments) {
       const stored = chatStore.getState().feeds[chatId]
       if (attachment.hostId === hostId && attachment.cached && stored?.epoch !== next) {
@@ -240,14 +212,11 @@ registerScopeKind('chat', {
     const chatId = f.scope.slice('chat:'.length)
     const attachment = attachments.get(chatId)
     if (attachment?.hostId !== hostId) return
-    // The chat's usage report rides its scope as an entity the entity store holds.
     if (f.t === 'entity') return applyEntityFrame(hostId, f)
     onFrame(chatId, attachment, f)
   },
 })
 
-/** Pages the turns before the feed's first row in over REST and lays them above it. No-op while
- *  a page is on its way, the feed replays, or nothing is older; a failed page is asked for again. */
 export async function loadOlder(chatId: string) {
   const attachment = attachments.get(chatId)
   const from = chatStore.getState().feeds[chatId]?.from
@@ -265,7 +234,6 @@ export async function loadOlder(chatId: string) {
   }
 }
 
-/** Fetches the row an item's preview was cut from and shows it whole in the item's place. */
 export async function showFull(chatId: string, itemId: string) {
   const attachment = attachments.get(chatId)
   const item = chatStore.getState().feeds[chatId]?.items.get(itemId)
@@ -278,8 +246,6 @@ export async function showFull(chatId: string, itemId: string) {
   }
 }
 
-/** Keeps a detached chat's live feed so its next attach shows it at once and resumes from its
- *  seq; a feed still replaying, or past the newest few, is dropped. */
 function keepOrDrop(chatId: string, hostId: string) {
   kept.delete(chatId)
   if (!foldsLive(chatId)) return dropFeed(chatId)
@@ -291,8 +257,6 @@ function keepOrDrop(chatId: string, hostId: string) {
   }
 }
 
-/** Holds the chat's ledger scope on `hostId` while anything attached to it is mounted. The
- *  last detach keeps the feed, and the next attach resumes it from its seq. */
 export function attachFeed(hostId: string, chatId: string): () => void {
   let attachment = attachments.get(chatId)
   if (!attachment) {
@@ -315,7 +279,6 @@ export function attachFeed(hostId: string, chatId: string): () => void {
     kept.delete(chatId)
     const unseen = !chatStore.getState().feeds[chatId]
     openFeed(chatId)
-    // A deleted chat's scope is closed as gone, an unknown one's as refused.
     const stopWatch = watchScope(hostId, scope, {
       refused(problem) {
         if (attachments.get(chatId) !== fresh) return
@@ -332,12 +295,9 @@ export function attachFeed(hostId: string, chatId: string): () => void {
     const hold = () => {
       if (attachments.get(chatId) === fresh) letGo = holdScope(hostId, scope)
     }
-    // The cache is read before the scope is held, so a hit's first sub resumes at its cursor
-    // instead of streaming a window the screen already shows. A failed read is a miss.
     if (unseen)
       void loadFeed(hostId, chatId).then((stored) => (showStored(chatId, fresh, stored), hold()))
     else hold()
-    // An unreachable stream keeps retrying; the feed says why when its host is the reason.
     streamOpened(hostId).catch((err: unknown) => {
       if (attachments.get(chatId) === fresh) failFeed(chatId, streamFailureWords(hostId, err))
     })

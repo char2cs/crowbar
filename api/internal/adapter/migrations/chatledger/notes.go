@@ -8,7 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// The legacy interruption kinds an ask restates, and the one a compaction is.
 const (
 	kindPermission  = "permission"
 	kindElicitation = "elicitation"
@@ -16,14 +15,11 @@ const (
 	choiceElicit    = "elicitation"
 )
 
-// markerKinds are the legacy interruptions that are a marker of the same kind.
 var markerKinds = []string{
 	ledger.MarkerStopped, ledger.MarkerProviderSwitched, ledger.MarkerModelChanged,
 	ledger.MarkerEffortChanged, ledger.MarkerNotification,
 }
 
-// interruptions restate the dividers the transcript showed. An ask's own
-// interruption is its choice's, and an inferred one is its turn's end.
 func (c *conversion) interruptions(interruptions []LegacyInterruption) {
 	for _, in := range interruptions {
 		g := c.turnOf(in.TurnID, in.At)
@@ -42,17 +38,13 @@ func (c *conversion) interruptions(interruptions []LegacyInterruption) {
 		case slices.Contains(markerKinds, in.Kind):
 			c.emit(ruleMarker, at, in.Seq, ledger.KindMarker, turnID, "", ledger.Marker{Kind: in.Kind, Detail: in.Detail})
 		case in.Kind == kindInferred:
-			// inferEnds made it its turn's end, or named why not.
 		case in.Kind == kindPermission || in.Kind == kindElicitation:
-			// Its choice restates it as an ask.
 		default:
 			c.skipf("interruption %s: unknown kind %q", in.ID, in.Kind)
 		}
 	}
 }
 
-// choices restate each ask as one nothing can answer any more, resolved as it
-// was, or abandoned when it never was.
 func (c *conversion) choices(choices []LegacyChoice) {
 	for _, ch := range choices {
 		if ch.ID == "" {
@@ -94,8 +86,6 @@ func resolution(ch LegacyChoice) string {
 	return ch.Resolution
 }
 
-// rawJSON is a choice's JSON column as it is; one that is not JSON is left out
-// and counted.
 func (c *conversion) rawJSON(choiceID, column, s string) json.RawMessage {
 	if s == "" || s == "null" {
 		return nil
@@ -107,7 +97,6 @@ func (c *conversion) rawJSON(choiceID, column, s string) json.RawMessage {
 	return json.RawMessage(s)
 }
 
-// Why each journal state that never became a turn is settled; accepted is a turn.
 var promptSettles = map[string]string{
 	"dispatching": ledger.ReasonDaemonRestart,
 	"spawned":     ledger.ReasonDaemonRestart,
@@ -118,8 +107,6 @@ var promptSettles = map[string]string{
 
 const promptAccepted = "accepted"
 
-// prompts restate each journalled prompt no turn covers as a prompt settled
-// unconsumed: it is shown, and never delivered again.
 func (c *conversion) prompts(prompts []LegacyPrompt) {
 	for _, p := range prompts {
 		if g, ok := c.byID[p.RequestID]; ok && g.head.ID == p.RequestID {
@@ -142,9 +129,6 @@ func (c *conversion) prompts(prompts []LegacyPrompt) {
 	}
 }
 
-// runners leave the chat live on each CLI the old daemon never saw exit, at
-// its start or after everything else, whichever is later, so the boot
-// reconcile ends it as it would any other.
 func (c *conversion) runners(runners []LegacyRunner) {
 	c.adopted = map[string]bool{}
 	last := c.latest

@@ -35,7 +35,6 @@ import {
   type SendFailure,
 } from '@/features/agent/stores/lib/outbox'
 
-/** What the composer hands over with a prompt. */
 export interface PromptInput {
   text: string
   steer: boolean
@@ -47,23 +46,18 @@ export interface PromptInput {
 export type SendResult = { ok: true } | { ok: false; error?: string }
 
 const NO_ITEMS: OutboxItem[] = []
-// The feed stays attached while a chat has prompts with no row yet, so their rows still arrive.
 const feedHolds = new Map<string, () => void>()
 interface Pending {
   promise: Promise<string | null>
   resolve: (text: string | null) => void
 }
-// Esc on an in-flight send: answered once the send does, however often pressed.
 const takeBackOnAck = new Map<string, Pending>()
-// Chats whose Terminal shows: a prompt typed into the PTY would garble the TUI's input.
 const terminalHolds = new Map<string, number>()
 
 function itemsOf(chatId: string): OutboxItem[] {
   return chatStore.getState().outbox[chatId] ?? NO_ITEMS
 }
 
-// A queued or failed prompt is the outbox's alone, which a reload empties: until it
-// is sent its text is also the chat's stash, so the composer can still give it back.
 function unsentById(items: OutboxItem[]) {
   const unsent = new Map<string, OutboxItem>()
   for (const item of items)
@@ -105,7 +99,6 @@ function update(chatId: string, change: (items: OutboxItem[]) => OutboxItem[]) {
 const drop = (chatId: string, requestId: string) =>
   update(chatId, (items) => items.filter((item) => item.requestId !== requestId))
 
-// randomUUID needs a secure context, which not every webview gives.
 function mintRequestId(): string {
   if (typeof globalThis.crypto.randomUUID === 'function') return globalThis.crypto.randomUUID()
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
@@ -115,14 +108,12 @@ function mintRequestId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-// A remote host's failure reads in the host's words, not the proxy's status.
 function failureOf(error: unknown): SendFailure {
   const message = actionErrorMessage(error, String(error))
   if (error instanceof ApiError) return { status: error.status, code: error.problem.code, message }
   return { message }
 }
 
-/** Sends the head when the rows say the chat can take it; never on a clock. */
 function drain(chatId: string) {
   const feed = chatStore.getState().feeds[chatId]
   if (feed?.status !== 'live' || terminalHolds.has(chatId)) return
@@ -147,7 +138,6 @@ async function send(chatId: string, item: OutboxItem) {
       item.effort,
       item.retryOf,
     )
-    // The 202 is the only word that a staged pick was taken; the chat's frame confirms it.
     const hostId = chatHostOf(chatId)
     if (hostId && (item.model !== undefined || item.effort !== undefined)) {
       const pick = { model: item.model ?? '', effort: item.effort ?? '' }
@@ -157,7 +147,6 @@ async function send(chatId: string, item: OutboxItem) {
   } catch (error) {
     failure = error
     update(chatId, (items) => onSendFailed(items, item.requestId, failureOf(error)))
-    // Busy waits for a row; a refusal releases what queued behind it now.
     if (failureOf(error).code !== 'chat_busy') drain(chatId)
   }
   const waiting = takeBackOnAck.get(item.requestId)
@@ -168,13 +157,11 @@ async function send(chatId: string, item: OutboxItem) {
   }
   const { code } = failureOf(failure)
   const stillHere = itemsOf(chatId).some((left) => left.requestId === item.requestId)
-  // Busy waits for a row; a lost session is said by the prompt itself.
   if (failure && stillHere && code !== 'chat_busy' && code !== 'session_lost') {
     report(failure, { action: 'Couldn’t send the prompt' })
   }
 }
 
-/** A send Esc raced: a refusal the daemon never recorded leaves with no request. */
 function answerEsc(chatId: string, item: OutboxItem, failure: unknown) {
   if (failure !== undefined && !mayBeHeld(failureOf(failure))) {
     drop(chatId, item.requestId)
@@ -183,7 +170,6 @@ function answerEsc(chatId: string, item: OutboxItem, failure: unknown) {
   return takeBack(item.wsId, chatId, item.requestId, item.text)
 }
 
-/** Retracts `requestId`; its text when the composer should get it back. */
 async function takeBack(
   wsId: string,
   chatId: string,
@@ -193,11 +179,9 @@ async function takeBack(
   try {
     const answer = await retractPrompt(wsId, chatId, requestId)
     drop(chatId, requestId)
-    // Its turn spoke: the row stays, so the composer must not get a second copy.
     const spoke = promptSpoke(chatStore.getState().feeds[chatId], requestId)
     return answer.state === 'interrupted' && spoke ? null : answer.text
   } catch (error) {
-    // Never seen: the send did not get through, so the text is only ours.
     if (error instanceof ApiError && error.status === 404) {
       drop(chatId, requestId)
       return unsentText ?? null
@@ -206,7 +190,6 @@ async function takeBack(
       toastManager.add({ type: 'error', title: WITH_PROVIDER, description: 'Stop ends its turn.' })
       return null
     }
-    // Settled or its turn closed first: it stays in the transcript, silently.
     if (!(error instanceof ApiError && error.status === 409)) {
       report(error, { action: 'Couldn’t take the prompt back' })
     }
@@ -215,7 +198,6 @@ async function takeBack(
 }
 
 const WITH_PROVIDER = 'Its provider already has this prompt'
-/** Says Esc was heard while the daemon decides; a launch can hold the answer. */
 function retracting(requestId: string, answer: Promise<string | null>) {
   const id = `retracting:${requestId}`
   toastManager.add({ id, type: 'loading', title: 'Taking the prompt back…', timeout: 0 })
@@ -224,7 +206,6 @@ function retracting(requestId: string, answer: Promise<string | null>) {
 
 let watching = false
 
-// Only the rows and the chat's own entity advance the outbox, never a clock.
 function watch() {
   if (watching) return
   watching = true
@@ -247,7 +228,6 @@ function watch() {
   })
 }
 
-/** Puts a prompt in the transcript now and sends it when the chat can take it. */
 export function sendPrompt(wsId: string, chatId: string, input: PromptInput): SendResult {
   const text = input.text.trim()
   const refused = refusal(text)
@@ -266,8 +246,6 @@ export function sendPrompt(wsId: string, chatId: string, input: PromptInput): Se
   return { ok: true }
 }
 
-/** Esc in an empty composer; null when there is nothing to act on, else the
- *  text to put back (null when it stopped the turn instead). */
 export function retractNewest(wsId: string, chatId: string): Promise<string | null> | null {
   const feed = chatStore.getState().feeds[chatId]
   if (!feed) return null
@@ -299,11 +277,8 @@ export function retractNewest(wsId: string, chatId: string): Promise<string | nu
   }
 }
 
-/** Stops the running turn, which reads as stopping from this frame on. */
 export function stopTurn(wsId: string, chatId: string): Promise<void> {
   setStopping(chatId, true)
-  // Stop settles every prompt the turn would carry: those steered in are taken back
-  // first and sent after it, as typed, as a prompt held for the next turn already is.
   const steered = steeredInto(chatId)
   if (steered.length === 0) return stop(wsId, chatId)
   return Promise.all(steered.map((p) => takeBack(wsId, chatId, p.requestId, p.text))).then(
@@ -323,7 +298,6 @@ const stop = (wsId: string, chatId: string) =>
     },
   )
 
-/** The prompts the daemon holds for the running turn, oldest first. */
 function steeredInto(chatId: string): { requestId: string; text: string }[] {
   const feed = chatStore.getState().feeds[chatId]
   if (!feed?.facts.running) return []
@@ -338,7 +312,6 @@ function steeredInto(chatId: string): { requestId: string; text: string }[] {
   return held
 }
 
-/** Retry on a failed send, or on a row its prompt left behind (a fresh request). */
 export function retryPrompt(wsId: string, chatId: string, requestId: string, steer: boolean) {
   const freshId = mintRequestId()
   const feed = chatStore.getState().feeds[chatId]
@@ -353,7 +326,6 @@ export function retryPrompt(wsId: string, chatId: string, requestId: string, ste
   drain(chatId)
 }
 
-/** Takes a queued or failed prompt out; Edit is this plus its text in the composer. */
 export function discardPrompt(chatId: string, requestId: string) {
   update(chatId, (items) =>
     items.filter((item) => item.requestId !== requestId || item.state === 'sending'),
@@ -364,7 +336,6 @@ export function discardUnsent(chatId: string) {
   update(chatId, (items) => items.filter((item) => item.state === 'sending'))
 }
 
-/** Holds the chat's outbox while its Terminal shows; the release sends what waited. */
 export function holdForTerminal(chatId: string): () => void {
   terminalHolds.set(chatId, (terminalHolds.get(chatId) ?? 0) + 1)
   let held = true
@@ -378,7 +349,7 @@ export function holdForTerminal(chatId: string): () => void {
   }
 }
 
-/** The chat is gone: so is all it had waiting. @internal Exported for the fixtures' reset. */
+/** @internal */
 export function forgetOutbox(chatId: string) {
   update(chatId, () => NO_ITEMS)
 }

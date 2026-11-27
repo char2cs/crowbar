@@ -136,7 +136,6 @@ describe('useComposerFacts', () => {
     expect(renders).toBe(before)
   })
 
-  // The view renders the whole chat: a tool's label or a token is the working line's.
   it('renders the view nothing for the tools and text of a running turn', () => {
     let renders = 0
     renderHook(() => {

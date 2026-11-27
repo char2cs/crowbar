@@ -1,5 +1,3 @@
-//! Alpha values the spec reuses across components.
-
 pub(crate) const PERCENT_5: f32 = 0.05;
 pub(crate) const PERCENT_10: f32 = 0.1;
 pub(crate) const PERCENT_24: f32 = 0.24;

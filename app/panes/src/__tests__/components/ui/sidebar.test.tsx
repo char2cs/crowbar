@@ -13,7 +13,6 @@ function Toggle() {
 }
 
 describe('SidebarProvider', () => {
-  // The shell renders only `open`; a phone-width window must still hide the sidebar.
   it('toggles the one open state at every window width', () => {
     window.matchMedia = ((query: string) => ({
       matches: true,
@@ -54,10 +53,6 @@ describe('SidebarHeader', () => {
   })
 
   it("matches a depth-0 tree row's own horizontal inset exactly", () => {
-    // `pl-3 pr-3` (12px each) is the container's own `px-1.5` (6px, the
-    // sidebar row's `mx-1.5` gutter) plus a row's own `px-1.5`/
-    // FILE_TREE_BASE_INDENT (6px, the sidebar row's own `px-1.5` content
-    // padding) — file-explorer-tree.tsx and file-explorer-tree-item.tsx.
     const { container } = render(<SidebarHeader>test</SidebarHeader>)
     const el = container.firstChild as HTMLElement
     expect(el.className).toContain('pl-3')

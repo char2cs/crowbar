@@ -1,5 +1,3 @@
-//! The create-space form: what has been typed and chosen, and the command it makes.
-
 use gpui::{Entity, Subscription};
 use sidebar::{Command, HostId, PathText, SpaceIcon};
 use ui::TextInput;

@@ -1,26 +1,3 @@
-//! Wire types between the Crowbar shell, its panes and the daemon transport.
-//!
-//! The crate owns three things:
-//!
-//! * identifiers shared by every crate ([`HostId`], [`PaneId`], [`PaneTypeId`], ...),
-//! * the `sdk@1` control frames ([`PaneFrame`] and [`ShellFrame`]) with their JSON text
-//!   encoding, the 64 KB [`PaneState`] cap and the 256 KB frame cap; every string and map a
-//!   frame carries is a validated, bounded type,
-//! * the [`DaemonTransport`] port the shell uses to reach the daemon.
-//!
-//! It has no GUI, web view or async runtime dependency, so desktop and mobile shells can
-//! share it.
-//!
-//! ```
-//! use protocol::{PaneFrame, PaneTitle, decode_pane_frame, encode};
-//!
-//! let text = r#"{"sdk":1,"kind":"pane.setTitle","title":"Chat"}"#;
-//! let frame = decode_pane_frame(text)?;
-//! assert_eq!(frame, PaneFrame::SetTitle { title: PaneTitle::new("Chat")? });
-//! assert_eq!(encode(&frame)?, text);
-//! # Ok::<(), protocol::Error>(())
-//! ```
-
 mod control;
 mod error;
 mod identity;

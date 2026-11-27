@@ -1,5 +1,3 @@
-//! What the search did to one block of a page.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Slot {
     Plain,

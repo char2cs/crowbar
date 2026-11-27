@@ -1,13 +1,3 @@
-/**
- * The "Chat By Default" control (spec §11): the one visible thing that decides
- * which surface a chat lands on, sitting in the Agents tab beside the agents it
- * applies to.
- *
- * The interesting assertion is the one about turning it OFF. The row has to stay
- * exactly as present and as reversible with Chat de-selected as with it selected,
- * because the preference is a landing choice — an off switch that quietly removed
- * the control, or the Chat surface, would be a different feature.
- */
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -26,9 +16,6 @@ vi.mock('@/features/agent/api/agent-providers-api', () => ({
   ],
 }))
 
-// jsdom has no PointerEvent constructor; base-ui's Switch toggles by dispatching
-// a PointerEvent('click') on its hidden checkbox. A MouseEvent-backed shim is
-// enough — the checkbox's click activation still toggles and fires change.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
   // @ts-expect-error install the shim onto the jsdom window
@@ -83,8 +70,6 @@ describe('Chat By Default', () => {
     expect(getDefaultChatPresentation()).toBe('terminal')
   })
 
-  // Off is a preference, not a removal: the control is still there, still says
-  // what it does, and one more click puts Chat back in front.
   it('keeps Chat one click away once it is off', async () => {
     const user = userEvent.setup()
     render(<ChatPresentationSetting />)
@@ -103,9 +88,6 @@ describe('Chat By Default', () => {
     const user = userEvent.setup()
     render(<ChatPresentationSetting />)
 
-    // Re-queried each time on purpose: SettingRow gives the reset button a
-    // tooltip only while it can act, so the enabled and disabled buttons are
-    // different DOM nodes rather than one node with an attribute flipped.
     const reset = () => screen.getByRole('button', { name: 'Reset Chat By Default' })
     expect(reset()).toBeDisabled()
 

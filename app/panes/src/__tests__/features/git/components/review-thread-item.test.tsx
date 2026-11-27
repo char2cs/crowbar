@@ -19,8 +19,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
 
-// Mock @base-ui/react/avatar so AvatarImage unconditionally renders its <img>
-// (jsdom never fires image load events, so base-ui's status stays 'idle'→null)
 vi.mock('@base-ui/react/avatar', () => {
   return {
     Avatar: {
@@ -33,8 +31,6 @@ vi.mock('@base-ui/react/avatar', () => {
     },
   }
 })
-
-// ── Fixtures ────────────────────────────────────────────────────────────────────
 
 function makeThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
   return {
@@ -67,8 +63,6 @@ const defaultProps = {
   onReopen: noop,
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
-
 describe('ReviewThreadItem', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -78,7 +72,6 @@ describe('ReviewThreadItem', () => {
     const thread = makeThread()
     render(<ReviewThreadItem thread={thread} {...defaultProps} />)
 
-    // "world" should be bolded — the markdown renderer renders <strong>world</strong>
     const bold = document.querySelector('strong')
     expect(bold).not.toBeNull()
     expect(bold?.textContent).toBe('world')
@@ -99,7 +92,6 @@ describe('ReviewThreadItem', () => {
 
     render(<ReviewThreadItem thread={thread} {...defaultProps} />)
 
-    // The 'agent' badge should be visible
     expect(screen.getByText('agent')).toBeDefined()
   })
 
@@ -123,7 +115,6 @@ describe('ReviewThreadItem', () => {
 
     render(<ReviewThreadItem thread={thread} {...defaultProps} onReopen={onReopen} />)
 
-    // Reopen button should appear for resolved threads
     const reopenBtn = screen.getByText('Reopen')
     expect(reopenBtn).toBeDefined()
 
@@ -143,7 +134,6 @@ describe('ReviewThreadItem', () => {
     render(<ReviewThreadItem thread={thread} {...defaultProps} isOutdated />)
 
     expect(screen.getByText('Outdated')).toBeDefined()
-    // Thread message should NOT be visible before expansion
     expect(screen.queryByText('Hello')).toBeNull()
   })
 
@@ -156,7 +146,6 @@ describe('ReviewThreadItem', () => {
     const showBtn = screen.getByText('Show')
     await user.click(showBtn)
 
-    // After expanding, the message body should be visible
     await vi.waitFor(() => {
       expect(screen.queryByText('world')).not.toBeNull()
     })
@@ -166,7 +155,6 @@ describe('ReviewThreadItem', () => {
     const thread = makeThread()
     render(<ReviewThreadItem thread={thread} {...defaultProps} />)
 
-    // The author name is shown
     expect(screen.getByText('alice')).toBeDefined()
   })
 
@@ -227,14 +215,11 @@ describe('ReviewThreadItem', () => {
     const replyBtn = screen.getByPlaceholderText('Reply…')
     await user.click(replyBtn)
 
-    // CommentComposer shows a "Reply" submit button
     await vi.waitFor(() => {
       expect(screen.queryByText('Reply')).not.toBeNull()
     })
   })
 })
-
-// ── Three-dots comment menu (edit / copy / delete) ───────────────────────────────
 
 const IDENTITY: IdentityDTO = {
   login: 'alice',
@@ -252,7 +237,6 @@ const manageProps = {
   onDeleteThread: vi.fn().mockResolvedValue(undefined),
 }
 
-// A thread authored by `alice` with one reply by `bob`.
 function makeThreadWithReply(): ReviewThread {
   return makeThread({
     messages: [
@@ -311,7 +295,6 @@ describe('ReviewThreadItem — comment menu', () => {
       />,
     )
 
-    // First message is alice's (own) → Edit present.
     await user.click(screen.getAllByLabelText('Comment actions')[0])
     expect(await screen.findByRole('menuitem', { name: /Edit/ })).toBeDefined()
   })
@@ -326,7 +309,6 @@ describe('ReviewThreadItem — comment menu', () => {
       />,
     )
 
-    // Second message is bob's → no Edit, but Copy + Delete still present.
     await user.click(screen.getAllByLabelText('Comment actions')[1])
     expect(await screen.findByRole('menuitem', { name: /Copy as Markdown/ })).toBeDefined()
     expect(screen.getByRole('menuitem', { name: /Delete/ })).toBeDefined()
@@ -346,7 +328,6 @@ describe('ReviewThreadItem — comment menu', () => {
     await user.click(screen.getAllByLabelText('Comment actions')[0])
     await user.click(await screen.findByRole('menuitem', { name: /Delete/ }))
 
-    // Confirmation dialog for the whole thread.
     expect(await screen.findByText('Delete this thread?')).toBeDefined()
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
@@ -387,7 +368,6 @@ describe('ReviewThreadItem — comment menu', () => {
     await user.click(screen.getAllByLabelText('Comment actions')[0])
     await user.click(await screen.findByRole('menuitem', { name: /Edit/ }))
 
-    // The editor seeds with the existing body and offers Save.
     const save = await screen.findByRole('button', { name: 'Save' })
     await user.click(save)
 
@@ -396,7 +376,6 @@ describe('ReviewThreadItem — comment menu', () => {
 
   it('Copy as Markdown writes the body to the clipboard', async () => {
     const user = userEvent.setup()
-    // Override after setup() — userEvent installs its own clipboard stub on setup.
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText },
@@ -418,7 +397,6 @@ describe('ReviewThreadItem — comment menu', () => {
   })
 })
 
-// An agent on another host may post a comment that links that host's own localhost.
 describe('a link in a review comment', () => {
   const linked = makeThread({
     messages: [{ ...makeThread().messages[0], body: '[preview](http://localhost:3000/)' }],

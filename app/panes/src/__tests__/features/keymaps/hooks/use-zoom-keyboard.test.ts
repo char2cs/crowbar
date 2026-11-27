@@ -57,7 +57,6 @@ describe('useZoomKeyboard', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
-  // One zoom per press, not per OS key-repeat tick.
   it('does not fire again on an OS key-repeat while the chord is held down', () => {
     renderHook(() => useZoomKeyboard())
     dispatchKeydown({ key: '=', ctrlKey: true })

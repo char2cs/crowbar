@@ -19,8 +19,6 @@ vi.mock('@/lib/api/fetch', async (importOriginal) => ({
   apiFetch,
 }))
 
-// A repo's mark is ONE component across the home row, context pill, switcher, removal tray and
-// New Tab heading, so the same repo never renders as two different marks.
 describe('RepoIconMark', () => {
   const repo: RepoIconSource = {
     name: 'crowbar',
@@ -51,8 +49,6 @@ describe('RepoIconMark', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe('/v0/x/icon?v=2')
   })
 
-  // The repo home row is where an icon is SET, so its rendering is the one every
-  // other surface has to match.
   it('matches the repo home row: rounded-md, px-1, and a full step larger emoji', () => {
     const tile = render(<RepoIconMark repo={repo} size="lg" />).container.firstElementChild!
     expect(tile.className).toContain('rounded-md')
@@ -90,7 +86,6 @@ describe('RepoIconMark', () => {
   })
 })
 
-// The repo home row's click-to-edit icon: a thin wrapper joining IconPopover to RepoIconMark.
 describe('EditableRepoIcon', () => {
   const repo: RepoIconSource = {
     name: 'crowbar',
@@ -155,18 +150,12 @@ describe('EditableRepoIcon', () => {
       />,
     )
     await user.click(screen.getByRole('button', { name: /edit crowbar icon/i }))
-    // The preview Avatar shows the emoji directly (not an <img>) only when
-    // IconPopover was handed `emoji`, not a raw `emoji:` iconUrl it would try
-    // to fetch as an image. Two matches are expected — the trigger mark
-    // (still mounted with the popover open) and the popup's own preview.
-    await screen.findByText('Icon') // wait for the popup to be open
+    await screen.findByText('Icon')
     expect(screen.getAllByText('🛰️').length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 })
 
-// The REST base is built during render from the repo's project: it names the project's own
-// host, and nothing is editable (or thrown) until that host is known.
 describe('EditableRepoIcon on a remote host', () => {
   const repo: RepoIconSource = { name: 'crowbar', avatarLabel: 'C', avatarColor: 'bg-indigo-700' }
   const loadRow = (hostId: string) => loadProjects(projectOn('p1', hostId))

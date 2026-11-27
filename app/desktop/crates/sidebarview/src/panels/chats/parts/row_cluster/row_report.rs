@@ -1,5 +1,3 @@
-//! Click listeners that report a fixed action to the sidebar.
-
 use gpui::{App, ClickEvent, Window};
 
 use crate::sidebar::{RowAction, RowHandler};

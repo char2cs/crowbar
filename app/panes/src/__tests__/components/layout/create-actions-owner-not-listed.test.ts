@@ -27,9 +27,6 @@ import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const navigate = vi.fn(() => Promise.resolve()) as unknown as Parameters<typeof handleCreate>[2]
 
-// GET .../workspaces minted the owner ('owner-locked') on this read, but the
-// chat list this repo rendered from predates the mint (it was fetched in
-// parallel, and the mint's structural frames raced the socket handshake).
 const repo = (): Repo => ({
   id: 'r1',
   projectId: 'p1',
@@ -79,7 +76,6 @@ describe('owner known to the workspace DTO but absent from the chat list', () =>
     const draft = treeUiStore.getState().draft!
     const rendered = deriveRows(inputOf({ repos: [repo()], draft }))
     const ids = new Set(rendered.map((r) => r.id))
-    // sidebar-tree.tsx roots any row whose parentId names no rendered row.
     expect(ids.has(draft.parentId)).toBe(true)
   })
 })

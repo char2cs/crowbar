@@ -5,9 +5,6 @@ import {
 } from '@/features/editor/monaco/semantic-tokens-legend'
 
 describe('semantic token legend', () => {
-  // The daemon rewrites every language server's tokens into this legend by
-  // index (api/internal/engine/lsp/internal/semtok pins the same list): a
-  // change here must land there in the same commit.
   it('pins the wire contract shared with the daemon', () => {
     expect(SEMANTIC_TOKEN_LEGEND.tokenTypes).toEqual([
       'namespace',
@@ -64,7 +61,7 @@ describe('encodeShikiTokens', () => {
     expect(Array.from(data)).toEqual([
       ...[0, 4, 8, idx('function'), 0],
       ...[0, 16, 3, idx('function'), 0],
-      ...[2, 2, 3, idx('type'), 0], // a new line restarts the column
+      ...[2, 2, 3, idx('type'), 0],
     ])
   })
 

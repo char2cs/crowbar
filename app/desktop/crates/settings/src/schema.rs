@@ -1,5 +1,3 @@
-//! The data the modal renders: pages of blocks.
-
 mod block;
 mod button_spec;
 mod condition;
@@ -29,7 +27,6 @@ use crate::values::Error;
 use crate::values::Key;
 use crate::values::Values;
 
-/// Every page of the modal, in rail order, with the defaults the rows declare.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Schema {
     pages: Vec<Page>,
@@ -75,7 +72,6 @@ impl Schema {
         Ok(())
     }
 
-    /// The pages in rail order.
     pub fn pages(&self) -> &[Page] {
         &self.pages
     }
@@ -91,7 +87,6 @@ impl Schema {
         &self.defaults
     }
 
-    /// The rows of every page, in rail order.
     pub fn rows(&self) -> impl Iterator<Item = &Row> {
         self.pages.iter().flat_map(Page::rows)
     }

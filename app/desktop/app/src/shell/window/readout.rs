@@ -1,5 +1,3 @@
-//! The build readout overlay and its frame statistics.
-
 mod frame_clock;
 mod frame_stats;
 pub(crate) mod readout_dock;

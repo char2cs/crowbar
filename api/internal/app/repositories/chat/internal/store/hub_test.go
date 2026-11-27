@@ -15,17 +15,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// frame is a captured hub announcement: the chat, its workspace, and whether
-// it was forgotten.
 type frame struct {
 	chatID      string
 	workspaceID string
 	forgotten   bool
 }
 
-// captureHub is a WatchFunc double that records every announcement it receives as the
-// frame the fanout would build from it, safe for concurrent pushes from asynx's
-// per-shard event-processing goroutines.
 type captureHub struct {
 	mu     sync.Mutex
 	frames []frame
@@ -41,9 +36,6 @@ func (h *captureHub) push(chatID, workspaceID string, forgotten bool) {
 	})
 }
 
-// watch is the seam the store is now wired with. It reduces a ChatEvent to the same
-// frame the assertions below have always used, so this change is proven against the
-// existing suite rather than a new one.
 func (h *captureHub) watch(e ChatEvent) {
 	h.push(e.ChatID, e.WorkspaceID, e.Forgotten)
 }
@@ -60,11 +52,6 @@ func createCmd(chatID string) accmds.Create {
 	}
 }
 
-// TestHubProjection_Create_BroadcastsCreatedFrame proves a single command
-// against a fresh chat yields exactly one captured frame,
-// asserted right after SendWait returns — asynx guarantees every subscriber
-// handler (including the hub projection) has completed by then, so no sleep
-// or poll is needed.
 func TestHubProjection_Create_BroadcastsCreatedFrame(t *testing.T) {
 	ctx, ax, _, h := newProjected(t)
 	_, err := ax.SendWait(ctx, createCmd("c1"))
@@ -75,11 +62,6 @@ func TestHubProjection_Create_BroadcastsCreatedFrame(t *testing.T) {
 	assert.Equal(t, frame{chatID: "c1", workspaceID: "w1"}, frames[0])
 }
 
-// TestHubProjection_EmitsWorkspaceID proves the hub projection reads the
-// aggregate's WorkspaceID off the reduced event (evt.Aggregate.WorkspaceID) and
-// passes it through to the broadcast frame — the seam Task 3 will filter the WS
-// feed on. Asserted right after SendWait returns, the same deterministic drain
-// every other hub-projection test in this file relies on (no sleep/poll).
 func TestHubProjection_EmitsWorkspaceID(t *testing.T) {
 	ctx, ax, _, h := newProjected(t)
 	cmd := createCmd("c1")
@@ -113,16 +95,11 @@ func TestRegisterHubProjection_SubscribeError(t *testing.T) {
 	assert.Contains(t, err.Error(), "agentchat hub projection: subscribe")
 }
 
-// TestRegisterHubProjection_OnForgetError proves an OnForget subscribe
-// failure surfaces wrapped, mirroring registerStoreProjection's own
-// OnForget-error test.
 func TestRegisterHubProjection_OnForgetError(t *testing.T) {
 	err := registerHubProjection(&fakeAx{forgetErr: errors.New("bus down")}, func(ChatEvent) {})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentchat hub projection: onforget")
 }
-
-// --- the watch seam itself -------------------------------------------------
 
 func TestHubProjector_OnEvent_EmitsRepoOwnedChatEvent(t *testing.T) {
 	var got []ChatEvent
@@ -156,7 +133,6 @@ func TestHubProjector_OnForget_MarksForgotten(t *testing.T) {
 	}, got[0])
 }
 
-// A store built without a watch seam must not panic: most unit tests wire none.
 func TestHubProjector_NilWatch_DoesNotPanic(t *testing.T) {
 	p := &hubProjector{}
 	p.onEvent(context.Background(), asynxModels.Event[domain.Chat]{

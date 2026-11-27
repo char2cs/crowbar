@@ -61,8 +61,6 @@ describe('followStreamFailures', () => {
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
-  // The failure stays recorded until the stream opens: it is one piece of evidence, not a
-  // standing claim, so a probe that later reads the host up is not overruled by it.
   it('counts each failure once: a later probe’s answer stands', () => {
     stop = followStreamFailures()
     reportChannelFailure(STREAM, unreachable())
@@ -93,7 +91,6 @@ describe('reportHostFailure', () => {
     expect(statusOf('h1')).toBe('up')
   })
 
-  // Spec §3: a 401 mid-session on an 'up' host is a dead credential, not a blip.
   it('marks a host that answered 401 as needing repair, at once', () => {
     reportHostFailure(new ApiError('client is not paired', 401, undefined, undefined, 'h1'))
 

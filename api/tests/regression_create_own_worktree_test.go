@@ -15,10 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createChatWithOwnWorktree posts { provider, parentId, ownWorktree: true } —
-// deliberately with NO workspaceId in the body at all, since that is the one
-// shape the atomic create actually applies to (Task 7's brief: "no workspaceId")
-// — and returns the new chat's id.
 func createChatWithOwnWorktree(
 	t *testing.T,
 	h *harness,
@@ -38,27 +34,6 @@ func createChatWithOwnWorktree(
 	return created.ID
 }
 
-// TestRegression_CreateChatWithOwnWorktreeIsAtomicOverHTTP proves Task 7's whole
-// point: POST /repos/:rid/chats {parentId, providerId, ownWorktree:true} mints a
-// REAL workspace (a real worktree on disk, cut from the correctly resolved fork
-// parent — model spec §3.2's cwd-walk rule) AND the chat that owns it in ONE
-// request, ONE response — never a chat-less workspace, nor a workspace-less
-// chat waiting on a second call, in between.
-//
-// Before this task, POST /chats ignored an unknown "ownWorktree" field
-// entirely and fell through to the plain workspace-less create: the new chat
-// would come back as a bubble (WorkspaceID empty) with no worktree at all —
-// exactly what every assertion below would catch.
-//
-// The fork parent is proven the same way TestRegression_PromoteFillsABubblesWorkspaceSlotOverHTTP
-// proves Promote's: the new chat's CLI reports its own REAL OS-level working
-// directory (readSpawnCwd), which is ground truth no Crowbar-reported field can
-// fake. The new chat is threaded under a FOLDER filed under the ancestor chat,
-// not directly under the ancestor: a chat parent still enforces the pre-existing
-// same-workspace guard this task does not touch (see createOwnWorktreeChat's own
-// doc comment, chat/internal/tree/chats.go) — the identical construction
-// TestRegression_PromoteFillsABubblesWorkspaceSlotOverHTTP and
-// TestRegression_BubbleChatSpawnsInAncestorWorktree already settled for.
 func TestRegression_CreateChatWithOwnWorktreeIsAtomicOverHTTP(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -87,12 +62,6 @@ func TestRegression_CreateChatWithOwnWorktreeIsAtomicOverHTTP(t *testing.T) {
 		"the new chat's CLI must run in its OWN new worktree, not the ancestor's")
 }
 
-// TestRegression_CreateChatOwnWorktreeIsIgnoredWhenWorkspaceIdIsSupplied pins
-// the single most important constraint on this task: a request that ALSO
-// names an existing workspace takes the existing attach-to-existing-workspace
-// path completely unchanged, whatever the body's ownWorktree says. Regressing
-// this would mean every ordinary "new chat in this workspace" create starts
-// forking a fresh worktree it was never asked for.
 func TestRegression_CreateChatOwnWorktreeIsIgnoredWhenWorkspaceIdIsSupplied(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -113,9 +82,6 @@ func TestRegression_CreateChatOwnWorktreeIsIgnoredWhenWorkspaceIdIsSupplied(t *t
 		"a request naming an existing workspace must attach to it, not fork a new one")
 }
 
-// TestRegression_CreateChatOwnWorktreeWithNoProviderIs400: the atomic create
-// starts a CLI in the worktree it cuts, so a body naming no provider is the
-// caller's mistake, refused before any worktree is cut.
 func TestRegression_CreateChatOwnWorktreeWithNoProviderIs400(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -134,10 +100,6 @@ func TestRegression_CreateChatOwnWorktreeWithNoProviderIs400(t *testing.T) {
 	assert.Equal(t, "invalid_argument", env.Code)
 }
 
-// TestHome_EverythingCrowbarWritesIsOwnerOnly walks a home after a forked
-// worktree, two spawned CLIs and an attachment: every file Crowbar wrote is 0600
-// and every directory 0700, but those on the way to a checkout, which are 0711
-// so another uid reaches it. A checkout's contents are git's and keep the umask.
 func TestHome_EverythingCrowbarWritesIsOwnerOnly(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

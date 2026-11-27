@@ -1,5 +1,3 @@
-//! The shell's simple confirmations: a GTK message dialog, modal over the shell window.
-
 use gtk::glib::{self, prelude::ObjectExt as _};
 use gtk::prelude::{
     DialogExt as _, DialogExtManual as _, GtkWindowExt as _, MessageDialogExt as _,

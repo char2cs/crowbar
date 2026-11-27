@@ -1,5 +1,3 @@
-//! A file chooser that remembers each question and answers with one path.
-
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;

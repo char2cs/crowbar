@@ -14,8 +14,6 @@ import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
 
-// An upload creates files, so it goes to the workspace of the tree it was asked from,
-// whichever other workspace happens to be in view.
 describe('pickAndUploadFiles', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -42,7 +40,6 @@ describe('pickAndUploadFiles', () => {
     )
   })
 
-  // The exact bytes must reach the daemon: invalid UTF-8 and NULs would be mangled by file.text().
   it.each([
     ['binary bytes (invalid UTF-8 + NUL)', [0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x01, 0x80]],
     ['an empty file', []],

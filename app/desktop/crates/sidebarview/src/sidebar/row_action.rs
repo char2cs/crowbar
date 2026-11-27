@@ -1,5 +1,3 @@
-//! What a row reports to the sidebar when the user acts on it.
-
 mod drag_point;
 mod drag_press;
 mod file_gesture;

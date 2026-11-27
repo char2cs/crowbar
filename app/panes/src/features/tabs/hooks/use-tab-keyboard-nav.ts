@@ -11,7 +11,6 @@ interface UseTabKeyboardNavOptions {
   onCloseTab: (bufferId: string) => void
 }
 
-/** Tab-strip keys: ArrowLeft/Right, Home/End, Delete/Backspace, Enter/Space. */
 export function useTabKeyboardNav({
   sortedBuffers,
   tabRefs,

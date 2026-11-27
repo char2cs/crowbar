@@ -4,8 +4,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
 
-/** Asks what to do with the edits of a dirty tab being closed in `paneId`. Every tab strip
- *  mounts one; only the pane the close came from answers. */
 export function TabCloseConfirm({ paneId }: { paneId?: string }) {
   const pendingClose = useStore(windowPaneStore, (s) =>
     s.pendingClose?.paneId === paneId ? s.pendingClose : null,
@@ -20,7 +18,6 @@ export function TabCloseConfirm({ paneId }: { paneId?: string }) {
   return (
     <UnsavedChangesDialog
       fileName={fileName}
-      // Save the tab being closed (not whichever is active); a failed save keeps it open.
       onSave={async () => {
         if (await saveBuffer(pendingClose.bufferId)) confirmPendingClose()
       }}

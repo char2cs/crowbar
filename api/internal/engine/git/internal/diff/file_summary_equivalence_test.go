@@ -17,12 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/status"
 )
 
-// unsplitReference is the equivalence oracle for the committed/dirty split: the
-// pre-split FileSummaries algorithm, kept alive here verbatim. One
-// `git diff --name-status -M -z <ref> --` for the file set joined by path with
-// one `git diff --numstat -M -z <ref> --` for the counts, both against the
-// working tree. Its parsing is written independently of the production parsers
-// so agreement between the two is evidence rather than tautology.
 func unsplitReference(
 	t *testing.T,
 	repo string,
@@ -124,8 +118,6 @@ func referenceCount(
 	return n
 }
 
-// dirtyPaths is exactly what the branch-review usecase threads down: the paths
-// of the git status it already fetches for the uncommitted/staged flags.
 func dirtyPaths(
 	t *testing.T,
 	repo string,
@@ -164,13 +156,6 @@ func commitAll(
 	mustGit(t, repo, "commit", "-m", msg)
 }
 
-// TestFileSummaries_MatchesUnsplitReference asserts the committed/dirty split
-// produces summaries identical to a single ref->worktree numstat, which is what
-// the implementation did before the split. Any divergence here is a
-// user-visible wrong +/- count in the sidebar, so every repo shape that can
-// separate the two queries is enumerated — above all the file that is both
-// committed-changed AND dirty, whose true count is neither diff alone nor the
-// sum of the two.
 func TestFileSummaries_MatchesUnsplitReference(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -257,10 +242,6 @@ func TestFileSummaries_MatchesUnsplitReference(t *testing.T) {
 				mustGit(t, repo, "add", "resurrected.txt")
 			},
 		},
-		// ref->HEAD detects the rename, ref->worktree does not: the rewrite
-		// drops the pair below the similarity threshold. The committed half
-		// therefore holds no count at all for the deleted source, and nothing
-		// about the source is dirty, so only "no committed count" can flag it.
 		{
 			name: "committed rename undone by a worktree rewrite",
 			setup: func(t *testing.T, repo string) {
@@ -318,10 +299,6 @@ func TestFileSummaries_MatchesUnsplitReference(t *testing.T) {
 				require.NoError(t, os.Chmod(filepath.Join(repo, "keep.txt"), 0o755))
 			},
 		},
-		// git status --porcelain=v2 is parsed field-wise, so a path containing a
-		// space or a byte git C-quotes does not round-trip through the dirty set
-		// the split is keyed on. Such a file must still get its working-tree
-		// count, not the committed one.
 		{
 			name: "path with a space, committed and dirty",
 			setup: func(t *testing.T, repo string) {
@@ -374,9 +351,6 @@ func TestFileSummaries_MatchesUnsplitReference(t *testing.T) {
 
 			want := unsplitReference(t, repo, ref)
 
-			// The oracle parses git's wire format itself, so pin it against the
-			// production parser on the very query it reproduces before trusting
-			// it to judge the split.
 			unsplit, err := diff.FileSummaries(context.Background(), repo, ref, nil)
 			require.NoError(t, err)
 			require.Equal(t, want, unsplit, "oracle disagrees with the unsplit implementation")
@@ -388,11 +362,6 @@ func TestFileSummaries_MatchesUnsplitReference(t *testing.T) {
 	}
 }
 
-// TestFileSummaries_MatchesUnsplitReferenceWhenChunked forces the dirty
-// pathspec across several git invocations, so the chunking that keeps a large
-// dirty set under ARG_MAX is proven not to change a single count. Rename
-// candidates must survive chunking: the source of a rename has to travel in the
-// same invocation as its destination or git reports an unrelated add.
 func TestFileSummaries_MatchesUnsplitReferenceWhenChunked(t *testing.T) {
 	repo := initRepo(t)
 	seedEquivalenceBase(t, repo)
@@ -422,10 +391,6 @@ func TestFileSummaries_MatchesUnsplitReferenceWhenChunked(t *testing.T) {
 	require.NotEmpty(t, got)
 }
 
-// TestFileSummaries_UnknownDirtySetRecomputesEverything covers the caller that
-// could not produce a status — the split has no way to tell which counts are
-// stale, so it must fall back to the single ref->worktree numstat rather than
-// serve committed counts for a dirty tree.
 func TestFileSummaries_UnknownDirtySetRecomputesEverything(t *testing.T) {
 	repo := initRepo(t)
 	seedEquivalenceBase(t, repo)

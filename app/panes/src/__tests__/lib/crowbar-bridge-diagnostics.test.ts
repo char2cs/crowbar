@@ -21,7 +21,6 @@ describe('exportDiagnostics', () => {
     delete tauriWindow.__TAURI_INTERNALS__
   })
 
-  // The phone app is Tauri, but the bundle (daemon logs, dumps) is a desktop-host command.
   it('rejects in the phone app without invoking', async () => {
     platform.mobile = true
     const invoke = vi.fn()

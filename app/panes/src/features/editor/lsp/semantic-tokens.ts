@@ -1,6 +1,3 @@
-// Language-server semantic tokens, already in SEMANTIC_TOKEN_LEGEND. The document provider owns
-// each model's full/delta request; while one is in flight lspViewportTokens serves the visible
-// range, so a large file colors early. Monaco stops asking for ranges once full tokens apply.
 import { CancellationTokenSource } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import { SEMANTIC_TOKEN_LEGEND } from '../monaco/semantic-tokens-legend'
@@ -16,8 +13,6 @@ interface WireDelta {
   edits: { start: number; deleteCount: number; data?: number[] }[]
 }
 
-/** Monaco reads a document provider's null as "complete and empty", silencing the shiki tier too,
- *  so no-tokens is a cancellation: it leaves the tokens as they are and reports no error. */
 function noServerTokens(): Error {
   const error = new Error('Canceled')
   error.name = 'Canceled'
@@ -47,7 +42,6 @@ interface ViewportFill {
   cancel: CancellationTokenSource
 }
 
-/** Models whose full request is in flight, with their viewport fill (if any). */
 const pendingFull = new Map<string, ViewportFill | null>()
 
 function dropFill(uri: string): void {
@@ -73,13 +67,9 @@ export const lspDocumentSemanticTokensProvider: Monaco.languages.DocumentSemanti
       dropFill(uri)
     }
   },
-  // The daemon keeps no per-result state, so there is nothing to release.
   releaseDocumentSemanticTokens() {},
 }
 
-/** Server tokens for a viewport while the full request is in flight; null means not (yet)
- *  available and the caller uses its own tier. The first call starts the request, and `onReady`
- *  fires when it lands so Monaco asks again. */
 export function lspViewportTokens(
   model: Monaco.editor.ITextModel,
   range: Monaco.IRange,

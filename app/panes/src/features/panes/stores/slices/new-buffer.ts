@@ -18,7 +18,6 @@ const base = (id: string, workspaceId: string) => ({
   workspaceId,
 })
 
-/** The buffer `openContent` creates for `spec`; `terminalCount` names an unnamed terminal. */
 export function newBuffer(
   spec: OpenEditorTabSpec,
   id: string,

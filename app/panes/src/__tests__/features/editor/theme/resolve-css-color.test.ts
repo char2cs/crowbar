@@ -44,14 +44,13 @@ describe('cssColorToHex', () => {
   })
 
   it('converts a known chromatic oklch within tolerance of sRGB red', () => {
-    // oklch for #ff0000 ≈ L0.6279 C0.2577 H29.23
     const hex = cssColorToHex('oklch(0.6279 0.2577 29.23)')
     expect(hex).not.toBeNull()
     const r = Number.parseInt((hex as string).slice(1, 3), 16)
     const g = Number.parseInt((hex as string).slice(3, 5), 16)
     const b = Number.parseInt((hex as string).slice(5, 7), 16)
-    expect(r).toBeGreaterThan(250) // strong red channel
-    expect(g).toBeLessThan(20) // green/blue near zero
+    expect(r).toBeGreaterThan(250)
+    expect(g).toBeLessThan(20)
     expect(b).toBeLessThan(20)
   })
 
@@ -71,7 +70,6 @@ describe('cssColorToHex', () => {
 
 describe('DOM resolver', () => {
   beforeEach(() => {
-    // Map every CSS var this suite asks for to a known oklch value.
     vi.spyOn(window, 'getComputedStyle').mockReturnValue({
       getPropertyValue: (name: string) => (name.startsWith('--') ? 'oklch(1 0 0)' : ''),
     } as unknown as CSSStyleDeclaration)
@@ -97,7 +95,6 @@ describe('DOM resolver', () => {
             name === '--syntax-comment' ? 'var(--muted-foreground)' : '',
         } as unknown as CSSStyleDeclaration
       }
-      // Called on the temporary span — simulate browser resolving the chain.
       return {
         color: 'rgb(105, 105, 105)',
         getPropertyValue: () => '',

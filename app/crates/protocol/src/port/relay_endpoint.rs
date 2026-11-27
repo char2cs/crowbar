@@ -2,10 +2,6 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// A loopback WebSocket endpoint a pane can dial with its native `WebSocket`.
-///
-/// The token is a live credential: [`Debug`](fmt::Debug) prints it redacted so it never reaches
-/// a log or a panic message.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayEndpoint {
@@ -14,7 +10,6 @@ pub struct RelayEndpoint {
 }
 
 impl RelayEndpoint {
-    /// An endpoint at `url` that accepts `token`.
     #[must_use]
     pub fn new(
         url: impl Into<String>,
@@ -26,13 +21,11 @@ impl RelayEndpoint {
         }
     }
 
-    /// Base URL, for example `ws://127.0.0.1:41233`.
     #[must_use]
     pub fn url(&self) -> &str {
         &self.url
     }
 
-    /// Per-pane session token the relay checks together with the `Origin`.
     #[must_use]
     pub fn token(&self) -> &str {
         &self.token

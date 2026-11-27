@@ -33,8 +33,6 @@ Hidden content.
 
 </details>
 `
-    // details wrapping markdown: the HTML tags survive; inner markdown may
-    // re-canonicalize but the structural tags must not be escaped.
     const out = roundTrip(md)
     expect(out).toContain('<details>')
     expect(out).toContain('<summary>Click</summary>')

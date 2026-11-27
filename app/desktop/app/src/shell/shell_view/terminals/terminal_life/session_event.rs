@@ -1,5 +1,3 @@
-//! What a terminal session that failed to start or stop tells the log.
-
 use std::fmt;
 
 use journal::Level;

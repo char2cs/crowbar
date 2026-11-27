@@ -8,7 +8,6 @@ function isAngularTemplatePath(filePath: string): boolean {
   return fileName.endsWith('.component.html') || fileName.endsWith('.ng.html')
 }
 
-// Typed by LanguageId so an id the resolver could produce without a Monaco mapping fails tsc.
 const EXTENSION_TO_LANGUAGE: Record<string, LanguageId> = {
   js: 'javascript',
   mjs: 'javascript',
@@ -204,7 +203,6 @@ export function getLanguageDisplayName(languageId: string): string {
   )
 }
 
-/** The picker's choices: every named language with a grammar, plus Plain Text to turn colour off. */
 export function getAllLanguages(): Array<{ id: string; displayName: string }> {
   return Object.entries(LANGUAGE_DISPLAY_NAMES)
     .flatMap(([id, displayName]) =>

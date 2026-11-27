@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Serve is ready when it answers the handshake: one that is alive but silent
-// has given its runner neither a connection nor a PTY.
 func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
 	h := helperServeSpawn(t, "answer", false)
 	gate := filepath.Join(t.TempDir(), "gate")
@@ -31,7 +29,7 @@ func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
 	}()
 	opened := make(chan *os.File, 1)
 	go func() {
-		f, err := os.OpenFile(gate, os.O_WRONLY, 0) // returns once serve opens its end
+		f, err := os.OpenFile(gate, os.O_WRONLY, 0)
 		if assert.NoError(t, err) {
 			opened <- f
 		}
@@ -52,8 +50,6 @@ func TestStartAPIConn_ServeIsReadyOnlyOnceItAnswers(t *testing.T) {
 	assert.Empty(t, h.term.created, "the answered connection is the runner")
 }
 
-// The request that started a spawn may go away (a reload) while serve is still
-// starting; the connection is the chat's, not the request's, so it still comes up.
 func TestRegression_ASpawnOutlivesTheRequestThatStartedIt(t *testing.T) {
 	h := helperServeSpawn(t, "answer", false)
 	gate := filepath.Join(t.TempDir(), "gate")
@@ -66,7 +62,7 @@ func TestRegression_ASpawnOutlivesTheRequestThatStartedIt(t *testing.T) {
 		_, err := h.rs.spawnRunner(request, h.chatID, "ws-1", "carrier-test", spawnInput{runnerID: "runner-1"})
 		spawned <- err
 	}()
-	release, err := os.OpenFile(gate, os.O_WRONLY, 0) // returns once serve opens its end
+	release, err := os.OpenFile(gate, os.O_WRONLY, 0)
 	require.NoError(t, err)
 	leave()
 	require.NoError(t, release.Close())

@@ -20,7 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// importBranches is the import-batch body for branches, each under a fresh chat id.
 func importBranches(branches ...string) map[string]any {
 	rows := make([]map[string]string, 0, len(branches))
 	for _, b := range branches {
@@ -29,7 +28,6 @@ func importBranches(branches ...string) map[string]any {
 	return map[string]any{"branches": rows}
 }
 
-// postKeyed POSTs body under Idempotency-Key key and returns the status and body.
 func postKeyed(
 	t *testing.T,
 	h *harness,
@@ -64,7 +62,6 @@ func acceptedOperation(t *testing.T, status int, raw []byte) domain.Operation {
 	return env.Data.Operation
 }
 
-// badImport is an import of "bad/x", which git cannot check out, beside "good".
 type badImport struct {
 	fixture importFixture
 	opID    string
@@ -73,8 +70,6 @@ type badImport struct {
 	body    map[string]any
 }
 
-// importWithOneBadBranch blocks bad/x's workspace root with a regular file
-// named "bad", so `git worktree add` fails with "Not a directory".
 func importWithOneBadBranch(t *testing.T, h *harness) badImport {
 	t.Helper()
 	f := newImportFixture(t, h)
@@ -141,8 +136,6 @@ func requireBadItemSaysWhy(t *testing.T, op domain.Operation) {
 	require.Contains(t, strings.ToLower(bad.Error.Message), "not a directory")
 }
 
-// TestRegression_BranchImportFailureIsVisible: an import whose branch cannot be checked out
-// says which branch failed and why; the other branch lands.
 func TestRegression_BranchImportFailureIsVisible(t *testing.T) {
 	h := newHarness(t)
 	b := importWithOneBadBranch(t, h)
@@ -174,7 +167,6 @@ func TestRegression_BranchImportFailureIsVisible(t *testing.T) {
 	require.Equal(t, b.badChat, owningChatID(t, h, badWS[0].ID), "owned by the chat the client drew it as")
 }
 
-// TestRegression_BranchImportReasonSurvivesRestart: the reason is still there after a restart.
 func TestRegression_BranchImportReasonSurvivesRestart(t *testing.T) {
 	h := newHarness(t)
 	b := importWithOneBadBranch(t, h)
@@ -189,8 +181,6 @@ func TestRegression_BranchImportReasonSurvivesRestart(t *testing.T) {
 	require.Equal(t, itemLabelled(t, before, "bad/x").Error, itemLabelled(t, restored, "bad/x").Error)
 }
 
-// TestRegression_BranchImportRetryReturnsTheSameOperation: the same import sent twice
-// (a double click, a retried request) is one operation and one workspace per branch.
 func TestRegression_BranchImportRetryReturnsTheSameOperation(t *testing.T) {
 	h := newHarness(t)
 	b := importWithOneBadBranch(t, h)
@@ -203,8 +193,6 @@ func TestRegression_BranchImportRetryReturnsTheSameOperation(t *testing.T) {
 	require.Len(t, workspacesOnBranch(t, h, b.fixture.repoID, "good"), 1)
 }
 
-// TestRegression_ImportRefusesATakenChatID: a chat id already in use is refused before
-// any work starts.
 func TestRegression_ImportRefusesATakenChatID(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -223,8 +211,6 @@ func TestRegression_ImportRefusesATakenChatID(t *testing.T) {
 	}
 }
 
-// TestRegression_ImportLocksEachBranchAsAsked: one import with a mixed lock choice
-// creates each branch's workspace locked or not as that branch asked, under one operation.
 func TestRegression_ImportLocksEachBranchAsAsked(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)

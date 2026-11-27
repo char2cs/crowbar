@@ -14,8 +14,6 @@ import { installPreviewOpener } from '@/features/editor/documents/open-preview'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
 
-// The buffer shown may belong to a workspace other than the one in view (panes are
-// window-level), so every listing and navigation must name the buffer's own.
 describe('FilePathBreadcrumb', () => {
   beforeEach(() => {
     vi.clearAllMocks()

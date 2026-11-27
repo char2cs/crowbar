@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// lockIn takes chatID's lock in a goroutine and closes the returned channel
-// once it holds it; the lock is released by calling what release receives.
 func lockIn(locks *Locks, chatID string) (holding <-chan struct{}, release <-chan func()) {
 	got, unlocks := make(chan struct{}), make(chan func(), 1)
 	go func() {
@@ -46,7 +44,7 @@ func TestLock_SerialisesOneChatAndNotOthers(t *testing.T) {
 		other()
 
 		unlock()
-		unlock() // a second release is a no-op, never a release of the next holder
+		unlock()
 		synctest.Wait()
 		require.True(t, isClosed(second), "a released chat goes to the holder waiting on it")
 		third, releaseThird := lockIn(locks, "chat-1")

@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// world is the facts a Locator reads: which workspace a chat is in, which
-// project a workspace and a repo belong to.
 type world struct {
 	chatWS, wsProject, repoProject map[string]string
 }
@@ -229,11 +227,8 @@ func ids(nodes []tree.Node) []string {
 	return out
 }
 
-// races is how many times each concurrency test races its two writes.
 const races = 200
 
-// raceEach runs a and b concurrently, races times, after reset each time, and
-// counts the rounds where stale reports a lost write.
 func raceEach(reset, a, b func(), stale func() bool) int {
 	lost := 0
 	for range races {
@@ -250,8 +245,6 @@ func raceEach(reset, a, b func(), stale func() bool) int {
 	return lost
 }
 
-// An order write changes only the order of the placement the tree holds when
-// it lands, so it never restates a parent a concurrent move replaced.
 func TestPorts_AnOrderWriteNeverUndoesAConcurrentChatMove(t *testing.T) {
 	ctx, repo := context.Background(), newRepo(t)
 	p := newPorts(t, repo, newWorld())
@@ -289,7 +282,6 @@ func TestPorts_AnOrderWriteNeverUndoesAConcurrentNodeMove(t *testing.T) {
 	assert.Zero(t, lost, "rounds where the move was undone")
 }
 
-// Two creates of one row race: exactly one wins, the other is refused.
 func TestPorts_ConcurrentCreatesOfOneRowRefuseTheSecond(t *testing.T) {
 	ctx, repo := context.Background(), newRepo(t)
 	p := newPorts(t, repo, newWorld())
@@ -311,8 +303,6 @@ func TestPorts_ConcurrentCreatesOfOneRowRefuseTheSecond(t *testing.T) {
 	assert.Equal(t, races, refused, "one create of every round is refused")
 }
 
-// Two deletes of one row race: both answer nil, as a delete of a row already
-// gone does.
 func TestPorts_ConcurrentDeletesOfOneRowAreBothNoError(t *testing.T) {
 	ctx, repo := context.Background(), newRepo(t)
 	p := newPorts(t, repo, newWorld())
@@ -337,7 +327,6 @@ func TestPorts_ConcurrentDeletesOfOneRowAreBothNoError(t *testing.T) {
 	assert.Empty(t, errs)
 }
 
-// countingGet counts the Tree reads that reach the store.
 type countingGet struct {
 	asynx.Asynx[tree.Tree]
 	reads *atomic.Int64
@@ -348,7 +337,6 @@ func (c countingGet) Get(ctx context.Context, id string) (tree.Tree, error) {
 	return c.Asynx.Get(ctx, id)
 }
 
-// The placements of some chats read only the trees holding them, each once.
 func TestPorts_ChatPlacementsReadsOnlyTheTreesHoldingTheChats(t *testing.T) {
 	ctx := context.Background()
 	var reads atomic.Int64
@@ -366,8 +354,6 @@ func TestPorts_ChatPlacementsReadsOnlyTheTreesHoldingTheChats(t *testing.T) {
 	assert.Equal(t, int64(1), reads.Load(), "both chats are p1's: one read")
 }
 
-// A row is writable the moment it is visible: a densify that read a fresh
-// Node in the tree may order it while its create still waits on subscribers.
 func TestPorts_ARowIsOrderedWhileItsCreateStillAnnounces(t *testing.T) {
 	ctx, ax := context.Background(), openTree(t, t.TempDir())
 	entered, release := make(chan struct{}), make(chan struct{})

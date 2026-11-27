@@ -1,5 +1,3 @@
-//! A select with an optional info icon.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{InteractiveElement as _, IntoElement, ParentElement, SharedString, Styled, div, px};
 use settings::{Control, Row};

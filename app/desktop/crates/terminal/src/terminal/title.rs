@@ -1,11 +1,5 @@
-//! Window titles set by the program in the terminal.
-
 const ESC: char = '\u{1b}';
 
-/// A title safe to show, or an empty string for "no update".
-///
-/// A title holding ESC is a prompt's coloured text leaking in; leftover CSI bodies (`[01;32m`) after
-/// control bytes are stripped are rejected too, while `[WIP]` survives.
 pub fn sanitize_title(raw: &str) -> String {
     if raw.contains(ESC) {
         return String::new();

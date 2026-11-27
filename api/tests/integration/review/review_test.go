@@ -15,9 +15,6 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// ReviewSuite exercises the branch-review read model and merge-strategy mutation.
-// Thread CRUD was promoted out of this surface into the first-class /threads
-// endpoint (W9) — see the threads integration package.
 type ReviewSuite struct {
 	suite.Suite
 	env      *kit.Env
@@ -26,7 +23,6 @@ type ReviewSuite struct {
 	chatID   string
 }
 
-// SetupTest imports a repo and creates the workspace used by every test.
 func (s *ReviewSuite) SetupTest() {
 	s.env = kit.BuildEnv(s.T())
 	s.imported = s.env.ImportRepo(s.T(), "review", "")
@@ -35,7 +31,6 @@ func (s *ReviewSuite) SetupTest() {
 	)
 }
 
-// base returns the chat-scoped route prefix.
 func (s *ReviewSuite) base() string {
 	return "/v0/chats/" + s.chatID
 }
@@ -44,7 +39,6 @@ func TestReviewSuite(t *testing.T) {
 	suite.Run(t, new(ReviewSuite))
 }
 
-// TestReview_GetReviewReturnsPanel verifies the review read-model endpoint responds.
 func (s *ReviewSuite) TestReview_GetReviewReturnsPanel() {
 	resp := s.env.GET(s.T(), s.base()+"/review")
 	kit.RequireStatus(s.T(), resp, http.StatusOK)
@@ -58,7 +52,6 @@ func (s *ReviewSuite) TestReview_GetReviewReturnsPanel() {
 	s.Assert().True(hasMergeStrategy, "panel must expose mergeStrategy")
 }
 
-// TestReview_SetMergeStrategy verifies PATCH /review updates the merge strategy.
 func (s *ReviewSuite) TestReview_SetMergeStrategy() {
 	resp := s.env.PATCH(s.T(), s.base()+"/review", map[string]any{
 		"mergeStrategy": "squash",
@@ -69,9 +62,6 @@ func (s *ReviewSuite) TestReview_SetMergeStrategy() {
 	kit.DecodeEnvData(s.T(), resp, &result)
 	s.Assert().Equal("squash", result["mergeStrategy"])
 
-	// Verify persistence via GET chat: the git fields a worktree-owning chat
-	// carries on its own DTO (spec §5) nest the workspace's mergeStrategy under
-	// "worktree" now that there is no bare GET .../workspaces/:wsId any more.
 	chatResp := s.env.GET(s.T(),
 		"/v0/projects/"+s.imported.ProjectID+"/repos/"+s.imported.RepoID+"/chats/"+s.chatID)
 	kit.RequireStatus(s.T(), chatResp, http.StatusOK)
@@ -83,8 +73,6 @@ func (s *ReviewSuite) TestReview_SetMergeStrategy() {
 		"merge strategy must be persisted in the workspace aggregate")
 }
 
-// TestReview_UnknownChatReturns404 checks 404 on a chat resolveChatWorktree
-// cannot resolve a worktree for.
 func (s *ReviewSuite) TestReview_UnknownChatReturns404() {
 	resp := s.env.GET(s.T(), "/v0/chats/no-such-chat/review")
 	defer resp.Body.Close()

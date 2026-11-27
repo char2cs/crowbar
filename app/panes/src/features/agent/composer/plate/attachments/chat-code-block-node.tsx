@@ -25,13 +25,10 @@ import { DiagramBlock, type DiagramTarget } from './diagram-block'
 import { StreamingFenceContext } from '@/features/agent/transcript/plate/streaming-fence'
 import type { DiagramFence } from '@/features/agent/transcript/plate/streaming-markdown-parse'
 
-/** A code block's source; `NodeApi.string` would join its lines with no separator. */
 function codeBlockSource(element: TCodeBlockElement): string {
   return element.children.map((line) => NodeApi.string(line)).join('\n')
 }
 
-/** The scene an excalidraw fence parses to, or null: the one gate both the
- *  preview and its PNG sibling's suppression defer to, so they never disagree. */
 export function excalidrawSceneFromCodeBlock(
   element: TCodeBlockElement,
 ): ParsedExcalidrawScene | null {
@@ -40,9 +37,6 @@ export function excalidrawSceneFromCodeBlock(
   return parseExcalidrawScene(codeBlockSource(element))
 }
 
-/** The `url` of the `img` right after this block (an excalidraw fence's PNG).
- *  `findPath`, not `props.path`: Plate memoizes the latter and can hand back a
- *  stale path after a sibling moves. */
 function findFollowingImageRef(props: PlateElementProps<TCodeBlockElement>): string | undefined {
   const path = props.editor.api.findPath(props.element)
   if (!path) return undefined
@@ -51,9 +45,6 @@ function findFollowingImageRef(props: PlateElementProps<TCodeBlockElement>): str
   return node?.type === 'img' ? node.url : undefined
 }
 
-/** Deletes an excalidraw fence and its PNG sibling as one attachment (deleting
- *  the fence alone left the image hidden but still sent); the image goes first,
- *  at its unshifted path. */
 function removeExcalidrawAttachment(editor: PlateEditor, element: TCodeBlockElement) {
   const path = editor.api.findPath(element)
   if (!path) return
@@ -80,8 +71,6 @@ function codeBodyOf(props: PlateElementProps<TCodeBlockElement>): ReactNode {
   )
 }
 
-/** The code body and the kind-specific preview a fence resolves to, shared so
- *  the interactive and static renderers never disagree. */
 function resolveCodeBlockPreview(props: PlateElementProps<TCodeBlockElement>): {
   codeBody: ReactNode
   preview: ReactNode
@@ -94,8 +83,6 @@ function resolveCodeBlockPreview(props: PlateElementProps<TCodeBlockElement>): {
   if (parsed?.kind === 'text-attachment') {
     preview = <TextAttachmentPill text={codeBlockSource(element)} />
   } else {
-    // An agent writes a bare `excalidraw` fence; the scene's structural check
-    // stands in for the id suffix the composer's own fences carry.
     const scene = excalidrawSceneFromCodeBlock(element)
     if (scene) preview = <ExcalidrawPreview scene={scene} pngRef={findFollowingImageRef(props)} />
   }
@@ -115,8 +102,6 @@ function isLastTopLevelBlock(props: PlateElementProps<TCodeBlockElement>): boole
   return path?.length === 1 && path[0] === props.editor.children.length - 1
 }
 
-/** How a transcript reply's diagram fence renders; null outside the transcript. Only the last
- *  top-level block can be the fence its text leaves open, even with a half-typed info string. */
 interface DiagramRoute {
   kind: DiagramFence
   target: DiagramTarget
@@ -159,8 +144,6 @@ function DiagramElement({
   )
 }
 
-/** The draggable shell for an attachment preview, its own component so a plain
- *  code block never mounts `useAttachmentDraggable` (nor needs a `DndScope`). */
 function DraggableAttachmentBlock({
   preview,
   codeBody,
@@ -194,8 +177,6 @@ function DraggableAttachmentBlock({
   )
 }
 
-/** Chat's code block for the interactive editor. An attachment fence renders its
- *  preview over the still-mounted raw block, so Slate's node-DOM mapping holds. */
 export function ChatCodeBlockElement(props: PlateElementProps<TCodeBlockElement>) {
   useRedecorateWhenGrammarReady(props.editor, props.element)
   const diagram = useDiagramTarget(props)
@@ -213,7 +194,6 @@ export function ChatCodeBlockElement(props: PlateElementProps<TCodeBlockElement>
   return <DraggableAttachmentBlock {...props} preview={preview} codeBody={codeBody} />
 }
 
-/** The static counterpart: the same resolution, never draggable. */
 export function ChatCodeBlockElementStatic(props: PlateElementProps<TCodeBlockElement>) {
   const diagram = useDiagramTarget(props)
   if (diagram) return <DiagramElement {...props} diagram={diagram} />
@@ -222,8 +202,6 @@ export function ChatCodeBlockElementStatic(props: PlateElementProps<TCodeBlockEl
   return (
     <PlateElement {...props} className="my-2">
       {preview ? (
-        // inline-block: on the full-width first turn a block would stretch and
-        // leave the preview's edit button off the diagram's corner.
         <div className="chat-attachment-block inline-block">
           <div contentEditable={false} className="select-none">
             {preview}

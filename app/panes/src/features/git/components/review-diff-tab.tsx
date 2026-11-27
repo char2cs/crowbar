@@ -27,20 +27,12 @@ export interface LineRequest {
 
 interface ReviewDiffTabProps {
   onRetry: () => void
-  /** This diff's workspace (from its buffer), never the ambient context: every retained
-   *  WorkspaceView renders the pane tree under its own context, so the ambient one would fetch
-   *  another workspace's diff. */
   wsId: string
-  /** Heading for a surface the Branch Review shell does not wrap (a commit tab). */
   title?: string
-  /** A thread's line to scroll to; the nonce makes asking for the same line twice work. */
   lineRequest?: LineRequest
   isActivePane?: boolean
-  /** Scopes the whole surface to ONE commit instead of the workspace's branch. */
   commit?: string
-  /** Shown when the scoped diff has no files. Defaults to the branch wording. */
   emptyMessage?: string
-  /** Renders the view toggle and find button here (a tab row) instead of in a toolbar row of its own. */
   toolbarHost?: HTMLElement | null
 }
 
@@ -52,9 +44,6 @@ function CenteredState({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** The windowed diff surface: a branch against its parent, or with `commit` one commit — so the
- *  app has one diff renderer. Fed by the files summary (O(files)) and outline (O(hunks)), patches
- *  fetched per file, so memory is bounded by the window, not the diff. */
 export function ReviewDiffTab({
   onRetry,
   wsId,
@@ -68,12 +57,9 @@ export function ReviewDiffTab({
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
   const { outline } = useReviewOutline(wsId, commit)
   const [searchOpen, setSearchOpen] = useState(false)
-  // A display preference, not per-tab state, so it lives in settings and outlives the tab.
   const diffStyle = useSettingsStore((s) => s.settings.diffViewMode)
   const updateSetting = useSettingsStore((s) => s.updateSetting)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
-  // Also state, not just a ref: the lazy surface's handle can appear after a reveal is
-  // requested (a file click that opens this tab), and the reveal must run when it does.
   const [surface, setSurface] = useState<ReviewCodeViewHandle | null>(null)
   const attachSurface = useCallback((handle: ReviewCodeViewHandle | null) => {
     surfaceRef.current = handle
@@ -84,9 +70,6 @@ export function ReviewDiffTab({
     surfaceRef.current?.revealLine(hit.path, hit.lineNumber, hit.side)
   }, [])
 
-  // The sidebar's file reveal, honoured once the handle exists. The nonce lets the same file be
-  // revealed twice; the consumed nonce stops re-firing on re-renders. Commit tabs skip it: the
-  // path comes from the branch's file list.
   const revealPath = useWorkspaceStoreContext((s) => s.branchReview.revealFilePath)
   const revealNonce = useWorkspaceStoreContext((s) => s.branchReview.revealFileNonce)
   const consumedNonce = useRef(0)
@@ -97,8 +80,6 @@ export function ReviewDiffTab({
     surface.revealFile(revealPath)
   }, [surface, revealNonce, revealPath, commit])
 
-  // Same wait-for-the-handle rule as the file reveal above: the Conversation's
-  // "Jump to line" mounts this surface and asks in the same breath.
   const consumedLineNonce = useRef(0)
   useEffect(() => {
     if (!surface || !lineRequest || consumedLineNonce.current === lineRequest.nonce) return
@@ -106,9 +87,6 @@ export function ReviewDiffTab({
     surface.revealLine(lineRequest.path, lineRequest.lineNumber, lineRequest.side)
   }, [surface, lineRequest])
 
-  // The summary gates first paint, not the outline. The file list is renderable
-  // without geometry — heights are estimated from ± counts until the outline
-  // lands — so blocking on it would hold the pane for no visual gain.
   if (!filesLoaded) {
     return (
       <CenteredState>

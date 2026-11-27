@@ -1,5 +1,3 @@
-//! The shell's side of the daemon port: `ShellTransport`, stream access and reply framing.
-
 mod daemon_wire;
 mod host_limits;
 mod reply;

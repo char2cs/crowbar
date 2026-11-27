@@ -20,7 +20,6 @@ func (e *terminalEngine) register(ent *sessionEntry) {
 	e.registerLocked(ent)
 }
 
-// registerLocked indexes ent by id and chat. Caller holds e.regMu.
 func (e *terminalEngine) registerLocked(ent *sessionEntry) {
 	e.entries[ent.id] = ent
 	ids := e.byChat[ent.chatID]
@@ -31,8 +30,6 @@ func (e *terminalEngine) registerLocked(ent *sessionEntry) {
 	ids[ent.id] = ent
 }
 
-// unregister drops ent from the registry. Idempotent, and a no-op if the id now names a
-// different entry.
 func (e *terminalEngine) unregister(ent *sessionEntry) {
 	e.regMu.Lock()
 	defer e.regMu.Unlock()
@@ -47,7 +44,6 @@ func (e *terminalEngine) unregister(ent *sessionEntry) {
 	}
 }
 
-// snapshot returns every registered entry.
 func (e *terminalEngine) snapshot() []*sessionEntry {
 	e.regMu.RLock()
 	defer e.regMu.RUnlock()
@@ -68,7 +64,6 @@ func (e *terminalEngine) ListSessions() []string {
 	return ids
 }
 
-// ListSessionsForChat returns the registered session IDs owned by chatID.
 func (e *terminalEngine) ListSessionsForChat(chatID string) []string {
 	e.regMu.RLock()
 	defer e.regMu.RUnlock()
@@ -80,12 +75,10 @@ func (e *terminalEngine) ListSessionsForChat(chatID string) []string {
 	return out
 }
 
-// live returns the entry's running session, or nil when it is not Live.
 func (ent *sessionEntry) live() *session.Session {
 	return ent.sess.Load()
 }
 
-// liveSession looks id up and returns its running session.
 func (e *terminalEngine) liveSession(id string) *session.Session {
 	ent, ok := e.lookup(id)
 	if !ok {
@@ -94,9 +87,6 @@ func (e *terminalEngine) liveSession(id string) *session.Session {
 	return ent.live()
 }
 
-// stateString is the wire form of the entry's state: "active"/"detached" for a live
-// session (by whether a client is attached), "suspended", or "" once it has ended.
-// Caller holds ent.mu.
 func (ent *sessionEntry) stateStringLocked() string {
 	switch ent.state {
 	case stateLive:
@@ -112,8 +102,6 @@ func (ent *sessionEntry) stateStringLocked() string {
 	return ""
 }
 
-// StateOf returns the session's state string ("active", "detached", or "suspended") and
-// true, or ("", false) when the session is not registered.
 func (e *terminalEngine) StateOf(sessionID string) (string, bool) {
 	ent, ok := e.lookup(sessionID)
 	if !ok {
@@ -125,15 +113,11 @@ func (e *terminalEngine) StateOf(sessionID string) (string, bool) {
 	return st, st != ""
 }
 
-// SessionExists reports whether the session is registered (live or suspended).
 func (e *terminalEngine) SessionExists(_ context.Context, sessionID string) bool {
 	_, ok := e.lookup(sessionID)
 	return ok
 }
 
-// SessionLive reports whether the session id is backed by a running process right now: a
-// suspended session, and a live one whose process has exited but not yet been reaped, both
-// read false.
 func (e *terminalEngine) SessionLive(_ context.Context, sessionID string) bool {
 	s := e.liveSession(sessionID)
 	if s == nil {
@@ -147,8 +131,6 @@ func (e *terminalEngine) SessionLive(_ context.Context, sessionID string) bool {
 	}
 }
 
-// Screen implements the Engine's pull-style screen read. An unknown or suspended session
-// reports ("", 0, false).
 func (e *terminalEngine) Screen(sessionID string, since uint64) (text string, gen uint64, changed bool) {
 	s := e.liveSession(sessionID)
 	if s == nil {
@@ -157,9 +139,6 @@ func (e *terminalEngine) Screen(sessionID string, since uint64) (text string, ge
 	return s.ScreenText(since)
 }
 
-// ScreenState reads a live session's visible text, cursor and bracketed-paste mode in one step. A
-// session that is unknown or suspended is ErrSessionNotFound, one whose model cannot report it
-// ErrScreenStateUnavailable.
 func (e *terminalEngine) ScreenState(sessionID string) (ScreenState, error) {
 	s := e.liveSession(sessionID)
 	if s == nil {
@@ -172,8 +151,6 @@ func (e *terminalEngine) ScreenState(sessionID string) (ScreenState, error) {
 	return st, nil
 }
 
-// Write gives up when ctx ends: a PTY whose app stopped reading blocks the write
-// for as long as the app lives. The abandoned write ends when the PTY closes.
 func (e *terminalEngine) Write(ctx context.Context, sessionID string, data []byte) error {
 	s := e.liveSession(sessionID)
 	if s == nil {
@@ -200,7 +177,6 @@ func (e *terminalEngine) Resize(_ context.Context, sessionID string, cols, rows 
 	return s.Resize(cols, rows)
 }
 
-// LoadPlaceholder registers a persisted session in the Suspended state. Idempotent.
 func (e *terminalEngine) LoadPlaceholder(_ context.Context, m SessionMeta, scrollback []byte) error {
 	e.regMu.Lock()
 	defer e.regMu.Unlock()

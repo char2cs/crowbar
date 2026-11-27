@@ -1,4 +1,3 @@
-// Package handlers holds the gin handlers backing the system endpoints.
 package handlers
 
 import (
@@ -15,40 +14,28 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
-// GitStatus reports whether the git binary is available and its version string.
 type GitStatus struct {
 	Installed bool   `json:"installed"`
 	Version   string `json:"version,omitempty"`
 }
 
-// CLIStatus reports whether a provider CLI is installed and authenticated.
 type CLIStatus struct {
 	Installed bool `json:"installed"`
 	Authed    bool `json:"authed"`
 }
 
-// probeTimeout bounds each probe: a `gh auth status` waiting on a credential helper must
-// not hold the first-run screen. A probe that times out reads as absent or not signed in.
 const probeTimeout = 5 * time.Second
 
-// waitDelay bounds the wait for a killed probe's output: a shell's child can keep the pipe open.
 const waitDelay = time.Second
 
-// Handler serves the prerequisite checks. Binaries resolve against the process PATH, which the
-// daemon corrects at startup with the login-shell PATH (exec.Command ignores cmd.Env for lookup),
-// with binpath.Resolve falling back to well-known install dirs.
 type Handler struct {
 	probeTimeout time.Duration
 }
 
-// NewHandler returns a Handler. The context is unused: PATH correction happens process-wide at
-// daemon startup.
 func NewHandler(_ context.Context) *Handler {
 	return &Handler{probeTimeout: probeTimeout}
 }
 
-// Prerequisite is the GET /system/prerequisites/:tool gin handler: one probe, so a caller
-// can show each tool as it answers.
 func (h *Handler) Prerequisite(c *gin.Context) {
 	ctx := c.Request.Context()
 	switch tool := c.Param("tool"); tool {
@@ -61,7 +48,6 @@ func (h *Handler) Prerequisite(c *gin.Context) {
 	}
 }
 
-// run runs cmd bounded by the probe timeout.
 func (h *Handler) run(ctx context.Context, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, h.probeTimeout)
 	defer cancel()

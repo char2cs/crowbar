@@ -9,8 +9,6 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
-// jsdom can't run xterm/WebGL — stand in for it, same as agent-chat-pane's
-// own suite. The stand-in keeps its props so a test can fire the exit frame.
 const xterm = vi.hoisted(() => ({
   props: {} as {
     onTerminalExit?: (id: string) => void
@@ -64,7 +62,6 @@ function renderTab(paneId: string | undefined, bufferId: string) {
   )
 }
 
-// A phone keyboard has no Esc, Tab, Ctrl or arrows: the phone draws them under the terminal.
 describe('TerminalTab — the phone key bar', () => {
   afterEach(() => {
     platform.mobile = false
@@ -85,7 +82,6 @@ describe('TerminalTab — the phone key bar', () => {
   })
 })
 
-// Clicking into a pane terminal activates its already-open tab in place.
 describe('TerminalTab — activating a pane terminal', () => {
   it('activates the tab and the pane it belongs to, without throwing, when paneId is known', () => {
     seedTerminalBuffer(BOTTOM_PANE_ID, 'buf-term-1')

@@ -1,12 +1,10 @@
 import { parseLogFrame, type LogFrame } from './frames'
 
-/** The daemon's log stream; the one place the endpoint is named. */
 const CONSOLE_LOGS_PATH = '/v0/console/logs'
 
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 30_000
 
-/** The slice of a WebSocket the stream drives; native and the Tauri shim both fit. */
 export interface LogSocket {
   onopen: (() => void) | null
   onmessage: ((event: { data: string }) => void) | null
@@ -19,7 +17,6 @@ export type LogStreamState = 'idle' | 'connecting' | 'live' | 'reconnecting'
 
 export interface LogStreamDeps {
   open: (path: string) => LogSocket
-  /** The highest `seq` already shown; the stream asks for what comes after it. */
   cursor: () => number | null
   onFrame: (frame: LogFrame) => void
   onState: (state: LogStreamState) => void
@@ -41,9 +38,6 @@ function streamPath(cursor: number | null): string {
   return `${CONSOLE_LOGS_PATH}?${query.toString()}`
 }
 
-/** Opens the log stream, forwards frames, and on a drop reconnects with backoff from the
- *  cursor (`since=<seq>`). It owns no data: what a frame means, a restart included, is the
- *  store's business. */
 export function createLogStream(deps: LogStreamDeps): LogStream {
   const { timers } = deps
   let active = false
@@ -51,7 +45,6 @@ export function createLogStream(deps: LogStreamDeps): LogStream {
   let generation = 0
   let delay = RECONNECT_BASE_MS
   let timer: unknown = null
-  /** True once a connection has dropped: later attempts are reconnects. */
   let retrying = false
 
   function release(): void {
@@ -61,7 +54,6 @@ export function createLogStream(deps: LogStreamDeps): LogStream {
     const current = socket
     socket = null
     if (!current) return
-    // Silenced first: closing fires `onclose`, which must not schedule a reconnect.
     current.onopen = current.onmessage = current.onclose = current.onerror = null
     current.close()
   }
@@ -93,7 +85,6 @@ export function createLogStream(deps: LogStreamDeps): LogStream {
         if (active) connect()
       }, wait)
     }
-    // A socket error is always followed by a close, which is where it is handled.
     next.onerror = () => {}
   }
 

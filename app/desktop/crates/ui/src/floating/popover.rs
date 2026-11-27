@@ -1,5 +1,3 @@
-//! A panel of arbitrary content anchored to a trigger.
-
 mod actions;
 mod state;
 
@@ -28,7 +26,6 @@ const SHADOW_ALPHA: f32 = 0.05;
 
 type Content = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
-/// Wraps a trigger; clicking it shows the content below, a press outside or `Escape` closes it.
 #[derive(IntoElement)]
 pub struct Popover {
     id: ElementId,
@@ -38,7 +35,6 @@ pub struct Popover {
 }
 
 impl Popover {
-    /// A popover on `trigger` whose panel shows what `content` builds.
     pub fn new<E: IntoElement>(
         id: impl Into<ElementId>,
         trigger: impl IntoElement,
@@ -52,7 +48,6 @@ impl Popover {
         }
     }
 
-    /// Opens the panel on `placement` of the trigger instead of below it.
     #[must_use]
     pub fn placement(
         mut self,

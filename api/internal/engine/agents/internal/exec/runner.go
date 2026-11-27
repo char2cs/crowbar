@@ -135,7 +135,7 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	}
 	accepted, exceeded := b.budget.consume(len(p))
 	if accepted > 0 {
-		b.buf.Write(p[:accepted]) // bytes.Buffer.Write never fails
+		b.buf.Write(p[:accepted])
 	}
 	if exceeded {
 		b.exceeded = true

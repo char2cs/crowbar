@@ -15,8 +15,6 @@ const testChat = "chat-1"
 
 var at0 = time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 
-// chatRows is a chat's ledger state, Map's rows committed to it as the store
-// would commit them.
 type chatRows struct {
 	t  *testing.T
 	st ledger.State
@@ -29,7 +27,6 @@ func newChatRows(t *testing.T, rows ...ledger.Row) *chatRows {
 	return c
 }
 
-// liveChatRows is a chat whose runner run-1 runs.
 func liveChatRows(t *testing.T) *chatRows {
 	t.Helper()
 	return newChatRows(t, row(t, ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "run-1", Provider: "p1"}))
@@ -43,7 +40,6 @@ func (c *chatRows) commit(rows ...ledger.Row) {
 	}
 }
 
-// mapped maps ev from src and commits its rows.
 func (c *chatRows) mapped(ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, Effects) {
 	c.t.Helper()
 	rows, fx, err := Map(c.st, ev, src, BlobRefs{})
@@ -52,7 +48,6 @@ func (c *chatRows) mapped(ev engineagents.CanonicalEvent, src Source) ([]ledger.
 	return rows, fx
 }
 
-// typed opens turn pt-1 on words typed into the CLI, and returns it.
 func (c *chatRows) typed(text string) string {
 	c.t.Helper()
 	s := hooksSource()
@@ -122,8 +117,6 @@ func TestMap_ARepeatedUserPromptOpensNoSecondTurn(t *testing.T) {
 	assert.Empty(t, rows)
 }
 
-// A prompt opens a turn only on the chat's live runner, held against its end,
-// and never from inside a subagent.
 func TestMap_APromptOpensNoTurnWhereNoneMayStart(t *testing.T) {
 	prompt := engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt}
 	unheld := hooksSource()
@@ -161,8 +154,6 @@ func TestMap_APromptSupersedesTheRunningTurn(t *testing.T) {
 	assert.Equal(t, ledger.ReasonSuperseded, bodyOf[ledger.TurnEnded](t, rows[0]).Reason)
 }
 
-// Words typed that are a Crowbar prompt's start the turn that prompt queued:
-// it is said once, under its request.
 func TestMap_TypedWordsOfACrowbarPromptStartItsTurn(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-1", "do it", ledger.DeliveryRestart))
@@ -176,8 +167,6 @@ func TestMap_TypedWordsOfACrowbarPromptStartItsTurn(t *testing.T) {
 	assert.Equal(t, "req-1", bodyOf[ledger.TurnStarted](t, rows[0]).RequestID)
 }
 
-// A turn start that echoes no words claims the oldest pending prompt of its
-// runner; with none pending it opens a turn and invents no empty user row.
 func TestMap_AWordlessTurnStartClaimsTheOldestPendingPrompt(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-1", "first", ledger.DeliveryRestart), crowbarPrompt(t, "req-2", "second", ledger.DeliveryRestart))
@@ -201,8 +190,6 @@ func TestMap_AWordlessTurnStartWithNothingPendingOpensNoEmptyRow(t *testing.T) {
 	assert.Equal(t, []ledger.Kind{ledger.KindTurnStarted}, kinds(rows))
 }
 
-// Words matching a prompt another runner carries are the live CLI's own: the
-// other runner's prompt is not started here.
 func TestMap_TypedWordsOfAnotherRunnersPromptAreItsOwn(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(row(t, ledger.KindUserMessage, "T-req-1", "", ledger.UserMessage{
@@ -218,8 +205,6 @@ func TestMap_TypedWordsOfAnotherRunnersPromptAreItsOwn(t *testing.T) {
 	assert.Empty(t, bodyOf[ledger.TurnStarted](t, rows[1]).RequestID)
 }
 
-// A prompt typed into the live CLI's composer is received exactly as one
-// launched with it: its hook claims it, and an idle that never took it settles it.
 func TestMap_ATypedPromptIsReceivedAsARestartedOneIs(t *testing.T) {
 	const text = "![shot](chats/chat-1/attachments/a.png) what is this"
 	for _, delivery := range []string{ledger.DeliveryRestart, ledger.DeliveryType} {
@@ -303,12 +288,10 @@ func TestMap_AReplyWithNothingStreamedIsTheTurnsReply(t *testing.T) {
 	assert.Equal(t, string(ledger.TurnStatusInterrupted), bodyOf[ledger.TurnEnded](t, rows[1]).Status)
 }
 
-// A turn's end abandons its open asks, but one that declared background work
-// leaves a held ask to that work: only it can hold the CLI there now.
 func TestMap_ATurnsEndAbandonsTheAsksNothingElseHolds(t *testing.T) {
 	for name, tc := range map[string]struct {
 		subagent bool
-		closed   []int // of the asks, held then unheld
+		closed   []int
 	}{
 		"an end nothing runs past":    {false, []int{0, 1}},
 		"an end a subagent runs past": {true, []int{1}},
@@ -348,8 +331,6 @@ func TestMap_ATurnsEndAbandonsTheAsksNothingElseHolds(t *testing.T) {
 	}
 }
 
-// A compaction's own turn wraps it like any turn; its end ends the compaction,
-// never a turn of the chat's.
 func TestMap_ACompactionTurnStopEndsTheCompactionNotTheTurn(t *testing.T) {
 	for _, kind := range []string{engineagents.HookTurnStop, engineagents.HookTurnFailed} {
 		t.Run(kind, func(t *testing.T) {
@@ -376,7 +357,6 @@ func TestMap_AnIdleEndsTheRunningTurnAndSettlesItsSteer(t *testing.T) {
 	assert.Equal(t, ledger.ReasonDeliveryFailed, bodyOf[ledger.PromptSettled](t, rows[1]).Reason)
 }
 
-// An idle that ends the turn records what the turn said, as any end does.
 func TestMap_AnIdleThatEndsTheTurnKeepsWhatItSaid(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
@@ -392,7 +372,6 @@ func TestMap_AnIdleThatEndsTheTurnKeepsWhatItSaid(t *testing.T) {
 	assert.Empty(t, c.st.PendingAsks())
 }
 
-// An idle with nothing running (a compaction is no turn) ends none; on hooks it settles what the CLI carried, its own commands as run.
 func TestMap_AnIdleWithNothingRunningEndsNoTurn(t *testing.T) {
 	c := liveChatRows(t)
 	c.commit(crowbarPrompt(t, "req-1", "hello", ledger.DeliveryRestart), crowbarPrompt(t, "req-2", "/context", ledger.DeliveryRestart))
@@ -410,8 +389,6 @@ func TestMap_AnIdleWithNothingRunningEndsNoTurn(t *testing.T) {
 	assert.Equal(t, []string{ledger.ReasonProviderBuiltin, ledger.ReasonNotAcknowledged}, []string{bodyOf[ledger.PromptSettled](t, rows[0]).Reason, bodyOf[ledger.PromptSettled](t, rows[1]).Reason})
 }
 
-// A late turn_stop closes its turn no second time; what it said lands in it,
-// the fuller of its reply and the stream it names.
 func TestMap_ALateTurnStopIsWrittenToItsTurn(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
@@ -461,9 +438,6 @@ func TestSalvage_RecordsWhatNoRowHolds(t *testing.T) {
 	assert.Equal(t, "kept", bodyOf[ledger.AssistantText](t, rows[0]).MessageID)
 }
 
-// Replayed, a real run closes each turn once and records each message whole
-// once, keeping all it said: an end of a turn already closed (an idle after its
-// stop, a stopped turn's own end) and a reply of a message already whole add no row.
 func TestMap_ARecordedRunClosesEachTurnOnceAndSaysEachMessageOnce(t *testing.T) {
 	for _, feed := range []string{"feed-codex-pre-unix.txt", "feed-claude1.txt"} {
 		t.Run(feed, func(t *testing.T) {

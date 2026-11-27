@@ -6,7 +6,6 @@ import (
 	"syscall"
 )
 
-// SQLite's primary result codes for the faults a user can act on.
 const (
 	codeReadOnly = 8
 	codeCorrupt  = 11
@@ -15,9 +14,6 @@ const (
 	codeNotADB   = 26
 )
 
-// Explain names err in words a user can act on when it is a disk or database
-// fault: read-only, full, or damaged. The driver's own text for some of them
-// is misleading ("out of memory" for a file it cannot open).
 func Explain(err error) (string, bool) {
 	var coded interface{ Code() int }
 	code := -1
@@ -36,7 +32,6 @@ func Explain(err error) (string, bool) {
 	}
 }
 
-// refusedPath names the file a refusal was about, when the error carries one.
 func refusedPath(err error) string {
 	var pathErr *fs.PathError
 	if errors.As(err, &pathErr) && pathErr.Path != "" {

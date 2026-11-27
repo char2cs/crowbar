@@ -19,7 +19,6 @@ import { ReviewDiffTab, type LineRequest } from './review-diff-tab'
 
 interface BranchReviewPaneProps {
   view?: BranchReviewView
-  /** The tab the user picked; its owner keeps it (a pane persists it on the tab's buffer). */
   onViewChange: (view: BranchReviewView) => void
   wsId: string
   isActivePane?: boolean
@@ -32,16 +31,12 @@ export function BranchReviewPane({
   isActivePane,
 }: BranchReviewPaneProps) {
   const store = useWorkspaceStore()
-  // The Files changed controls render into the tab row; the diff tab keeps their state.
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null)
-  // getReview throws until the owning chat id is recorded, which can trail a restored review
-  // tab's mount. Subscribing lets `load` wait for it rather than fail into a permanent 'error'.
   const owningChatId = useSyncExternalStore(
     (onChange) => subscribeToWorkspaceScope(wsId, onChange),
     () => getOwningChatId(wsId),
   )
 
-  // The title is the owning chat's, the same one the sidebar row shows.
   const branchHeader = useSelect(
     useShallow((s): { title: string; branch?: string; baseBranch?: string } => {
       const ws = selectWorkspace(s, wsId)
@@ -58,7 +53,6 @@ export function BranchReviewPane({
   )
   const threadCount = useReviewThreads(wsId).length
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId)
-  // Branch totals from the summary already in the store; -1 marks a binary file.
   const stats = useMemo(() => {
     let additions = 0
     let deletions = 0
@@ -71,8 +65,6 @@ export function BranchReviewPane({
   const [lineRequest, setLineRequest] = useState<LineRequest | undefined>()
 
   const setView = (next: BranchReviewView) => {
-    // A pending line request belongs to the surface it was raised for; keeping
-    // it would replay the scroll the next time Files changed mounts.
     if (next === 'conversation') setLineRequest(undefined)
     onViewChange(next)
   }
@@ -87,8 +79,6 @@ export function BranchReviewPane({
     setView('files')
   }
 
-  // The read model gives description, merge strategy and conversations only: the diff surface
-  // reads files/outline/patches itself, and threads stream in on the workspace's ws: scope.
   const load = useCallback(async () => {
     const actions = store.getState()
     actions.setBranchReviewDiffStatus('loading')
@@ -98,18 +88,14 @@ export function BranchReviewPane({
       a.setBranchReviewDescription(review.description)
       a.setBranchReviewMergeStrategy(review.mergeStrategy)
       a.setBranchReviewConversations(review.conversations)
-      // review.diff is not stored: holding the line-level diff is what windowing avoids.
     } catch {
       store.getState().setBranchReviewDiffStatus('error')
     }
   }, [store, wsId])
 
-  // On a paired install the project list says whose daemon holds the review.
   const hostResolved = useHostResolved({ wsId })
 
   useEffect(() => {
-    // Nothing to fetch yet — wait for owningChatId and the host (dependencies below)
-    // rather than firing a call that can only fail and land on the error status.
     if (owningChatId === null || !hostResolved) return
     void load()
   }, [load, owningChatId, hostResolved])

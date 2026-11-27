@@ -6,17 +6,13 @@ import type { ChatPresentation } from '@/features/settings/lib/chat-presentation
 
 interface ViewSwitchProps {
   presentation: ChatPresentation
-  /** Split is a diagnostic: the reconstructed chat beside the CLI's own output. */
   splitEnabled?: boolean
-  /** The provider cannot hand a live turn over; the face you would move to waits for the turn to end. */
   handoverBlocked?: boolean
   onSelect: (next: ChatPresentation) => void
 }
 
 const SEGMENT = 'h-7 w-10 rounded-full px-0 sm:h-7'
 
-/** The one chat/terminal switch, everywhere it appears. Arrow keys move between the segments;
- *  the raised indicator slides. */
 export function ViewSwitch({
   presentation,
   splitEnabled,

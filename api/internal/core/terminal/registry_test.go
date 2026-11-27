@@ -86,8 +86,6 @@ func TestEngine_Write(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// A CLI that stops reading its stdin fills the PTY: the write gives up with its
-// context instead of holding its caller for as long as the CLI lives.
 func TestEngine_Write_IntoAStdinNobodyReadsEndsWithItsContext(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -151,8 +149,6 @@ func TestEngine_SessionExists(t *testing.T) {
 	assert.False(t, eng.SessionExists(ctx, sid))
 }
 
-// TestEngine_LoadPlaceholder_IsPlaceholder verifies that after LoadPlaceholder the
-// session appears in the registry as a suspended (non-live) placeholder.
 func TestEngine_LoadPlaceholder_IsPlaceholder(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -174,12 +170,9 @@ func TestEngine_LoadPlaceholder_IsPlaceholder(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "suspended", state, "placeholder state must be 'suspended'")
 
-	// Cleanup.
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// TestEngine_LoadPlaceholder_Idempotent verifies that loading the same session ID
-// twice does not double-register and does not error.
 func TestEngine_LoadPlaceholder_Idempotent(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -194,9 +187,8 @@ func TestEngine_LoadPlaceholder_Idempotent(t *testing.T) {
 	}
 
 	require.NoError(t, eng.LoadPlaceholder(ctx, meta, nil))
-	require.NoError(t, eng.LoadPlaceholder(ctx, meta, nil)) // second call must be no-op
+	require.NoError(t, eng.LoadPlaceholder(ctx, meta, nil))
 
-	// Should still appear exactly once.
 	ids := eng.ListSessions()
 	count := 0
 	for _, id := range ids {
@@ -209,8 +201,6 @@ func TestEngine_LoadPlaceholder_Idempotent(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// TestEngine_StateOf_ReturnsStateForLiveSession verifies StateOf returns
-// "detached" for a freshly created session (no clients yet).
 func TestEngine_StateOf_ReturnsStateForLiveSession(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -222,14 +212,11 @@ func TestEngine_StateOf_ReturnsStateForLiveSession(t *testing.T) {
 
 	state, ok := eng.StateOf(sid)
 	assert.True(t, ok, "StateOf must return ok=true for a live session")
-	// Newly created session has no clients → "detached"
 	assert.Equal(t, "detached", state)
 
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// TestEngine_StateOf_ReturnsFalseForUnknown verifies StateOf returns ("", false)
-// for a session that does not exist in the registry.
 func TestEngine_StateOf_ReturnsFalseForUnknown(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -239,8 +226,6 @@ func TestEngine_StateOf_ReturnsFalseForUnknown(t *testing.T) {
 	assert.Empty(t, state)
 }
 
-// TestEngine_StateOf_ActiveWhileAttached verifies StateOf returns "active"
-// while a client is attached.
 func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -257,8 +242,6 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 		_ = eng.Attach(ctx, sid, conn)
 	}()
 
-	// Wait until we receive at least one frame, confirming the client is registered.
-	// blocks on the fan-out signal — must receive initial output to confirm attach
 	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
 	state, ok := eng.StateOf(sid)
@@ -270,9 +253,6 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-// TestRegression_TerminalLifecycle_StateOf pins the lifecycle wire-protocol data path:
-// StateOf must reflect the session's actual state through attach, last-client
-// detach, Suspend and Kill.
 func TestRegression_TerminalLifecycle_StateOf(t *testing.T) {
 	pinShell(t)
 
@@ -283,29 +263,24 @@ func TestRegression_TerminalLifecycle_StateOf(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	// Create → should be detached (no clients). Block until the shell is at its prompt, so the
-	// Suspend later in this test meets the idle gate its eligibility check applies.
 	sid := newReadyShell(t, eng, "chat-regress", dir)
 
 	state, ok := eng.StateOf(sid)
 	assert.True(t, ok)
 	assert.Equal(t, "detached", state, "newly created session must report detached (no clients)")
 
-	// Attach client → "active".
 	conn := newMockConn()
 	attachDone := make(chan struct{})
 	go func() {
 		defer close(attachDone)
 		_ = eng.Attach(ctx, sid, conn)
 	}()
-	// blocks on the fan-out signal — must receive initial output to confirm attach
 	waitForMsg(t, conn, func(d string) bool { return len(d) > 0 })
 
 	state, ok = eng.StateOf(sid)
 	assert.True(t, ok)
 	assert.Equal(t, "active", state, "session must be active while client is attached")
 
-	// Detach client → "detached", persisted as such.
 	_ = conn.Close()
 	<-attachDone
 	require.True(t, store.hasSavedWithState(sid, "detached"),
@@ -315,8 +290,6 @@ func TestRegression_TerminalLifecycle_StateOf(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "detached", state)
 
-	// Suspend → "suspended". The shell is at its prompt (idle) and now
-	// detached, so Suspend's eligibility gate is satisfied and ONE call must take.
 	require.NoError(t, eng.Suspend(ctx, sid))
 	require.True(t, store.hasSavedWithState(sid, "suspended"),
 		"Suspend persists the suspended meta before returning")
@@ -325,7 +298,6 @@ func TestRegression_TerminalLifecycle_StateOf(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "suspended", state)
 
-	// Kill the placeholder → gone.
 	require.NoError(t, eng.Kill(ctx, sid))
 	_, ok = eng.StateOf(sid)
 	assert.False(t, ok, "a killed placeholder leaves the registry")

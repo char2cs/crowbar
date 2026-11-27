@@ -1,5 +1,3 @@
-//! A floating element to look for, and a portal a test switches off.
-
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -38,7 +36,6 @@ pub(crate) fn windows(owner: &mut VisualTestContext) -> usize {
     owner.update(|_, cx| cx.windows().len())
 }
 
-/// The cards the open popovers of `window` cover.
 pub(crate) fn covered(window: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
     crate::testing::covered(window).1
 }

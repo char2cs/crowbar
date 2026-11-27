@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// api.ts imports isTauri from crowbar-bridge, so this mock's factory runs
-// before this file's own top-level statements (ESM evaluates a dependency's
-// dependencies first) — vi.hoisted is required so `isTauri` exists by then.
 const { isTauri } = vi.hoisted(() => ({ isTauri: vi.fn(() => false) }))
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
@@ -21,9 +18,6 @@ describe('apiBaseFor', () => {
   })
 
   it('returns the existing API_BASE for "local"', () => {
-    // API_BASE is whatever this test env already resolves it to (window.__CROWBAR__
-    // or VITE_API_URL or '') — assert apiBaseFor('local') equals itself rather
-    // than a specific literal string, since that resolution is out of scope here.
     expect(apiBaseFor('local')).toBe(apiBaseFor('local'))
   })
 

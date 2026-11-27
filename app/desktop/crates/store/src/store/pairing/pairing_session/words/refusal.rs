@@ -1,5 +1,3 @@
-//! The status and reason of a pairing the host refused, read from the transport's error text.
-
 const PREFIX: &str = "the host refused pairing (";
 const STATUS_DIGITS: usize = 3;
 

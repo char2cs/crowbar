@@ -1,21 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-/// The unsaved text of a dirty document, kept so a restart or a crash loses nothing, as
-/// develop's `EditorDraft`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
-    /// The document, as [`crate::workspace_uri`] or [`crate::host_uri`] names it.
     pub uri: String,
-    /// The text the document held.
     pub text: String,
-    /// The text its file held when the draft was written.
     pub saved_text: String,
 }
 
 impl Draft {
-    /// Whether the draft holds edits that are on neither side: not its saved text, and not
-    /// `disk`, as develop's `unsaved`.
     #[must_use]
     pub fn unsaved(
         &self,

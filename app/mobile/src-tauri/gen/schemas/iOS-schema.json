@@ -2385,10 +2385,10 @@
           "markdownDescription": "Denies the unminimize command without any pre-configured scope."
         },
         {
-          "description": "Lets the webview describe the native chrome, chat list, settings, host picker, model picker and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-host-picker`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-context`\n- `allow-set-model-picker`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Lets the webview describe the native chrome, chat list, settings, host picker, model picker, plus menu, attach sheet, jump-to-latest button and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-host-picker`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-model-picker`\n- `allow-set-plus-menu`\n- `allow-set-attach-sheet`\n- `allow-set-jump-to-latest`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "crowbar-chrome:default",
-          "markdownDescription": "Lets the webview describe the native chrome, chat list, settings, host picker, model picker and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-host-picker`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-context`\n- `allow-set-model-picker`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Lets the webview describe the native chrome, chat list, settings, host picker, model picker, plus menu, attach sheet, jump-to-latest button and dialogs and listen for its intents.\n#### This default permission set includes:\n\n- `allow-set-chrome`\n- `allow-set-sidebar`\n- `allow-set-agents-settings`\n- `allow-set-hosts-settings`\n- `allow-set-host-picker`\n- `allow-set-files`\n- `allow-set-tabs`\n- `allow-set-model-picker`\n- `allow-set-plus-menu`\n- `allow-set-attach-sheet`\n- `allow-set-jump-to-latest`\n- `allow-confirm`\n- `allow-prompt`\n- `allow-register-listener`\n- `allow-remove-listener`"
         },
         {
           "description": "Enables the confirm command without any pre-configured scope.",
@@ -2421,16 +2421,16 @@
           "markdownDescription": "Enables the set_agents_settings command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_attach_sheet command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:allow-set-attach-sheet",
+          "markdownDescription": "Enables the set_attach_sheet command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_chrome command without any pre-configured scope.",
           "type": "string",
           "const": "crowbar-chrome:allow-set-chrome",
           "markdownDescription": "Enables the set_chrome command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the set_context command without any pre-configured scope.",
-          "type": "string",
-          "const": "crowbar-chrome:allow-set-context",
-          "markdownDescription": "Enables the set_context command without any pre-configured scope."
         },
         {
           "description": "Enables the set_files command without any pre-configured scope.",
@@ -2451,10 +2451,22 @@
           "markdownDescription": "Enables the set_hosts_settings command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_jump_to_latest command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:allow-set-jump-to-latest",
+          "markdownDescription": "Enables the set_jump_to_latest command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_model_picker command without any pre-configured scope.",
           "type": "string",
           "const": "crowbar-chrome:allow-set-model-picker",
           "markdownDescription": "Enables the set_model_picker command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_plus_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:allow-set-plus-menu",
+          "markdownDescription": "Enables the set_plus_menu command without any pre-configured scope."
         },
         {
           "description": "Enables the set_sidebar command without any pre-configured scope.",
@@ -2499,16 +2511,16 @@
           "markdownDescription": "Denies the set_agents_settings command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_attach_sheet command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:deny-set-attach-sheet",
+          "markdownDescription": "Denies the set_attach_sheet command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_chrome command without any pre-configured scope.",
           "type": "string",
           "const": "crowbar-chrome:deny-set-chrome",
           "markdownDescription": "Denies the set_chrome command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the set_context command without any pre-configured scope.",
-          "type": "string",
-          "const": "crowbar-chrome:deny-set-context",
-          "markdownDescription": "Denies the set_context command without any pre-configured scope."
         },
         {
           "description": "Denies the set_files command without any pre-configured scope.",
@@ -2529,10 +2541,22 @@
           "markdownDescription": "Denies the set_hosts_settings command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_jump_to_latest command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:deny-set-jump-to-latest",
+          "markdownDescription": "Denies the set_jump_to_latest command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_model_picker command without any pre-configured scope.",
           "type": "string",
           "const": "crowbar-chrome:deny-set-model-picker",
           "markdownDescription": "Denies the set_model_picker command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_plus_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "crowbar-chrome:deny-set-plus-menu",
+          "markdownDescription": "Denies the set_plus_menu command without any pre-configured scope."
         },
         {
           "description": "Denies the set_sidebar command without any pre-configured scope.",

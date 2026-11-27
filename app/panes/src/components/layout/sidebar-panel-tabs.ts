@@ -6,14 +6,11 @@ import {
   type FocusedWorkspaceContext,
 } from '@/features/window/stores/focused-workspace-context-store'
 
-/** One mode of the sidebar. Availability is decided by the focused
- *  workspace context alone — never the route. */
 interface SidebarPanelTabDescriptor {
   tab: SidebarTab
   label: string
   Icon: React.ComponentType<{ size: number; weight: 'fill' | 'regular' }>
   available: (ctx: FocusedWorkspaceContext) => boolean
-  /** Drawn only while `available`, instead of as a disabled tile. */
   hideWhenUnavailable?: true
 }
 

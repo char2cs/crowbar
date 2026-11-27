@@ -1,8 +1,6 @@
 import { create } from 'zustand'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 
-// How an Edit button on a diagram deep in a transcript reaches the composer
-// that owns the takeover, without threading a callback through every Plate node.
 interface ExcalidrawEditRequests {
   requests: Record<string, ParsedExcalidrawScene>
 }

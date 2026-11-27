@@ -30,9 +30,6 @@ func discoverDescriptor() *spec.Descriptor {
 	return d
 }
 
-// blockUntil is a probeFunc that signals started, then blocks until release
-// is closed — the real-signal alternative to a sleep for proving Refresh
-// does not block its caller.
 func blockUntil(started, release chan struct{}) probeFunc {
 	return func(context.Context, *spec.Descriptor, models.ProbeOptions, exec.Acquire) ([]Model, error) {
 		close(started)
@@ -49,10 +46,6 @@ func TestRefresh_DoesNotBlockTheCaller(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		// home="": this test never waits for the backgrounded attemptRefresh to
-		// fully finish (only that Refresh itself returns promptly), so a real
-		// tempdir would race its own t.Cleanup against that goroutine's later
-		// disk-cache write.
 		c.Refresh(discoverDescriptor(), "")
 		close(done)
 	}()
@@ -63,7 +56,7 @@ func TestRefresh_DoesNotBlockTheCaller(t *testing.T) {
 		t.Fatal("Refresh must return without waiting on the probe")
 	}
 	close(release)
-	<-started // drain, avoid a leaked goroutine complaint
+	<-started
 }
 
 func TestAttemptRefresh_StoresASuccessfulProbe(t *testing.T) {
@@ -114,9 +107,6 @@ func TestAttemptRefresh_AFailedProbeLogsOnceNamingTheProvider(t *testing.T) {
 	assert.Contains(t, buf.String(), "deadline exceeded")
 }
 
-// TestAttemptRefresh_SuccessWritesTheDiskCache proves a successful probe
-// persists its catalogue to discoverCachePath, so the NEXT cold start has
-// something to seed from.
 func TestAttemptRefresh_SuccessWritesTheDiskCache(t *testing.T) {
 	home := t.TempDir()
 	c := NewCache(context.Background())
@@ -133,10 +123,6 @@ func TestAttemptRefresh_SuccessWritesTheDiskCache(t *testing.T) {
 	assert.Equal(t, []Model{{ID: "m1", Efforts: []string{"low"}}}, got)
 }
 
-// TestAttemptRefresh_CancelledLifecycleDoesNotWriteTheDiskCache proves a
-// refresh whose lifecycle is ALREADY cancelled before it even starts never
-// stores or writes — even though the probe itself succeeds and ignores its
-// own ctx, attemptRefresh's own ctx.Err() check is what refuses the result.
 func TestAttemptRefresh_CancelledLifecycleDoesNotWriteTheDiskCache(t *testing.T) {
 	home := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -153,13 +139,6 @@ func TestAttemptRefresh_CancelledLifecycleDoesNotWriteTheDiskCache(t *testing.T)
 	assert.True(t, os.IsNotExist(err), "a cancelled lifecycle must not write the disk cache")
 }
 
-// TestAttemptRefresh_LifecycleCancelledMidProbeDoesNotWriteTheDiskCache is
-// the closer-to-real-bug shape: the lifecycle is cancelled WHILE the probe
-// is still running (the goroutine is in flight, exactly as it was when a
-// test's t.TempDir() teardown raced it), not before it starts. The probe
-// still succeeds — deliberately unaware of its own cancellation, the
-// worst case — so only attemptRefresh's own post-probe ctx.Err() check
-// stands between this and the leaked write the bug report captured.
 func TestAttemptRefresh_LifecycleCancelledMidProbeDoesNotWriteTheDiskCache(t *testing.T) {
 	home := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -193,14 +172,6 @@ func TestAttemptRefresh_LifecycleCancelledMidProbeDoesNotWriteTheDiskCache(t *te
 	assert.True(t, os.IsNotExist(err), "a lifecycle cancelled mid-probe must not write the disk cache")
 }
 
-// TestRefresh_SeedsSynchronouslyFromDisk is the actual bug this cache exists
-// to fix: on a cold cache with a populated disk file, the FIRST Models() call
-// after Refresh must already see it — never empty until the first live probe
-// lands. The probe is left blocked on release so the assertion can only pass
-// if the disk seed ran on Refresh's own calling goroutine, not the fork.
-//
-// Close joins the background fork, disk write included, so t.TempDir()'s cleanup
-// cannot race it.
 func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeDiscoverCache(home, "probe", []Model{{ID: "cached-1", Efforts: []string{"low"}}}))
@@ -219,8 +190,6 @@ func TestRefresh_SeedsSynchronouslyFromDisk(t *testing.T) {
 	c.Close()
 }
 
-// A home that cannot hold the cache (here, a regular file where the cache
-// directory belongs) is reported to the caller instead of vanishing.
 func TestWriteDiscoverCache_AnUnwritableHomeIsAnError(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	require.NoError(t, os.WriteFile(home, nil, 0o600))
@@ -228,11 +197,6 @@ func TestWriteDiscoverCache_AnUnwritableHomeIsAnError(t *testing.T) {
 	assert.Error(t, writeDiscoverCache(home, "probe", []Model{{ID: "m"}}))
 }
 
-// TestRefresh_FailedProbeKeepsTheDiskSeededCatalogue proves a FAILED live
-// probe never empties the catalogue the synchronous disk seed just served —
-// the same "never blank a resolved catalogue" contract
-// TestAttemptRefresh_AFailedProbeKeepsThePreviousCatalogue pins for an
-// in-memory seed, here for a disk-seeded one.
 func TestRefresh_FailedProbeKeepsTheDiskSeededCatalogue(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, writeDiscoverCache(home, "probe", []Model{{ID: "cached-1"}}))
@@ -340,10 +304,6 @@ func manifestDescriptor() *spec.Descriptor {
 	return d
 }
 
-// TestRefreshManifest_SeedsSynchronouslyFromEmbedded proves the embedded
-// half resolves on the CALLING goroutine, before RefreshManifest returns —
-// Models()/Efforts() must never read empty just because the background
-// fetch/disk-cache half hasn't run yet.
 func TestRefreshManifest_SeedsSynchronouslyFromEmbedded(t *testing.T) {
 	c := NewCache(context.Background())
 	embedded := []byte(
@@ -379,12 +339,9 @@ func TestRefreshManifest_DoesNotBlockTheCaller(t *testing.T) {
 		t.Fatal("RefreshManifest must return without waiting on the fetch")
 	}
 	close(release)
-	<-started // drain, avoid a leaked goroutine complaint
+	<-started
 }
 
-// TestAttemptManifestRefresh_AFailedFetchKeepsThePreviousCatalogue proves the
-// background half's own failure never blanks what the synchronous embedded
-// seed (or an earlier successful refresh) already stored.
 func TestAttemptManifestRefresh_AFailedFetchKeepsThePreviousCatalogue(t *testing.T) {
 	c := NewCache(context.Background())
 	c.manifest = func(context.Context, *spec.ModelManifestSpec, []byte, string, bool) ([]Model, error) {
@@ -404,10 +361,6 @@ func TestAttemptManifestRefresh_AFailedFetchKeepsThePreviousCatalogue(t *testing
 	assert.Equal(t, []string{"m1"}, c.Models("probe"), "a failed refresh must not blank a working catalogue")
 }
 
-// TestCache_DefaultModel_EmptyForManifestSource pins that nothing infers a
-// default for a manifest-derived catalogue — ModelManifestSpec has no
-// default_when-equivalent field at all, so this is structural, not just
-// untested.
 func TestCache_DefaultModel_EmptyForManifestSource(t *testing.T) {
 	c := NewCache(context.Background())
 	embedded := []byte(
@@ -420,10 +373,6 @@ func TestCache_DefaultModel_EmptyForManifestSource(t *testing.T) {
 	assert.Empty(t, c.DefaultModel("probe"))
 }
 
-// TestCache_Efforts_UnionKeyForManifestSource pins effortsOf's "" entry: the
-// union of every model's own levels, so a picker shown before a model is
-// confirmed still offers something — the contract provider.resolveEfforts
-// depends on for claude's own "" key (agent-api.ts:329-338).
 func TestCache_Efforts_UnionKeyForManifestSource(t *testing.T) {
 	c := NewCache(context.Background())
 	c.Store("probe", []Model{
@@ -434,26 +383,12 @@ func TestCache_Efforts_UnionKeyForManifestSource(t *testing.T) {
 	assert.ElementsMatch(t, []string{"low", "high", "max"}, c.Efforts("probe", ""))
 }
 
-// TestRegression_CloseJoinsAManifestRefreshStillOwingItsDiskWrite pins the
-// t.TempDir()-cleanup flake this cache caused across internal/api/v0 and
-// internal/app/usecases/chat: the boot warm-up forked a manifest refresh, the
-// test body returned, and the fetch's writeManifestCache landed in the home
-// AFTERWARDS — recreating the directory RemoveAll had just emptied, which
-// testing reports as "TempDir RemoveAll cleanup: ... directory not empty".
-//
-// Its cancellation-based sibling above cannot cover this. The discover path's
-// write sits in attemptRefresh, AFTER a ctx.Err() gate that can refuse it; the
-// manifest path's write sits inside ProbeManifest itself, upstream of every gate
-// attemptManifestRefresh has. Cancelling can only shorten that window — the join
-// is what closes it, so the write is on disk by the time Close returns.
 func TestRegression_CloseJoinsAManifestRefreshStillOwingItsDiskWrite(t *testing.T) {
 	home := t.TempDir()
 	d := manifestDescriptor()
 	c := NewCache(context.Background())
 	started := make(chan struct{})
 	release := make(chan struct{})
-	// The write is INSIDE the probe, where ProbeManifest really puts it, so no
-	// post-probe ctx check could refuse it.
 	c.manifest = func(_ context.Context, man *spec.ModelManifestSpec, _ []byte, homeDir string, _ bool) ([]Model, error) {
 		close(started)
 		<-release
@@ -474,10 +409,6 @@ func TestRegression_CloseJoinsAManifestRefreshStillOwingItsDiskWrite(t *testing.
 		"Close must not return while a forked refresh still owes a write under home")
 }
 
-// TestRegression_RefreshAfterCloseForksNothing proves Close is a latch, not just
-// a drain: a refresh kicked afterwards (a request still in flight when shutdown
-// began) must not fork at all, or the join it already completed would be
-// meaningless and the WaitGroup could be Added to after its Wait returned.
 func TestRegression_RefreshAfterCloseForksNothing(t *testing.T) {
 	home := t.TempDir()
 	c := NewCache(context.Background())
@@ -488,9 +419,9 @@ func TestRegression_RefreshAfterCloseForksNothing(t *testing.T) {
 	}
 
 	c.Close()
-	c.Close() // idempotent
+	c.Close()
 	c.RefreshManifest(manifestDescriptor(), home, nil, true)
-	c.Close() // joins nothing; returns rather than hanging
+	c.Close()
 
 	assert.False(t, probed.Load(), "a refresh kicked after Close must never fork")
 }

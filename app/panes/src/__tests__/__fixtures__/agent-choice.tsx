@@ -3,7 +3,6 @@ import type { ComponentProps } from 'react'
 import type { AgentChoice } from '@/features/agent/api/agent-chat-activity'
 import { ComposerChoice } from '@/features/agent/composer/composer-choice'
 
-/** A pending, answerable Bash permission; override what a test is about. */
 export function choice(overrides: Partial<AgentChoice> = {}): AgentChoice {
   return {
     id: 'k1',

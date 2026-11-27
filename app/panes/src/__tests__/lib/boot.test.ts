@@ -23,9 +23,6 @@ vi.mock('@/lib/persistence/hydrate', () => ({
   placeRestoredPanesOnceSynced,
 }))
 
-// Boot hydration resolves before React mounts (main.tsx awaits it before renderApp): a surface
-// mounted against just-booted defaults and then swapped a frame later throws ("Editor failed to
-// load"), while gating paint on the network call left a blank screen on cold boot.
 describe('hydrateCriticalStores', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -37,7 +34,6 @@ describe('hydrateCriticalStores', () => {
     expect(hydrateWindowPaneLayout).toHaveBeenCalledTimes(1)
   })
 
-  // Restored members are placed once the projects scope answers, never before first paint.
   it('arms placing restored chat members after the layout', async () => {
     const order: string[] = []
     hydrateWindowPaneLayout.mockImplementation(async () => {
@@ -102,7 +98,6 @@ describe('hydrateCriticalStores', () => {
 describe('hydrateCriticalStores on an install that has paired a remote host', () => {
   let invoke: ReturnType<typeof vi.fn>
 
-  /** A page load over a saved host list: fresh modules, as after a restart. */
   async function freshBoot() {
     vi.resetModules()
     const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
@@ -120,7 +115,6 @@ describe('hydrateCriticalStores on an install that has paired a remote host', ()
     localStorage.clear()
   })
 
-  // The proxy's registry starts empty at every launch: a remote read sent first is refused.
   it('registers every saved host before the first remote read goes out', async () => {
     const order: string[] = []
     let finish!: () => void
@@ -152,8 +146,6 @@ describe('hydrateCriticalStores on an install that has paired a remote host', ()
     })
   })
 
-  // main.tsx renders once boot settles, even when it fails: render must not overtake the
-  // registration already under way, or a restored remote stream meets an unknown host.
   it('waits for the hosts to register even when the layout read fails', async () => {
     const order: string[] = []
     let finish!: () => void
@@ -172,7 +164,6 @@ describe('hydrateCriticalStores on an install that has paired a remote host', ()
 
     const settled = () => order.push('settled')
     const done = hydrate().then(settled, settled)
-    // A macrotask: every microtask the layout's rejection set off has run by now.
     await new Promise((resolve) => setTimeout(resolve, 0))
     finish()
     await done

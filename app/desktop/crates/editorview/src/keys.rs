@@ -23,16 +23,12 @@ actions!(
     ]
 );
 
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.ts
 const GO_TO_LINE: &str = "ctrl-g";
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/suggest/browser/suggestController.ts
 const SHOW_COMPLETIONS: &str = "ctrl-space";
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/gotoSymbol/browser/goToCommands.ts
 const GO_TO_DEFINITION: &str = "f12";
 
 const INPUT_CONTEXT: &str = "Input";
 
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/linesOperations/browser/linesOperations.ts
 // PLATFORM: macos takes Monaco's mac chords; linux takes its linux chords.
 #[cfg(target_os = "macos")]
 mod chords {

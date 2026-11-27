@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// BenchmarkParsePRList benchmarks JSON parsing of a realistic 50-PR gh pr list output.
 func BenchmarkParsePRList(b *testing.B) {
 	payload := generatePRListPayload(50)
 	b.ResetTimer()
@@ -22,7 +21,6 @@ func BenchmarkParsePRList(b *testing.B) {
 	}
 }
 
-// BenchmarkSelectBestPR benchmarks PR selection from a 50-PR list.
 func BenchmarkSelectBestPR(b *testing.B) {
 	payload := generatePRListPayload(50)
 	prs, err := parsePRList(payload)
@@ -39,7 +37,6 @@ func BenchmarkSelectBestPR(b *testing.B) {
 	}
 }
 
-// generatePRListPayload creates a realistic JSON payload of n PRs.
 func generatePRListPayload(
 	n int,
 ) []byte {

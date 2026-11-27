@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// rowBook is a chat's ledger and the record read over it.
 type rowBook struct {
 	t     *testing.T
 	store *ledgerstore.Store
@@ -37,7 +36,6 @@ func (b *rowBook) add(kind ledger.Kind, turnID, scope string, body any) {
 	require.NoError(b.t, err)
 }
 
-// open starts turnID on run-1 of p1 with a person's prompt.
 func (b *rowBook) open(turnID, text string) {
 	b.add(ledger.KindUserMessage, turnID, "", ledger.UserMessage{Text: text, Origin: ledger.OriginProvider})
 	b.add(ledger.KindTurnStarted, turnID, "", ledger.TurnStarted{Provider: "p1", RunnerID: "run-1"})
@@ -54,8 +52,6 @@ func (b *rowBook) turns() []domain.LedgerTurn {
 	return got
 }
 
-// A prompt Crowbar delivered is said once its turn takes it, where that turn
-// started, under the id the client sent it with.
 func TestChatTurns_ACrowbarPromptIsSaidOnceItsTurnStarts(t *testing.T) {
 	b := newRowBook(t)
 	b.add(ledger.KindUserMessage, "T1", "", ledger.UserMessage{
@@ -89,8 +85,6 @@ func TestChatTurns_AHarnessPromptKeepsItsRoleAndANoteIsCrowbars(t *testing.T) {
 	assert.Equal(t, "crowbar", got[1].Provider)
 }
 
-// The reply is said where it began, though it settles later, and carries the
-// effort its turn ended on; a subagent's reply is not the conversation's.
 func TestChatTurns_AReplyIsSaidWhereItBeganWithItsTurnsEffort(t *testing.T) {
 	b := newRowBook(t)
 	b.open("T1", "go")
@@ -108,8 +102,6 @@ func TestChatTurns_AReplyIsSaidWhereItBeganWithItsTurnsEffort(t *testing.T) {
 	assert.Equal(t, "high", got[1].Effort)
 }
 
-// A turn whose start never came is its ending runner's, and so of the
-// provider that runner ran.
 func TestChatTurns_AReplyWithNoStartIsItsRunnersProvider(t *testing.T) {
 	b := newRowBook(t)
 	b.add(ledger.KindRunnerStarted, "", "", ledger.RunnerStarted{RunnerID: "run-1", Provider: "p1"})
@@ -139,7 +131,6 @@ func TestChatTurns_AFailedTurnIsOneNotice(t *testing.T) {
 	assert.Equal(t, "rate_limited", got[3].Text, "with none, the reason")
 }
 
-// A chat longer than one read is read whole.
 func TestChatTurns_ReadsEveryPageOfTheLedger(t *testing.T) {
 	b := newRowBook(t)
 	for range turnsPage {

@@ -36,9 +36,6 @@ vi.mock('@/features/workspace/stores/hooks/use-buffer-store', async (importOrigi
   useBufferActions: () => ({ openContent }),
 }))
 
-// An empty editor area greets with the Crowbar logo. Its actions go through
-// ensurePaneChatThenOpen, which needs the pane's workspace: without one the
-// view stays inert so it never mints a redundant chat (pane-command-actions.test.ts).
 describe('NewTabView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -90,7 +87,6 @@ describe('NewTabView', () => {
     expect(openUntitled).toHaveBeenCalledWith('w1', 'pane-x', undefined)
   })
 
-  // Same gate as the header's shortcut: a thread owns no branch to review.
   it('offers Review Branch last for a non-thread chat, opening the review in this pane', async () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
     const names = screen.getAllByRole('button').map((b) => b.textContent)
@@ -99,7 +95,6 @@ describe('NewTabView', () => {
     expect(openBranchReviewForWorkspace).toHaveBeenCalledWith('w1', ROOT_PANE_ID, undefined)
   })
 
-  // As a tab of its own, a choice takes that tab's place, like a browser's.
   it('as a New Tab page, every choice replaces the page instead of adding a tab', async () => {
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" replaceTabId="page-1" />)
     await userEvent.click(screen.getByRole('button', { name: /new terminal/i }))
@@ -119,7 +114,6 @@ describe('NewTabView', () => {
   })
 
   it('hides Review Branch for a thread', () => {
-    // A chat in a project home borrows its workspace: a thread.
     windowPaneStore.getState().paneActions.openChat('thread-1', { projectId: 'p1' })
     const paneId = windowPaneStore.getState().activePaneId
     homeThread()
@@ -128,7 +122,6 @@ describe('NewTabView', () => {
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
   })
 
-  // A project home has no repo, so no branch; before any chat its pane is chatless.
   it('hides Review Branch in a project home before it holds a chat', () => {
     recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-p1' })
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="home-p1" />)
@@ -136,7 +129,6 @@ describe('NewTabView', () => {
     expect(screen.getByRole('button', { name: /new file/i })).toBeInTheDocument()
   })
 
-  // The browser pane is desktop-only and files come later: the phone offers what it can open.
   it('offers only New Terminal and Review Branch on the phone', () => {
     platform.mobile = true
     render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
@@ -144,7 +136,6 @@ describe('NewTabView', () => {
     expect(names).toEqual(['New Terminal', 'Review Branch'])
   })
 
-  // The phone's empty IDE is the whole screen: a bigger logo over touch-sized rows.
   it('draws the phone variant with a larger logo, and the desktop one without', () => {
     const { container, unmount } = render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)
     expect(container.firstElementChild).not.toHaveAttribute('data-variant')
@@ -157,7 +148,6 @@ describe('NewTabView', () => {
     expect(phone.container.querySelector('svg[aria-hidden="true"]')).toHaveAttribute('width', '154')
   })
 
-  // The desktop's gate: a chat on a branch offers its review; a thread or home chat owns none.
   it('on the phone offers Review Branch only to a chat on a branch', () => {
     platform.mobile = true
     const { unmount } = render(<NewTabView paneId={ROOT_PANE_ID} wsId="w1" />)

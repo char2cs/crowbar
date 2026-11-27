@@ -1,5 +1,3 @@
-//! The remote folder picker's data: a host's own directories, listed on demand.
-
 mod browse_entry;
 mod browse_wire;
 pub(crate) mod folder_choice;
@@ -23,10 +21,8 @@ use crate::store::folder_browse::browse_wire::BrowseWire;
 use crate::store::folder_browse::followed::Followed;
 use crate::store::folder_browse::held::Held;
 
-/// The directory the picker starts from.
 pub const ROOT_PATH: &str = "/";
 
-/// Lists directories of the host that holds the open space, as the picker opens them.
 pub struct FolderBrowse {
     host: Followed,
     hub: Arc<Hub>,
@@ -83,7 +79,6 @@ impl FolderBrowse {
         })
     }
 
-    /// The name the host is shown under.
     pub fn host_name(&self) -> String {
         self.host.name.clone()
     }
@@ -99,12 +94,10 @@ impl FolderBrowse {
         })
     }
 
-    /// Whether the host can be asked anything now.
     pub fn can_ask(&self) -> bool {
         self.reach() != HostState::Down
     }
 
-    /// What `path` shows as far as the host has answered; `None` until it was asked for.
     pub fn listing(
         &self,
         path: &str,
@@ -112,7 +105,6 @@ impl FolderBrowse {
         self.held.lock().ok()?.listing(path)
     }
 
-    /// Asks the host for `path` once, and only while it can be asked.
     pub fn request(
         self: &Arc<Self>,
         path: &str,
@@ -123,7 +115,6 @@ impl FolderBrowse {
         }
     }
 
-    /// Asks for `path` again after it failed.
     pub fn retry(
         self: &Arc<Self>,
         path: &str,

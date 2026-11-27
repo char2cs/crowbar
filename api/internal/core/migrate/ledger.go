@@ -13,8 +13,6 @@ import (
 	"time"
 )
 
-// errLedgerCorrupt is returned when a ledger line other than a torn final
-// write cannot be parsed. The ledger is never repaired past a torn tail.
 var errLedgerCorrupt = errors.New("migrate: ledger is corrupt")
 
 const (
@@ -36,30 +34,27 @@ const (
 	outcomeInterrupted = "interrupted"
 )
 
-// record is one ledger line. The JSON field names are the on-disk format.
 type record struct {
 	V       int       `json:"v"`
-	Kind    string    `json:"kind"` // run.start|backup|step.start|checkpoint|note|step.done|step.fail|run.end
+	Kind    string    `json:"kind"`
 	At      time.Time `json:"at"`
 	Run     string    `json:"run"`
-	Version string    `json:"version,omitempty"`     // run.start: binary version
-	From    *int      `json:"layout_from,omitempty"` // run.start
-	To      *int      `json:"layout_to,omitempty"`   // run.end
-	Pending []int     `json:"pending,omitempty"`     // run.start
+	Version string    `json:"version,omitempty"`
+	From    *int      `json:"layout_from,omitempty"`
+	To      *int      `json:"layout_to,omitempty"`
+	Pending []int     `json:"pending,omitempty"`
 	Step    int       `json:"step,omitempty"`
 	Name    string    `json:"name,omitempty"`
 	Phase   string    `json:"phase,omitempty"`
-	Key     string    `json:"key,omitempty"`    // checkpoint, note
-	Detail  string    `json:"detail,omitempty"` // note
+	Key     string    `json:"key,omitempty"`
+	Detail  string    `json:"detail,omitempty"`
 	Counts  Counts    `json:"counts,omitempty"`
-	Outcome string    `json:"outcome,omitempty"` // step.done: applied; run.end: completed|failed|interrupted
+	Outcome string    `json:"outcome,omitempty"`
 	Error   string    `json:"error,omitempty"`
-	Path    string    `json:"path,omitempty"`  // backup
-	Bytes   int64     `json:"bytes,omitempty"` // backup
+	Path    string    `json:"path,omitempty"`
+	Bytes   int64     `json:"bytes,omitempty"`
 }
 
-// RunSummary is what the ledger says about one run. End and Outcome are zero
-// while the run has no run.end; Counts sum the run's step.done records.
 type RunSummary struct {
 	ID, Version, Outcome, Error string
 	Start, End                  time.Time
@@ -67,13 +62,10 @@ type RunSummary struct {
 	Counts                      Counts
 }
 
-// ledgerView is the records of a ledger in append order.
 type ledgerView struct {
 	records []record
 }
 
-// applied reports whether a step.done with outcome applied exists for the
-// step number and name.
 func (v ledgerView) applied(
 	n int,
 	name string,
@@ -83,7 +75,6 @@ func (v ledgerView) applied(
 	})
 }
 
-// doneIn reports whether run recorded step n as applied.
 func (v ledgerView) doneIn(
 	run string,
 	n int,
@@ -93,8 +84,6 @@ func (v ledgerView) doneIn(
 	})
 }
 
-// checkpoints sums every checkpoint record of the step with this number and
-// name, across runs, by key. Like completion, it never crosses a rename.
 func (v ledgerView) checkpoints(
 	n int,
 	name string,
@@ -112,7 +101,6 @@ func (v ledgerView) checkpoints(
 	return out
 }
 
-// notes is the latest note record of the step under each key.
 func (v ledgerView) notes(
 	n int,
 	name string,
@@ -126,7 +114,6 @@ func (v ledgerView) notes(
 	return out
 }
 
-// settled is the keys the step checkpointed before its last step.done.
 func (v ledgerView) settled(
 	n int,
 	name string,
@@ -146,14 +133,12 @@ func (v ledgerView) settled(
 	return out
 }
 
-// ended is the view with r, a run.end, appended; v itself is unchanged.
 func (v ledgerView) ended(
 	r record,
 ) ledgerView {
 	return ledgerView{records: append(slices.Clone(v.records), r)}
 }
 
-// danglingRun returns the last run.start when it has no run.end.
 func (v ledgerView) danglingRun() (record, bool) {
 	start, rest, ok := v.latestRun()
 	if !ok || slices.ContainsFunc(rest, endsRun(start.Run)) {
@@ -162,9 +147,6 @@ func (v ledgerView) danglingRun() (record, bool) {
 	return start, true
 }
 
-// backupInForce is the newest backup record that no completed run has followed:
-// the image of the state this migration attempt started from. It is the zero
-// record once a run completes, so the next migration backs up afresh.
 func (v ledgerView) backupInForce() record {
 	for i := len(v.records) - 1; i >= 0; i-- {
 		r := v.records[i]
@@ -178,7 +160,6 @@ func (v ledgerView) backupInForce() record {
 	return record{}
 }
 
-// lastRun summarises the last run.start and the records that belong to it.
 func (v ledgerView) lastRun() (RunSummary, bool) {
 	start, rest, ok := v.latestRun()
 	if !ok {
@@ -236,8 +217,6 @@ func layoutOf(
 	return *p
 }
 
-// ledgerImage is a parsed ledger file. intact is the byte length through the
-// last complete good line; size > intact means the file ends in a torn write.
 type ledgerImage struct {
 	view   ledgerView
 	size   int64
@@ -245,9 +224,6 @@ type ledgerImage struct {
 	absent bool
 }
 
-// loadLedger parses the file without touching it. A record exists only once its
-// newline is on disk, so an unterminated tail was never acknowledged to its
-// writer and is dropped, whether or not it parses. Any other bad line is corrupt.
 func loadLedger(
 	path string,
 ) (ledgerImage, error) {
@@ -289,8 +265,6 @@ func parseRecord(
 	return r, nil
 }
 
-// readLedger reads the ledger at path without creating or repairing anything;
-// an absent file is an empty ledger.
 func readLedger(
 	path string,
 ) (ledgerView, error) {
@@ -298,17 +272,12 @@ func readLedger(
 	return img.view, err
 }
 
-// ledger is the open, append-only run ledger. It is not safe for concurrent use.
-// A failed write may leave a fragment of a line, so broken keeps every later
-// append from fusing onto it; the next openLedger cuts the fragment off.
 type ledger struct {
 	view   ledgerView
 	file   *os.File
 	broken error
 }
 
-// openLedger reads the ledger at path, cuts a torn final write off the file and
-// opens it for appending, creating the file and its directory when absent.
 func openLedger(
 	path string,
 ) (*ledger, error) {
@@ -337,9 +306,6 @@ func openLedger(
 	return &ledger{view: img.view, file: file}, nil
 }
 
-// append stamps r with the ledger format version and durably adds it as one
-// line. The view keeps its own copy, and only learns of a record once it is
-// synced. After a failed write or sync every append returns that failure.
 func (l *ledger) append(
 	r record,
 ) error {
@@ -374,7 +340,6 @@ func (l *ledger) poison(
 	return l.broken
 }
 
-// detached returns r sharing no maps, slices or pointers with the caller.
 func (r record) detached() record {
 	r.Counts = maps.Clone(r.Counts)
 	r.Pending = slices.Clone(r.Pending)
@@ -392,7 +357,6 @@ func copyInt(
 	return &v
 }
 
-// Close closes the ledger file. It is safe to call twice.
 func (l *ledger) Close() error {
 	if err := l.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		return fmt.Errorf("migrate: ledger: close: %w", err)

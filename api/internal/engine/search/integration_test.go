@@ -15,20 +15,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
-// TestIntegration_BasicSearch verifies gitignore filtering and binary skipping.
 func TestIntegration_BasicSearch(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
 	eng := search.New()
 
-	// Create directory tree.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "src"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main\n\n// hello world\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "lib.go"), []byte("// hello vendor\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("vendor/\n"), 0o600))
-	// Binary file with null bytes.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "binary.bin"), []byte{0x00, 0x01, 0x68, 0x65, 0x6c, 0x6c, 0x6f}, 0o600))
 
 	resp, err := eng.Search(context.Background(), dir, search.SearchRequest{
@@ -37,21 +34,17 @@ func TestIntegration_BasicSearch(
 	})
 	require.NoError(t, err)
 
-	// src/main.go must appear.
 	found := false
 	for _, r := range resp.Results {
 		if r.FilePath == "src/main.go" {
 			found = true
 		}
-		// vendor/ must not appear.
 		assert.NotContains(t, r.FilePath, "vendor/")
-		// binary.bin must not appear.
 		assert.NotEqual(t, "binary.bin", r.FilePath)
 	}
 	assert.True(t, found, "src/main.go should be in results")
 }
 
-// TestIntegration_WholeWord verifies whole-word boundary enforcement.
 func TestIntegration_WholeWord(
 	t *testing.T,
 ) {
@@ -60,7 +53,6 @@ func TestIntegration_WholeWord(
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "file.go"), []byte("hello world\nhellofoo\n"), 0o600))
 
-	// "hello" with whole word should match only line 1.
 	resp, err := eng.Search(context.Background(), dir, search.SearchRequest{
 		Query:         "hello",
 		CaseSensitive: true,
@@ -70,7 +62,6 @@ func TestIntegration_WholeWord(
 	require.Len(t, resp.Results, 1)
 	assert.Equal(t, 1, resp.Results[0].LineNumber)
 
-	// "hell" with whole word should not match "hello".
 	resp2, err := eng.Search(context.Background(), dir, search.SearchRequest{
 		Query:         "hell",
 		CaseSensitive: true,
@@ -80,15 +71,12 @@ func TestIntegration_WholeWord(
 	assert.Empty(t, resp2.Results)
 }
 
-// TestIntegration_ResultCap verifies that results are capped at 1000 and
-// Truncated is set.
 func TestIntegration_ResultCap(
 	t *testing.T,
 ) {
 	dir := t.TempDir()
 	eng := search.New()
 
-	// Create 1500 files each containing "match".
 	for i := 0; i < 1500; i++ {
 		name := filepath.Join(dir, fmt.Sprintf("file%04d.txt", i))
 		require.NoError(t, os.WriteFile(name, []byte("match\n"), 0o600))
@@ -103,8 +91,6 @@ func TestIntegration_ResultCap(
 	assert.Equal(t, 1000, len(resp.Results))
 }
 
-// TestIntegration_SubdirGitignoreNegation verifies that a child .gitignore can
-// re-include a file excluded by a parent .gitignore rule.
 func TestIntegration_SubdirGitignoreNegation(
 	t *testing.T,
 ) {
@@ -114,14 +100,10 @@ func TestIntegration_SubdirGitignoreNegation(
 	subDir := filepath.Join(dir, "sub")
 	require.NoError(t, os.MkdirAll(subDir, 0o755))
 
-	// Root ignores all *.log files.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.log\n"), 0o600))
-	// Child re-includes important.log.
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, ".gitignore"), []byte("!important.log\n"), 0o600))
 
-	// important.log should appear (negated by sub/.gitignore).
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "important.log"), []byte("hello important\n"), 0o600))
-	// debug.log should NOT appear (excluded by root rule, not negated).
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "debug.log"), []byte("hello debug\n"), 0o600))
 
 	resp, err := eng.Search(context.Background(), dir, search.SearchRequest{
@@ -140,7 +122,6 @@ func TestIntegration_SubdirGitignoreNegation(
 	assert.True(t, foundImportant, "sub/important.log should appear in results")
 }
 
-// TestIntegration_Replace verifies that replace rewrites a file correctly.
 func TestIntegration_Replace(
 	t *testing.T,
 ) {

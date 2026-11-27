@@ -1,8 +1,3 @@
-// §3.5 of the project-scoped panes design: "a chat resolves to exactly one
-// project, and cannot resolve to two" — chat → workspace → repo → project,
-// with project home resolving through the project's own home workspace. This
-// is the derivation the pane store deliberately never performs; it runs when
-// a record is minted and once per drop, never in a render path.
 import { describe, expect, it, beforeEach } from 'vitest'
 
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'

@@ -1,5 +1,3 @@
-//! Building the shell's children and wiring them.
-
 pub(crate) mod built;
 pub(crate) mod children;
 pub(crate) mod pane_area;

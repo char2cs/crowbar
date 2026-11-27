@@ -42,7 +42,6 @@ function renderSettings() {
   )
 }
 
-// Keyboard users open the confirm from the trash button, so that is where they must land again.
 async function askToRevoke(user: ReturnType<typeof userEvent.setup>, name = 'homelab') {
   trash(name).focus()
   await user.keyboard('{Enter}')
@@ -100,8 +99,6 @@ describe('focus while revoking a host', () => {
     await waitFor(() => expect(addHost()).toHaveFocus())
   })
 
-  // The request may take as long as the host does; the trash stays where a keyboard user can
-  // find it, announced as unavailable, and cannot start a second revoke.
   it('keeps a trash focusable but unavailable while its request is out, and asks nothing more of it', async () => {
     vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}))
     const user = userEvent.setup()

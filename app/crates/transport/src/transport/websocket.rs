@@ -1,5 +1,3 @@
-//! Web sockets to a daemon: the upstream dial and text streams.
-
 #[cfg(feature = "loopback")]
 mod text_loopback;
 mod text_stream;

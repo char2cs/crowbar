@@ -1,6 +1,3 @@
-// The project-scoped panes laws, against the view records that enforce them:
-// "I shouldn't be able to still see a chat that is inside another project
-// when moving into a different one."
 import { describe, it, expect, vi } from 'vitest'
 import { chatPaneIndex, isPaneEmpty } from '@/features/panes/lib/view-selectors'
 import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
@@ -11,7 +8,6 @@ vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))
 
-/** The stage is on screen with nothing in it — the "nothing is open" screen. */
 function expectEmptyStage(store: ReturnType<typeof makePaneOnlyStore>): void {
   const state = store.getState()
   expect(state.activeViewId).toBeNull()

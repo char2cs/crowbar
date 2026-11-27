@@ -39,7 +39,6 @@ it('highlights a block once its grammar loads', async () => {
 it('highlights a block whose grammar landed after its plain decoration but before it mounted', async () => {
   const ready = grammarReady('sql')
   const editor = codeBlockEditor('sql', 'select 1; -- x')
-  // Decorated while the grammar loads: plain, and the load starts here.
   editor.tf.normalize({ force: true })
   await ready
 

@@ -17,7 +17,6 @@ type FilterSetting = keyof Pick<
 
 const checkMark = (on: boolean) => (on ? <Check className="size-3.5 text-primary" /> : null)
 
-/** The tree's filter box (Enter / Shift+Enter step through matches) and its filter menu. */
 export function FileExplorerSearchHeader({
   search,
   onNavigateMatch,
@@ -25,7 +24,6 @@ export function FileExplorerSearchHeader({
 }: {
   search: TreeSearch
   onNavigateMatch: (direction: 1 | -1) => void
-  /** Escape: closes the filter, keeping the cursor on the match it showed. */
   onClose: () => void
 }) {
   const showHidden = useSettingsStore((s) => s.settings.showHiddenFilesInFileTree)
@@ -104,9 +102,6 @@ export function FileExplorerSearchHeader({
           tooltipSide="bottom"
           className={cn(
             'h-7.5 w-7.5 shrink-0 self-stretch rounded-lg p-0 sm:h-6.5 sm:w-6.5',
-            // The theme's muted/accent tokens are ~4% alpha, so the default hover
-            // just makes the button translucent over the glass sidebar. Use an
-            // opaque mix of the popover base + foreground for a real muted fill.
             'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
             'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
             hasActiveFilters && 'text-secondary',

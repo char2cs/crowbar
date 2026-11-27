@@ -22,9 +22,6 @@ use crate::scheme::route::{Route, parse};
 
 const CONTENT_TYPE: &str = "content-type";
 
-/// Serves the `crowbar://` scheme: pane bundles from their [`BundleSource`](crate::BundleSource) and everything
-/// else through the [`DaemonTransport`]. Every request is authorized against the origin of the
-/// web view that made it.
 pub struct PaneProtocol {
     scheme: String,
     transport: Arc<dyn DaemonTransport>,
@@ -45,7 +42,6 @@ impl std::fmt::Debug for PaneProtocol {
 }
 
 impl PaneProtocol {
-    /// A router for `scheme` (without `://`) over the `tables` it shares with its pane host.
     #[must_use]
     pub fn new(
         scheme: impl Into<String>,

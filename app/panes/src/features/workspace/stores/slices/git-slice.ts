@@ -5,23 +5,18 @@ import type { WorkspaceState } from '../workspace-store.types'
 
 const MAX_WORKSPACE_GIT_STATUS_FILES = 200
 
-// The git API modules load on first use: the store is on the boot path, a git fetch is not.
 const gitDataApi = () => import('@/features/git/api/git-data-api')
 const gitCommitsApi = () => import('@/features/git/api/git-commits-api')
 const gitStatusApi = () => import('@/features/git/api/git-status-api')
 
-/** `idle` until the workspace is first shown; only `ready` data is kept across switches. */
 type GitLoadStatus = 'idle' | 'loading' | 'ready' | 'failed'
 
 export interface GitSlice {
   gitLoad: GitLoadStatus
   gitStatus: GitStatus | null
-  /** Why git could not read the worktree (a moved or deleted repo); null while it can. */
   gitStatusError: string | null
-  /** `gitStatus` capped for the file-explorer decorations. */
   workspaceGitStatus: GitStatus | null
   commits: GitCommit[]
-  /** The sidebar's changed-files list (branch-review summary); null until loaded. */
   reviewFiles: GitDiff[] | null
   hasMoreCommits: boolean
   isLoadingMoreCommits: boolean
@@ -58,7 +53,6 @@ export const createGitSlice: StateCreator<
   hasMoreCommits: true,
   isLoadingMoreCommits: false,
 
-  // Object-form writes throughout: immer would deep-freeze status and commit arrays.
   gitActions: {
     async loadGitData() {
       const { gitLoad, workspaceId } = get()
@@ -81,8 +75,6 @@ export const createGitSlice: StateCreator<
       }
     },
 
-    // Skips the write when nothing changed so an identical reload never churns
-    // the memoized changed-files tree.
     async reloadReviewFiles() {
       const [{ fetchReviewFiles }, { default: deepEqual }] = await Promise.all([
         gitDataApi(),
@@ -92,9 +84,6 @@ export const createGitSlice: StateCreator<
       if (next && !deepEqual(next, get().reviewFiles)) set({ reviewFiles: next })
     },
 
-    // Status AND the log together: a terminal-side commit or soft reset changes
-    // the log with no UI action, and a reset can remove commits, so the fresh
-    // first page replaces the list.
     async reloadStatusAndLog() {
       const wsId = get().workspaceId
       const [{ readGitStatus }, { getGitLog }, { COMMITS_PER_PAGE }] = await Promise.all([

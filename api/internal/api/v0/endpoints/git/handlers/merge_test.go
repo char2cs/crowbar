@@ -21,7 +21,6 @@ func TestMergeAndRebase_AnswerTheirOperation(t *testing.T) {
 	assert.Equal(t, "Rebase onto main", rebase.Label)
 }
 
-// A merge or rebase missing its branch is refused before any operation starts.
 func TestMergeAndRebase_ValidationFailsSync_4xx(
 	t *testing.T,
 ) {

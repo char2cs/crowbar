@@ -1,5 +1,3 @@
-//! The devices paired with this computer's daemon, newest first, each with its revoke.
-
 use std::sync::Arc;
 
 use daemonapi::Call;

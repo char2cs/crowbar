@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// RemoteSlug returns a repository's on-disk identity host/owner/repo from its remote URL (SSH and URL
-// forms agree). Without such a remote it falls back to the immutable PathSlug, and only for rows predating
-// PathSlug to the renameable Name, since a slug that moved would strand derived worktrees.
 func RemoteSlug(
 	repo domain.Repository,
 ) string {
@@ -22,9 +19,6 @@ func RemoteSlug(
 	return repo.Name
 }
 
-// SeedPathSlug returns the PathSlug to persist at import: the remote slug, else the cleaned path's base
-// name — never the display name, so the two can diverge. An unusable leaf (e.g. "..") yields "", which
-// falls through to the display name rather than collapsing a level out of the layout.
 func SeedPathSlug(
 	remoteURL string,
 	repoPath string,

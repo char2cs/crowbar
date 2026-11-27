@@ -10,16 +10,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestFetchRef_MakesRemoteBranchAvailable proves FetchRef pulls a single branch
-// from origin so that origin/<branch> resolves locally afterwards.
 func TestFetchRef_MakesRemoteBranchAvailable(
 	t *testing.T,
 ) {
 	ctx := context.Background()
 	repo := initRepoWithBareOrigin(t)
 
-	// Push a feature branch to origin from a SEPARATE clone so the primary repo
-	// has no local ref for it until FetchRef runs.
 	bare := gitOutput(t, repo, "remote", "get-url", "origin")
 	other := initRepo(t)
 	gitRun(t, other, "remote", "add", "origin", bare)

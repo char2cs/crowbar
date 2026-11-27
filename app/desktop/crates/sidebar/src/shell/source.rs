@@ -1,5 +1,3 @@
-//! What the sidebar reads from the shell.
-
 use crate::shell::command::RowActions;
 use crate::shell::daemons::HostChoice;
 use crate::shell::git::ChangesSource;
@@ -11,8 +9,6 @@ use crate::shell::switcher::PaneFocus;
 use crate::shell::switcher::Requests;
 use crate::shell::switcher::SpaceList;
 
-/// The read side of the sidebar, implemented by the shell over the daemon's entity streams: every
-/// small source below. The view calls it on every render and never keeps a copy of what it returns.
 pub trait Source:
     SpaceList
     + HostChoice

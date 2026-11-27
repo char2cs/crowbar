@@ -50,12 +50,10 @@ describe('shownHostOf', () => {
     expect(shownHostOf('h1', HOSTS, PROJECTS, undefined)).toBe('h1')
   })
 
-  // A deep link, the palette or a notification can activate any project.
   it('follows the active project onto another host', () => {
     expect(shownHostOf('h1', HOSTS, PROJECTS, 'c')).toBe('h2')
   })
 
-  // Nothing to switch to there, so the choice would otherwise never show.
   it('keeps a chosen host that has no project, whichever project is active', () => {
     expect(shownHostOf('h3', [...HOSTS, 'h3'], PROJECTS, 'a')).toBe('h3')
   })
@@ -64,7 +62,6 @@ describe('shownHostOf', () => {
     expect(shownHostOf('gone', HOSTS, PROJECTS, 'c')).toBe('h2')
   })
 
-  // A record written when the switcher could show every host at once.
   it('reads a saved "all" as no choice', () => {
     expect(shownHostOf('all', HOSTS, PROJECTS, 'b')).toBe('h1')
   })

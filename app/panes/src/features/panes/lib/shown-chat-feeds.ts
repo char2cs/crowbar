@@ -8,7 +8,6 @@ import { feedHostOf } from '@/features/hosts/lib/host-resolve-cached'
 const held = new Map<string, () => void>()
 let started: Promise<void> | null = null
 
-/** Holds the feed of every chat the window shows, on its host once that resolves. */
 function holdShown(attach: typeof attachFeed) {
   const state = windowPaneStore.getState()
   const shown = new Map<string, [hostId: string, chatId: string]>()
@@ -27,9 +26,6 @@ function holdShown(attach: typeof attachFeed) {
   }
 }
 
-/** A shown chat subscribes as soon as the layout and its host are known, not once its
- *  view's chunk has loaded and mounted: its rows replay while that chunk (and, beside it, this
- *  feed code, kept out of the boot bundle) evaluates. */
 export function holdShownChatFeeds(): Promise<void> {
   started ??= import('@/features/agent/stores/chat-feed').then(({ attachFeed }) => {
     const hold = () => holdShown(attachFeed)

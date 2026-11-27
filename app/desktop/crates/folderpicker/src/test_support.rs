@@ -1,4 +1,3 @@
-//! Fakes shared by the unit tests.
 #![cfg(test)]
 
 use std::cell::{Cell, RefCell};

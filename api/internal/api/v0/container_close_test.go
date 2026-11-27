@@ -3,8 +3,9 @@
 package v0_test
 
 import (
-	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 	"testing"
+
+	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,6 @@ func TestAppClose_IdempotentAndEmpty(t *testing.T) {
 	tc := newApp(t)
 	v0.New(tc.app, tc.eng, accessfake.Closed())
 
-	require.NotPanics(t, tc.app.Close) // no live resources: no-op
-	assert.NotPanics(t, tc.app.Close)  // second call is safe
+	require.NotPanics(t, tc.app.Close)
+	assert.NotPanics(t, tc.app.Close)
 }

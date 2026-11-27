@@ -5,14 +5,11 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 const WORKSPACE_PREFIX = 'crowbar://editor/'
 const HOST_PREFIX = 'crowbar://host/'
 
-/** A document's Monaco model uri. Models are one global table, so it names the authority and, for
- *  a workspace file, the workspace: two worktrees' `src/a.ts` must never share a model. */
 export function documentUri(ref: DocumentRef): string {
   if (ref.authority === 'host') return HOST_PREFIX + encodeURIComponent(ref.path)
   return WORKSPACE_PREFIX + encodeURIComponent(ref.workspaceId) + '/' + encodeURIComponent(ref.path)
 }
 
-/** The document a model uri names, as built or as Monaco re-encodes it; null for any other uri. */
 export function refFromUri(uri: string): DocumentRef | null {
   if (uri.startsWith(HOST_PREFIX)) {
     const path = decodeURIComponent(uri.slice(HOST_PREFIX.length))
@@ -28,7 +25,6 @@ export function refFromUri(uri: string): DocumentRef | null {
   )
 }
 
-/** The document an editor buffer holds. */
 export function documentRefOf(
   buffer: Pick<EditorContent, 'authority' | 'workspaceId' | 'path'>,
 ): DocumentRef {
@@ -38,9 +34,6 @@ export function documentRefOf(
     : workspaceRef(buffer.workspaceId, path)
 }
 
-/** `relativePath` resolved against `ref`'s directory, same authority. A leading `/` is the
- *  filesystem root for a host document, the worktree root for a workspace one; query and fragment
- *  are dropped. */
 export function siblingRef(ref: DocumentRef, relativePath: string): DocumentRef {
   const slash = ref.path.lastIndexOf('/')
   const dir = slash === -1 ? '' : ref.path.slice(0, slash)
@@ -50,7 +43,6 @@ export function siblingRef(ref: DocumentRef, relativePath: string): DocumentRef 
     : workspaceRef(ref.workspaceId, resolved)
 }
 
-/** An untitled buffer's document: it has no file, so no disk, watch or language server. */
 export function isUntitledRef(ref: Pick<DocumentRef, 'path'>): boolean {
   return ref.path.startsWith('untitled:')
 }
@@ -62,7 +54,6 @@ export function sameDocument(a: DocumentRef, b: DocumentRef): boolean {
   return a.workspaceId === b.workspaceId && a.path === b.path
 }
 
-/** The tab label of a document: its file name. */
 export function documentName(ref: DocumentRef): string {
   return ref.path.split('/').pop() || ref.path
 }

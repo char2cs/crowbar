@@ -1,5 +1,3 @@
-//! The followed workspace's files, as daemon routes.
-
 use std::path::Path;
 
 use daemonapi::Call;

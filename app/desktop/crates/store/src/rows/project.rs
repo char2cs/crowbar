@@ -1,6 +1,3 @@
-//! The chats tree of one space: its home level, with each repository under its header where the
-//! home files it.
-
 use std::collections::HashMap;
 
 use sidebar::{Mark, Row, RowKind, Worktree};

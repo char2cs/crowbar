@@ -1,6 +1,5 @@
 import { getBaseName } from '@/utils/path-helpers'
 
-/** What the Properties dialog shows for one file. */
 export interface FileProperties {
   fileName: string
   path: string

@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// purgeGaveUp records a workspace purge that did not complete as a failed
-// operation, so the user learns the disk was not freed.
 func purgeGaveUp(
 	ops *operation.Service,
 ) func(ctx context.Context, wsID string, tomb *domain.Workspace, err error) {
@@ -20,7 +18,6 @@ func purgeGaveUp(
 			Subject: domain.EntityRef{Kind: domain.EntityWorkspace, ID: wsID},
 			Label:   "Remove workspace",
 		}
-		// Only a tombstone the read model holds is re-driven by the boot sweep.
 		reason := fmt.Errorf("%w; its files may still be on disk", cause)
 		if tomb != nil {
 			spec.Label, spec.ProjectID = "Remove "+tomb.Branch, tomb.ProjectID
@@ -32,8 +29,6 @@ func purgeGaveUp(
 	}
 }
 
-// purgeFinished clears the give-up purgeGaveUp recorded once the boot sweep
-// has finished that workspace's purge.
 func purgeFinished(ops *operation.Service) func(ctx context.Context, wsID string) {
 	return func(ctx context.Context, wsID string) {
 		ref := domain.EntityRef{Kind: domain.EntityWorkspace, ID: wsID}

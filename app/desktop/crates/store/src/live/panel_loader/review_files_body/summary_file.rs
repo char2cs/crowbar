@@ -1,5 +1,3 @@
-//! One file of the branch summary.
-
 use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]

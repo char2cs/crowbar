@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 
-// The API client is the seam: this component's whole job is to turn keystrokes
-// into a BOUNDED number of well-formed calls to it, and to render whatever comes
-// back honestly. Mocking it keeps the test about that, not about fetch.
 vi.mock('@/features/git/api/review-window-api', () => ({
   searchReviewDiff: vi.fn(),
 }))
@@ -26,8 +23,6 @@ function resolves(hits: SearchHit[], truncated = false): void {
   searchMock.mockResolvedValue({ hits, truncated })
 }
 
-/** A search whose answer the test controls, so an EARLIER request can be made to
- *  land AFTER a later one — the race that shows stale hits. */
 function deferredSearches(): {
   settle: (index: number, result: SearchDiffResult) => Promise<void>
   pending: () => number
@@ -63,7 +58,6 @@ function typeQuery(value: string): void {
   fireEvent.change(findBox(), { target: { value } })
 }
 
-/** Advance past the debounce and flush the resulting promise chain. */
 async function runDebounce(ms: number = SEARCH_DEBOUNCE_MS): Promise<void> {
   await act(async () => {
     vi.advanceTimersByTime(ms)
@@ -81,9 +75,6 @@ afterEach(() => {
 })
 
 describe('ReviewSearchBar — opening state', () => {
-  // An empty query is what the box opens in. The daemon answers it with an empty
-  // result rather than an error, and there is nothing to ask it about anyway, so
-  // opening the box must cost zero requests and show zero errors.
   it('opens empty: no request, no error, no hit list', async () => {
     renderBar()
 
@@ -117,8 +108,6 @@ describe('ReviewSearchBar — debounce', () => {
     expect(SEARCH_DEBOUNCE_MS).toBe(200)
   })
 
-  // Each keystroke otherwise streams the whole branch diff server-side: the
-  // endpoint scans 46 MB in ~700ms when nothing matches.
   it('fires ONE search for a burst of keystrokes, carrying only the final query', async () => {
     renderBar()
 
@@ -192,8 +181,6 @@ describe('ReviewSearchBar — results', () => {
     expect(screen.getByText(/no matches/i)).toBeInTheDocument()
   })
 
-  // The server caps at `limit` (default 200, hard max 1000) and reports it. A
-  // capped list presented as complete is a lie the reader cannot detect.
   it('reports a capped result as the FIRST n matches, never as the whole set', async () => {
     resolves(
       Array.from({ length: 200 }, (_, i) => hit(`src/f${i}.ts`, i + 1, `line ${i}`)),
@@ -265,8 +252,6 @@ describe('ReviewSearchBar — options', () => {
 })
 
 describe('ReviewSearchBar — invalid regex', () => {
-  // The usecase validates with regexp.Compile before spawning anything, so a
-  // half-typed pattern is a cheap, ordinary 400 — not a daemon failure.
   it('surfaces a 400 as an inline message instead of throwing', async () => {
     searchMock.mockRejectedValue(new ApiError('error parsing regexp: missing closing )', 400))
     renderBar()
@@ -275,7 +260,6 @@ describe('ReviewSearchBar — invalid regex', () => {
     await runDebounce()
 
     expect(screen.getByRole('alert')).toHaveTextContent(/missing closing/i)
-    // The pane survives: the box is still there and still usable.
     expect(findBox()).toBeInTheDocument()
   })
 
@@ -384,8 +368,6 @@ describe('ReviewSearchBar — navigation', () => {
 })
 
 describe('ReviewSearchBar — superseded requests', () => {
-  // A slow early query landing after a fast later one is the classic find-box
-  // race: the reader sees hits for a query they no longer have typed.
   it('ignores a stale response that lands after a newer one', async () => {
     const searches = deferredSearches()
     renderBar()
@@ -396,11 +378,9 @@ describe('ReviewSearchBar — superseded requests', () => {
     await runDebounce()
     expect(searches.pending()).toBe(2)
 
-    // The LATER request answers first.
     await searches.settle(1, { hits: [hit('fast.ts', 2, 'fast hit')], truncated: false })
     expect(screen.getByText('fast.ts')).toBeInTheDocument()
 
-    // Then the earlier one finally lands — and must change nothing.
     await searches.settle(0, { hits: [hit('slow.ts', 1, 'slow hit')], truncated: false })
 
     expect(screen.queryByText('slow.ts')).toBeNull()

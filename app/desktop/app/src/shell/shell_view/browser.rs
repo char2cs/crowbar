@@ -1,5 +1,3 @@
-//! Browser handling: browsing data, picking, homepage, search engine.
-
 mod browser_homepage;
 mod browsing;
 mod browsing_data;

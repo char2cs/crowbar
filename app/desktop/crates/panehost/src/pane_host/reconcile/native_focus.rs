@@ -4,13 +4,6 @@ use crate::pane_host::reconcile::Keyboard;
 use crate::slot::Slot;
 
 impl PaneHost {
-    /// Gives native keyboard focus to whoever owns the keyboard in the shell's model: the focused
-    /// page, or the window. Call it when the window system may have moved the focus on its own:
-    /// the window manager hands it to the window on activation and on a press, never to a page.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::error::Error::WebView) when the web view cannot take or give
-    /// back the keyboard.
     pub fn apply_keyboard(&self) -> Result<()> {
         match self.keyboard_page() {
             Some(slot) => Ok(slot.handle.focus()?),

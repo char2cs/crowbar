@@ -1,5 +1,3 @@
-//! One toast held by a queue.
-
 use std::time::{Duration, Instant};
 
 use gpui::{SharedString, Task};

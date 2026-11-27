@@ -1,5 +1,3 @@
-//! A drag passing over a movable record, offering its slot to the held one.
-
 use gpui::{App, DragMoveEvent, Window};
 
 use crate::intent::Intent;

@@ -1,5 +1,3 @@
-//! Context menus, dropdowns and selects; all of them open the desktop's own menu.
-
 mod menu_item;
 mod native_menu;
 mod trigger;

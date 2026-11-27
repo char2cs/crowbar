@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// openPlacement opens the Tree the daemon keeps chat placements in, located
-// by the same facts the daemon's own wiring reads.
 func openPlacement(
 	ctx context.Context,
 	adapters *adapter.Container,

@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Conformance assertions: verify each command implements asynxModels.Command[domain.Chat].
 var _ asynxModels.Command[domain.Chat] = commands.SetTitle{}
 
 func TestSetTitle_LockedRejectsDerived(t *testing.T) {

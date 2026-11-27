@@ -1,5 +1,3 @@
-//! The Chats, Files and Changes switch.
-
 use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, Window, div};
 use sidebar::{Focus, Mode};
 use ui::{IconName, Surface, TabItem, Tabs};

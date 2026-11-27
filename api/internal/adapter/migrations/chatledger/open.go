@@ -13,8 +13,6 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 )
 
-// openLegacy opens the database at path for reading only; a missing file is
-// empty input.
 func openLegacy(path string) (*sql.DB, bool, error) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
@@ -28,7 +26,6 @@ func openLegacy(path string) (*sql.DB, bool, error) {
 	return db, true, nil
 }
 
-// tableColumns is the columns table has; none when the database holds no such table.
 func tableColumns(ctx context.Context, db *sql.DB, table string) (_ map[string]bool, err error) {
 	rows, err := db.QueryContext(ctx, "SELECT name FROM pragma_table_info(?)", table)
 	if err != nil {
@@ -49,8 +46,6 @@ func tableColumns(ctx context.Context, db *sql.DB, table string) (_ map[string]b
 	return has, nil
 }
 
-// queryLegacy runs the query built for the columns table has over it in the
-// database at path, handing each row to scan. A missing database or table is no rows.
 func queryLegacy(
 	ctx context.Context, path, table string, scan func(*sql.Rows) error, query func(has map[string]bool) string, args ...any,
 ) (err error) {

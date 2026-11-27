@@ -1,5 +1,3 @@
-//! How one tree row takes part in a drag: source, ghost and drop indicators.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{App, Div, ParentElement, Stateful, Styled, canvas, div, px};
 use sidebar::{DropMode, RowId};

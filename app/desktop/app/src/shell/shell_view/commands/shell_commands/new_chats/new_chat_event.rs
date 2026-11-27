@@ -1,5 +1,3 @@
-//! What a new chat that could not start tells the log.
-
 use std::fmt;
 
 use journal::Level;

@@ -1,13 +1,7 @@
-//! Work that exists nowhere else, named in the delete confirmation.
-
-/// What deleting one branch would lose.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkAtRisk {
-    /// The branch name.
     pub branch: String,
-    /// Files with uncommitted changes.
     pub uncommitted_files: u32,
-    /// Commits on no other branch, remote or tag.
     pub unmerged_commits: u32,
 }
 
@@ -19,7 +13,6 @@ fn plural(count: u32) -> &'static str {
 }
 
 impl WorkAtRisk {
-    /// "2 uncommitted files · 1 unmerged commit".
     pub fn summary(&self) -> String {
         let parts = [
             (self.uncommitted_files, "uncommitted file"),

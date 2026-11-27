@@ -1,5 +1,3 @@
-//! Caret movement of [`TextArea`] along characters, visual rows and the document.
-
 use gpui::{Context, Pixels};
 
 use crate::control::editor::text_area::TextArea;

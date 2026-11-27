@@ -3,21 +3,6 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { Toolbar, ToolbarButton } from '@/components/ui/toolbar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
-/**
- * Live-observed in the running app, on the chat composer's selection
- * formatting toolbar (`MarkFloatingToolbarKit` -> `MarkToolbarButton` ->
- * `ToolbarButton`), the moment Bold rendered:
- *
- *   In HTML, <button> cannot be a descendant of <button>.
- *   This will cause a hydration error.
- *
- * `withTooltip` wrapped the button in a tooltip trigger that rendered its own
- * element instead of merging onto the button, so the trigger
- * rendered a <button> of its own around a component that already resolves to
- * one — a toggle on the `pressed` branch, `Toolbar.Button`
- * otherwise. Both branches are covered below; a tooltip must never add an
- * element of its own to a toolbar button.
- */
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -65,8 +50,6 @@ describe('ToolbarButton + tooltip', () => {
   })
 
   it('still describes the button with the tooltip once the trigger is wired to it', () => {
-    // The trigger merges onto the button: its aria/state props land on the REAL
-    // button, not on a wrapper around it.
     const { container } = renderToolbar(
       <ToolbarButton tooltip="Bold (⌘+B)" pressed={true}>
         <span>B</span>

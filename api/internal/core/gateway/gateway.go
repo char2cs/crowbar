@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/gateway/transports"
 )
 
-// New binds the local listener for host (unix socket or loopback dev TCP); a bare
-// "unix://" binds socket, the held home's. An exposed host is core/exposure's, not bound here.
 func New(host, socket string) ([]net.Listener, error) {
 	switch {
 	case host == "unix://":
@@ -23,7 +21,6 @@ func New(host, socket string) ([]net.Listener, error) {
 	}
 }
 
-// Exposed reports whether host binds beyond loopback: the one bind that serves TLS.
 func Exposed(host string) bool {
 	return strings.HasPrefix(host, "tcp://") && transports.IsNetworkExposed(host)
 }

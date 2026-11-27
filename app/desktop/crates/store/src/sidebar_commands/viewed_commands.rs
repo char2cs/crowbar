@@ -1,18 +1,12 @@
-//! The review's viewed marks: one owner, written from the Changes panel and from review panes.
-
 use std::collections::BTreeMap;
 
 use crate::live::Outcome;
 use crate::reads::files::workspace_of_chat;
 use crate::sidebar_commands::SidebarCommands;
 
-/// A workspace's viewed marks: path to the signature the file had when it was marked.
 pub type ViewedMarks = BTreeMap<String, String>;
 
 impl SidebarCommands {
-    /// Marks files of `chat`'s workspace viewed with their signatures, or clears the marks where
-    /// a file has no signature, saves them and tells the shell. A chat the store does not know
-    /// changes nothing.
     pub fn set_review_viewed(
         &self,
         chat: &str,
@@ -29,8 +23,6 @@ impl SidebarCommands {
         }
     }
 
-    /// The workspace `chat` works in and that workspace's viewed marks; `None` until the chat
-    /// is known.
     pub fn review_viewed(
         &self,
         chat: &str,

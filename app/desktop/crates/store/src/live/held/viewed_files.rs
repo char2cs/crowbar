@@ -1,6 +1,3 @@
-//! The review's viewed marks of every workspace. The shell owns them; see
-//! docs/plans/2026-11-20-review-viewed-owner.md.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

@@ -23,8 +23,6 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// A certificate's SHA-256 as grouped lowercase hex, byte-identical to the daemon's
-/// `tlsid.FingerprintOf`, so `crowbar pair`'s output and the pairing UI compare directly.
 #[must_use]
 pub fn fingerprint_of(der: &[u8]) -> String {
     display_fingerprint(&certificate_digest(der))

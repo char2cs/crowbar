@@ -1,16 +1,12 @@
-//! A normalised key chord such as `mod+shift+t`.
-
 use crate::primary::Primary;
 
 const MODIFIER_COUNT: usize = 3;
 const MODIFIERS: [&str; MODIFIER_COUNT] = ["mod", "shift", "alt"];
 
-/// A chord in the canonical grammar: lowercase, `+`-separated, order `mod`, `shift`, `alt`, key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Chord(String);
 
 impl Chord {
-    /// Parses and normalises `text`; `None` when it has no key or repeats a modifier.
     pub fn parse(text: &str) -> Option<Self> {
         let lowered = text.trim().to_lowercase();
         let mut rest = lowered.as_str();
@@ -32,12 +28,10 @@ impl Chord {
         Some(Self(words.chain([rest]).collect::<Vec<_>>().join("+")))
     }
 
-    /// The canonical text, which is also what is stored.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
-    /// The chord as shown to the user: `Ctrl+Shift+T`, or `⇧⌘T` where `mod` is Command.
     pub fn label(
         &self,
         primary: Primary,

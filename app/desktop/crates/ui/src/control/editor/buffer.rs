@@ -1,5 +1,3 @@
-//! The editable text, selection and composition state of a single-line input.
-
 use std::ops::Range;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

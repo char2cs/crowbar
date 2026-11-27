@@ -12,17 +12,6 @@ import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// codex's tool items are a sum type and each variant keeps its target, its output and its duration
-// in a DIFFERENT field. The descriptor mapped `tool_result: item.content`, a field that exists on
-// no codex item at all, and mapped no tool_target and no duration_ms.
-//
-// The visible effect: `describeTool` renders `name · target`, so a codex turn that ran three
-// commands and edited two files drew the literal word list "commandExecution / commandExecution /
-// commandExecution / fileChange / fileChange" — no command line, no path, no output, no duration.
-// Claude, mapping the same canonical fields, renders "Bash · rg --files -g '*.go'".
-//
-// Payload shapes are from codex's own generated schema, ThreadItem in
-// codex-rs/app-server-protocol/schema/json/ServerNotification.json.
 func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 	for _, tc := range []struct {
 		variant    string
@@ -42,8 +31,6 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 			wantResult: "main.go\n", wantDurMS: 412,
 		},
 		{
-			// FileUpdateChange.kind is an OBJECT ({"type":"update"}), so the changed
-			// path is reachable only by index selection, not by [field=value].
 			variant: "fileChange",
 			raw: `{"item":{"type":"fileChange","id":"f1","status":"completed",
 			       "changes":[{"path":"/w/main.go","kind":{"type":"update"},"diff":"@@"}]},
@@ -51,7 +38,6 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 			wantName: "fileChange", wantTarget: "/w/main.go",
 		},
 		{
-			// An MCP call's NAME is the tool and the server is its own field, not a target.
 			variant: "mcpToolCall",
 			raw: `{"item":{"type":"mcpToolCall","id":"m1","server":"crowbar","tool":"get_chat_log",
 			       "status":"completed","arguments":{},"result":{"content":[]},"durationMs":88},
@@ -100,9 +86,6 @@ func TestCodexFileChangeKeepsItsOwnFilesDiffOnTheTool(t *testing.T) {
 	}
 }
 
-// codex reports an added file's whole content and a deleted file's old content in
-// `diff`, not a hunk: verbatim, an added file read as unchanged context (+0 −0).
-// Recorded live, codex-cli 0.164.0 (fixtures/codex/item_completed.fileChange*.json).
 func TestRegression_CodexAddedAndDeletedFilesDiffAsWholeFiles(t *testing.T) {
 	for _, tc := range []struct {
 		hook, file, want string
@@ -127,13 +110,11 @@ func TestRegression_CodexAddedAndDeletedFilesDiffAsWholeFiles(t *testing.T) {
 	}
 }
 
-// codex's approval reply has no field for a reason, so a Deny cannot say why; a card
-// offering a reason box for it dropped what the person typed (live, 0.164.0).
 func TestRegression_CodexDenyCarriesNoReason(t *testing.T) {
 	for _, file := range []string{"item_fileChange_requestApproval.json", "item_commandExecution_requestApproval.json"} {
 		var params map[string]any
 		require.NoError(t, json.Unmarshal(codexParams(t, file), &params))
-		params["tool"] = "fileChange" // by_wire names the tool from the wire method
+		params["tool"] = "fileChange"
 		raw, err := json.Marshal(params)
 		require.NoError(t, err)
 
@@ -145,8 +126,6 @@ func TestRegression_CodexDenyCarriesNoReason(t *testing.T) {
 	}
 }
 
-// codex lists the decisions a request takes: a broader one it offers is a button of
-// its own, answered with that decision as offered; the plain accept and cancel are not.
 func TestRegression_CodexOffersTheBroaderDecisionsItLists(t *testing.T) {
 	var params map[string]any
 	require.NoError(t, json.Unmarshal(codexParams(t, "item_commandExecution_requestApproval.json"), &params))
@@ -173,7 +152,6 @@ func TestRegression_CodexOffersTheBroaderDecisionsItLists(t *testing.T) {
 	assert.JSONEq(t, `{"decision":{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["curl"]}}}`, string(reply))
 }
 
-// denyOption is the Deny among a permission's options.
 func denyOption(t *testing.T, options []agents.ChoiceOption) agents.ChoiceOption {
 	t.Helper()
 	for _, o := range options {
@@ -206,8 +184,6 @@ func TestRegression_CodexPreservesInterruptedTurnStatus(t *testing.T) {
 	assert.Equal(t, "interrupted", ev.TurnStatus)
 }
 
-// tool_pre must name the same target tool_post does, or the running row in the
-// working line and the finished row under the message disagree.
 func TestRegression_CodexToolPreCarriesTheSameTarget(t *testing.T) {
 	raw := []byte(`{"item":{"type":"commandExecution","id":"c1","command":"go build ./...",
 	  "cwd":"/w","status":"inProgress"},"threadId":"t","turnId":"tn"}`)
@@ -220,7 +196,6 @@ func TestRegression_CodexToolPreCarriesTheSameTarget(t *testing.T) {
 	assert.Equal(t, "c1", ev.Tool.ID)
 }
 
-// A failed tool must reach tool_fail with an error, not tool_post with a silent OK.
 func TestRegression_CodexFailedToolCarriesItsError(t *testing.T) {
 	raw := []byte(`{"item":{"type":"mcpToolCall","id":"m1","server":"crowbar","tool":"get_chat_log",
 	  "status":"failed","arguments":{},"error":{"message":"server closed the connection"},
@@ -246,10 +221,6 @@ func TestRegression_CodexDeclinedToolKeepsItsDistinctStatus(t *testing.T) {
 	assert.Equal(t, "declined", ev.Tool.Status)
 }
 
-// Reasoning is where codex spends most of a hard turn, emitting nothing else
-// while it does — so with this unmapped the chat showed a spinner and a rotating
-// flavour verb for all of it. Payload shape is from a LIVE capture against
-// codex-cli 0.149.1 (testdata/fixtures/codex/item_reasoning_summaryTextDelta.json).
 func TestRegression_CodexStreamsItsReasoning(t *testing.T) {
 	raw := []byte(`{"threadId":"01a081b0-fe3e-7610-bd5d-341d4c4f7749",
 	  "turnId":"01a081b0-ffd3-7a11-a381-ec122201eb91",
@@ -266,9 +237,6 @@ func TestRegression_CodexStreamsItsReasoning(t *testing.T) {
 	assert.Equal(t, 0, ev.Delta.Index, "summaryIndex orders the parts of one thinking block")
 }
 
-// A thought is not an answer. Mapping reasoning onto message_delta would have
-// recorded the model's thinking as its reply, so the two must stay separate
-// events and a provider that streams no reasoning must not claim to.
 func TestAgent_ReasoningAndMessageDeltasAreDistinctEvents(t *testing.T) {
 	assert.NotEqual(t, agents.HookMessageDelta, agents.HookReasoningDelta)
 
@@ -276,9 +244,6 @@ func TestAgent_ReasoningAndMessageDeltasAreDistinctEvents(t *testing.T) {
 	require.Error(t, err, "claude declares no reasoning stream, and must not claim one")
 }
 
-// A long command emits one of these per line and nothing else for its whole duration, so with it
-// unmapped the tool row sat static with no sign of progress. Payload shape is a LIVE capture
-// against codex-cli 0.149.1 (testdata/fixtures/codex/item_commandExecution_outputDelta.json).
 func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
 	raw := []byte(`{"threadId":"01a081af-73bf-7fd1-bc4b-efd041f46edc",
 	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88",
@@ -289,16 +254,9 @@ func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)
 	assert.Equal(t, "line 2\n", ev.Delta.Text)
-	// The item id is the SAME id tool_pre opened the call under — that is what
-	// puts the lines under the right running row.
 	assert.Equal(t, "call_PQbUMzNNrlEGDg3Y4zc7JwNW", ev.Delta.MessageID)
 }
 
-// The agent's own to-do list, restated wholesale on each update. Payload is a LIVE capture against
-// codex-cli 0.149.1 (testdata/fixtures/codex/turn_plan_updated.json).
-//
-// The statuses asserted here are CROWBAR'S words, not codex's: the descriptor's steps.status_map
-// translates them, so Go never learns that codex spells the middle state "inProgress".
 func TestRegression_CodexReportsItsPlan(t *testing.T) {
 	raw := []byte(`{"threadId":"01a081af-73bf-7fd1-bc4b-efd041f46edc",
 	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88","explanation":null,
@@ -316,8 +274,6 @@ func TestRegression_CodexReportsItsPlan(t *testing.T) {
 	assert.Equal(t, agents.PlanStepDone, ev.Plan[2].Status)
 }
 
-// A status the descriptor's map does not name is still a step worth showing —
-// dropping it would silently shorten the plan.
 func TestAgent_AnUnmappedPlanStatusPassesThrough(t *testing.T) {
 	raw := []byte(`{"threadId":"t","turnId":"tn",
 	  "plan":[{"step":"something","status":"somethingCodexAddedLater"}]}`)
@@ -329,7 +285,6 @@ func TestAgent_AnUnmappedPlanStatusPassesThrough(t *testing.T) {
 	assert.Equal(t, "somethingCodexAddedLater", ev.Plan[0].Status)
 }
 
-// A codex prompt names the turn it opens, so only that turn's own turn/completed closes it.
 func TestRegression_CodexUserPromptNamesItsTurn(t *testing.T) {
 	raw := []byte(`{"item":{"type":"userMessage","id":"u1","content":[{"type":"text","text":"hi"}]},
 	  "threadId":"thread-1","turnId":"turn-1"}`)
@@ -340,8 +295,6 @@ func TestRegression_CodexUserPromptNamesItsTurn(t *testing.T) {
 	assert.Equal(t, "turn-1", ev.TurnID)
 }
 
-// codex tells its TUI user about a resumed session's model mismatch or a sandbox
-// problem; the native chat must show the same warnings (recorded live, 0.164).
 func TestCodexWarningsReachTheChatAsWarnings(t *testing.T) {
 	for file, want := range map[string]string{
 		"warning.json":       "recorded with model",
@@ -354,7 +307,6 @@ func TestCodexWarningsReachTheChatAsWarnings(t *testing.T) {
 	}
 }
 
-// codexParams reads a recorded codex frame's params.
 func codexParams(t *testing.T, file string) json.RawMessage {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("internal", "protocol", "testdata", "fixtures", "codex", file))

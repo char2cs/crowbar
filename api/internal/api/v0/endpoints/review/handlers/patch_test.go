@@ -36,11 +36,6 @@ func TestReviewHandlers_GetPatch(t *testing.T) {
 	assert.Equal(t, "diff --git a/a.go b/a.go\n", rec.Body.String())
 }
 
-// THE point of the endpoint: the patch must go from the usecase's writes to the
-// response as it is produced. A handler that assembled a string first would be
-// indistinguishable by the finished body alone, so this asserts on WHEN the
-// bytes arrive: the recorder already holds line N while line N+1 is being
-// written. A buffering handler leaves it at zero for the whole loop.
 func TestReviewHandlers_GetPatch_StreamsIncrementallyRatherThanBuffering(t *testing.T) {
 	rec := httptest.NewRecorder()
 
@@ -70,11 +65,6 @@ func TestReviewHandlers_GetPatch_StreamsIncrementallyRatherThanBuffering(t *test
 		"each write must reach the response before the next is produced")
 }
 
-// Streaming that only holds up on a bare router is not streaming. Timing is the
-// one middleware in the production stack that WRAPS the response writer, and it
-// wraps it precisely when a perf investigation is running — the moment anyone
-// would look. A wrapper that accumulated instead of forwarding would put the
-// whole patch back in the daemon with every other test still green.
 func TestReviewHandlers_GetPatch_StillStreamsThroughTheTimingWriter(t *testing.T) {
 	perf.Reset()
 	perf.SetEnabled(true)
@@ -107,10 +97,6 @@ func TestReviewHandlers_GetPatch_StillStreamsThroughTheTimingWriter(t *testing.T
 	assert.Equal(t, []int{len(line), 2 * len(line), 3 * len(line), 4 * len(line)}, seen)
 }
 
-// Truncation travels in a LEADING header, which costs holding a body that the
-// cap has already bounded. A trailer would keep streaming AND report the cut,
-// but `fetch()` exposes no trailers, so the only client this API has could
-// never read it.
 func TestReviewHandlers_GetPatch_ReportsTruncationAsAReadableHeader(t *testing.T) {
 	uc := stubUsecase{
 		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
@@ -121,7 +107,6 @@ func TestReviewHandlers_GetPatch_ReportsTruncationAsAReadableHeader(t *testing.T
 	rec := getPatch(routerFor(uc), httptest.NewRecorder(), "?path=a.go&maxLines=1")
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	// Readable by fetch(): a real response header, present before the body.
 	assert.Equal(t, "true", rec.Result().Header.Get("X-Crowbar-Diff-Truncated"))
 	assert.Empty(t, rec.Header().Get("Trailer"), "must not rely on a trailer")
 }
@@ -133,8 +118,6 @@ func TestReviewHandlers_GetPatch_UntruncatedSendsNoTruncationValue(t *testing.T)
 	assert.Empty(t, rec.Result().Trailer.Get("X-Crowbar-Diff-Truncated"))
 }
 
-// An uncapped read cannot truncate by construction, so it must not even promise
-// a trailer the client would then wait for.
 func TestReviewHandlers_GetPatch_UnlimitedDeclaresNoTrailer(t *testing.T) {
 	rec := getPatch(newRouter(), httptest.NewRecorder(), "?path=a.go&maxLines=0")
 
@@ -169,9 +152,6 @@ func TestReviewHandlers_GetPatch_MaxLines(t *testing.T) {
 	}
 }
 
-// An empty pathspec would silently widen the one query guaranteed to be O(one
-// file) into a read of the entire branch diff, so it is refused at the edge as
-// well as at the engine (diff.ErrEmptyPatchPath).
 func TestReviewHandlers_GetPatch_MissingPathIsBadRequest(t *testing.T) {
 	for _, query := range []string{"", "?path=", "?maxLines=10"} {
 		called := false
@@ -189,8 +169,6 @@ func TestReviewHandlers_GetPatch_MissingPathIsBadRequest(t *testing.T) {
 	}
 }
 
-// The engine's own guard is the second line of defence: a usecase that lets an
-// empty path through still fails, and it fails as a 400 rather than a 500.
 func TestReviewHandlers_GetPatch_EngineLevelEmptyPathGuardIsA400(t *testing.T) {
 	uc := stubUsecase{
 		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
@@ -208,9 +186,6 @@ func TestReviewHandlers_GetPatch_InvalidMaxLinesIsBadRequest(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// A failure before the first byte can still choose its own status and content
-// type; the text/plain the patch route reserved must not leak onto the error
-// envelope.
 func TestReviewHandlers_GetPatch_FailureBeforeAnyWriteIsAJSONEnvelope(t *testing.T) {
 	uc := stubUsecase{
 		patch: func(_ context.Context, _, _, _ string, _ int, _ io.Writer) (int, bool, error) {
@@ -242,8 +217,6 @@ func TestReviewHandlers_GetPatch_NotFoundBeforeAnyWrite(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// Once bytes are out the status is already 200 and cannot be retracted; the
-// failure is recorded on the context and the stream simply stops.
 func TestReviewHandlers_GetPatch_FailureMidStreamKeepsWhatWasWritten(t *testing.T) {
 	uc := stubUsecase{
 		patch: func(_ context.Context, _, _, _ string, _ int, w io.Writer) (int, bool, error) {
@@ -271,10 +244,6 @@ func TestReviewHandlers_GetPatch_ForwardsPathAndWorkspace(t *testing.T) {
 	assert.Equal(t, "dir/we*ird[1].txt", gotPath)
 }
 
-// A cap above maxBufferedPatchLines is not a cap this handler will hold in
-// memory for: maxLines is client-supplied, so honouring an arbitrarily large
-// one would buy an arbitrarily large buffer under the guise of a limit. Such a
-// request falls back to the streaming path and forfeits the truncation header.
 func TestReviewHandlers_GetPatch_OversizedCapStreamsInsteadOfBuffering(t *testing.T) {
 	rec := httptest.NewRecorder()
 
@@ -302,9 +271,6 @@ func TestReviewHandlers_GetPatch_OversizedCapStreamsInsteadOfBuffering(t *testin
 		"the streaming path cannot report truncation in a leading header")
 }
 
-// The capped path deliberately trades streaming for a readable header. Assert
-// the trade explicitly so nobody 'restores' streaming here and silently breaks
-// truncation reporting for every client.
 func TestReviewHandlers_GetPatch_CappedRequestBuffersToLearnTruncation(t *testing.T) {
 	rec := httptest.NewRecorder()
 

@@ -33,25 +33,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/**
- * `WorkspaceView`'s very first line is `getOrCreateWorkspaceStore(wsId)` — the
- * store is the value of the `WorkspaceStoreContext` it provides, so it is
- * minted IN THE RENDER PATH, and for a workspace `WorkspaceHost` force-appends
- * (the routed one, a pane's one) no store exists until that render runs.
- * Registering it notified the registry's watchers, and `IDEShell`'s own
- * `useSyncExternalStore` hooks (`useActivePaneWorkspaceId`,
- * `useViewWorkspaceIds`) were exactly those watchers —
- * so React was told to re-render a still-rendering ancestor:
- *
- *   Cannot update a component (`IDEShell`) while rendering a different
- *   component (`WorkspaceView`).
- *
- * The shape below is that path, minimised: an ancestor whose answer comes from
- * the registry-wide subscription, and a child that mints the store for the
- * answer it was just given. The sidebar HINT is what makes it reachable —
- * `resolveChatWorkspaceId` answers from the sidebar tree before any store
- * exists, which is precisely when the child has one to mint.
- */
 function WorkspaceSlot({ wsId }: { wsId: string }) {
   getOrCreateWorkspaceStore(wsId)
   return null
@@ -79,16 +60,11 @@ describe('workspace registry notifications vs. the render path', () => {
     render(<Shell />)
 
     act(() => {
-      // The sidebar tree learns the chat (hint source), and the active pane
-      // takes it — together they move the ancestor's answer from null to
-      // 'ws-a' with NO store registered for 'ws-a' yet, so the child's own
-      // render is what mints it.
       seedRepos([repoWithChat('c1', 'ws-a')])
       windowPaneStore.getState().paneActions.openChat('c1', { workspaceId: 'ws-a' })
     })
 
     expect(renderPhaseUpdates(errors.mock.calls)).toEqual([])
-    // ...and the child really did mint it — otherwise this asserts nothing.
     expect(getAllActiveWorkspaceIds()).toContain('ws-a')
   })
 })

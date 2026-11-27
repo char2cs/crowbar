@@ -1,5 +1,3 @@
-//! Where the Add a device dialog reads its code from, so tests can stand in for the daemon.
-
 use std::sync::Arc;
 
 use store::{DeviceOffer, OfferState};

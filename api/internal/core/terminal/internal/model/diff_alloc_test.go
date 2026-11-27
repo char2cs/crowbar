@@ -9,8 +9,6 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// backing returns the address of s's backing array, or 0 when there is none.
-// Comparing it across calls is what proves reuse rather than reallocation.
 func backing(s []uv.Cell) uintptr {
 	if cap(s) == 0 {
 		return 0
@@ -43,9 +41,6 @@ func TestSnapshotRowInto_ReusesBackingArray(t *testing.T) {
 	}
 }
 
-// A truncated row is the scroll invalidation marker Emit writes. It must keep
-// its capacity (so the next snapshot reuses it) AND refill correctly. Reverting
-// that marker to nil silently reallocates every row on every scroll.
 func TestSnapshotRowInto_ReusesTruncatedRow(t *testing.T) {
 	emu := allocTestEmu(t, 10, 3)
 
@@ -59,7 +54,6 @@ func TestSnapshotRowInto_ReusesTruncatedRow(t *testing.T) {
 	if len(refilled) != 10 {
 		t.Fatalf("len = %d, want 10", len(refilled))
 	}
-	// Reuse must not leave stale cells behind.
 	fresh := snapshotRowInto(emu, nil, 10, 0)
 	for x := range fresh {
 		if !fresh[x].Equal(&refilled[x]) {
@@ -68,7 +62,6 @@ func TestSnapshotRowInto_ReusesTruncatedRow(t *testing.T) {
 	}
 }
 
-// The truncation marker must still force a rewrite, exactly as nil did.
 func TestRowEqualsGrid_TruncatedRowForcesRewrite(t *testing.T) {
 	emu := allocTestEmu(t, 10, 3)
 
@@ -99,19 +92,12 @@ func TestSnapshotRowInto_GrowsWhenDstTooSmall(t *testing.T) {
 	}
 }
 
-// Scrolling is the hot path: every emit grows scrollback, which invalidates
-// every row. The rows' backing arrays must survive that invalidation and be
-// refilled in place — nilling them (or re-materialising a row per emit for the
-// wire) reallocates the whole viewport on every scrolled line.
-//
-// This asserts the allocation behaviour of the real Emit path, so it fails if
-// the marker regresses to nil or the snapshot/encode pair is split apart again.
 func TestEmit_ScrollingDoesNotReallocateViewportRows(t *testing.T) {
 	const cols, rows = 80, 24
 	m, _ := newTestModel(t, cols, rows)
 	e := NewDiffEmitter()
 	m.Write([]byte("seed"))
-	e.Prime(m) // Emit bails immediately on an unprimed emitter and does no work
+	e.Prime(m)
 
 	line := make([]byte, 0, cols+2)
 	for i := 0; i < cols; i++ {
@@ -119,21 +105,17 @@ func TestEmit_ScrollingDoesNotReallocateViewportRows(t *testing.T) {
 	}
 	line = append(line, '\r', '\n')
 
-	// Measure BYTES, not object count: what regressing the marker reintroduces
-	// is a rows x cols cell-slice per emit (24*80*112B ~= 215KB), which barely
-	// moves the object count but dominates the bytes.
 	const iterations = 200
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
 	for i := 0; i < iterations; i++ {
-		m.Write(line) // one full-width line => scroll => full invalidation
+		m.Write(line)
 		e.Emit(m)
 	}
 	runtime.ReadMemStats(&after)
 
 	perScroll := float64(after.TotalAlloc-before.TotalAlloc) / iterations
-	// One reallocated viewport is rows*cols*sizeof(uv.Cell); stay well under it.
 	ceiling := float64(rows*cols) * float64(unsafe.Sizeof(uv.Cell{})) / 2
 	if perScroll >= ceiling {
 		t.Errorf("Emit allocates %.0f B per scrolled line; want < %.0f B "+
@@ -143,7 +125,6 @@ func TestEmit_ScrollingDoesNotReallocateViewportRows(t *testing.T) {
 	t.Logf("bytes allocated per scrolled line: %.0f (ceiling %.0f)", perScroll, ceiling)
 }
 
-// Holding chains costs a no-change Emit nothing extra: the dirty check walks them in place.
 func TestEmit_NoChangeWithChainsAllocatesNoMore(t *testing.T) {
 	allocs := func(content string) float64 {
 		m, _ := newTestModel(t, 80, 24)
@@ -156,7 +137,6 @@ func TestEmit_NoChangeWithChainsAllocatesNoMore(t *testing.T) {
 		return testing.AllocsPerRun(100, func() { e.Emit(m) })
 	}
 	plain := allocs("hello")
-	// One chain of 30 rows on a 24-row grid: every row continues the one above, the top one history.
 	chained := allocs(strings.Repeat("x", 80*30))
 	if chained > plain {
 		t.Errorf("a no-change Emit allocates %.0f times holding chains, %.0f without", chained, plain)

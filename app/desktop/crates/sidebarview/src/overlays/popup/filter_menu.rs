@@ -1,5 +1,3 @@
-//! The menu behind the funnel button of the Files panel's search box.
-
 use sidebar::{Command, FileTreeFlag, FileTreeView, Intent};
 
 use crate::overlays::popup::check::Check;

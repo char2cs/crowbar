@@ -11,9 +11,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Get handles GET /v0/chats/:chatId/review, returning the composite branch-review read model.
-// It serves the DTO, not the domain object, because a binary file's nil Lines would marshal to
-// null and the review pane reads lines.length unguarded; the DTO normalises nil slices to [].
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {
@@ -25,8 +22,6 @@ func (h *Handlers) Get(
 	libs.WriteQueryOK(ctx, dto.BranchReviewDTOFrom(review))
 }
 
-// SetMergeStrategy handles PATCH /v0/chats/:chatId/review, updating the
-// merge strategy for the workspace.
 func (h *Handlers) SetMergeStrategy(
 	ctx *gin.Context,
 ) {

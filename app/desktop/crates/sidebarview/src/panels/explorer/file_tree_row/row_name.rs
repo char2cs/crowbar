@@ -1,5 +1,3 @@
-//! The name cell of a Files row: the name, the search match within it, or the open input.
-
 use gpui::{Div, HighlightStyle, InteractiveElement, ParentElement, Styled, StyledText, div};
 use ui::Palette;
 

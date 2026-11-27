@@ -16,7 +16,6 @@ const ENDED: Record<string, TrayRow['status']> = {
   abandoned: 'stopped',
 }
 
-/** How a subagent ended, in the tray's words: "done · 14 tool uses", "failed · could not start". */
 function endNote(card: SubagentItem): string {
   const uses = card.usage?.toolUses
   const said = card.status === 'failed' ? card.result?.trim().split('\n')[0] : undefined
@@ -25,19 +24,13 @@ function endNote(card: SubagentItem): string {
   return extra ? `${word} · ${extra}` : word
 }
 
-/** A subagent's two texts as the board sets them: its kind in bold, then what it was given and
- *  how it ended. One with no kind is named by its title; with nothing given, `fallback` says. */
 function words(card: SubagentItem, ended: string, fallback: string): [string, string] {
   const given = card.type ? card.title : ''
   const detail = [given, ended].filter(Boolean).join(' · ') || fallback
   return [card.type || card.title, detail]
 }
 
-/** The work the agent has going, for the bottom tray: the turn's subagents, running ones first,
- *  then its background shells and monitors, running ones first. Ended rows stay beside what
- *  still runs; when nothing runs the list is empty. */
 export function useWorkRows(chatId: string): TrayRow[] {
-  // Flat strings, so the selector's shallow compare holds while unrelated rows stream in.
   const flat = useChatStore(
     useShallow((s) => {
       const feed = s.feeds[chatId]
@@ -95,7 +88,6 @@ export function useWorkRows(chatId: string): TrayRow[] {
     const running = (row: TrayRow) => row.status === 'running'
     const tracked = shells.map(shellRow)
     const all = [...rows, ...tracked.filter(running), ...tracked.filter((row) => !running(row))]
-    // Ended work is kept beside what still runs; once nothing runs the tray is done.
     return all.some(running) ? all : []
   }, [flat, shells])
 }

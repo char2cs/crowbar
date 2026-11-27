@@ -8,8 +8,6 @@ import {
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
 
-// Counts renders of dnd-kit's provider: each one rebuilds the context values its
-// whole subtree is re-checked against.
 const dndRenders = vi.hoisted(() => ({ count: 0 }))
 vi.mock('@dnd-kit/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd-kit/core')>()
@@ -22,8 +20,6 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
 
 const FENCE = '```text-attachment:AbC123xy\nsome long pasted text\n```'
 
-/** jsdom has no layout: give the three blocks of the document stacked rects
- *  so dnd-kit's collision detection has something to measure. */
 function stubLayout(rects: [Element, number, number][]) {
   const original = Element.prototype.getBoundingClientRect
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
@@ -84,8 +80,6 @@ describe('DndScope', () => {
     expect(dndRenders.count).toBe(mounted)
   })
 
-  // A second commit per render queues behind every keystroke and streamed token;
-  // enough of them back to back is React's "Maximum update depth exceeded".
   it('commits a change of its children once', () => {
     let commits = 0
     const view = (n: number) => (
@@ -138,7 +132,6 @@ describe('DndScope', () => {
     const before = markdown()
 
     fireEvent.pointerDown(handle, { clientX: 5, clientY: 30, button: 0, isPrimary: true })
-    // Top half of the paragraph right below the attachment: a no-op drop.
     fireEvent.pointerMove(document, { clientX: 5, clientY: 62 })
     expect(second.querySelector('.-top-px, .-bottom-px')).toBeNull()
     fireEvent.pointerUp(document, { clientX: 5, clientY: 62 })

@@ -1,5 +1,3 @@
-//! What the daemon log logs when its writer cannot keep up its work.
-
 use std::fmt;
 use std::path::Path;
 

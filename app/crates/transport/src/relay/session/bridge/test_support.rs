@@ -1,5 +1,3 @@
-//! A sink that never drains, for the bridge tests.
-
 use std::pin::Pin;
 use std::task::{Context, Poll};
 

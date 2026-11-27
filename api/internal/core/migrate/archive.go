@@ -14,15 +14,10 @@ import (
 	"strings"
 )
 
-// backupExt names a backup: one gzip tar that a restore unpacks over the home.
 const backupExt = ".tar.gz"
 
-// digests are the SHA-256 of each regular file a backup holds, by the
-// slash-separated path the file has under the home.
 type digests map[string][sha256.Size]byte
 
-// archiver writes a backup's entries, hashing each file as it is copied. bytes
-// counts the trees it took, the data a backup is measured by.
 type archiver struct {
 	tw    *tar.Writer
 	sums  digests
@@ -44,8 +39,6 @@ func (a *archiver) addDir(
 	})
 }
 
-// addBytes writes data as the file rel, for a value the home holds in no file
-// of its own (the layout of a home without a LAYOUT file).
 func (a *archiver) addBytes(
 	rel string,
 	data []byte,
@@ -75,8 +68,6 @@ func (a *archiver) addFile(
 		return err
 	}
 	hash := sha256.New()
-	// CopyN holds the entry to the size its header promised: the home is locked
-	// and no store is open, so a file that changes size here is a fault.
 	if _, err := io.CopyN(io.MultiWriter(a.tw, hash), in, info.Size()); err != nil {
 		return fmt.Errorf("copy %s: %w", src, err)
 	}
@@ -84,8 +75,6 @@ func (a *archiver) addFile(
 	return nil
 }
 
-// addTree writes everything under dir as entries under prefix. Only regular
-// files and directories are legal; skip leaves out an entry that is not data.
 func (a *archiver) addTree(
 	dir string,
 	prefix string,
@@ -122,13 +111,10 @@ func (a *archiver) addTree(
 	})
 }
 
-// close flushes the tar stream; the caller closes what it wrote into.
 func (a *archiver) close() error {
 	return a.tw.Close()
 }
 
-// writeArchive writes fill's entries to a new gzip tar at path, flushes it, and
-// returns what it holds.
 func writeArchive(
 	path string,
 	fill func(*archiver) error,
@@ -152,9 +138,6 @@ func writeArchive(
 	return a, errors.Join(err, out.Close())
 }
 
-// readDigests reads the archive at path back and hashes every file it holds.
-// An entry that is not a plain relative path is an error: a restore must not
-// write outside the home.
 func readDigests(
 	path string,
 ) (_ digests, err error) {
@@ -191,8 +174,6 @@ func readDigests(
 	}
 }
 
-// verifyArchive reads the archive at path back and requires it to hold exactly
-// the files, byte for byte, that were written into it.
 func verifyArchive(
 	path string,
 	want digests,
@@ -207,9 +188,6 @@ func verifyArchive(
 	return nil
 }
 
-// SameInBackup reports which of rels, slash-separated paths under the home at
-// root, the backup at path holds byte for byte as they are now. A directory
-// backup, as builds before archives wrote them, holds state/ alone.
 func SameInBackup(
 	path string,
 	root string,

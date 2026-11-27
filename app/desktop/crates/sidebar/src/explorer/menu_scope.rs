@@ -1,27 +1,18 @@
-//! What the workspace decides about the Files menu.
-
 pub(super) mod shell_answers;
 
 use crate::explorer::menu_scope::shell_answers::ShellAnswers;
 use crate::shell::Lock;
 
-/// The workspace facts a Files menu is built from.
 #[derive(Debug, Clone, Default)]
 pub struct MenuScope {
-    /// The workspace root, which absolute paths are built on.
     pub root: Option<String>,
-    /// Whether the workspace's branch is locked.
     pub lock: Lock,
-    /// Whether the workspace is on this computer, which offers Reveal in Finder.
     pub local: bool,
-    /// Whether the workspace can generate an image.
     pub can_generate_image: bool,
-    /// The shell's answers about which entries it serves.
     pub answers: ShellAnswers,
 }
 
 impl MenuScope {
-    /// Whether the workspace's branch is locked.
     pub fn is_locked(&self) -> bool {
         self.lock == Lock::Locked
     }

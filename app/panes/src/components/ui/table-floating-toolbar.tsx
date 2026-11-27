@@ -53,9 +53,6 @@ import { Toolbar, ToolbarButton, ToolbarGroup } from './toolbar'
 
 const TABLE_MULTI_SELECTION_TOOLBAR_DELAY_MS = 150
 
-// The floating table toolbar has no trigger: it anchors to the table itself.
-// base-ui anchors through the Positioner's `anchor` prop, so the table
-// registers its element here and the toolbar positions against it.
 const TableToolbarAnchor = React.createContext<Element | null>(null)
 
 function PopoverContent({ children }: { children: React.ReactElement }) {
@@ -74,7 +71,6 @@ function PopoverContent({ children }: { children: React.ReactElement }) {
   )
 }
 
-/** The table's own toolbar: cell controls for a caret in one cell, merge/split for a range. */
 export function TableFloatingToolbar({ children }: { children: React.ReactElement }) {
   const selectedCellCount = useEditorSelector(
     (editor) => editor.getApi(TablePlugin).table.getSelectedCellIds()?.length ?? 0,
@@ -84,15 +80,11 @@ export function TableFloatingToolbar({ children }: { children: React.ReactElemen
   const isFocusedLast = useFocusedLast()
   const [isExpandedSelectionToolbarReady, setIsExpandedSelectionToolbarReady] =
     React.useState(false)
-  // Zero selected cell ids means the selection is within one cell (ids appear only once a range
-  // spans two). Gating on that, not isCollapsed(), keeps row/column controls while a cell's content
-  // is fully selected.
   const isSingleCellToolbarOpen = isFocusedLast && selected && selectedCellCount === 0
   const isExpandedSelectionPending = isFocusedLast && selectedCellCount > 1
 
   React.useEffect(() => {
     if (!isExpandedSelectionPending) {
-      // Reset the delayed toolbar gate when selection is no longer expanded.
       setIsExpandedSelectionToolbarReady(false)
 
       return

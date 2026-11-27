@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// TestHelperProcess is the subprocess used by fakeCmd.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -30,9 +29,6 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// fakeCmd returns an execCommand stub that prints output and exits with code.
-// Production code sets cmd.Dir after creation; the dir must exist.
-// Use t.TempDir() as the repoPath in tests.
 func fakeCmd(
 	output string,
 	exitCode int,
@@ -44,7 +40,6 @@ func fakeCmd(
 	) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--", output, fmt.Sprint(exitCode)}
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		// A coverage build exits warning on stderr without GOCOVERDIR; share the parent's.
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "GOCOVERDIR=" + flag.Lookup("test.gocoverdir").Value.String()}
 		return cmd
 	}
@@ -57,8 +52,6 @@ type fakeResponse struct {
 	code   int
 }
 
-// sequentialFake sequences multiple fake commands, one per call.
-// It panics if called more times than there are responses.
 func sequentialFake(
 	responses []fakeResponse,
 ) func(ctx context.Context, name string, args ...string) *exec.Cmd {
@@ -80,7 +73,7 @@ func sequentialFake(
 func TestProtectedBranches_Success(t *testing.T) {
 	dir := t.TempDir()
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: "main\ndevelop\n", code: 0}, // gh api
+		{output: "main\ndevelop\n", code: 0},
 	}))
 	branches, err := g.ProtectedBranches(context.Background(), dir)
 	require.NoError(t, err)
@@ -105,17 +98,12 @@ func TestProtectedBranches_GHError(t *testing.T) {
 	assert.Contains(t, err.Error(), "github: protected-branches")
 }
 
-// TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted pins the
-// production bug: GitHub deletes the head ref when a PR merges, so gating the
-// lookup on `git ls-remote origin refs/heads/<branch>` bailed out before ever
-// running gh — the workspace stayed pr-open forever. gh still reports the merged
-// PR for a deleted head ref, and the lookup must read it.
 func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":54,"state":"MERGED","url":"https://github.com/o/r/pull/54","title":"Done","baseRefName":"develop","headRefOid":"3d06bd4"}]`
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: prJSON, code: 0}, // gh pr list
-		{output: "", code: 0},     // git merge-base --is-ancestor → branch contains the PR head
+		{output: prJSON, code: 0},
+		{output: "", code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -125,31 +113,23 @@ func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testi
 	assert.Equal(t, "develop", pr.TargetBranch)
 }
 
-// TestPullRequestForBranch_IgnoresStalePRAfterBranchNameReuse covers the flip
-// side of dropping the ls-remote gate: gh matches PRs by head branch NAME alone,
-// so fresh work on a branch whose name was used by an already-merged PR matches
-// that stale PR. The new branch does not contain the PR's head commit, so the PR
-// is not this branch's and must be ignored.
 func TestPullRequestForBranch_IgnoresStalePRAfterBranchNameReuse(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":54,"state":"MERGED","url":"https://github.com/o/r/pull/54","title":"Old","baseRefName":"develop","headRefOid":"3d06bd4"}]`
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: prJSON, code: 0}, // gh pr list
-		{output: "", code: 1},     // git merge-base --is-ancestor → branch does NOT contain it
+		{output: prJSON, code: 0},
+		{output: "", code: 1},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
 	assert.Nil(t, pr)
 }
 
-// TestPullRequestForBranch_OpenPRSkipsContainmentCheck: an open PR still owns its
-// head ref, so a name match is authoritative and no git call is needed. The single
-// queued response is the assertion — sequentialFake panics on an extra call.
 func TestPullRequestForBranch_OpenPRSkipsContainmentCheck(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":42,"state":"OPEN","url":"https://github.com/o/r/pull/42","title":"My PR","baseRefName":"main","headRefOid":"deadbee"}]`
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: prJSON, code: 0}, // gh pr list, and nothing else
+		{output: prJSON, code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -159,15 +139,11 @@ func TestPullRequestForBranch_OpenPRSkipsContainmentCheck(t *testing.T) {
 	assert.Equal(t, "main", pr.TargetBranch)
 }
 
-// TestPullRequestForBranch_MergedWithoutHeadRefOid keeps the containment guard
-// permissive when the provider gives us no head sha to check: reporting the PR is
-// the pre-guard behaviour, and a false negative here would resurrect the very
-// stale-status bug the guard is built alongside.
 func TestPullRequestForBranch_MergedWithoutHeadRefOid(t *testing.T) {
 	dir := t.TempDir()
 	prJSON := `[{"number":5,"state":"MERGED","url":"https://github.com/o/r/pull/5","title":"Done","baseRefName":"main"}]`
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: prJSON, code: 0}, // gh pr list, and nothing else
+		{output: prJSON, code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -201,8 +177,6 @@ func TestPullRequestForBranch_NoPRs(t *testing.T) {
 	assert.Nil(t, pr)
 }
 
-// TestOpenPullRequests_ParsesHeadBaseGraph pins the repo-wide open-PR graph used
-// by import auto-parenting: one gh call yields every open PR's head→base edge.
 func TestOpenPullRequests_ParsesHeadBaseGraph(t *testing.T) {
 	dir := t.TempDir()
 	out := `[
@@ -210,7 +184,7 @@ func TestOpenPullRequests_ParsesHeadBaseGraph(t *testing.T) {
 		{"number":10,"state":"OPEN","url":"u2","title":"t2","headRefName":"feat/base","baseRefName":"dev"}
 	]`
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: out, code: 0}, // gh pr list --state open, and nothing else
+		{output: out, code: 0},
 	}))
 	links, err := g.OpenPullRequests(context.Background(), dir)
 	require.NoError(t, err)
@@ -275,7 +249,6 @@ func TestSelectBestPR_HigherNumberWins(t *testing.T) {
 func TestBetterPR_AGreaterOrEqualNumber(t *testing.T) {
 	a := &prJSON{Number: 10, State: "CLOSED"}
 	b := &prJSON{Number: 5, State: "CLOSED"}
-	// a.Number > b.Number → a wins
 	result := betterPR(a, b)
 	assert.Equal(t, a, result)
 }
@@ -305,7 +278,7 @@ func TestParseLines(t *testing.T) {
 func TestGHProvider_OwnerAvatarURL(t *testing.T) {
 	dir := t.TempDir()
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: "https://avatars.githubusercontent.com/u/123", code: 0}, // gh api
+		{output: "https://avatars.githubusercontent.com/u/123", code: 0},
 	}))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
 	require.NoError(t, err)
@@ -315,17 +288,13 @@ func TestGHProvider_OwnerAvatarURL(t *testing.T) {
 func TestGHProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	g := New(testRemote, sequentialFake([]fakeResponse{
-		{output: "authentication error", code: 1}, // gh api fails
+		{output: "authentication error", code: 1},
 	}))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
-	require.NoError(t, err) // soft failure
+	require.NoError(t, err)
 	assert.Empty(t, got)
 }
 
-// TestPullRequestForBranch_MalformedJSON covers parsePRList's error branch as
-// reached from PullRequestForBranch: gh returning something that is not a JSON
-// array must surface as a wrapped "list-prs: parse" error, not panic or
-// silently report no PR.
 func TestPullRequestForBranch_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
 	g := New(testRemote, sequentialFake([]fakeResponse{
@@ -336,8 +305,6 @@ func TestPullRequestForBranch_MalformedJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "github: list-prs: parse")
 }
 
-// TestOpenPullRequests_GHError covers OpenPullRequests' runGH error branch: a
-// failing `gh pr list` must surface as a wrapped "open-prs" error.
 func TestOpenPullRequests_GHError(t *testing.T) {
 	dir := t.TempDir()
 	g := New(testRemote, sequentialFake([]fakeResponse{
@@ -348,10 +315,6 @@ func TestOpenPullRequests_GHError(t *testing.T) {
 	assert.Contains(t, err.Error(), "github: open-prs")
 }
 
-// TestOpenPullRequests_MalformedJSON covers OpenPullRequests' parsePRList
-// error branch, distinct from PullRequestForBranch's — the two callers wrap the
-// same parse failure with different messages ("open-prs: parse" vs
-// "list-prs: parse"), so each needs its own proof.
 func TestOpenPullRequests_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
 	g := New(testRemote, sequentialFake([]fakeResponse{
@@ -362,10 +325,6 @@ func TestOpenPullRequests_MalformedJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "github: open-prs: parse")
 }
 
-// TestBetterPR_OpenBeatsClosedRegardlessOfNumber covers betterPR's
-// aOpen-and-not-bOpen branch specifically: an open PR must win even when the
-// closed one has a higher number, which TestBetterPR_AGreaterOrEqualNumber
-// (both closed) and TestBetterPR_BothOpen_BHigher (both open) do not exercise.
 func TestBetterPR_OpenBeatsClosedRegardlessOfNumber(t *testing.T) {
 	a := &prJSON{Number: 1, State: "OPEN"}
 	b := &prJSON{Number: 99, State: "CLOSED"}
@@ -376,11 +335,10 @@ func TestGHProvider_OwnerAvatarURL_SlugError_ReturnsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	g := New("totally-invalid", sequentialFake(nil))
 	got, err := g.OwnerAvatarURL(context.Background(), dir)
-	require.NoError(t, err) // soft failure
+	require.NoError(t, err)
 	assert.Empty(t, got)
 }
 
-// A failed command reads as what the tool printed, so the user sees how to fix it.
 func TestProtectedBranches_AFailureReadsAsTheToolsOwnWords(t *testing.T) {
 	g := New(testRemote, fakeCmd("To get started with GitHub CLI, please run:  gh auth login", 1))
 	_, err := g.ProtectedBranches(context.Background(), t.TempDir())

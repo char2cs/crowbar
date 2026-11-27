@@ -1,8 +1,3 @@
-//! A remote host that did not answer for its agent list, before anything was created: told in
-//! its host's words, with no operation row, as develop's `readUnreadHostProviders` does.
-//!
-//! Spec: develop `web/src/components/layout/thread-create.ts` (`readUnreadHostProviders`).
-
 use daemonapi::HostNotice;
 
 use crate::error::Error;

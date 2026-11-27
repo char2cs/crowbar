@@ -13,23 +13,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// MaxSideBytes bounds one side of a file read for context expansion. A file past
-// it is refused rather than truncated: a half file would shift every line number
-// below the cut.
 const MaxSideBytes = 2 << 20
 
-// ErrFileTooLarge reports that a side exceeds MaxSideBytes.
 var ErrFileTooLarge = errors.New("diff: file side too large")
 
-// ErrNonLocalPath rejects a path that is absolute or climbs out of the repository.
 var ErrNonLocalPath = errors.New("diff: path leaves the repository")
 
-// ErrEmptyFilePath rejects a read that names no file.
 var ErrEmptyFilePath = errors.New("diff: file sides: path is required")
 
-// FileSides reads one file's old and new text for `git diff <ref>`: old is the file at
-// ref's base, new is the working tree, or the right-hand commit of an `<a>..<b>` range.
-// oldPath names the old side (a rename source) and defaults to path.
 func FileSides(
 	ctx context.Context,
 	repoPath string,
@@ -65,8 +56,6 @@ func FileSides(
 	return gitdomain.ReviewFileSides{Old: oldSide, New: newSide}, nil
 }
 
-// readRevisionSide returns the blob at rev:path, or nil when rev has no such
-// file. The size is asked first so an oversized blob is never read into memory.
 func readRevisionSide(
 	ctx context.Context,
 	repoPath string,
@@ -92,9 +81,6 @@ func readRevisionSide(
 	return &r.Stdout, nil
 }
 
-// readWorktreeSide returns the working-tree file at path, or nil when it is
-// absent. A symlink is refused: the diff shows a link as its target string, and
-// following one would read outside the repository.
 func readWorktreeSide(
 	repoPath string,
 	path string,

@@ -1,5 +1,3 @@
-//! The pencil that fades over an editable mark while the pointer is on the mark, as develop's does.
-
 use gpui::{
     AnyElement, InteractiveElement as _, IntoElement, ParentElement, Pixels, Styled, black, div,
     hsla, px, white,

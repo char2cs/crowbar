@@ -1,5 +1,3 @@
-//! The branch list of the dialog and its rows.
-
 use gpui::{
     Context, Div, Entity, IntoElement, ParentElement, SharedString, Styled, div, uniform_list,
 };

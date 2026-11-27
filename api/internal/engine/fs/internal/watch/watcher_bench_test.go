@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/internal/watch"
 )
 
-// benchGitProvider is a zero-overhead stub for BenchmarkFanOut.
 type benchGitProvider struct{}
 
 func (p *benchGitProvider) ComputeStatus(
@@ -40,7 +39,6 @@ func (p *benchGitProvider) DiffStat(
 	return 0, 0, nil
 }
 
-// benchDispatcher is a no-op Dispatcher for benchmarks.
 type benchDispatcher struct{}
 
 func (d *benchDispatcher) OnFileChange(_ context.Context, _ domain.FileChangeEvent)       {}
@@ -51,7 +49,6 @@ func (d *benchDispatcher) OnSyncWorkingTreeState(_ context.Context, _ watch.Sync
 func BenchmarkFanOut(b *testing.B) {
 	dir := b.TempDir()
 
-	// init a minimal git repo so ComputeStatus works.
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
 		{"config", "user.email", "bench@bench.com"},
@@ -70,7 +67,6 @@ func BenchmarkFanOut(b *testing.B) {
 	}
 	defer w.Stop()
 
-	// Prime the watcher so OS-level registration is complete.
 	benchFile := filepath.Join(dir, "bench.txt")
 
 	b.ResetTimer()

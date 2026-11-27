@@ -1,6 +1,3 @@
-//! The visible rows of the tree: each folder's own children, and below every opened folder its
-//! rows or the note that stands in for them.
-
 mod folder_note;
 mod folder_row;
 mod row_element;

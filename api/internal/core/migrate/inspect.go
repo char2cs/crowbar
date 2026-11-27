@@ -10,15 +10,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// StepPlan is a pending step with what it would do.
 type StepPlan struct {
 	Step Step
 	Plan Plan
 }
 
-// BackupPlan is what the run does about state/ first. A copy is Required, and
-// weighs Bytes with FreeBytes to spare; Kept names the run whose backup of the
-// state a retry keeps instead of copying. Neither means there is nothing to do.
 type BackupPlan struct {
 	Required  bool
 	Bytes     int64
@@ -26,32 +22,22 @@ type BackupPlan struct {
 	Kept      string
 }
 
-// Report is what booting this binary on a home would do, read without
-// changing the home.
 type Report struct {
 	Home          string
 	Layout, Known int
 	LockHeld      bool
-	// Steps are in execution order: what a session would run.
-	Steps  []StepPlan
-	Backup BackupPlan
-	// Last is the newest run the ledger records, nil while it records none.
-	Last *RunSummary
-	// Backups are the backups on disk, oldest first, and RestoreNote the file
-	// beside them that says how to restore one.
-	Backups     []BackupFile
-	RestoreNote string
+	Steps         []StepPlan
+	Backup        BackupPlan
+	Last          *RunSummary
+	Backups       []BackupFile
+	RestoreNote   string
 }
 
-// BackupFile is one backup on disk and the bytes it takes.
 type BackupFile struct {
 	Path  string
 	Bytes int64
 }
 
-// Inspect previews, for a build that implements the steps implemented reports,
-// the migration of h against cat without changing h (no lock beyond a probe, no
-// repair). A home or step the boot would halt on comes back as the boot's *Halt.
 func Inspect(
 	ctx context.Context,
 	h home.Home,
@@ -70,8 +56,6 @@ func Inspect(
 	}
 	env := Env{Home: h, Log: opts.Log, History: History{home: h, view: view}}
 	pending := cat.pending(read.layout, view, cat.recurring(ctx, env, read.layout, view))
-	// In the boot's order: RunPreOpen admits its steps before the preflight, and
-	// RunPostOpen admits the rest after it.
 	if step, ok := unimplemented(leading(pending, PreOpen), implemented); ok {
 		return Report{}, halt(&fault{HaltNoImpl, step, errNoImpl})
 	}
@@ -110,21 +94,17 @@ func Inspect(
 	return report, nil
 }
 
-// refusal is why this binary must not migrate a home.
 type refusal struct {
 	reason  HaltReason
 	message string
 }
 
-// homeRead is the layout and ledger of a home as found on disk.
 type homeRead struct {
 	layout  int
 	view    ledgerView
 	refusal *refusal
 }
 
-// readHome reads LAYOUT and the ledger without changing anything. Begin and
-// Inspect refuse by it, so they refuse the same homes for the same reasons.
 func readHome(
 	h home.Home,
 	cat *Catalog,
@@ -150,9 +130,6 @@ func ledgerPath(
 	return filepath.Join(h.MigrateDir(), ledgerName)
 }
 
-// haltAt is a Halt with everything the files alone tell: the layouts, the ledger
-// where one exists and the backup in force, which the message names too, since
-// the message is all a person may see. A session adds its run.
 func haltAt(
 	h home.Home,
 	cat *Catalog,
@@ -172,7 +149,6 @@ func haltAt(
 	return halt
 }
 
-// at names the step the halt is about.
 func (h *Halt) at(
 	step Step,
 ) *Halt {

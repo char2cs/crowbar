@@ -6,7 +6,6 @@ use crate::foundation::theme::Theme;
 
 const ASPECT_WIDTH_OVER_HEIGHT: f32 = 453.0 / 115.0;
 
-/// The Crowbar logo drawn in the muted foreground colour of the window surface.
 #[derive(Debug, IntoElement)]
 pub struct Wordmark {
     width: Pixels,
@@ -14,13 +13,11 @@ pub struct Wordmark {
 }
 
 impl Wordmark {
-    /// A logo `width` wide; its height follows the artwork's proportions.
     #[must_use]
     pub fn new(width: Pixels) -> Self {
         Self { width, color: None }
     }
 
-    /// Draws the logo in `color` instead of the muted foreground, for a coloured ground.
     #[must_use]
     pub fn color(
         mut self,

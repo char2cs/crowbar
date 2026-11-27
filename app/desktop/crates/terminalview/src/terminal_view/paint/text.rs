@@ -1,5 +1,3 @@
-//! Paints cell backgrounds and text.
-
 use gpui::{App, Bounds, Pixels, ShapedLine, Window, fill, point, px, size};
 use terminal::{BackgroundSpan, Row};
 

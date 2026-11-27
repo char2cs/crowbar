@@ -16,9 +16,6 @@ import { usePaneChatWorkspaceId } from '../hooks/use-pane-workspace'
 import { windowPaneStore } from '../stores/window-pane-store'
 import type { PaneGroup } from '../types/pane'
 
-// The tab hanging from a split pane's top edge: drag the chat out or give it its own tab. Shown
-// by CSS only while hovering the pane (`group/pane`), never for being active; absent when the
-// pane is its view's only chat.
 export function PaneHandle({ pane }: { pane: PaneGroup }) {
   const inSplit = useStore(
     windowPaneStore,
@@ -42,7 +39,6 @@ function PaneHandleBody({
   const scrollRef = useRef<HTMLElement | null>(null)
   const drag = useSidebarDrag({
     scrollRef,
-    // The tab a drop lands beside is a row of another chat: the registry names it.
     subjectsFor: (id) => {
       const other = id === row.id ? row : recentsRowOf(id)
       return other ? [other] : []
@@ -95,7 +91,6 @@ function PaneHandleBody({
         <DragGhost ref={drag.ghostRef} origin={drag.ghostOrigin}>
           <ViewTabPreview
             row={row}
-            // Only a strip supplies a tab's width; without one the rows are the 12px grip's own clone.
             width={drag.ghostRows.nodes.length === 0 ? drag.ghostRows.width : FALLBACK_TAB_PX}
           />
         </DragGhost>

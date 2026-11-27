@@ -1,5 +1,3 @@
-//! File pane documents: reads, saves, reloads, definitions.
-
 mod definitions;
 mod disk_events;
 mod documents;

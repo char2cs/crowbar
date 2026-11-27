@@ -139,7 +139,6 @@ mod tests {
 
     type Closer = fn(&Book, &CancellationToken);
 
-    /// (closer, whether p1/local, p2/host-1 and p3/host-2 end up cancelled)
     const CASES: [(Closer, [bool; 3]); 4] = [
         (
             |book, _| book.close_pane(&PaneId::new("p1").unwrap()),

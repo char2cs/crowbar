@@ -23,9 +23,6 @@ func realEmbeddedManifest(t *testing.T) []byte {
 	return data
 }
 
-// realClaudeManifestSpec reads claude's OWN model.manifest: block off the
-// shipped descriptor, so this test tracks claude.yaml rather than a second,
-// hand-typed copy of its mapping.
 func realClaudeManifestSpec(t *testing.T) *spec.ModelManifestSpec {
 	t.Helper()
 	d, err := protocol.Resolve(context.Background(), "", "claude", nil)
@@ -86,8 +83,6 @@ func TestProbeManifest_MalformedEmbeddedIsReported(t *testing.T) {
 	_, err := modeldiscovery.ProbeManifest(context.Background(), man, []byte("not json"), "", false)
 	assert.ErrorIs(t, err, modeldiscovery.ErrMalformedOutput)
 }
-
-// --- freshness precedence -------------------------------------------------
 
 type manifestRow struct {
 	ID      string
@@ -196,10 +191,6 @@ func TestProbeManifest_FetchDisabledNeverContactsTheNetwork(t *testing.T) {
 	assert.Equal(t, 0, calls, "fetchEnabled=false must never dial out")
 }
 
-// TestProbeManifest_DiskCacheSurvivesAFollowingFailedFetch proves a
-// successful fetch is persisted to disk (the "last good on-disk cache") and
-// a LATER call whose own fetch fails still reads that disk copy rather than
-// regressing to the embedded bundle.
 func TestProbeManifest_DiskCacheSurvivesAFollowingFailedFetch(t *testing.T) {
 	home := t.TempDir()
 	embedded := manifestJSON(time.Now().Add(-time.Hour), []manifestRow{{ID: "bundled", Label: "Bundled", Status: "current"}})

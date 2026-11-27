@@ -13,9 +13,6 @@ import {
   useAttachmentDropTarget,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 
-// The real drag gesture (pointer sensor, collision, drop) is exercised end to
-// end in dnd-scope.test.tsx; this file covers the pure pieces and the chrome.
-
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -42,8 +39,6 @@ describe('AttachmentControls', () => {
     expect(onDelete).toHaveBeenCalledTimes(1)
   })
 
-  // `size="icon-xs"` is the shared square small-icon token: one `size-N` utility sets width and
-  // height together, so its presence is the squareness guarantee.
   it.each([/reorder/i, /remove this attachment/i])(
     'button %s uses the shared icon-xs size token',
     (name) => {
@@ -55,8 +50,6 @@ describe('AttachmentControls', () => {
     },
   )
 
-  // The buttons sit over arbitrary attachment content, so they need a truly OPAQUE surface:
-  // `--popover` (solid in both themes), with no alpha-blended background under any variant.
   it.each([/reorder/i, /remove this attachment/i])('button %s is opaque in every state', (name) => {
     render(<AttachmentControls onDelete={vi.fn()} />)
     const button = screen.getByRole('button', { name })
@@ -159,10 +152,6 @@ describe('resolveAttachmentDrop', () => {
 })
 
 describe('useAttachmentDraggable', () => {
-  // The trash button (AttachmentDeleteButton) calls this directly — it has
-  // to remove the same RESOLVED block dragging operates on, not whatever
-  // element the caller originally passed in (a file card passes its nested
-  // link; the block to delete is its wrapping paragraph).
   it('remove() deletes the resolved block from the document', () => {
     function NestedFileCardWrapper({ children }: { children: ReactNode }) {
       const editor = usePlateEditor({

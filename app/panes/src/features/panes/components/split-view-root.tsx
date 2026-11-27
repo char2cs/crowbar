@@ -17,8 +17,6 @@ import { useMountedViews } from '../hooks/use-mounted-views'
 import { useHasViewStrip } from '../hooks/use-tab-view-ids'
 import { CHROME_ROW_HEIGHT_PX } from '@/lib/chrome-metrics'
 
-/** Module-level so the object identities are stable across renders — inline
- *  literals would hand every view's wrapper a new `style` prop every render. */
 const PARKED_VIEW_STYLE: React.CSSProperties = { display: 'none' }
 const SHOWING_VIEW_STYLE: React.CSSProperties = {}
 
@@ -29,9 +27,6 @@ export function SplitViewRoot() {
   const fullscreenPaneId = useFullscreenPaneId()
   const { exitPaneFullscreen } = usePaneActions()
 
-  // Records and stage in one list sorted by id, not by which shows: moving the showing view would
-  // remount it on every switch, destroying a parked xterm. The stage is keyed by its first pane id
-  // (the id its promoted record takes), so a chat landing there keeps its DOM.
   const views = useMemo(() => {
     const all = Object.values(records).map((view) => ({
       id: view.id,
@@ -44,8 +39,6 @@ export function SplitViewRoot() {
 
   const mountedViews = useMountedViews(views)
 
-  // Only the fullscreen pane, never all of `panes`, which would re-render the whole layout tree
-  // on every pane mutation.
   const fullscreenPane = usePaneById(fullscreenPaneId ?? '')
 
   useEffect(() => {
@@ -53,7 +46,6 @@ export function SplitViewRoot() {
   }, [exitPaneFullscreen, fullscreenPane, fullscreenPaneId])
 
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible)
-  // With the view-tab strip above, the panes are not at the window's top.
   const hasViewStrip = useHasViewStrip()
   const rootPosition = useMemo(
     () => ({ ...ROOT_PANE_POSITION, atTop: !hasViewStrip, atBottom: !isBottomPaneVisible }),
@@ -65,9 +57,6 @@ export function SplitViewRoot() {
 
   return (
     <>
-      {/* Only the showing view takes space. Parked views stay mounted under `display: none`
-          (unmounting loses a terminal's scrollback and Monaco's undo history) and `inert` so
-          nothing off screen is reachable; closePane/closeView are the only teardown. */}
       {mountedViews.map((view) => (
         <div
           key={view.id}

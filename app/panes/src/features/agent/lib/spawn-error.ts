@@ -3,15 +3,10 @@ import { UNREACHED, userWords } from '@/lib/errors/report'
 import { toast } from '@/features/window/stores/toast-store'
 import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 
-/** HTTP 424 Failed Dependency — the daemon could not find the provider's vendor CLI
- *  on this machine (not installed, or not on the PATH the daemon actually has). It is
- *  the one spawn failure the user can fix, so it gets its own words. */
 const CLI_NOT_FOUND = 424
 
-/** The daemon's code for a chat that is working and so refuses the action. */
 const CHAT_BUSY = 'chat_busy'
 
-/** The provider no longer has the chat's session: only a new conversation continues it. */
 const SESSION_LOST = 'session_lost'
 
 interface SpawnErrorNotice {
@@ -19,9 +14,6 @@ interface SpawnErrorNotice {
   description: string
 }
 
-/** Turn a failed spawn into what to SAY about it. Every spawn route (new chat, resume, switch)
- *  fails the same ways through one daemon path, and a swallowed failure hides e.g. a missing CLI.
- *  `action` is the verb as phrased in the sentence ("start", "resume", "switch"). */
 function describeSpawnError(err: unknown, providerName: string, action: string): SpawnErrorNotice {
   if (err instanceof ApiError && err.status === CLI_NOT_FOUND) {
     return {
@@ -37,7 +29,6 @@ function describeSpawnError(err: unknown, providerName: string, action: string):
       description: 'Wait for the current turn to finish, or stop it, then try again.',
     }
   }
-  // Never the daemon's own text: it names Crowbar's internals, not what to do.
   if (err instanceof ApiError && err.problem.code === SESSION_LOST) {
     return {
       message: 'The session was lost',
@@ -50,8 +41,6 @@ function describeSpawnError(err: unknown, providerName: string, action: string):
   }
 }
 
-/** Report a failed spawn to the user AND to the console — the toast is what they see,
- *  the console line is what a bug report can carry. */
 export function toastSpawnFailure(err: unknown, providerName: string, action: string): void {
   console.error(`Failed to ${action} agent chat:`, err)
   if (toastHostFailure(err)) return

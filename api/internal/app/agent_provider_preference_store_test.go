@@ -11,10 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestAgentProviderPreferenceStore_RoundTrip proves the generic sqlite store
-// persists an AgentProviderPreference keyed by provider id: the table
-// auto-migrates, FindAll lists every saved row, and FindByKey resolves one back
-// with its Priority/Disabled fields intact.
 func TestAgentProviderPreferenceStore_RoundTrip(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -37,7 +33,6 @@ func TestAgentProviderPreferenceStore_RoundTrip(t *testing.T) {
 	assert.True(t, got.Disabled)
 	assert.Equal(t, 1, got.Priority)
 
-	// A replace (same key, new values) upserts rather than duplicating.
 	require.NoError(t, s.Save(ctx, domain.AgentProviderPreference{ProviderID: "claude", Priority: 5, Disabled: false}))
 	all, err = s.FindAll(ctx)
 	require.NoError(t, err)
@@ -49,7 +44,6 @@ func TestAgentProviderPreferenceStore_RoundTrip(t *testing.T) {
 	assert.False(t, got.Disabled)
 	assert.Equal(t, 5, got.Priority)
 
-	// Delete drops the row; a subsequent FindByKey returns nil, nil.
 	require.NoError(t, s.Delete(ctx, "claude"))
 	gone, err := s.FindByKey(ctx, "claude")
 	require.NoError(t, err)

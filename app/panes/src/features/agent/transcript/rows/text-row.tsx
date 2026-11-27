@@ -20,7 +20,6 @@ async function copyTurn(text: string) {
   }
 }
 
-/** The live renderer: follows the stream while the reply grows, then its row text. */
 function LiveText({ chatId, item }: { chatId: string; item: TextItem }) {
   const live = useLiveText(chatId, item.messageId, 'answer')
   const text = item.settled ? item.text : fuller(item.text, live ?? '')
@@ -42,13 +41,10 @@ function TextRowBody({
   chatId: string
   item: TextItem
   effort?: string
-  /** The model the turn ran on, where its CLI named one. */
   model?: string
   firstReply: boolean
-  /** Only the reply that hands control back gets copy and time. */
   turnbar: boolean
 }) {
-  // R11: the renderer is picked once; settling changes the data, never the component.
   const [live] = useState(() => !item.settled)
   return (
     <article

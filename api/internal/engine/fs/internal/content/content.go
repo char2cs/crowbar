@@ -1,4 +1,3 @@
-// Package content reads and writes file bytes; detects text vs binary.
 package content
 
 import (
@@ -15,18 +14,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// maxReadBytes is the upper bound on file size for content reads. Files larger
-// than this threshold are rejected with ErrFileTooLarge to prevent OOM when a
-// caller requests a multi-GB file.
-const maxReadBytes = 25 << 20 // 25 MiB
+const maxReadBytes = 25 << 20
 
-// ErrFileTooLarge is re-exported from safepath for callers that import only
-// this package. The canonical definition lives in safepath so api/libs can
-// import it without violating Go's internal-package rule.
 var ErrFileTooLarge = safepath.ErrFileTooLarge
 
-// Read returns the content of a file. Binary files are base64-encoded with
-// Encoding set to "base64"; text files are returned as UTF-8.
 func Read(
 	repoPath string,
 	filePath string,
@@ -34,7 +25,6 @@ func Read(
 	return readWithCap(repoPath, filePath, maxReadBytes)
 }
 
-// ReadAbs reads a host file by absolute, clean path under the same cap as Read.
 func ReadAbs(
 	abs string,
 ) (domain.FileContent, error) {
@@ -48,8 +38,6 @@ func ReadAbs(
 	return fc, nil
 }
 
-// readWithCap is the internal implementation of Read with an injectable cap so
-// tests can exercise the size-rejection path without creating a 25 MiB file.
 func readWithCap(
 	repoPath string,
 	filePath string,
@@ -66,9 +54,6 @@ func readWithCap(
 	return fc, nil
 }
 
-// readFile reads full, which the caller has already confined, rejecting
-// anything over cap. Stat gives a fast rejection; LimitReader is the hard cap
-// in case the file grows between Stat and the read.
 func readFile(
 	full string,
 	cap int64,
@@ -87,8 +72,6 @@ func readFile(
 	}
 	defer f.Close() //nolint:errcheck // read-only handle: a close error cannot lose data
 
-	// Read at most cap+1 bytes. If we get cap+1 bytes the file grew past the
-	// cap between Stat and Open; reject it with ErrFileTooLarge.
 	data, err := io.ReadAll(io.LimitReader(f, cap+1))
 	if err != nil {
 		return domain.FileContent{}, err
@@ -107,16 +90,12 @@ func readFile(
 	return domain.FileContent{Content: string(data)}, nil
 }
 
-// Write persists content, creating parent directories. Encoding mirrors Read: "base64" is decoded and
-// written verbatim so binary uploads stay byte-faithful; "" or "utf8" writes raw UTF-8.
 func Write(
 	repoPath string,
 	filePath string,
 	content string,
 	encoding string,
 ) error {
-	// decode the payload before touching the filesystem so a malformed base64
-	// body fails fast without a partial write.
 	data, err := decodeContent(content, encoding)
 	if err != nil {
 		return fmt.Errorf("content: write %s: %w", filePath, err)
@@ -131,7 +110,6 @@ func Write(
 	return nil
 }
 
-// WriteAbs writes a host file by absolute, clean path, exactly as Write does.
 func WriteAbs(
 	abs string,
 	content string,
@@ -150,7 +128,6 @@ func WriteAbs(
 	return nil
 }
 
-// writeFile creates full's parent directories and writes data atomically.
 func writeFile(
 	full string,
 	data []byte,
@@ -170,9 +147,6 @@ func requireAbs(
 	return nil
 }
 
-// writeAtomic writes a same-directory temp and renames it over full, so a failed write never destroys
-// the original and readers never see a half file. Like os.WriteFile it writes through a symlink
-// (refusing a dangling one) and keeps an existing file's permission bits.
 func writeAtomic(
 	full string,
 	data []byte,
@@ -184,8 +158,6 @@ func writeAtomic(
 	perm := os.FileMode(0o600)
 	if info, err := os.Stat(full); err == nil {
 		perm = info.Mode().Perm()
-		// Renaming over a file needs only the directory's write bit: refuse what a direct
-		// write would be refused, or a save to a read-only file reports a success.
 		if info.Mode().IsRegular() {
 			if err := requireWritable(full); err != nil {
 				return err
@@ -199,7 +171,6 @@ func writeAtomic(
 		return err
 	}
 	tmpName := tmp.Name()
-	// A failure leaves no temp behind; a removal that fails too is reported with it.
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, os.Remove(tmpName))
@@ -218,7 +189,6 @@ func writeAtomic(
 	return os.Rename(tmpName, full)
 }
 
-// requireWritable opens full for writing, without truncating it, only to ask the OS.
 func requireWritable(full string) error {
 	f, err := os.OpenFile(full, os.O_WRONLY, 0) //nolint:gosec // G304: full is safepath-resolved or an absolute path the file usecase resolved
 	if err != nil {
@@ -227,8 +197,6 @@ func requireWritable(full string) error {
 	return f.Close()
 }
 
-// writeThrough writes data into the existing file link names, never creating
-// it: a dangling link can point into the daemon's state or out of the worktree.
 func writeThrough(
 	link string,
 	data []byte,
@@ -244,9 +212,6 @@ func writeThrough(
 	return errors.Join(err, f.Close())
 }
 
-// decodeContent turns a write payload into the exact bytes to persist. A
-// "base64" encoding is the write counterpart of Read's binary base64 encoding;
-// "" and "utf8" pass the string bytes through unchanged.
 func decodeContent(
 	content string,
 	encoding string,
@@ -265,9 +230,6 @@ func decodeContent(
 	}
 }
 
-// isBinary returns true if data contains a null byte or is not valid UTF-8. It scans the whole buffer
-// (≤ maxReadBytes): a late invalid byte classed as text would be replaced with U+FFFD by JSON encoding
-// and the corruption saved back.
 func isBinary(
 	data []byte,
 ) bool {

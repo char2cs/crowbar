@@ -1,5 +1,3 @@
-//! The caret's view of a spaced line, for a text field typed in the same face as a label.
-
 use gpui::{App, Pixels, Point, TextAlign, Window, point, px};
 
 use super::{TrackedLine, glyphs_before};

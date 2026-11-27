@@ -8,24 +8,15 @@ import (
 	"time"
 )
 
-// wrapScenario prints a 120-column URL the 80-column terminal soft-wraps, then an exactly
-// 80-column x row the program hard-breaks before a y row. The marker is built from a shell
-// variable, so only the output contains it, never the echoed command.
 const wrapScenario = "printf 'https://example.com/%0100d\\n' 0 | tr 0 a; printf '%080d\\n' 0 | tr 0 x; " +
 	"echo yyyyyyyyyy; M=WRAP_DONE; echo \"${M}_7d1c\"; sleep 30\n"
 
 var (
-	wrapURL     = "https://example.com/" + strings.Repeat("a", 100)
-	exactFitRow = strings.Repeat("x", 80)
-	// A column-1 cursor address sits between an exact-fit row and the next: the y row's own, or
-	// the emitter's cursor park after the x row's CRLF. Either breaks the flow on the client; an
-	// autowrap continuation would follow the x row with no address at all.
+	wrapURL       = "https://example.com/" + strings.Repeat("a", 100)
+	exactFitRow   = strings.Repeat("x", 80)
 	liveHardBreak = regexp.MustCompile(exactFitRow + "[^y]*?\x1b\\[[0-9]+;1H[^y]*?yyyyyyyyyy")
 )
 
-// TestRegression_TerminalSession_WrappedLinesStayUnbroken proves a URL the terminal width
-// soft-wrapped reaches the client as one flow, in the live frames and in the re-attach
-// redraw, while a line the program hard-broke after an exact-fit row is never joined.
 func (s *TerminalSuite) TestRegression_TerminalSession_WrappedLinesStayUnbroken() {
 	t := s.T()
 	sessionID, ws1 := s.newSessionWithLiveClient(t)
@@ -40,7 +31,6 @@ func (s *TerminalSuite) TestRegression_TerminalSession_WrappedLinesStayUnbroken(
 
 	s.Contains(live.String(), wrapURL,
 		"live frames must carry the soft-wrapped URL as one flow")
-	// Live frames are cursor-addressed diffs, so their hard break is an address, never CRLF.
 	s.NotContains(live.String(), exactFitRow+"yyyyyyyyyy",
 		"live frames must not run an exact-fit hard-broken row into the next line")
 	s.Regexp(liveHardBreak, live.String(),

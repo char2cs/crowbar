@@ -36,9 +36,6 @@ func (f fakeChatGetter) ListChats(
 	return f.chats, nil
 }
 
-// TestAgentChatReader_Get_DelegatesToTheRepositorysGetChat proves the name
-// translation this adapter exists for: the tool surface's plain Get calls the
-// repository's GetChat (named GetChat because it also serves runners).
 func TestAgentChatReader_Get_DelegatesToTheRepositorysGetChat(t *testing.T) {
 	r := agentChatReader{chats: fakeChatGetter{chat: domain.Chat{ID: "c1", Title: "spikes"}}}
 

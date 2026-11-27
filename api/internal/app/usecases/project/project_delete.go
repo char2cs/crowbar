@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// DeleteProjectStore is the project persistence surface the delete usecase
-// needs: resolve the project row, record its delete intent and outcome, and
-// remove it.
 type DeleteProjectStore interface {
 	FindAll(
 		ctx context.Context,
@@ -30,9 +27,6 @@ type DeleteProjectStore interface {
 	) error
 }
 
-// DeleteRepositoryStore is the repository persistence surface the delete
-// usecase needs: list every repo row (to filter by project), record a repo's
-// delete intent and outcome, and remove rows.
 type DeleteRepositoryStore interface {
 	FindAll(
 		ctx context.Context,
@@ -47,8 +41,6 @@ type DeleteRepositoryStore interface {
 	) error
 }
 
-// DeleteWorkspaceRepo is the workspace persistence surface the delete usecase
-// needs: list every workspace row and tombstone the ones no repo cascade owns.
 type DeleteWorkspaceRepo interface {
 	List(
 		ctx context.Context,
@@ -59,8 +51,6 @@ type DeleteWorkspaceRepo interface {
 	) error
 }
 
-// DeleteRepoWorkspaces retires a repo's workspaces through the repo-delete cascade (git teardown
-// that spares foreign branches, locked worktrees and, without consent, work at risk; then tombstones).
 type DeleteRepoWorkspaces interface {
 	DeleteRepoWorkspaces(
 		ctx context.Context,
@@ -73,7 +63,6 @@ type DeleteRepoWorkspaces interface {
 	) ([]domain.WorkAtRisk, error)
 }
 
-// DeleteNodes drops a deleted entity's sidebar Node row.
 type DeleteNodes interface {
 	Forget(
 		ctx context.Context,
@@ -81,7 +70,6 @@ type DeleteNodes interface {
 	) error
 }
 
-// DeleteDeps wires the delete usecase's collaborators.
 type DeleteDeps struct {
 	Projects       DeleteProjectStore
 	Repos          DeleteRepositoryStore
@@ -91,12 +79,7 @@ type DeleteDeps struct {
 	CrowbarHome    func() (string, error)
 }
 
-// DeleteUsecase removes a project and everything it owns, and nothing else. Intent is recorded first
-// (Deleting) so a failure is never silent and boot re-drives it; workspaces retire through the one
-// lifecycle path, so the git rules hold. Without consent, work at risk is refused before any intent.
 type DeleteUsecase interface {
-	// BeginDelete records the delete intent and returns the row; a caller answering before the
-	// teardown calls it first, so the intent is durable before the answer.
 	BeginDelete(
 		ctx context.Context,
 		id string,
@@ -107,21 +90,16 @@ type DeleteUsecase interface {
 		id string,
 		consent domain.DeleteConsent,
 	) error
-	// BeginRepoDelete is BeginDelete for one repo.
 	BeginRepoDelete(
 		ctx context.Context,
 		repo domain.Repository,
 		consent domain.DeleteConsent,
 	) (domain.Repository, error)
-	// DeleteRepo retires the repo's workspaces BEFORE its row goes, so no crash leaves workspaces
-	// whose repo no longer resolves; then its row, Node row and entity directory.
 	DeleteRepo(
 		ctx context.Context,
 		repo domain.Repository,
 		consent domain.DeleteConsent,
 	) error
-	// PendingDeletes is every project and repo delete a crash or a failure
-	// left unfinished, for boot to finish before anything is served.
 	PendingDeletes(
 		ctx context.Context,
 	) ([]PendingDelete, error)
@@ -131,7 +109,6 @@ type projectDelete struct {
 	deps DeleteDeps
 }
 
-// NewDelete builds a DeleteUsecase from its dependencies.
 func NewDelete(
 	deps DeleteDeps,
 ) DeleteUsecase {
@@ -173,8 +150,6 @@ func (u *projectDelete) Delete(
 	return u.teardownProject(ctx, id, consent)
 }
 
-// teardownProject retires everything the project owns, then its row and
-// directory. Every step is idempotent, so a re-drive converges.
 func (u *projectDelete) teardownProject(
 	ctx context.Context,
 	id string,
@@ -184,8 +159,6 @@ func (u *projectDelete) teardownProject(
 	if err != nil {
 		return err
 	}
-	// Listed BEFORE any row goes: removeProjectDir needs every other project's
-	// live paths, and the rows this delete tombstones are filtered out by owner.
 	all, err := u.deps.Workspaces.List(ctx)
 	if err != nil {
 		return fmt.Errorf("project delete: list workspaces: %w", err)
@@ -210,9 +183,6 @@ func (u *projectDelete) DeleteRepo(
 	repo domain.Repository,
 	consent domain.DeleteConsent,
 ) error {
-	// A caller that already recorded the intent (the HTTP handler, before its
-	// 202) hands over the marked row; saving it again would change nothing.
-	// The teardown itself refuses over work at risk, so no preflight here.
 	if !repo.Deleting {
 		var err error
 		if repo, err = u.markRepoDeleting(ctx, repo); err != nil {
@@ -246,7 +216,6 @@ func (u *projectDelete) markRepoDeleting(
 	return repo, nil
 }
 
-// refuseProjectLoss is refuseLoss over every repo of a project.
 func (u *projectDelete) refuseProjectLoss(
 	ctx context.Context,
 	projectID string,
@@ -261,9 +230,6 @@ func (u *projectDelete) refuseProjectLoss(
 	return nil
 }
 
-// refuseLoss answers a delete without consent before it records anything: a
-// domain.WorkAtRisked error naming every workspace of repos whose work it would
-// destroy, or nil.
 func (u *projectDelete) refuseLoss(
 	ctx context.Context,
 	repos map[string]domain.Repository,
@@ -299,7 +265,6 @@ func (u *projectDelete) teardownRepo(
 	return nil
 }
 
-// PendingDelete is a delete to finish: what it removes, and the work.
 type PendingDelete struct {
 	Kind      domain.OperationKind
 	Ref       domain.EntityRef
@@ -333,7 +298,6 @@ func (u *projectDelete) PendingDeletes(
 		return nil, fmt.Errorf("pending deletes: list repos: %w", err)
 	}
 	for _, repo := range repos {
-		// A repo of a project being deleted goes with its project.
 		if !repo.Deleting || deleting[repo.ProjectID] {
 			continue
 		}

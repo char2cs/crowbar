@@ -1,5 +1,3 @@
-//! The filter box of the Files panel and the rows it keeps.
-
 use gpui::{App, Entity, Modifiers, Subscription};
 use sidebar::{FileKind, FileRow};
 use ui::TextInput;

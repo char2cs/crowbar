@@ -32,12 +32,6 @@ function Probe() {
 }
 
 describe('ChatMarkdownAssetProvider', () => {
-  // A real `new Response(blob)` is avoided here: this repo's jsdom test
-  // environment does not round-trip a jsdom `Blob` through Node/undici's
-  // `Response` body handling (it silently stringifies the Blob instead of
-  // reading its bytes) — see chat-asset-resolver.test.ts for the same note.
-  // A minimal fetch-result stub with a real `blob()` resolver exercises the
-  // same code path end to end without hitting that mismatch.
   it('provides an asset whose resolve() fetches through the chat-attachment endpoint', async () => {
     const blob = new Blob(['x'], { type: 'image/png' })
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) })
@@ -73,7 +67,6 @@ describe('ChatMarkdownAssetProvider', () => {
     expect(seen[0]).toMatchObject({ wsId: 'ws1' })
   })
 
-  // A message on another host that links that host's own localhost means that host.
   it('makes the chat’s links its workspace’s: a remote loopback link is not opened here', () => {
     pairRemoteHost('h1', 'Build box')
     loadProjects(projectOn('p1', 'h1'))
@@ -146,9 +139,6 @@ describe('ChatMarkdownAssetProvider', () => {
     expect(seen[0]).not.toBe(seen[1])
   })
 
-  // The asset's loaders (image, excalidraw, html) re-run when its identity
-  // changes, which is how an attachment that resolved to nothing while its
-  // host was unknown loads once the project list arrives.
   it('hands out a new value when the workspace host resolves, and loads then, not before', async () => {
     const fetchMock = vi
       .fn()

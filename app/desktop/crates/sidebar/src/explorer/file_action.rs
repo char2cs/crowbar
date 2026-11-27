@@ -1,16 +1,11 @@
-//! What choosing an entry of a file row's menu does.
-
 use crate::explorer::CopyNote;
 use crate::shell::Command;
 use crate::shell::Intent;
 use crate::shell::NewEntry;
 
-/// The effect of one file-menu entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileAction {
-    /// Carry out the intent.
     Do(Intent),
-    /// Put the path on the system clipboard, and note on the row which one it was.
     CopyText(String, CopyNote),
 }
 
@@ -36,8 +31,6 @@ fn delete_probe(path: &str) -> Command {
 }
 
 impl FileAction {
-    /// The command this entry sends or starts, if any, so the menu can ask the shell whether it
-    /// serves it. Starting a create or rename names its command with an empty new path.
     pub fn command(&self) -> Option<Command> {
         let Self::Do(intent) = self else {
             return None;

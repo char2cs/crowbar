@@ -1,7 +1,3 @@
-//! Whether the keyboard is in the shell's window or one of its web views, from the X server's
-//! focus events on a connection of our own: stock GPUI counts a web view taking the keyboard as
-//! the window going inactive.
-
 use std::thread;
 
 use gpui::{App, AsyncApp, Window, WindowId};

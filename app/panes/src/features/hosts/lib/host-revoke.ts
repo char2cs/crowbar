@@ -9,8 +9,6 @@ import { ApiError } from '@/lib/errors/api-error'
 import { userWords } from '@/lib/errors/report'
 import { toast } from '@/features/window/stores/toast-store'
 
-// The host's own DELETE (over its channel, never Local's) goes first: cleaning up here first
-// would drop the only credential that can ever revoke this client there. Whether the host went.
 export async function revokeHost(host: Host): Promise<boolean> {
   const confirmed = await primitiveConfirm(
     'To use it again you’ll need a new code from Settings → Devices on it (or crowbar pair on a headless host).',
@@ -31,8 +29,6 @@ export async function revokeHost(host: Host): Promise<boolean> {
   return true
 }
 
-// A host whose own 401 refuses this client holds nothing it can use. Any other failed revoke is
-// the user's call, never a host they cannot remove: no tool can end the pairing on the host itself.
 async function mayRemoveUnrevoked(host: Host, err: unknown): Promise<boolean> {
   if (refusedByHost(err)) {
     toast.info(
@@ -51,8 +47,6 @@ async function mayRemoveUnrevoked(host: Host, err: unknown): Promise<boolean> {
   })
 }
 
-// The daemon refuses in its own words; the proxy's status-only 401 means this computer holds no
-// key to send, so the host was never asked.
 function refusedByHost(err: unknown): boolean {
   return hostFailureKind(err) === 'refused' && err instanceof ApiError && !carriesOnlyStatus(err)
 }
@@ -62,7 +56,6 @@ const FORGETS = 'This computer forgets its key now, so nothing here can use it.'
 interface Unrevoked {
   title: string
   why: string
-  /** What removing it here does; empty when there is nothing here to forget. */
   forgets?: string
   listed: string
 }
@@ -98,8 +91,6 @@ function unrevoked(host: Host, err: unknown): Unrevoked {
   }
 }
 
-// The row goes whatever the cleanup says: a live row for a host that is revoked or given up on
-// is wrong. What could not be cleared is said, and logged for a bug report.
 async function removeHere(host: Host): Promise<void> {
   const cleanup = await Promise.allSettled([
     unregisterRemoteHost(host.id),
@@ -114,6 +105,5 @@ async function removeHere(host: Host): Promise<void> {
       userWords(first, String(first)),
     )
   }
-  // Its rows, status, streams and provider list follow the removal (onHostRemoved).
   useHostConfigStore.getState().removeHost(host.id)
 }

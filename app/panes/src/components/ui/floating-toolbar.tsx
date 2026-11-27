@@ -1,6 +1,3 @@
-// Adapted from the Plate registry (floating-toolbar-kit.json -> `floating-toolbar`), minus the
-// AI-chat hide check (no AI kit) and `scrollbar-hide` (a Tailwind v3 plugin; the short button
-// row never scrolls). The floating-link check stays: LinkKit is registered.
 'use client'
 
 import * as React from 'react'

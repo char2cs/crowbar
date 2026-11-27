@@ -79,7 +79,6 @@ function handleClose(ch: Channel, ctx: ChannelContext) {
   }
 }
 
-/** Wires `socket`'s events to `ch`; `retry` is set when the socket replaces a dropped one. */
 export function bindSocket(ch: Channel, socket: WsLike, ctx: ChannelContext, retry?: Retry): void {
   socket.onopen = handleOpen(ch, socket, ctx, retry)
   socket.onmessage = handleMessage(ch)

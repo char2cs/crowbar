@@ -15,16 +15,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// stagingDir holds in-flight chunked uploads beside the finished attachments; a stored name never
-// starts with ".", so the two cannot collide. An upload unfinished for stagingTTL is reaped by the
-// next BeginUpload in the same chat, without a timer.
 const (
 	stagingDir = ".uploads"
 	stagingTTL = 24 * time.Hour
 )
 
-// stagingLocks serialise the check-then-write of one staging file: two overlapping chunks (a retry
-// racing its slow original) must not interleave. Striped by path so unrelated uploads never wait.
 var (
 	stagingLocks [64]sync.Mutex
 	stagingSeed  = maphash.MakeSeed()
@@ -43,9 +38,6 @@ func stagingPath(dir, id string) (string, error) {
 	return filepath.Join(dir, stagingDir, id+".part"), nil
 }
 
-// BeginUpload opens (or reopens) the staging file for a chunked upload of originalName and answers
-// how many bytes it already holds, so an interrupted upload resumes there. The name and size are
-// checked now so a doomed upload fails before any byte is sent.
 func BeginUpload(dir, id, originalName string, size int64) (received int64, err error) {
 	part, err := stagingPath(dir, id)
 	if err != nil {
@@ -91,8 +83,6 @@ func sweepStaging(dir string) {
 	}
 }
 
-// AppendUpload writes r at offset, which must be the number of bytes already held; a chunk wholly
-// held already is a no-op, so a resend after a lost reply is safe. It answers the bytes held.
 func AppendUpload(dir, id string, offset int64, r io.Reader) (received int64, err error) {
 	part, err := stagingPath(dir, id)
 	if err != nil {
@@ -128,9 +118,6 @@ func AppendUpload(dir, id string, offset int64, r io.Reader) (received int64, er
 	return end, f.Close()
 }
 
-// CompleteUpload turns the staging file into the stored attachment "<id>-<originalName>" once it
-// holds exactly size bytes. An existing attachment is problem.ErrConflict, never overwritten, except
-// one this very upload already stored: that is a retry whose reply was lost, and it succeeds again.
 func CompleteUpload(dir, id, originalName string, size int64) (fileName, contentType string, err error) {
 	part, err := stagingPath(dir, id)
 	if err != nil {
@@ -170,8 +157,6 @@ func CompleteUpload(dir, id, originalName string, size int64) (fileName, content
 	return fileName, ContentType(head), nil
 }
 
-// sniff is a file's size and the head ContentType judges it by; a file of exactly syncAt bytes is
-// also flushed, so a crash after it is published cannot leave a zero-filled attachment.
 func sniff(f *os.File, syncAt int64) (head []byte, have int64, err error) {
 	info, err := f.Stat()
 	if err != nil {
@@ -190,7 +175,6 @@ func sniff(f *os.File, syncAt int64) (head []byte, have int64, err error) {
 	return buf[:n], info.Size(), err
 }
 
-// AbortUpload deletes the staging file; aborting an upload that is already gone succeeds.
 func AbortUpload(dir, id string) error {
 	part, err := stagingPath(dir, id)
 	if err != nil {
@@ -203,8 +187,6 @@ func AbortUpload(dir, id string) error {
 	return nil
 }
 
-// storedUpload recognises an upload that already completed: Complete's reply can be lost after the
-// attachment is published, and the client's retry must then see it done, not fail or re-send it.
 func storedUpload(dir, fileName string, size int64) (held int64, contentType string, found bool, err error) {
 	//nolint:gosec // G304: fileName is the validated id plus a sanitised base inside the chat-scoped dir.
 	f, err := os.Open(filepath.Join(dir, fileName))

@@ -44,11 +44,6 @@ func (b *broadcastSpy) all() []domain.Workspace {
 	return append([]domain.Workspace(nil), b.rows...)
 }
 
-// TestReconciler_OnOpen_DedupsRepeatOpens proves the §3.8 dedup contract: while a
-// reconcile task for one id is in flight, repeat opens do NOT stack additional
-// tasks. The derive func blocks until the test releases it, so all five opens
-// race against a single in-flight task; only one derivation + one SendWait + one
-// broadcast may run.
 func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{}, 1)
@@ -80,8 +75,6 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 	for range 5 {
 		r.OnOpen(ctx, "w1")
 	}
-	// Block until the single in-flight task has actually entered derive — dedup
-	// guarantees exactly one does — then release it. No polling, no timeout.
 	<-entered
 	close(release)
 	gate.WaitIdle(context.Background())
@@ -93,9 +86,6 @@ func TestReconciler_OnOpen_DedupsRepeatOpens(t *testing.T) {
 	assert.Equal(t, "w1", spy.all()[0].ID)
 }
 
-// TestReconciler_OnOpen_SkipsOnNotFound proves idempotency: a vanished workspace
-// (derive returns problem.ErrNotFound) is a no-op — no command is sent and no
-// frame is broadcast (spec §3.8 "skip on ErrNotFound").
 func TestReconciler_OnOpen_SkipsOnNotFound(t *testing.T) {
 	derive := func(
 		_ context.Context,
@@ -122,10 +112,6 @@ func TestReconciler_OnOpen_SkipsOnNotFound(t *testing.T) {
 	assert.Empty(t, spy.all(), "a vanished workspace must not broadcast")
 }
 
-// TestReconciler_OnOpen_SkipsBroadcastOnValidation proves that a non-applicable
-// transition (SendWait rejects the pure command with ErrValidation) is an
-// idempotent no-op: nothing is broadcast (spec §3.8 "Validate guards reject
-// non-applicable transitions").
 func TestReconciler_OnOpen_SkipsBroadcastOnValidation(t *testing.T) {
 	derive := func(
 		_ context.Context,
@@ -149,8 +135,6 @@ func TestReconciler_OnOpen_SkipsBroadcastOnValidation(t *testing.T) {
 	assert.Empty(t, spy.all(), "a rejected transition must not broadcast")
 }
 
-// TestReconciler_OnOpen_IgnoresEmptyID guards against a blank id dispatching a
-// task (a create that has not produced an aggregate yet).
 func TestReconciler_OnOpen_IgnoresEmptyID(t *testing.T) {
 	var deriveCalls int32
 	derive := func(
@@ -169,10 +153,6 @@ func TestReconciler_OnOpen_IgnoresEmptyID(t *testing.T) {
 	assert.Zero(t, atomic.LoadInt32(&deriveCalls))
 }
 
-// TestWithTimeout_OnlyAcceptsAPositiveDuration pins the Opt contract stated in
-// its own doc comment: a non-positive duration is ignored rather than zeroing
-// out the reconciler's bound (which would make every background task
-// cancel-race against a zero-length context).
 func TestWithTimeout_OnlyAcceptsAPositiveDuration(t *testing.T) {
 	gate := drain.New()
 
@@ -183,14 +163,9 @@ func TestWithTimeout_OnlyAcceptsAPositiveDuration(t *testing.T) {
 	assert.Equal(t, defaultReconcileTimeout, ignored.timeout, "a non-positive duration must be ignored, not adopted")
 }
 
-// TestReconciler_OnOpen_RefusedOnceDraining proves the gate actually stops a new
-// reconcile task from spawning once a drain has begun, AND that the refused
-// claim is released rather than left wedged "in flight" forever (see the
-// comment on OnOpen: a leaked claim would silently block every future open for
-// that workspace id).
 func TestReconciler_OnOpen_RefusedOnceDraining(t *testing.T) {
 	gate := drain.New()
-	gate.Wait(context.Background()) // begins draining; converges immediately since nothing is admitted yet
+	gate.Wait(context.Background())
 
 	var deriveCalls int32
 	derive := func(context.Context, string) (asynxModels.Command[domain.Workspace], error) {
@@ -208,9 +183,6 @@ func TestReconciler_OnOpen_RefusedOnceDraining(t *testing.T) {
 	assert.False(t, stillClaimed, "a refused claim must be released, or this id can never reconcile again")
 }
 
-// TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend proves that a real derive
-// error (anything other than problem.ErrNotFound) stops before SendWait and
-// before broadcast — reconcile must not fold a command it never derived.
 func TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend(t *testing.T) {
 	derive := func(context.Context, string) (asynxModels.Command[domain.Workspace], error) {
 		return nil, errors.New("git worktree unreadable")
@@ -229,10 +201,6 @@ func TestReconciler_Reconcile_DeriveErrorAbortsBeforeSend(t *testing.T) {
 	assert.Empty(t, spy.all())
 }
 
-// TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast proves that a real
-// SendWait error (anything other than asynxModels.ErrValidation) still stops
-// the broadcast — clients must never see a corrected frame the command never
-// actually applied.
 func TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast(t *testing.T) {
 	derive := func(_ context.Context, wsID string) (asynxModels.Command[domain.Workspace], error) {
 		return wscmds.SyncWorkingTreeState{ID: wsID, Now: time.Unix(2, 0).UTC()}, nil
@@ -248,7 +216,6 @@ func TestReconciler_Reconcile_SendWaitErrorAbortsBroadcast(t *testing.T) {
 	assert.Empty(t, spy.all(), "a real SendWait error must never reach broadcast")
 }
 
-// newAx builds axWorkspace; a non-nil st is its durable read model.
 func newAx(
 	t *testing.T,
 	st *projections.Store,
@@ -269,11 +236,6 @@ func newAx(
 	return context.Background(), ax
 }
 
-// TestReconciler_OnOpen_UpdatesReadModelAndBroadcasts drives a real axWorkspace
-// with the real save-only store projection: the reconcile task re-derives reality
-// (here Added=7), SendWaits the pure sync command (which the store projection
-// folds into state/store/workspace.db), then broadcasts the corrected frame. This
-// is the end-to-end "reconcile updates the read model + broadcasts" of §3.8.
 func TestReconciler_OnOpen_UpdatesReadModelAndBroadcasts(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)

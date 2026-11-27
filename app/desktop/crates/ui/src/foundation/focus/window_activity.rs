@@ -1,16 +1,9 @@
-//! Whether the keyboard is in a window, one of the window's own child windows included.
-
 use std::collections::HashMap;
 
 use gpui::{App, Global, Window, WindowId};
 
 const ACTIVE: bool = true;
 
-/// Per window, whether the keyboard is in it or in one of its child windows (a web view), as the
-/// platform reports it; read it instead of `Window::is_window_active`.
-///
-/// Stock GPUI counts the keyboard moving into a child window as the window going inactive.
-/// Until a platform reports a window, it falls back to GPUI's own answer.
 #[derive(Debug, Default)]
 pub struct WindowActivity {
     reported: HashMap<WindowId, bool>,
@@ -19,7 +12,6 @@ pub struct WindowActivity {
 impl Global for WindowActivity {}
 
 impl WindowActivity {
-    /// Whether `window` holds the keyboard, itself or through one of its child windows.
     #[must_use]
     pub fn of(
         window: &Window,
@@ -31,8 +23,6 @@ impl WindowActivity {
             .unwrap_or_else(|| window.is_window_active())
     }
 
-    /// Whether a platform reports `window`; from then on GPUI's own activation changes are
-    /// echoes of child-window focus and only the reports count.
     #[must_use]
     pub fn is_reported(
         window: &Window,
@@ -43,8 +33,6 @@ impl WindowActivity {
             .is_some_and(|activity| activity.reported.contains_key(&id))
     }
 
-    /// Records the platform's report that the keyboard came into `window`, one of its child
-    /// windows included; notifies this global's observers and redraws every window.
     pub fn gained(
         window: WindowId,
         cx: &mut App,
@@ -53,8 +41,6 @@ impl WindowActivity {
         cx.refresh_windows();
     }
 
-    /// Records the platform's report that the keyboard left `window` and its child windows;
-    /// notifies this global's observers and redraws every window.
     pub fn lost(
         window: WindowId,
         cx: &mut App,

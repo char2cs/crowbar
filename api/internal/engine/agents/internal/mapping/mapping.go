@@ -1,6 +1,3 @@
-// Package mapping is the one dot-separated path grammar a descriptor writes. Every accessor takes
-// an Expr whose first present, non-empty branch wins, and is total (a missing path yields the zero
-// value): a descriptor mapping a field a payload does not carry is the normal case.
 package mapping
 
 import (
@@ -10,8 +7,6 @@ import (
 	"time"
 )
 
-// resolve reads paths against doc. Only alternation skips empty values: the first
-// non-empty branch wins, else the first present one, so a lone path keeps "present but empty".
 func resolve(doc map[string]any, paths Expr) (any, bool) {
 	if len(paths) == 1 {
 		return paths[0].read(doc)
@@ -33,9 +28,6 @@ func resolve(doc map[string]any, paths Expr) (any, bool) {
 	return firstPresent, found
 }
 
-// walk resolves ONE dotted path with no alternation. A whole-key match is tried
-// first so a key containing dots or brackets stays addressable; selector segments
-// (see parseSelector) let a descriptor reach values payloads keep inside lists or maps.
 func walk(doc map[string]any, path string) (any, bool) {
 	if path == "" {
 		return nil, false
@@ -69,9 +61,6 @@ func walk(doc map[string]any, path string) (any, bool) {
 	return cur, true
 }
 
-// selectSegment dispatches a selector segment's already-parsed pieces to the
-// select function that shape needs: dynamic key lookups reach into a MAP,
-// everything else reaches into a LIST.
 func selectSegment(next any, sibling map[string]any, field, want string, dynamic bool) (any, bool) {
 	if dynamic {
 		return selectByKey(next, sibling, want)
@@ -79,14 +68,8 @@ func selectSegment(next any, sibling map[string]any, field, want string, dynamic
 	return selectFrom(next, field, want)
 }
 
-// indexField is the sentinel parseSelector reports for `name[N]`. It is not a
-// legal payload key — a JSON object key could be "0", but never "" — so it can
-// never collide with a real `name[field=value]` selector.
 const indexField = ""
 
-// parseSelector splits a selector segment: name[field=value] (first list element
-// whose field equals value), name[N] (Nth list element), or name[keypath] (map entry
-// at the key keypath resolves to, against the sibling object). Anything else is a plain key.
 func parseSelector(seg string) (name, field, want string, dynamic, ok bool) {
 	open := strings.IndexByte(seg, '[')
 	if open <= 0 || !strings.HasSuffix(seg, "]") {
@@ -105,8 +88,6 @@ func parseSelector(seg string) (name, field, want string, dynamic, ok bool) {
 	return seg[:open], indexField, inner, true, true
 }
 
-// selectFrom picks one element out of list: by zero-based index when field is
-// indexField, otherwise the first element whose field equals want.
 func selectFrom(list any, field, want string) (any, bool) {
 	arr, isArray := list.([]any)
 	if !isArray {
@@ -131,9 +112,6 @@ func selectFrom(list any, field, want string) (any, bool) {
 	return nil, false
 }
 
-// selectByKey resolves keyPath against sibling (the object holding the map, NOT the
-// map itself) to a scalar and looks it up in target, for maps keyed by a value only
-// the payload names.
 func selectByKey(target any, sibling map[string]any, keyPath string) (any, bool) {
 	obj, isObject := target.(map[string]any)
 	if !isObject {
@@ -151,8 +129,6 @@ func selectByKey(target any, sibling map[string]any, keyPath string) (any, bool)
 	return v, present
 }
 
-// isEmpty decides what alternation skips over. Only nil and "" count: a false bool and
-// a zero number are answers, not absences.
 func isEmpty(v any) bool {
 	switch t := v.(type) {
 	case nil:
@@ -164,16 +140,11 @@ func isEmpty(v any) bool {
 	}
 }
 
-// IsNull reports whether paths resolve to an explicit JSON null, as opposed to a
-// missing key or a value.
 func IsNull(doc map[string]any, paths Expr) bool {
 	v, ok := resolve(doc, paths)
 	return ok && v == nil
 }
 
-// Present reports whether any of paths exists in doc, even as JSON null. It tells
-// "this payload never carries the concept" apart from "carries it empty", which the
-// scalar accessors collapse into the same zero value.
 func Present(doc map[string]any, paths Expr) bool {
 	_, ok := resolve(doc, paths)
 	return ok
@@ -199,8 +170,6 @@ func Int(doc map[string]any, paths Expr) (int, bool) {
 	return int(f), true
 }
 
-// Float accepts every numeric shape a decoded payload can carry. JSON numbers arrive
-// as float64, but a re-encoded or hand-built map can hold any of these.
 func Float(doc map[string]any, paths Expr) (float64, bool) {
 	v, ok := resolve(doc, paths)
 	if !ok {
@@ -226,8 +195,6 @@ func Float(doc map[string]any, paths Expr) (float64, bool) {
 	}
 }
 
-// Bool reads a boolean leaf. isEmpty counts only nil and "" as empty, so a `false`
-// here is an answer and alternation does not skip past it.
 func Bool(doc map[string]any, paths Expr) (bool, bool) {
 	v, ok := resolve(doc, paths)
 	if !ok {
@@ -238,7 +205,6 @@ func Bool(doc map[string]any, paths Expr) (bool, bool) {
 }
 
 func Time(doc map[string]any, paths Expr) (time.Time, bool) {
-	// A number is Unix epoch seconds, as a status line reports a reset time.
 	if secs, ok := Float(doc, paths); ok {
 		return time.Unix(int64(secs), 0).UTC(), true
 	}
@@ -253,7 +219,6 @@ func Time(doc map[string]any, paths Expr) (time.Time, bool) {
 	return t, true
 }
 
-// JSON returns a leaf as raw bytes: a string leaf verbatim, anything else marshalled.
 func JSON(doc map[string]any, paths Expr) []byte {
 	v, ok := resolve(doc, paths)
 	if !ok || v == nil {
@@ -272,7 +237,6 @@ func JSON(doc map[string]any, paths Expr) []byte {
 	return data
 }
 
-// List reads an array as it is, whatever its elements.
 func List(doc map[string]any, paths Expr) []any {
 	v, ok := resolve(doc, paths)
 	if !ok {
@@ -300,7 +264,6 @@ func Objects(doc map[string]any, paths Expr) []map[string]any {
 	return out
 }
 
-// Strings reads an array of strings; non-string elements are skipped.
 func Strings(doc map[string]any, paths Expr) []string {
 	v, ok := resolve(doc, paths)
 	if !ok {
@@ -331,8 +294,6 @@ func Object(doc map[string]any, paths Expr) map[string]any {
 	return obj
 }
 
-// Scalar renders any scalar leaf as text, which is what a catalog row or a template
-// substitution needs.
 func Scalar(doc map[string]any, paths Expr) (string, bool) {
 	v, ok := resolve(doc, paths)
 	if !ok {
@@ -341,8 +302,6 @@ func Scalar(doc map[string]any, paths Expr) (string, bool) {
 	return scalarOf(v)
 }
 
-// Captured is Scalar plus whether the value was a JSON number or bool, the kinds a
-// template sends back as themselves rather than as text.
 func Captured(doc map[string]any, paths Expr) (text string, literal, ok bool) {
 	v, found := resolve(doc, paths)
 	if !found {
@@ -380,9 +339,6 @@ func scalarOf(v any) (string, bool) {
 	}
 }
 
-// Match reports whether every when: clause (one discriminator path -> the set of values
-// it may equal) holds; an empty when matches everything. A missing path does NOT match,
-// so a variant never silently applies to payloads lacking the discriminator.
 func Match(doc map[string]any, when map[string][]string) bool {
 	for path, want := range when {
 		got, ok := Scalar(doc, Paths(path))

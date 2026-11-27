@@ -1,5 +1,3 @@
-//! Placeholder block with a viewport-fixed travelling highlight.
-
 mod shimmer_clock;
 mod stripe;
 mod stripes;
@@ -26,11 +24,6 @@ const LIGHT_HIGHLIGHT: f32 = 0.64;
 const DARK_HIGHLIGHT: f32 = 0.04;
 const GRADIENT_ANGLE: f32 = 90.0;
 
-/// A muted rounded block whose highlight sweeps across the window every two seconds.
-///
-/// Like the CSS `background-attachment: fixed` of the React original, the highlight belongs to the
-/// window, not to the block: every skeleton on screen shows the same stripe, tilted 120 degrees, and
-/// the cycle starts one second in.
 #[derive(IntoElement)]
 pub struct Skeleton {
     id: ElementId,
@@ -39,7 +32,6 @@ pub struct Skeleton {
 }
 
 impl Skeleton {
-    /// A block of the given size.
     pub fn new(
         id: impl Into<ElementId>,
         width: Pixels,

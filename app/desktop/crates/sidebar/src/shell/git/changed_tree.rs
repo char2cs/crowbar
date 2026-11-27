@@ -1,5 +1,3 @@
-//! The Changes panel's tree: changed files grouped under their folders.
-
 use std::collections::BTreeSet;
 
 use crate::shell::Expansion;
@@ -99,8 +97,6 @@ fn folder_rows(
 }
 
 impl Changes {
-    /// The tree's lines: at each level the folders by name, each followed by its contents unless
-    /// it is in `folded`, then that level's files by path.
     #[must_use]
     pub fn rows(
         &self,

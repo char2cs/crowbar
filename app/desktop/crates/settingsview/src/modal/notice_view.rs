@@ -1,5 +1,3 @@
-//! The error toast shown when the backend refuses something.
-
 use gpui::{IntoElement, ParentElement, Styled, div};
 use ui::{Toast, ToastKind};
 

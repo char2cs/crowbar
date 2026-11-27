@@ -1,6 +1,5 @@
 package git
 
-// ConflictHunk is a three-way conflict block within a conflicting file.
 type ConflictHunk struct {
 	ID              string             `json:"id"`
 	StartLine       int                `json:"startLine"`
@@ -12,7 +11,6 @@ type ConflictHunk struct {
 	ResolvedContent string             `json:"resolvedContent,omitempty"`
 }
 
-// ConflictResolution describes how a conflict hunk is resolved.
 type ConflictResolution string
 
 const (

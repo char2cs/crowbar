@@ -20,22 +20,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The chat DTO's git half (spec §5): ONE read of the chat list has to answer
-// everything the deleted workspace list answered, so these tests all ask the
-// same question — does a chat that owns a worktree come back carrying it?
-
-// fakeWorktreeReads is the Worktrees port: the workspace a chat owns, its repo
-// siblings, and the merge overlay resolved over them.
 type fakeWorktreeReads struct {
-	rows []domain.Workspace
-	// listCalls counts the repo-wide reads, which is how the amortisation
-	// contract is proved: a list of many chats must not take one read per row.
-	listCalls int
-	getErr    error
-	listErr   error
-	elig      workspace.MergeEligibility
-	// eligCalls counts merge-eligibility resolutions (each one a git dry-run in
-	// production), safe for the concurrent resolution the list performs.
+	rows        []domain.Workspace
+	listCalls   int
+	getErr      error
+	listErr     error
+	elig        workspace.MergeEligibility
 	eligCalls   atomic.Int32
 	eligBatches atomic.Int32
 }
@@ -88,7 +78,6 @@ func newWorktreeHandlers(
 	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}).WithWorktrees(worktrees)
 }
 
-// fakeNodeReads is the Nodes port: one Node row keyed by id.
 type fakeNodeReads struct {
 	rows map[string]tree.Node
 }
@@ -104,29 +93,13 @@ func (f *fakeNodeReads) GetNode(
 	return n, nil
 }
 
-// TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields
-// pins the live bug behind a fork whose folder placement snapped back to the
-// repo root moments after landing: PlaceWorkspace's write for an ordinary
-// fork (RendersAsBranch false) lands on its OWNING CHAT's own
-// ParentID/Order via Chats.SetPlacement/SetOrder (place_workspace.go's
-// nodeID doc) — a real AgentChat aggregate field. No Node is ever minted for
-// a plain chat, so a Placement reader that looks one up via the Node store
-// keyed by that same chat id always misses and degrades to "" / 0,
-// regardless of how long ago the drag landed. Caught live: a fork dragged
-// into a folder showed it there for a moment (the PATCH response's own
-// echoed placement), then reseeded straight back to the repo root on the
-// very next read.
 func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{
-		// The fork's owning chat, carrying the placement a real drag wrote —
-		// its OWN ParentID/Order, never a Node row.
 		{ID: "fork-chat", WorkspaceID: "ws-fork", ParentID: "branch-1", Order: 3, OwnsWorkspace: true},
 	}}
 	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
 		{ID: "ws-fork", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
 	}}
-	// The fork's own, never-touched workspace-anchor Node — a fixed row that
-	// must NOT be what this read answers from.
 	nodes := &fakeNodeReads{rows: map[string]tree.Node{
 		"ws-fork": {ID: "ws-fork", ParentID: "", Order: 0},
 	}}
@@ -140,10 +113,6 @@ func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields(t 
 	assert.Equal(t, 3, rows[0].Worktree.Order)
 }
 
-// TestRegression_List_ALockedBranchStillReadsItsOwnWorkspaceAnchorNode pins
-// the other half of the same fix: a LOCKED branch's owning chat carries no
-// Node of its own, so its placement must still come from ws.ID's own
-// Node{Kind:workspace} row — the one case a chat-based read cannot answer.
 func TestRegression_List_ALockedBranchStillReadsItsOwnWorkspaceAnchorNode(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{
 		{ID: "owner-chat", WorkspaceID: "ws-locked"},
@@ -182,9 +151,6 @@ func listChats(
 	return envelope.Data
 }
 
-// TestList_AWorktreeOwningChatCarriesItsGitState is spec §5's whole promise on
-// the list route: the branch, the diff counts and the merge overlay ride the
-// chat, so a client draws a branch row from this read alone.
 func TestList_AWorktreeOwningChatCarriesItsGitState(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1"}}}
 	worktrees := &fakeWorktreeReads{
@@ -206,8 +172,6 @@ func TestList_AWorktreeOwningChatCarriesItsGitState(t *testing.T) {
 	assert.Equal(t, "main", rows[0].Worktree.ParentBranch)
 }
 
-// A bubble owns nothing, and says so by absence rather than by a zero object —
-// see ChatWorktreeDTO's own doc.
 func TestList_ABubbleCarriesNoWorktree(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "c1"}}}
 
@@ -217,12 +181,6 @@ func TestList_ABubbleCarriesNoWorktree(t *testing.T) {
 	assert.Nil(t, rows[0].Worktree)
 }
 
-// TestList_EveryChatSharingAWorktreeNamesTheSameOwner is the fact the frontend
-// dedupes on. A worktree is many-chats-to-one, so a thread carrying its
-// parent's workspace id gets the same git state (law 5 — shared state is
-// shared); what tells a client which row IS the worktree is that they all agree
-// on owningChatId, resolved once by the daemon rather than re-derived per
-// client.
 func TestList_EveryChatSharingAWorktreeNamesTheSameOwner(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{
 		{ID: "owner", WorkspaceID: "ws-1", OwnsWorkspace: true},
@@ -243,10 +201,6 @@ func TestList_EveryChatSharingAWorktreeNamesTheSameOwner(t *testing.T) {
 	}
 }
 
-// TestList_ReadsTheRepoSiblingsOnceForTheWholeList pins the amortisation
-// WorkspaceDTOList's own eligFn contract exists for: resolving eligibility
-// needs the row's siblings, and reading them per row would turn one list into
-// one repo-wide read per chat.
 func TestList_ReadsTheRepoSiblingsOnceForTheWholeList(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{
 		{ID: "c1", WorkspaceID: "ws-1"},
@@ -264,9 +218,6 @@ func TestList_ReadsTheRepoSiblingsOnceForTheWholeList(t *testing.T) {
 	assert.Equal(t, 1, worktrees.listCalls, "one repo-wide read serves the whole list")
 }
 
-// An unreadable workspace must not blank the panel: the caller asked for the
-// chat list, and a chat whose git state cannot be resolved is still a chat
-// worth listing. This mirrors resolveOwningChatID's own degradation.
 func TestList_AnUnreadableWorktreeStillListsTheChat(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1"}}}
 	worktrees := &fakeWorktreeReads{listErr: errors.New("read failed")}
@@ -278,10 +229,6 @@ func TestList_AnUnreadableWorktreeStillListsTheChat(t *testing.T) {
 	assert.Nil(t, rows[0].Worktree)
 }
 
-// Unwired, every chat serializes without a worktree rather than panicking —
-// the honest shape for the project-home mount, which mounts these handlers
-// without the workspace reads because its row has no repo and no git surface at
-// all.
 func TestList_UnwiredWorktreeReadsDegradeToAbsent(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1"}}}
 
@@ -291,9 +238,6 @@ func TestList_UnwiredWorktreeReadsDegradeToAbsent(t *testing.T) {
 	assert.Nil(t, rows[0].Worktree)
 }
 
-// TestGet_ByIdCarriesTheWorktreeToo keeps the detail route in step with the
-// list: a client that opened one chat must not have to fetch the list to learn
-// its branch.
 func TestGet_ByIdCarriesTheWorktreeToo(t *testing.T) {
 	uc := &configurableListGetUsecase{
 		chat:  domain.Chat{ID: "c1", WorkspaceID: "ws-1", OwnsWorkspace: true},
@@ -319,10 +263,6 @@ func TestGet_ByIdCarriesTheWorktreeToo(t *testing.T) {
 	assert.Equal(t, "c1", envelope.Data.Worktree.OwningChatID)
 }
 
-// A list of many chats over a few worktrees must cost one resolution per
-// WORKTREE, not per chat: eligibility is a git dry-run and the placement and
-// owner reads hit the store, and none of them changes between two chats that
-// share a workspace.
 func TestRegression_List_WorkTreeReadsAreOncePerWorkspaceNotPerChat(t *testing.T) {
 	const workspaces, perWorkspace = 3, 5
 	var chats []domain.Chat

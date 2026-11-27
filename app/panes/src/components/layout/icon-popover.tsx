@@ -19,29 +19,16 @@ import { isTauri } from '@/lib/crowbar-bridge'
 import { report } from '@/lib/errors/report'
 
 interface IconPopoverProps {
-  /** The entity's host-qualified REST base (projectBase/repoBase); the daemon serves the same icon
-   *  routes under a project and a repo, so one component serves both. */
   base: string
-  /** Names the trigger and the preview image, for screen readers. */
   name: string
-  /** The emoji currently set, if any. Wins over `iconUrl`. */
   emoji?: string
-  /** The proxy URL of the stored image, if any. */
   iconUrl?: string
-  /** Drawn at 20px in the row when neither an emoji nor an image is set. */
   fallback: ReactNode
-  /** The same default, drawn large for the popover's preview. */
   fallbackLarge: ReactNode
-  /** Replaces the trigger mark when it is drawn elsewhere too, so both render one component.
-   *  `emoji`/`iconUrl` still feed the preview; `version` cache-busts the stable proxy URL. */
   trigger?: (version: number) => ReactNode
-  /** Offer the GitHub owner-avatar button. Repos only: it reads the repo's `origin` remote. */
   github?: boolean
 }
 
-// The editable icon of a repo header and the project switcher. Only the mark opens it (clicks stop
-// short of the row); it edits the icon, never the name. Precedence emoji > image > default is the
-// daemon's: setting an emoji clears a stored image, so both are never live.
 export function IconPopover({
   base,
   name,
@@ -55,14 +42,11 @@ export function IconPopover({
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
   const [loading, setLoading] = useState(false)
-  // The proxy URL is stable, so bump a cache-busting param after each mutation to refresh both
-  // marks.
   const [version, setVersion] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const src = iconUrl ? `${iconUrl}${iconUrl.includes('?') ? '&' : '?'}v=${version}` : undefined
 
-  /** Run a mutation, surface any failure, and refresh the cached image. */
   async function mutate(run: () => Promise<unknown>, failure: string) {
     setLoading(true)
     try {
@@ -75,9 +59,6 @@ export function IconPopover({
     }
   }
 
-  // Upload entry point. On the desktop the native file dialog picks an image on this
-  // computer (putIconFile sends it to the entity's own host); a real browser has no
-  // filesystem path, so it falls back to the hidden <input>.
   async function handleUpload() {
     if (!isTauri()) {
       fileRef.current?.click()
@@ -138,7 +119,6 @@ export function IconPopover({
     return mutate(() => apiFetch(`${base}/icon`, { method: 'DELETE' }), 'Failed to reset icon')
   }
 
-  // The 20px trigger mark, matching the row's own glyph sizing.
   const trigger = triggerOverride ? (
     triggerOverride(version)
   ) : emoji ? (
@@ -160,14 +140,11 @@ export function IconPopover({
     <Popover>
       <PopoverTrigger
         aria-label={`Edit ${name} icon`}
-        // `align-middle`: inside a caller's bare inline `<span>`, an inline-flex box defaults to
-        // baseline and sits a few px high. Harmless when the wrapper is flex/grid.
         className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         {trigger}
-        {/* Pencil overlay — appears only when hovering the mark itself. */}
         <span className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-md bg-black/45 group-hover/entity-icon:flex">
           <PencilSimpleIcon className="size-2.5 text-white" />
         </span>
@@ -176,8 +153,6 @@ export function IconPopover({
         side="right"
         align="start"
         className="w-64 p-0"
-        // The popover lives inside the row's clickable region; stop interactions
-        // from bubbling out to the row's navigation handler.
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-col gap-3 p-3">
@@ -192,8 +167,6 @@ export function IconPopover({
                   {emoji}
                 </AvatarFallback>
               ) : (
-                // Always both (Base UI's pairing): Fallback shows when Image fails to load, so a
-                // bad staged or stale `src` lands on `fallbackLarge`, not an empty square.
                 <>
                   {src && <AvatarImage src={src} alt={name} />}
                   <AvatarFallback className="rounded-xl bg-transparent">

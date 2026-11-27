@@ -17,7 +17,6 @@ import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const activeWs = vi.mocked(getActiveWorkspaceId)
 
-/** A view member: its chat and the workspace recorded when it was opened. */
 function pane(id: string, chatId: string | null, workspaceId: string | null = null): PaneGroup {
   return {
     id,
@@ -50,8 +49,6 @@ afterEach(() => {
 })
 
 describe('releaseClosedChat', () => {
-  // A closed view only detaches: the agent keeps running for whoever else is
-  // attached, and only an explicit kill ends it.
   it('never ends the chat’s agent', () => {
     releaseClosedChat('chat-1', 'ws-1', panesOf([]))
 
@@ -65,7 +62,6 @@ describe('releaseClosedChat', () => {
     expect(evicted).toEqual(['ws-1'])
   })
 
-  // A closed VIEW is not a closed CHAT.
   it('keeps everything while the chat is still up in another pane', () => {
     releaseClosedChat('chat-1', 'ws-1', panesOf([pane('p2', 'chat-1', 'ws-1')]))
 
@@ -78,23 +74,18 @@ describe('releaseClosedChat', () => {
     expect(evicted).toEqual([])
   })
 
-  // A workspace owns many chats. Closing one view of it says nothing about
-  // the others.
   it('keeps the workspace while another of ITS OWN chats still has a view', () => {
     releaseClosedChat('chat-1', 'ws-1', panesOf([pane('p2', 'chat-2', 'ws-1')]))
 
     expect(evicted).toEqual([])
   })
 
-  // Each member records its own workspace, so a sibling workspace's chat from
-  // the same repo can never be mistaken for this one's.
   it("leaves another workspace's still-open chat out of it", () => {
     releaseClosedChat('chat-1', 'ws-1', panesOf([pane('p2', 'chat-2', 'ws-2')]))
 
     expect(evicted).toEqual(['ws-1'])
   })
 
-  // A sibling that moved away no longer holds the workspace its pane opened in.
   it('evicts the workspace a still-open chat moved out of', () => {
     writeChat({ id: 'chat-2', workspaceId: 'ws-2' })
     releaseClosedChat('chat-1', 'ws-1', panesOf([pane('p2', 'chat-2', 'ws-1')]))

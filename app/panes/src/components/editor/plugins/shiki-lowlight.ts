@@ -1,6 +1,3 @@
-// A lowlight stand-in for `@platejs/code-block` over the shared shiki grammars, mapping scopes to
-// the block stylesheet's `hljs-*` classes. `highlight` stays synchronous: an unready grammar yields
-// an empty tree, and the block re-decorates on `onGrammarReady`.
 import type { StateStack } from 'shiki/textmate'
 import {
   grammarFor,
@@ -23,7 +20,6 @@ export interface HastRoot {
   children: (HastElement | HastText)[]
 }
 
-/** Most specific first: the first prefix a token's innermost scope matches wins. */
 const SCOPE_CLASSES: [prefix: string, classes: string[]][] = [
   ['comment', ['hljs-comment']],
   ['string.regexp', ['hljs-regexp']],
@@ -59,8 +55,7 @@ const SCOPE_CLASSES: [prefix: string, classes: string[]][] = [
   ['punctuation.definition.string', ['hljs-string']],
 ]
 
-/** The hljs classes for a token's scope stack (innermost scope decides). */
-/** @internal Exported for unit tests. */
+/** @internal */
 export function classesForScopes(scopes: readonly string[]): string[] {
   for (let i = scopes.length - 1; i >= 0; i -= 1) {
     const scope = scopes[i]!
@@ -96,21 +91,16 @@ function lineToHast(line: string, tokens: ReturnType<ShikiGrammar['tokenizeLine'
 interface TokenizedLine {
   line: string
   hast: HastChild[]
-  /** The grammar's state after this line, where the next one starts. */
   stack: StateStack
 }
 
-// A streaming block grows at its end and is re-highlighted on every change: the lines
-// before the first changed one keep their tokens, so each change costs its own lines.
 let lastBlock: { grammar: ShikiGrammar; lines: TokenizedLine[] } | null = null
 
-/** Tokenizes `code` line by line into the hast shape Plate's decorator reads. */
-/** @internal Exported for unit tests. */
+/** @internal */
 export function tokenizeToHast(grammar: ShikiGrammar, code: string): HastRoot {
   const previous = lastBlock?.grammar === grammar ? lastBlock.lines : []
   const lines: TokenizedLine[] = []
   let stack: StateStack | null = null
-  // Only an unbroken prefix: a line after a changed one may start in another state.
   let reusing = true
   for (const [index, line] of code.split('\n').entries()) {
     const kept = previous[index]
@@ -135,13 +125,11 @@ export function tokenizeToHast(grammar: ShikiGrammar, code: string): HastRoot {
 
 const EMPTY: HastRoot = { type: 'root', children: [] }
 
-/** The lowlight surface `@platejs/code-block` calls. */
 export const shikiLowlight = {
   highlight(lang: string, code: string): HastRoot {
     const grammar = grammarFor(lang)
     return grammar ? tokenizeToHast(grammar, code) : EMPTY
   },
-  // Auto-detection was a highlight.js feature; an untagged block stays plain.
   highlightAuto(_code: string): HastRoot {
     return EMPTY
   },

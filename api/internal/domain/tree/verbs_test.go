@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// level is parentID's children as "id" in order, asserting each order is its index.
 func level(t *testing.T, tr tree.Tree, parentID string) []string {
 	t.Helper()
 	var ids []string
@@ -118,7 +117,7 @@ func TestVerbs_NeverMutateTheReceiver(t *testing.T) {
 	tr, f := pinTree()
 	before := maps.Clone(tr.Nodes)
 	_, _ = tr.Move("ws-release", "f-alpha", 0, f)
-	_, _ = tr.Move("f-alpha", "f-ideas", 0, f) // refused after its change was built
+	_, _ = tr.Move("f-alpha", "f-ideas", 0, f)
 	_, _ = tr.Insert(tree.Node{ID: "f-x", Kind: tree.KindFolder, Name: "x"}, "", 0, f)
 	_, _ = tr.Rename("f-alpha", "y")
 	_, _, _ = tr.Remove("f-alpha", true)

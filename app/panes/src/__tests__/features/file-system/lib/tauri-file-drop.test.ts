@@ -17,11 +17,6 @@ function rect(left: number, top: number, right: number, bottom: number): DOMRect
   }
 }
 
-// The hook's own effect body — dynamic import, the onDragDropEvent
-// subscription, the payload-type filter, the null-ref guard, the rect
-// filter and the disposed-flag unmount race — is exercised here directly,
-// with @tauri-apps/api/webview and isTauri mocked at the module boundary
-// (never the hook itself).
 type DragDropCallback = (event: { payload: Record<string, unknown> }) => void
 
 const { onDragDropEvent, stop, isTauriMock } = vi.hoisted(() => ({
@@ -147,7 +142,6 @@ describe('useTauriFileDrop', () => {
 
     renderHook(() => useTauriFileDrop(containerRef, vi.fn()))
 
-    // Give any stray microtask a chance to run before asserting the negative.
     await Promise.resolve()
     expect(onDragDropEvent).not.toHaveBeenCalled()
   })
@@ -164,8 +158,6 @@ describe('useTauriFileDrop', () => {
 
     const { unmount } = renderHook(() => useTauriFileDrop(containerRef, vi.fn()))
 
-    // Unmount BEFORE the getCurrentWebview().onDragDropEvent(...) promise
-    // resolves — the disposed-flag race the effect's cleanup guards against.
     await waitFor(() => expect(onDragDropEvent).toHaveBeenCalled())
     unmount()
     expect(stop).not.toHaveBeenCalled()
@@ -175,9 +167,6 @@ describe('useTauriFileDrop', () => {
   })
 })
 
-// Every mounted consumer shares one Tauri subscription that hands a drop to exactly one handler.
-// Each test mounts several consumers on the same mocked `onDragDropEvent` and replays the one
-// captured drop callback, as the real shared broadcast does.
 describe('useTauriFileDrop — cross-consumer arbitration', () => {
   const originalElementFromPoint = document.elementFromPoint
 
@@ -186,8 +175,6 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
     stop.mockReset()
     isTauriMock.mockReset()
     isTauriMock.mockReturnValue(true)
-    // jsdom has no elementFromPoint at all — tests that want the real
-    // hit-testing path install their own stub and restore it below.
     // @ts-expect-error -- deleting a possibly-absent jsdom API for a clean slate
     delete document.elementFromPoint
   })
@@ -217,15 +204,11 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
     })
     renderHook(() => useTauriFileDrop({ current: outerEl }, outerOnDrop))
     renderHook(() => useTauriFileDrop({ current: innerEl }, innerOnDrop))
-    // One shared subscription for both consumers — see `ensureSharedSubscription`.
     await waitFor(() => expect(callbacks.length).toBe(1))
     return callbacks
   }
 
   it('a drop on the composer pill (nested in the pane) only reaches the composer, not the pane', async () => {
-    // Mirrors pane-container.tsx (containerRef, the whole pane) and
-    // agent-composer.tsx (pillRef, nested inside it) — dropping ON the pill
-    // must never also fire the pane's handleFileOpen.
     const paneEl = mockElement(rect(0, 0, 400, 400))
     const pillEl = mockElement(rect(20, 320, 380, 360))
     paneEl.appendChild(pillEl)
@@ -290,11 +273,8 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
   })
 
   it('dispatches to the smaller of two unrelated (non-nested) overlapping consumers, e.g. a portal-rendered modal over the pane', async () => {
-    // attach-file-modal.tsx's dropzone renders through a Dialog portal — it is
-    // NOT a DOM descendant of pane-container.tsx's containerRef, so this
-    // exercises the area tiebreak rather than DOM containment.
     const paneEl = mockElement(rect(0, 0, 400, 400))
-    const modalEl = mockElement(rect(150, 150, 250, 250)) // not appended under paneEl
+    const modalEl = mockElement(rect(150, 150, 250, 250))
 
     const paneDrop = vi.fn()
     const modalDrop = vi.fn()
@@ -325,10 +305,6 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
   })
 
   it('prefers document.elementFromPoint over rect geometry when it is available', async () => {
-    // Two consumers with the IDENTICAL rect (e.g. two terminal buffers kept
-    // mounted in the same pane, one hidden via visibility:hidden) can never
-    // be told apart by geometry alone — only real hit-testing (which skips
-    // hidden elements) knows which one is actually on screen.
     const sameRect = rect(0, 0, 300, 300)
     const hiddenEl = mockElement(sameRect)
     const visibleEl = mockElement(sameRect)
@@ -350,7 +326,7 @@ describe('useTauriFileDrop — cross-consumer arbitration', () => {
   it('dispatches to nobody when elementFromPoint resolves outside every registered consumer', async () => {
     const paneEl = mockElement(rect(0, 0, 400, 400))
     const otherEl = mockElement(rect(0, 0, 400, 400))
-    const unrelatedEl = document.createElement('div') // hit-tested element belongs to neither
+    const unrelatedEl = document.createElement('div')
 
     document.elementFromPoint = vi.fn(() => unrelatedEl)
 

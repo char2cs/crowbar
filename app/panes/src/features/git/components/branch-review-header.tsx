@@ -5,7 +5,6 @@ interface BranchReviewHeaderProps {
   title: string
   branch?: string
   baseBranch?: string
-  /** Branch totals; absent until the files summary has loaded. */
   stats?: { files: number; additions: number; deletions: number }
 }
 
@@ -30,7 +29,6 @@ export function BranchReviewHeader({ title, branch, baseBranch, stats }: BranchR
         {title}
       </h1>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-        {/* One unbreakable unit: only the pills truncate, the counts wrap below it. */}
         {branch && (
           <div className="flex min-w-0 max-w-full items-center gap-2">
             <BranchPill name={branch} />

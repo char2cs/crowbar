@@ -1,5 +1,3 @@
-//! The inline input that replaces a row's label.
-
 use gpui::Entity;
 use ui::TextInput;
 

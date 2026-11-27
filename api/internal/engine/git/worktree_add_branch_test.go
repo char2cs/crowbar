@@ -53,9 +53,6 @@ func TestWorktreeAddBranch_InvalidStartPoint_ReturnsError(
 	require.Error(t, err)
 }
 
-// TestWorktreeAdd_ParentsItCreatesAreOwnerOnly: the directories a worktree add
-// creates above the checkout are Crowbar's scaffolding, so they are 0700; the
-// checkout itself is git's and keeps the umask.
 func TestWorktreeAdd_ParentsItCreatesAreOwnerOnly(
 	t *testing.T,
 ) {
@@ -79,9 +76,6 @@ func TestWorktreeAdd_ParentsItCreatesAreOwnerOnly(
 	}
 }
 
-// In a Crowbar home the directories down to a checkout are traversable by other
-// users, never listable: an IDE or a container running as another uid reaches
-// the checkout as git made it, and nothing above the home changes.
 func TestWorktreeAdd_ACheckoutInACrowbarHomeStaysReachable(
 	t *testing.T,
 ) {

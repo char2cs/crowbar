@@ -1,6 +1,3 @@
-//! A page's `prompt()`, `confirm()` and `alert()` show `WebKitGTK`'s own dialog over the page, as
-//! develop's Tauri window does, and the key that confirms it answers the page.
-
 use std::time::Instant;
 
 use x11rb::protocol::xproto::{ConnectionExt as _, InputFocus, Screen};

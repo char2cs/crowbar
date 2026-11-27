@@ -2,12 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// The pane SDK version this build speaks.
 pub const SDK_VERSION: SdkVersion = SdkVersion { major: 1, minor: 0 };
 
-/// A pane SDK version, `<major>.<minor>`, as declared in extension manifests (`sdk: ^1`).
-///
-/// A major bump breaks frames; a minor bump only adds frame kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SdkVersion {
     major: u32,
@@ -15,7 +11,6 @@ pub struct SdkVersion {
 }
 
 impl SdkVersion {
-    /// Version `major.minor`.
     #[must_use]
     pub fn new(
         major: u32,

@@ -12,7 +12,6 @@ function switchedTo(providers: AgentProvider[], id: string | undefined) {
   return `Switched to ${name || 'a different provider'}`
 }
 
-/** One launch's switches, in one line. */
 function launchPill(parts: NonNullable<MarkerItem['parts']>, providers: AgentProvider[]) {
   const said = parts.map(({ marker, detail }) => {
     if (marker === 'provider_switched') return switchedTo(providers, detail)
@@ -75,8 +74,6 @@ function pill(item: MarkerItem, providers: AgentProvider[], provider?: string): 
   }
 }
 
-/** What a notice row says: a bold sentence, then what follows from it, in the daemon's
- *  own facts where it gave them. */
 function noticeWords(item: MarkerItem): { text: string; rest?: string } | undefined {
   switch (item.marker) {
     case 'warning':
@@ -99,11 +96,9 @@ function noticeWords(item: MarkerItem): { text: string; rest?: string } | undefi
   }
 }
 
-/** Whether a marker is drawn as a notice card rather than a pill on a line. */
 export const isNotice = (item: TranscriptItem | undefined) =>
   item?.kind === 'marker' && noticeWords(item) !== undefined
 
-/** What a notice offers, when it names something to do: the daemon's own facts decide. */
 function noticeAction(
   item: MarkerItem,
   actions: NoticeActions,
@@ -118,7 +113,6 @@ function noticeAction(
   return undefined
 }
 
-/** A boundary the person is told about in a line of its own. */
 function NoticeRow({
   item,
   text,
@@ -178,12 +172,9 @@ interface MarkerProps {
   item: MarkerItem
   providers: AgentProvider[]
   actions: NoticeActions
-  /** The provider the marker's turn ran on. */
   provider?: string
 }
 
-/** One boundary in the conversation, drawn as a pill on a line. What stopped a turn is
- *  the dock's notice; here it stays only as the line it left. */
 function MarkerRowBody({ chatId, item, providers, actions, provider }: MarkerProps) {
   const words = noticeWords(item)
   if (words) return <NoticeRow item={item} actions={actions} {...words} />

@@ -9,17 +9,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// ErrHomeLocked is returned when another process already holds the home lock.
 var ErrHomeLocked = errors.New("migrate: another crowbar instance is using this home")
 
-// homeLock is an OS-level exclusive lock on the home's lock file. The OS frees
-// it when the process exits, so a crashed daemon never leaves a stale lock.
 type homeLock struct {
 	file *os.File
 }
 
-// createHome makes the owner-only home directory. Without it there is nothing
-// to hold or to report on.
 func createHome(
 	h home.Home,
 ) error {
@@ -29,8 +24,6 @@ func createHome(
 	return nil
 }
 
-// lockHome takes the home lock without blocking, creating state/ and the lock
-// file when missing. A held lock yields an error wrapping ErrHomeLocked.
 func lockHome(
 	h home.Home,
 ) (*homeLock, error) {
@@ -40,7 +33,6 @@ func lockHome(
 	return acquireLock(h, os.O_CREATE|os.O_RDWR)
 }
 
-// Close releases the lock and the lock file. It is safe to call twice.
 func (l *homeLock) Close() error {
 	if l.file == nil {
 		return nil
@@ -53,9 +45,6 @@ func (l *homeLock) Close() error {
 	return nil
 }
 
-// probeLock reports whether another process holds the home lock; an absent or
-// unopenable lock file has no provable holder and is never created. It takes
-// the lock for an instant, so a daemon booting right then may see ErrHomeLocked.
 func probeLock(
 	h home.Home,
 ) bool {

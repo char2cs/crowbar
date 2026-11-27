@@ -24,7 +24,6 @@ function DialogBackdrop({
         className,
       )}
       data-slot="dialog-backdrop"
-      // Base UI skips the backdrop of a nested dialog; every modal here dims what is behind it.
       forceRender
       {...props}
     />
@@ -166,10 +165,6 @@ export function DialogDescription({
   )
 }
 
-// ─── Crowbar AppDialog ─────────────────────────────────────────────────────────
-// Higher-level dialog used by Crowbar feature modules.
-// Accepts title, icon, footer, size, onClose, classNames props.
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- icon components from several libraries with unrelated prop types
 type AppDialogIconComponent = React.ComponentType<any>
 
@@ -282,8 +277,6 @@ export {
   DialogPrimitive,
   DialogPopup as DialogContent,
   DialogPortal,
-  // The raw scrim + centred grid, for a bespoke `DialogPrimitive.Popup` (e.g. an edge-to-edge
-  // lightbox) instead of DialogPopup's card, so that chrome is defined once.
   DialogBackdrop,
   DialogViewport,
 }

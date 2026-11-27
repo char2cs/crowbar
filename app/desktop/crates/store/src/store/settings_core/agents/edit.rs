@@ -1,5 +1,3 @@
-//! Changing the agents' preferences: each edit is sent whole and the daemon's answer wins.
-
 use std::sync::Arc;
 
 use daemonapi::{Call, Switch};

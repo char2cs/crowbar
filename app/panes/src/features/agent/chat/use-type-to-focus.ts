@@ -9,16 +9,11 @@ import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-stor
 
 interface TypeToFocusOptions {
   wsId: string
-  /** This chat is in front: its surface, its tab and its pane. */
   watched: boolean
-  /** The composer has a field to type into right now. */
   canType: () => boolean
   onText: (text: string) => void
 }
 
-/** Typing anywhere in the chat lands in the composer. A window listener, since
- *  the box is not focused yet; a retained workspace stays mounted hidden, so the
- *  active workspace is asked inside the handler. */
 export function useTypeToFocus({ wsId, watched, canType, onText }: TypeToFocusOptions) {
   const buffer = useRef<TypeBuffer>(EMPTY_TYPE_BUFFER)
   const onKey = useEffectEvent((event: KeyboardEvent) => {

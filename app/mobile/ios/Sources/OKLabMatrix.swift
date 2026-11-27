@@ -1,6 +1,5 @@
 import Foundation
 
-// SPEC: https://bottosson.github.io/posts/oklab/ OKLab and LMS matrices (Ottosson)
 enum OKLabMatrix {
   private static let longFromA = 0.3963377774
   private static let longFromB = 0.2158037573

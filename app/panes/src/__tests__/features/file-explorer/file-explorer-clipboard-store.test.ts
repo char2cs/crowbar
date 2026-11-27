@@ -20,8 +20,6 @@ beforeEach(async () => {
   await actions().clear()
 })
 
-// Paste completes the staged operation: a Cut that greys the node out and then moves nothing,
-// with no error, shows the user a move that never happened.
 describe('file clipboard paste', () => {
   it('copies each staged entry into the target directory', async () => {
     await actions().copy([{ path: 'src/a.ts', is_dir: false }], 'ws-1')
@@ -100,8 +98,6 @@ describe('file clipboard paste', () => {
     expect(mockCopy).toHaveBeenCalledExactlyOnceWith('ws-b', 'a.ts', 'dest/a.ts')
   })
 
-  // The staged paths are relative to the workspace they came from: applied to another
-  // (another host, even) they would move or copy that workspace's own files.
   it.each(['cut', 'copy'] as const)(
     'refuses to %s-paste into another workspace, sends nothing and keeps the clipboard',
     async (operation) => {

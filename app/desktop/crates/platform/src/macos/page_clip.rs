@@ -1,5 +1,3 @@
-//! The view a page is drawn into, so its corners can be rounded and a hole cut out of it.
-
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -57,16 +55,10 @@ impl ClipView {
     }
 }
 
-/// A view inside a window's view that holds one page.
 #[derive(Debug)]
 pub struct PageClip(Retained<ClipView>);
 
 impl PageClip {
-    /// Adds an empty clip to `parent`.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Clip`] off the main thread.
     #[expect(unsafe_code, reason = "calls NSView's designated initializer")]
     pub fn within(parent: &AppkitParent) -> Result<Self, Error> {
         let main_thread = objc2::MainThreadMarker::new().ok_or(Error::Clip)?;
@@ -79,7 +71,6 @@ impl PageClip {
         Ok(Self(view))
     }
 
-    /// Puts the clip at `[x, y, width, height]` from the parent's top-left corner.
     #[expect(unsafe_code, reason = "reads the superview")]
     pub fn set_frame(
         &self,
@@ -100,7 +91,6 @@ impl PageClip {
         }
     }
 
-    /// Cuts `shape` out of what the clip shows and takes the pointer on.
     pub fn set_shape(
         &self,
         shape: ClipShape,
@@ -110,7 +100,6 @@ impl PageClip {
         }
     }
 
-    /// Gives the keyboard back to the view that holds the clip.
     #[expect(unsafe_code, reason = "reads the superview")]
     pub fn hand_keys_to_parent(&self) {
         // SAFETY: the superview is read on the main thread, which owns the tree.

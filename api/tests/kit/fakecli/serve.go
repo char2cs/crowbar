@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 )
 
-// serveReplies are the recorded notifications each request is followed by: one
-// live codex app-server session's turn, replayed verbatim from the fixtures dir.
 var serveReplies = map[string][]string{
 	"thread/start":  {"thread_started.json"},
 	"thread/resume": {"thread_started.json"},
@@ -21,10 +19,6 @@ var serveReplies = map[string][]string{
 	},
 }
 
-// serveApp is `app-server <capture dir> <runner id> <fixtures dir> [turn frame...]`: it
-// records its launch, answers each request with the ids the recording carries, and
-// follows it with that request's recorded notifications, until stdin closes. Named
-// turn frames replace the default turn's items.
 func serveApp(args []string) int {
 	if len(args) < 3 || record(args[0], launch{RunnerID: args[1], Argv: os.Args[1:], PID: os.Getpid()}) != nil {
 		return 2
@@ -48,14 +42,14 @@ func serveApp(args []string) int {
 	}
 	out := json.NewEncoder(os.Stdout)
 	lines := bufio.NewScanner(os.Stdin)
-	lines.Buffer(make([]byte, 0, 1<<16), 1<<24) // a turn/start carries the whole injected context
+	lines.Buffer(make([]byte, 0, 1<<16), 1<<24)
 	for lines.Scan() {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
 		}
 		if json.Unmarshal(lines.Bytes(), &req) != nil || req.ID == nil {
-			continue // a notification (initialized) wants no answer
+			continue
 		}
 		if out.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": ids}) != nil {
 			return 0
@@ -69,8 +63,6 @@ func serveApp(args []string) int {
 	return 0
 }
 
-// respoken is a frame recorded in another session, said on this one's thread and
-// turn, so a turn can be assembled from several live recordings.
 func respoken(line []byte, thread, turn string) []byte {
 	var msg map[string]any
 	if json.Unmarshal(line, &msg) != nil {
@@ -93,7 +85,6 @@ func respoken(line []byte, thread, turn string) []byte {
 	return append(out, '\n')
 }
 
-// frame is one recorded frame as a single ndjson line, nil when unreadable.
 func frame(fixtures, name string) []byte {
 	raw, err := os.ReadFile(filepath.Join(fixtures, name)) //nolint:gosec // G304: the kit-named fixtures dir
 	var line bytes.Buffer

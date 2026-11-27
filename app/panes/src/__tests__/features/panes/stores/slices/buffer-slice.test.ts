@@ -51,7 +51,6 @@ const editor = (
   isPreview,
 })
 
-/** Close a tab the way every close affordance does: the pane lets go. */
 function closeTab(store: WindowPaneStore, paneId: string, id: string): void {
   store.getState().paneActions.removeEditorTabFromPane(paneId, id)
   store.getState().bufferActions.closeBuffer(id)
@@ -260,8 +259,6 @@ describe('buffer-slice', () => {
     expect(store.getState().buffers.map((b) => b.id)).toEqual([id])
   })
 
-  // M6: the markdown rich/source preference is keyed by bufferId and nothing
-  // else ever removed an entry, so `views` grew for the life of the session.
   it('closing a tab releases the buffer’s markdown view preference', () => {
     const id = store.getState().bufferActions.openContent(editor('/notes.md'))
     useMarkdownViewStore.getState().setView(id, 'source')
@@ -272,9 +269,6 @@ describe('buffer-slice', () => {
     expect(useMarkdownViewStore.getState().views).toEqual({})
   })
 
-  // BUG-015: closing a terminal tab is final (terminals never enter the
-  // undo-close history), so the backend PTY must be killed on close —
-  // otherwise every closed tab leaks a live shell process.
   it('closing a terminal tab kills the backend PTY session', async () => {
     killTerminalSession.mockClear()
     const id = store.getState().bufferActions.openContent({
@@ -308,8 +302,6 @@ describe('buffer-slice', () => {
     expect(killTerminalSession).not.toHaveBeenCalled()
   })
 
-  // A chat is not a buffer (it is `PaneGroup.chatId`), so closing a
-  // terminal never reaches the agent API.
   it('closing a terminal tab does not stop an agent CLI', async () => {
     killChat.mockClear()
     const id = store.getState().bufferActions.openContent({
@@ -326,8 +318,6 @@ describe('buffer-slice', () => {
   it(
     'reopening a closed host document brings it back as a host document',
     async () => {
-      // The daemon answers a read with the ref it was asked for. The reopen opens
-      // the document's Monaco model, whose first load takes seconds.
       const echo = vi.fn(async (url: string) => {
         const q = new URL(url, 'http://daemon').searchParams
         const ref = q.has('workspace')
@@ -462,8 +452,6 @@ describe('buffer-slice', () => {
 
     it('moveEditorTabToPane syncs isUncloseable on both source and destination panes', () => {
       const { bufferActions, paneActions } = store.getState()
-      // ROOT and BOTTOM are each alone in their own tree, so a sole tab in
-      // either stays protected.
       const stay = bufferActions.openContent(editor('/test/stay.ts'))
       const move = bufferActions.openContent(editor('/test/move.ts'))
       const inB = bufferActions.openContent(editor('/test/b1.ts'), { paneId: BOTTOM_PANE_ID })
@@ -479,8 +467,6 @@ describe('buffer-slice', () => {
       expect(bufferActions.getBufferById(move)?.isUncloseable).toBe(false)
     })
 
-    // Closing a split pane's last editor tab collapses the split into its
-    // sibling, so a sole tab in a split pane stays closeable.
     it('a sole editor tab in a pane that is part of a split stays closeable', () => {
       const { bufferActions, paneActions } = store.getState()
       const paneB = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!

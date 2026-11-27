@@ -9,9 +9,6 @@ export interface FrameStats {
 const WINDOW_MS = 500
 const IDLE: FrameStats = { fps: 0, maxDt: 0, drops: 0 }
 
-// One requestAnimationFrame loop for every reader, and none when nobody reads:
-// a bare rAF loop forces a compositor commit per frame, so it must not outlive
-// the last subscriber.
 let stats = IDLE
 let rafId = 0
 const listeners = new Set<() => void>()
@@ -26,11 +23,9 @@ function startSampling() {
   const tick = (ts: number) => {
     const dt = ts - prev
     prev = ts
-    // Ignores the first frame and tab-backgrounding pauses.
     if (dt > 1 && dt < 500) {
       count++
       if (dt > maxDt) maxDt = dt
-      // Longer than one 60fps interval: the compositor missed a 120fps slot.
       if (dt > 16) drops++
     }
     const elapsed = ts - windowStart
@@ -62,7 +57,6 @@ const subscribeNothing = () => () => {}
 const getStats = () => stats
 const getIdle = () => IDLE
 
-/** Frame rate over 500ms windows; samples only while `enabled`. */
 export function useFrameStats(enabled: boolean): FrameStats {
   return useSyncExternalStore(enabled ? subscribe : subscribeNothing, enabled ? getStats : getIdle)
 }

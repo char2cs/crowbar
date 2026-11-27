@@ -3,11 +3,8 @@ import { CaretDownIcon, CaretUpIcon } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { PlanItem } from '@/features/agent/api/chat-rows'
 
-/** One pip per step up to this many; longer plans scale their progress onto it. */
 const MAX_PIPS = 8
 
-/** The agent's to-do list behind the input box's top edge: progress and the current step
- *  collapsed, every step once opened. Absent once nothing is left to do. */
 export function PlanTray({ plan }: { plan: PlanItem[] | undefined }) {
   const [open, setOpen] = useState(false)
   const steps = plan ?? []

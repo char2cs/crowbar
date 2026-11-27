@@ -11,20 +11,8 @@ function makeTestChat(over: Partial<Chat> & { id: string; title: string }): Chat
   return { repoId: 'r1', order: 0, ...over }
 }
 
-// The id of the branch row each fixture's repo home owns. Every repo home has an owning chat
-// (minted at creation) before rows are built, so fixtures carry one; its type is 'chat', and
-// `makeTestRepo` stamps `defaultOwningChatId`, the field deriveRows reads.
 const HOME_ROW_ID = 'home-branch-row'
 
-/**
- * A workspace wired to the chat that owns it, `Workspace.owningChatId` ->
- * `Chat.id`, the way `deriveRows`'s `resolveOwnerChats` reads it for
- * every fold — a locked branch and an ordinary fork alike. Neither half is
- * useful alone once a test cares about folding: a workspace with no
- * `owningChatId` (or a chat this repo hasn't seeded) is the "genuinely
- * chat-less" state `deriveRows` deliberately leaves unfolded, covered on
- * its own below.
- */
 function makeOwnedWorkspace(
   wsOver: Partial<Workspace> & { id: string; branch: string },
   chatOver: Partial<Chat> & { id: string },
@@ -58,14 +46,6 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
-/**
- * `chatIconIndex` is what `recents-band.tsx` (via `recents-for-project.ts`)
- * reads instead of hand-building a row with no ownership data — it must
- * agree with `deriveRows`'s own branch-row icon fields for the identical
- * chat, since the two draw the same chat in two different places (the tree
- * and Recents) and a divergence between them is exactly the bug this file
- * exists to prevent.
- */
 describe('chatIconIndex', () => {
   it("agrees with deriveRows's own icon fields for a workspace-owning chat", () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -100,9 +80,6 @@ describe('chatIconIndex', () => {
   })
 
   it('a fresh fork whose Workspace record has not landed yet still marks ownership, with no decoration', () => {
-    // Mirrors deriveRows's own "ownedWorkspaceId resolved but no Workspace
-    // node" branch — resolveOwnerOfChat only needs Chat.ownsWorktree, not a
-    // Workspace record, to know this chat owns something.
     const chat = makeTestChat({
       id: 'fresh-fork-chat',
       title: 'New fork',

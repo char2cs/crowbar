@@ -57,8 +57,6 @@ describe('foldCode', () => {
 })
 
 describe('visibleParts', () => {
-  // Every code point Unicode says draws as nothing or controls layout; TAB and
-  // LF draw as themselves, and a CRLF's CR is dropped before this.
   const INVISIBLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}\p{Zl}\p{Zp}\p{Cc}]/u
   const invisible: number[] = []
   for (let cp = 0; cp <= 0x10ffff; cp++) {

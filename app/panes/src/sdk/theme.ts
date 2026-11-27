@@ -1,6 +1,5 @@
 import type { PaneClient } from './pane-client'
 
-/** Publishes the shell's design tokens as CSS custom properties (`color-bg` becomes `--color-bg`) on `root` and keeps them current; a token the shell stopped sending is removed. Returns the stop. */
 export function followTheme(
   client: Pick<PaneClient, 'onTheme'>,
   root: HTMLElement = document.documentElement,

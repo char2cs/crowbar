@@ -1,5 +1,3 @@
-//! A line of text as the user sees it, with soft-wrapped rows joined.
-
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};

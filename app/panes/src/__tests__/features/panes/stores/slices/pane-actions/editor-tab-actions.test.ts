@@ -8,8 +8,6 @@ import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
 
 type Buf = { id: string; type: string; workspaceId: string; [k: string]: unknown }
-/** A store whose buffers are already listed by the root pane — a buffer
- *  exists only while a pane lists it (invariant C2). */
 const withBuffers = (buffers: Buf[]) => {
   const store = makePaneOnlyStore({ buffers, closedBuffersHistory: [] })
   store.setState((s) => {
@@ -154,7 +152,6 @@ describe('bottom tray tabs', () => {
     expect(root?.activeEditorTabId).toBe('tab-x')
     expect(root?.editorOpen).toBe(true)
     const bottom = actions.getPaneById(BOTTOM_PANE_ID)
-    // Left empty, not force-closed — that belongs to closePane.
     expect(bottom?.editorTabIds).toEqual([])
     expect(bottom?.editorOpen).toBe(false)
   })
@@ -264,7 +261,6 @@ describe('editor model release', () => {
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
     const uri = documentUri(workspaceRef('ws-test', '/src/a.ts'))
     expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, uri)
-    // The last holder let go, so the document itself closes.
     expect(release).toHaveBeenCalledWith(uri)
   })
 
@@ -289,7 +285,6 @@ describe('editor model release', () => {
     documents.open(workspaceRef('ws-test', '/src/a.ts'), 'typescript', 'a')
     const panes = [ROOT_PANE_ID, BOTTOM_PANE_ID]
     for (const paneId of panes) manager.mountPane(paneId, document.createElement('div'))
-    // What each pane's controller does: show the pane's active tab on every change.
     const showActive = () => {
       for (const paneId of panes) {
         if (store.getState().panes[paneId]?.activeEditorTabId === 'tab-ed') {

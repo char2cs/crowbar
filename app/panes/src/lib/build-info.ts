@@ -6,8 +6,6 @@ export interface BuildInfo {
   timestamp?: string
 }
 
-// Both dev commands serve through Vite, so `import.meta.env.DEV` alone identifies a dev build.
-// The module-load time stands in as the dev badge's "compiled at", since dev has no build step.
 const DEV_SESSION_START = new Date().toISOString()
 
 interface BuildEnv {
@@ -17,9 +15,6 @@ interface BuildEnv {
   VITE_BUILD_TIMESTAMP?: string
 }
 
-// Release CI stamps VITE_BUILD_CHANNEL/VERSION/TIMESTAMP before `bun run build`; a bundle built
-// outside it falls back to the quiet release badge rather than guess a channel. Split from
-// getBuildInfo() so the branching reads an explicit env.
 function resolveBuildInfo(env: BuildEnv): BuildInfo {
   if (env.DEV) return { channel: 'dev', timestamp: DEV_SESSION_START }
 

@@ -1,5 +1,3 @@
-//! Text fields: the buffer, the edit history, the single-line input and the multi-line area.
-
 mod buffer;
 mod field;
 mod history;

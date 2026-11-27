@@ -1,6 +1,4 @@
-/** camelCase keys map to kebab-case CSS variables: syntaxKeyword -> --syntax-keyword. */
 interface ThemeTokens {
-  // shadcn base tokens
   background: string
   foreground: string
   card: string
@@ -20,10 +18,8 @@ interface ThemeTokens {
   input: string
   ring: string
 
-  // chrome tokens
   chromeBg?: string
 
-  // custom tokens — no shadcn equivalent
   warning: string
   info: string
   editorFontFamily: string
@@ -36,7 +32,6 @@ interface ThemeTokens {
   appScrollbarTrack: string
   appScrollbarRadius: string
 
-  // syntax highlighting tokens (27)
   syntaxKeyword: string
   syntaxString: string
   syntaxNumber: string
@@ -76,9 +71,7 @@ export interface ThemeDefinition {
   icon?: React.ReactNode
   colors?: Record<string, string>
   variables?: Record<string, string>
-  /** @deprecated Use `tokens` instead */
   cssVariables?: Record<string, string>
   syntaxTokens?: Record<string, unknown>
-  /** Strongly-typed token map — preferred over cssVariables */
   tokens?: ThemeTokens
 }

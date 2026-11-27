@@ -19,8 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/tlsid"
 )
 
-// loopbackTLS binds loopback and terminates TLS with id, standing in for a
-// non-loopback bind that a test machine should not open.
 func loopbackTLS(_ string, id *tlsid.Identity) (net.Listener, error) {
 	raw, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
@@ -34,7 +32,6 @@ func loopbackTLS(_ string, id *tlsid.Identity) (net.Listener, error) {
 	return wildcard{Listener: secured, port: tcp.Port}, nil
 }
 
-// wildcard reports the address a 0.0.0.0 bind would, while really listening on loopback.
 type wildcard struct {
 	net.Listener
 	port int
@@ -86,8 +83,6 @@ func get(t *testing.T, addr string) (string, string, error) {
 	return string(body), tlsid.FingerprintOf(resp.TLS.PeerCertificates[0].Raw), nil
 }
 
-// Nothing listens until the owner turns it on, and the identity a phone will
-// confirm is already known while it is off.
 func TestRegression_Exposure_OffByDefaultWithFingerprint(t *testing.T) {
 	e := newExposure(t, t.TempDir())
 	require.NoError(t, e.Start(""))
@@ -99,7 +94,6 @@ func TestRegression_Exposure_OffByDefaultWithFingerprint(t *testing.T) {
 	assert.NotEmpty(t, st.Fingerprint)
 }
 
-// Enabling opens the TLS listener at runtime, serving the daemon's identity.
 func TestRegression_Exposure_EnableServesTLSWithTheIdentity(t *testing.T) {
 	e := newExposure(t, t.TempDir())
 	require.NoError(t, e.Start(""))
@@ -116,7 +110,6 @@ func TestRegression_Exposure_EnableServesTLSWithTheIdentity(t *testing.T) {
 	assert.Equal(t, st.Fingerprint, fp)
 }
 
-// Turning it off closes the port and ends connections already open on it.
 func TestRegression_Exposure_DisableClosesThePortAndLiveConnections(t *testing.T) {
 	e := newExposure(t, t.TempDir())
 	require.NoError(t, e.Start(""))
@@ -137,7 +130,6 @@ func TestRegression_Exposure_DisableClosesThePortAndLiveConnections(t *testing.T
 	assert.Error(t, err, "the port must be closed")
 }
 
-// The choice survives a daemon restart, in both directions.
 func TestRegression_Exposure_ChoiceSurvivesRestart(t *testing.T) {
 	root := t.TempDir()
 	first := newExposure(t, root)
@@ -159,7 +151,6 @@ func TestRegression_Exposure_ChoiceSurvivesRestart(t *testing.T) {
 	assert.Equal(t, "0.0.0.0:3737", third.Status().Address, "the chosen address is kept while off")
 }
 
-// A bind that would serve plaintext is refused: the listener is always TLS.
 func TestRegression_Exposure_RefusesALoopbackBind(t *testing.T) {
 	e := newExposure(t, t.TempDir())
 	require.NoError(t, e.Start(""))
@@ -171,8 +162,6 @@ func TestRegression_Exposure_RefusesALoopbackBind(t *testing.T) {
 	assert.False(t, e.Status().Enabled)
 }
 
-// A host started with an exposed address (the serve flag) listens without
-// the owner's saved choice being changed.
 func TestRegression_Exposure_StartAddressOpensWithoutPersisting(t *testing.T) {
 	root := t.TempDir()
 	e := newExposure(t, root)
@@ -186,7 +175,6 @@ func TestRegression_Exposure_StartAddressOpensWithoutPersisting(t *testing.T) {
 	assert.False(t, again.Status().Enabled)
 }
 
-// A failed open at boot reports why and does not forget the owner's choice.
 func TestRegression_Exposure_FailedOpenIsReportedAndRetainsTheChoice(t *testing.T) {
 	root := t.TempDir()
 	first := newExposure(t, root)
@@ -213,13 +201,11 @@ func TestRegression_Exposure_FailedOpenIsReportedAndRetainsTheChoice(t *testing.
 	assert.True(t, healthy.Status().Enabled)
 }
 
-// loopback is where the wildcard fake really listens.
 func loopback(bound string) string {
 	_, port, _ := net.SplitHostPort(bound)
 	return net.JoinHostPort("127.0.0.1", port)
 }
 
-// A corrupt saved choice never opens a port and never stops the daemon booting.
 func TestRegression_Exposure_UnreadableChoiceStaysClosed(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "network.json"), []byte("{nope"), 0o600))
@@ -232,8 +218,6 @@ func TestRegression_Exposure_UnreadableChoiceStaysClosed(t *testing.T) {
 	assert.NotEmpty(t, st.Error)
 }
 
-// A stream a handler hijacked (a terminal socket) is not the HTTP server's to
-// close, yet turning device connections off must end it too.
 func TestRegression_Exposure_DisableEndsHijackedStreams(t *testing.T) {
 	streamEnded := make(chan struct{})
 	e := exposure.New(exposure.Config{
@@ -276,13 +260,11 @@ func TestRegression_Exposure_DisableEndsHijackedStreams(t *testing.T) {
 
 	select {
 	case <-streamEnded:
-	case <-time.After(5 * time.Second): // a deadline for the failure case, not a wait
+	case <-time.After(5 * time.Second):
 		t.Fatal("a hijacked stream outlived Disable")
 	}
 }
 
-// A failed switch must not leave the daemon closed while the saved choice says
-// it is open: the previous address comes back and the file still names it.
 func TestRegression_Exposure_FailedEnableKeepsThePreviousAddress(t *testing.T) {
 	root := t.TempDir()
 	e := exposure.New(exposure.Config{
@@ -313,7 +295,6 @@ func TestRegression_Exposure_FailedEnableKeepsThePreviousAddress(t *testing.T) {
 	assert.Equal(t, "0.0.0.0:3737", again.Status().Address)
 }
 
-// When even the previous address cannot come back, the saved choice says off.
 func TestRegression_Exposure_FailedEnableThatCannotRestoreSavesOff(t *testing.T) {
 	root := t.TempDir()
 	opens := 0
@@ -343,8 +324,6 @@ func TestRegression_Exposure_FailedEnableThatCannotRestoreSavesOff(t *testing.T)
 	assert.False(t, again.Status().Enabled, "the file matches reality")
 }
 
-// A hand-edited choice naming a loopback bind would serve plaintext past the
-// bearer guard, so it is refused like an unreadable file.
 func TestRegression_Exposure_SavedLoopbackChoiceStaysClosed(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "network.json"), []byte(`{"enabled":true,"address":"127.0.0.1:3737"}`), 0o600))
@@ -368,8 +347,6 @@ func TestRegression_Exposure_SavedLoopbackChoiceStaysClosed(t *testing.T) {
 	assert.Contains(t, st.Error, "loopback")
 }
 
-// A taken port reads as a sentence the owner can act on, not as a wrapped syscall
-// error, and the previous state is kept.
 func TestRegression_Exposure_PortInUseIsAPlainTypedError(t *testing.T) {
 	taken, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)

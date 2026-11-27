@@ -14,7 +14,6 @@ func TestPlan_DeepestFirstSkippingLocked(t *testing.T) {
 		{ID: "c", Parent: "b"},
 	}
 	order := Plan("root", all)
-	// c and a and root deletable; b skipped; deepest-first
 	assert.Equal(t, []string{"c", "a", "root"}, order)
 }
 
@@ -54,7 +53,6 @@ func TestPlan_AllLockedYieldsEmpty(t *testing.T) {
 }
 
 func TestPlan_DeepestFirstOrder(t *testing.T) {
-	// root -> a -> b (all unlocked)
 	all := []Node{
 		{ID: "root", Parent: ""},
 		{ID: "a", Parent: "root"},
@@ -65,7 +63,6 @@ func TestPlan_DeepestFirstOrder(t *testing.T) {
 }
 
 func TestPlan_MultipleChildrenDeepestFirst(t *testing.T) {
-	// root -> a, root -> b; a -> c; all unlocked
 	all := []Node{
 		{ID: "root", Parent: ""},
 		{ID: "a", Parent: "root"},
@@ -73,12 +70,10 @@ func TestPlan_MultipleChildrenDeepestFirst(t *testing.T) {
 		{ID: "c", Parent: "a"},
 	}
 	order := Plan("root", all)
-	// c must appear before a; a and b must appear before root
 	assert.Equal(t, "root", order[len(order)-1])
 	assert.Contains(t, order, "c")
 	assert.Contains(t, order, "a")
 	assert.Contains(t, order, "b")
-	// c before a
 	cIdx, aIdx := index(order, "c"), index(order, "a")
 	assert.Less(t, cIdx, aIdx)
 }
@@ -96,15 +91,12 @@ func index(
 }
 
 func TestPlan_SelfCycleTerminatesYieldingNodeOnce(t *testing.T) {
-	// A corrupt self-loop (node is its own parent) must not stack-overflow; the
-	// node is processed at most once.
 	all := []Node{{ID: "root", Parent: "root"}}
 	order := Plan("root", all)
 	assert.Equal(t, []string{"root"}, order)
 }
 
 func TestPlan_TwoNodeCycleTerminates(t *testing.T) {
-	// a -> b -> a corrupt 2-cycle. Walk terminates and yields each node once.
 	all := []Node{
 		{ID: "a", Parent: "b"},
 		{ID: "b", Parent: "a"},
@@ -115,7 +107,6 @@ func TestPlan_TwoNodeCycleTerminates(t *testing.T) {
 }
 
 func TestPlan_UnlockedDescendantUnderLockedAncestor(t *testing.T) {
-	// locked middle node; its unlocked child still included
 	all := []Node{
 		{ID: "root", Parent: ""},
 		{ID: "mid", Parent: "root", Locked: true},
@@ -125,6 +116,5 @@ func TestPlan_UnlockedDescendantUnderLockedAncestor(t *testing.T) {
 	assert.Contains(t, order, "leaf")
 	assert.Contains(t, order, "root")
 	assert.NotContains(t, order, "mid")
-	// leaf before root
 	assert.Less(t, index(order, "leaf"), index(order, "root"))
 }

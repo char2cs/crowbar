@@ -1,5 +1,3 @@
-// Single source of truth for the active preset and per-command user overrides, read by both the
-// keyboard hooks and the Keybindings tab; persisted to localStorage under `crowbar:settings:`.
 import { create } from 'zustand'
 import { createSelectors } from '@/utils/zustand-selectors'
 import { isKeymapPresetId } from '@/features/keymaps/defaults/keybinding-presets'
@@ -48,13 +46,9 @@ interface KeymapStoreState {
   overrides: KeymapOverrides
   actions: {
     setPreset: (preset: KeymapPresetId) => void
-    /** Set (or replace) a user override for a command. */
     setOverride: (commandId: string, chord: string) => void
-    /** Remove a user override, falling back to preset/default. */
     clearOverride: (commandId: string) => void
-    /** Replaces the overrides with the ones the shell owns; anything that is not a chord map means none. */
     adoptShellOverrides: (overrides: unknown) => void
-    /** Clear every user override. */
     resetOverrides: () => void
   }
 }

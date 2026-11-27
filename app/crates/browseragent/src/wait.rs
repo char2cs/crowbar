@@ -1,5 +1,3 @@
-//! Requests waiting for answers: replies, expectations, arming and delivery.
-
 mod arming;
 mod delivery;
 mod expectation;

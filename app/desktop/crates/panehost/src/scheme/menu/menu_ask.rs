@@ -1,16 +1,9 @@
-//! A native menu a pane page asked the shell for, and the page's wait for the answer.
-
 use protocol::PaneId;
 use webview::{ChosenEntry, MenuEntry};
 
-/// One page's ask: the entries, the page point the menu opens at, and the answer the page
-/// waits on. Dropped unanswered, it answers that nothing was chosen.
 pub struct MenuAsk {
-    /// The pane whose page asked.
     pub pane: PaneId,
-    /// The menu, top to bottom.
     pub entries: Vec<MenuEntry>,
-    /// Where it opens, in the page's own pixels from its top-left corner.
     pub at: (f64, f64),
     answer: Option<ChosenEntry>,
 }
@@ -29,7 +22,6 @@ impl std::fmt::Debug for MenuAsk {
 }
 
 impl MenuAsk {
-    /// The ask of `pane`'s page for `entries` at a page point; `answer` hears the choice.
     #[must_use]
     pub fn new(
         pane: PaneId,
@@ -44,8 +36,6 @@ impl MenuAsk {
         }
     }
 
-    /// Tells the page which entry was chosen: its index, then its index in each submenu it
-    /// lies in; `None` when the menu was dismissed.
     pub fn answer(
         mut self,
         chosen: Option<Vec<usize>>,

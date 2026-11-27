@@ -1,6 +1,3 @@
-//! Drag rules of the chats tree: when a press becomes a drag, edge scrolling, drop modes, the
-//! drop policy and folder targets.
-
 mod drag_arm;
 mod drop_modes;
 mod drop_policy;

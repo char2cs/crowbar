@@ -1,6 +1,3 @@
-// Also holds the seeded, deterministic sequences of every row action in the spec's table plus
-// every non-row event: after each step the invariants hold, and the set of rows moved only if the
-// step was a row action.
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   makePane,
@@ -128,13 +125,10 @@ describe('removePane', () => {
     removePane(state, 'a')
     expect(state.views.v1).toBeUndefined()
     expect(state.viewOrder).toEqual(['v2'])
-    // The showing view ended: the next view of the project comes forward.
     expect(state.activeViewId).toBe('v2')
     assertViewIntegrity(state)
   })
 
-  // The route names the workspace on screen and only a gesture changes it: a
-  // close must not bring another workspace's view forward under that route.
   it('the view that comes forward shows the same workspace, else the stage', () => {
     const state = buildViewState({
       views: [
@@ -382,7 +376,6 @@ vi.mock('@/features/panes/lib/release-closed-chat', () => ({
 
 afterEach(() => destroyWorkspaceStore('ws-seq'))
 
-/** mulberry32 — tiny, seedable, good enough to walk a state space. */
 function prng(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -406,8 +399,6 @@ function rowSet(state: ViewState): string {
 }
 
 function snapshot(s: ViewState): WorkspaceLayout {
-  // The JSON round-trip IS the thing under test: persistence stores this layout as
-  // JSON, so structuredClone would keep exactly what a real reload drops.
   // react-doctor-disable-next-line no-json-parse-stringify-clone -- the JSON round trip is the behaviour under test
   return JSON.parse(
     JSON.stringify({
@@ -429,7 +420,6 @@ function snapshot(s: ViewState): WorkspaceLayout {
   ) as WorkspaceLayout
 }
 
-/** Hydrate a snapshot with one record corrupted: only that record may go. */
 function corruptRoundTrip(store: Store, rand: () => number): void {
   const s = store.getState()
   const layout = snapshot(s)
@@ -516,7 +506,6 @@ function steps(store: Store, rand: () => number): Step[] {
       run: () => a.removeEditorTabFromPane(pane, pick(s.panes[pane].editorTabIds) ?? 'none'),
     },
     {
-      // Keep-alive eviction / workspace unmount: a workspace store comes and goes.
       name: 'workspace unmount',
       row: false,
       run: () => {
@@ -524,7 +513,6 @@ function steps(store: Store, rand: () => number): Step[] {
         destroyWorkspaceStore('ws-seq')
       },
     },
-    // A reconnect seed that finds every chat still present changes nothing.
     { name: 'reconnect seed', row: false, run: () => {} },
     { name: 'hydrate round-trip', row: false, run: () => roundTrip(store) },
     { name: 'corrupt hydrate', row: true, run: () => corruptRoundTrip(store, rand) },
@@ -546,11 +534,8 @@ function runSequence(seed: number, length: number): void {
     }
     const after = store.getState()
     assertViewIntegrity(after)
-    // Focus is derived from pane writes: it always names a pane that exists.
     expect(after.panes[after.activePaneId], label).toBeDefined()
     if (!step.row) expect(rowSet(after), label).toBe(rowSet(before))
-    // Invariant 5: a pane's chat never changes to a different chat except by
-    // retargetPane.
     if (!step.name.startsWith('retargetPane')) {
       for (const [id, pane] of Object.entries(after.panes)) {
         const prior = before.panes[id]?.chatId

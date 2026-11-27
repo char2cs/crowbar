@@ -17,10 +17,6 @@ import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { seedProjects, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-// The eight-second removal window end to end (handleTrash -> hold -> applyPendingRemovals ->
-// deriveRows), because the invariant lives BETWEEN them: a held workspace row stays the branch
-// row (both halves hidden) and never resurfaces as a chat bubble.
-
 const PROJECT = {
   id: 'p1',
   name: 'Space',
@@ -30,7 +26,6 @@ const PROJECT = {
   hostId: 'local',
 }
 
-/** A repo whose fork rows are unified: one row per (workspace, owning chat). */
 function repo(): Repo {
   return {
     id: 'r1',
@@ -90,8 +85,6 @@ function repo(): Repo {
   }
 }
 
-/** The rows on screen right now: descendants strip out, while the held row's own primary id
- *  stays so it has a row left to transform in place (`renderedHiddenIds`). */
 function rowsOnScreen() {
   const { removals: entries, hiddenIds } = treeUiStore.getState()
   const repos = applyPendingRemovals(readSelect(selectRepos), renderedHiddenIds(hiddenIds, entries))
@@ -111,8 +104,6 @@ describe('a held workspace row during its countdown', () => {
   it('is drawn as ONE branch row before the trash, id’d by its owning chat', () => {
     const row = rowsOnScreen().find((r) => r.id === 'chat-fork')
     expect(row).toMatchObject({ kind: 'branch', ownsWorktree: true, workspaceId: 'ws-fork' })
-    // And there is no second row for the same thing — the whole point of the
-    // unified row model.
     expect(rowsOnScreen().filter((r) => r.workspaceId === 'ws-fork')).toHaveLength(1)
   })
 
@@ -121,7 +112,6 @@ describe('a held workspace row during its countdown', () => {
 
     const rows = rowsOnScreen()
     const row = rows.find((r) => r.id === 'chat-fork')
-    // The row stays, transformed in place, as the BRANCH row it was, never a chat bubble.
     expect(row).toMatchObject({ kind: 'branch', workspaceId: 'ws-fork' })
     expect(row?.removal?.deadlineAt).not.toBeNull()
     expect(rows.some((r) => r.kind === 'chat' && r.label === 'One')).toBe(false)

@@ -1,5 +1,3 @@
-//! What removing a paired host logs when part of it cannot be forgotten.
-
 use std::fmt;
 
 use journal::Level;

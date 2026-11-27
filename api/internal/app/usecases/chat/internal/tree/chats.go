@@ -11,9 +11,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The chat half of the tree: placing a chat, and the cascade that takes its
-// threads with it when it goes.
-
 func (u *chatFolderUsecase) CreateChat(
 	ctx context.Context,
 	in CreateChatInput,
@@ -50,9 +47,6 @@ func (u *chatFolderUsecase) CreateChat(
 	return CreatedChat{ChatID: chatID, RunnerID: runnerID}, nil
 }
 
-// checkThreadParent is checkNewChatParent for a plain create. Under a chat that
-// runs in a workspace, a create naming none left that workspace out: it is told
-// to name it rather than that it crossed one.
 func (u *chatFolderUsecase) checkThreadParent(ctx context.Context, workspaceID, parentID string) error {
 	if parentID == "" {
 		return nil
@@ -64,8 +58,6 @@ func (u *chatFolderUsecase) checkThreadParent(ctx context.Context, workspaceID, 
 	return err
 }
 
-// createImportChat is CreateChat's WorktreeImport branch: a single create the
-// user was told failed leaves no chat behind.
 func (u *chatFolderUsecase) createImportChat(
 	ctx context.Context,
 	in CreateChatInput,
@@ -80,9 +72,6 @@ func (u *chatFolderUsecase) createImportChat(
 	return CreatedChat{ChatID: chatID, RunnerID: runnerID, WorkspaceID: ws.ID}, nil
 }
 
-// createOwnWorktreeChat is CreateChat's WorktreeFork branch: it mints and places the chat in the
-// workspace-less scope (a bubble until its worktree exists; ownWorktree allows a worktree-owning chat
-// parent), then forks its worktree. Placement comes first so the fork parent is fixed.
 func (u *chatFolderUsecase) createOwnWorktreeChat(
 	ctx context.Context,
 	in CreateChatInput,
@@ -113,8 +102,6 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 	return CreatedChat{ChatID: chatID, RunnerID: runnerID, WorkspaceID: wsID}, nil
 }
 
-// checkWorkspaceProvisioned refuses a create into a placeholder workspace before anything is minted (see
-// ErrWorkspaceUnprovisioned). A failed read and the workspace-less scope pass: it refuses only what it knows.
 func (u *chatFolderUsecase) checkWorkspaceProvisioned(
 	ctx context.Context,
 	workspaceID string,
@@ -129,9 +116,6 @@ func (u *chatFolderUsecase) checkWorkspaceProvisioned(
 	return fmt.Errorf("%w (workspace %s)", ErrWorkspaceUnprovisioned, workspaceID)
 }
 
-// checkNewChatParent refuses a destination a new chat cannot be born into before anything is minted, so a
-// mistyped id costs no create-broadcast-purge. It is a move's guard minus the cycle test; ownWorktree lets
-// a fork name a worktree-owning chat parent the same-workspace rule would refuse.
 func (u *chatFolderUsecase) checkNewChatParent(
 	ctx context.Context,
 	workspaceID string,
@@ -148,8 +132,6 @@ func (u *chatFolderUsecase) checkNewChatParent(
 	return u.checkChatContainer(ctx, snapshot, workspaceID, parentID, ownWorktree)
 }
 
-// ensureWorkspaceAnchor mints the KindWorkspace Node a live workspace from before Node rows lacks, the first
-// time a row is filed under it: container checks and fork walks resolve a workspace id through Node.
 func (u *chatFolderUsecase) ensureWorkspaceAnchor(
 	ctx context.Context,
 	id string,
@@ -175,8 +157,6 @@ func (u *chatFolderUsecase) ensureWorkspaceAnchor(
 	return nil
 }
 
-// discard purges a just-minted chat whose create then failed and returns the cause. The purge is
-// best-effort and never replaces the cause; a leftover placed, CLI-less chat is visible and deletable.
 func (u *chatFolderUsecase) discard(
 	ctx context.Context,
 	chatID string,
@@ -201,15 +181,10 @@ func (u *chatFolderUsecase) PlaceChat(
 	return u.placeChat(ctx, workspaceID, chatID, in, placeMode{})
 }
 
-// placeMode is how placeChat treats a placement. ownWorktree is set only by createOwnWorktreeChat, whose
-// destination is re-checked here and needs the same allowance; firstPlacement, set by creates, skips
-// densifying the root a fresh mint was never drawn in (see replace); rebind is a move already quiesced
-// under the chat's lock, which re-checks no working state and records the lineage after the lock.
 type placeMode struct {
 	ownWorktree, firstPlacement, rebind bool
 }
 
-// placeChat is PlaceChat's body.
 func (u *chatFolderUsecase) placeChat(
 	ctx context.Context,
 	workspaceID string,
@@ -228,15 +203,12 @@ func (u *chatFolderUsecase) placeChat(
 	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
 		return domain.Chat{}, nil, err
 	}
-	// The destination is seeded so its existing children are counted.
 	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current, destination)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
 	nodeBacked := mode.ownWorktree && destination != ""
 	if nodeBacked {
-		// A fork reads its position through Node once it owns a workspace
-		// (correctHomePlacement), so its first placement is minted there too.
 		snapshot.homeIDs[chatID] = true
 		snapshot.freshIDs[chatID] = true
 	}
@@ -251,8 +223,6 @@ func (u *chatFolderUsecase) placeChat(
 			return domain.Chat{}, nil, wErr
 		}
 	}
-	// Read before the plan is mutated, the only moment the old lineage is recoverable; comparing it with
-	// the new one decides whether the move is worth recording.
 	inherited := snapshot.chatLineage(chatID)
 	u.replace(snapshot, chatID, current.ParentID, destination, in.Order, mode.firstPlacement)
 	written, err := u.persist(ctx, snapshot)
@@ -261,7 +231,6 @@ func (u *chatFolderUsecase) placeChat(
 	}
 	placed := *snapshot.placedRow(chatID)
 	if nodeBacked {
-		// The write-once-at-creation copy the fork-parent walk reads.
 		if _, err := u.chats.SetPlacement(ctx, chatID, placed.ParentID, placed.Order); err != nil {
 			return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place %s: %w", chatID, err)
 		}
@@ -272,9 +241,6 @@ func (u *chatFolderUsecase) placeChat(
 	return placed, written, nil
 }
 
-// noteNewAncestors records the move in the chat's conversation only when it gained a chat to read: moves
-// between folders change nothing, and leaving a parent adds no context. A failure is only logged, since
-// the move already stands and the relationship rides on ParentID.
 func (u *chatFolderUsecase) noteNewAncestors(
 	ctx context.Context,
 	chatID string,
@@ -290,8 +256,6 @@ func (u *chatFolderUsecase) noteNewAncestors(
 	}
 }
 
-// gained reports whether lineage names a chat that inherited did not — the test
-// for "this chat now reads something it was not reading before".
 func gained(
 	inherited []string,
 	lineage []string,
@@ -303,9 +267,6 @@ func gained(
 	return slices.ContainsFunc(lineage, func(id string) bool { return !had[id] })
 }
 
-// replace moves one row and keeps both affected levels dense (the one it joined, and the one it left when
-// it changed level) so the next drop index means what it says. firstPlacement skips the level-left densify:
-// a fresh mint was never drawn at the root, and closing that phantom gap would renumber unrelated rows.
 func (u *chatFolderUsecase) replace(
 	snapshot *treeSnapshot,
 	id string,
@@ -322,7 +283,6 @@ func (u *chatFolderUsecase) replace(
 		snapshot.plan.Reorder(from, "", -1)
 	}
 	if row := snapshot.row(id); row != nil && row.ParentID != destination {
-		// Filed under the other id of the same level: stored as asked.
 		row.ParentID = destination
 		snapshot.restated[id] = true
 	}

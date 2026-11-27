@@ -29,7 +29,6 @@ const project = (id: string, hostId: string): Project => ({
   hostId,
 })
 
-// As pairing does: an install that ever had a host remembers it.
 function configureHosts(...ids: string[]): void {
   useHostConfigStore.setState((s) => ({
     hosts: ids.map(host),
@@ -60,7 +59,6 @@ afterEach(() => {
   destroyHostRuntime('host-2')
 })
 
-// The projects scope is the local daemon's: a project it does not hold may be on a paired host.
 describe('a host that will not resolve', () => {
   it("reads a removed host's project as missing: its rows leave with it", () => {
     configureHosts('host-1')

@@ -7,7 +7,6 @@ type Outcome = 'allowed' | 'denied' | 'timed out' | 'not answered'
 
 interface Verdict {
   outcome: Outcome
-  /** What the row says: the option the person picked, in the past tense. */
   words: string
 }
 
@@ -30,7 +29,6 @@ function verdict(choice: AgentChoice): Verdict | null {
 
 const ORDER: Outcome[] = ['allowed', 'denied', 'timed out', 'not answered']
 
-/** "2 allowed · 1 denied"; empty when the decisions were not allow-or-deny. */
 function split(verdicts: (Verdict | null)[]): string {
   return ORDER.map(
     (outcome) => [outcome, verdicts.filter((v) => v?.outcome === outcome).length] as const,
@@ -45,7 +43,6 @@ const clock = (at?: string) =>
     ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
     : ''
 
-/** The requests settled since the last message, folded into one line that opens to one row each. */
 export function ResolvedTray({ choices }: { choices: AgentChoice[] }) {
   const [open, setOpen] = useState(false)
   if (choices.length === 0) return null

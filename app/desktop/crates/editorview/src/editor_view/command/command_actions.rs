@@ -58,7 +58,6 @@ mod tests {
 
     const TEXT: &str = "ab x ab\nab";
 
-    /// gpui-kit reads only the active selection, which is the last match each chord added.
     #[gpui::test]
     fn the_occurrence_chords_select_the_caret_word_s_matches(cx: &mut TestAppContext) {
         let cases = [

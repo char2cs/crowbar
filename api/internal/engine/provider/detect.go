@@ -13,16 +13,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
-// DetectExecFn matches exec.CommandContext so callers can inject a test stub.
 type DetectExecFn func(ctx context.Context, name string, args ...string) *exec.Cmd
 
-// detectWaitDelay bounds how long Cmd.Wait blocks for I/O to drain after the
-// context is cancelled. Without it a detection subprocess (git/gh/glab) whose
-// pipes are held by a grandchild would keep its goroutine alive after a kill.
 const detectWaitDelay = 10 * time.Second
 
-// withWaitDelay wraps a DetectExecFn so every constructed Cmd carries a
-// WaitDelay, guaranteeing a killed subprocess releases even with held pipes.
 func withWaitDelay(
 	execFn DetectExecFn,
 ) DetectExecFn {
@@ -37,27 +31,20 @@ func withWaitDelay(
 	}
 }
 
-// DetectResult carries the detected provider kind and CLI availability.
 type DetectResult struct {
-	Kind    string // "github" | "gitlab" | "none"
-	Enabled bool   // true if CLI present and authenticated
-	Remote  string // the origin URL the kind was read from
+	Kind    string
+	Enabled bool
+	Remote  string
 }
 
-// DefaultProtectedBranches is the fallback when the provider CLI is unavailable.
 var DefaultProtectedBranches = []string{"main", "develop", "master"}
 
-// FallbackProtectedBranches returns the config-list fallback when the provider
-// CLI is absent or unauthenticated.
 func FallbackProtectedBranches() []string {
 	out := make([]string, len(DefaultProtectedBranches))
 	copy(out, DefaultProtectedBranches)
 	return out
 }
 
-// detectWithExec returns the provider kind and whether the CLI is available and
-// authed. On any detection error it degrades to kind="none"/enabled=false
-// rather than propagating the error.
 func detectWithExec(
 	ctx context.Context,
 	repoPath string,
@@ -77,9 +64,6 @@ func detectWithExec(
 	return DetectResult{Kind: kind, Enabled: enabled, Remote: origin}, nil
 }
 
-// repoKey names the repository a worktree belongs to: its common git dir, which
-// every linked worktree shares and where origin is configured. Any other path
-// keys as itself.
 func repoKey(
 	path string,
 ) string {
@@ -93,8 +77,6 @@ func repoKey(
 	return filepath.Clean(path)
 }
 
-// linkedCommonDir follows a linked worktree's ".git" file ("gitdir: <dir>") and
-// that dir's "commondir" back to the main repository's git dir.
 func linkedCommonDir(
 	path string,
 	dotGit string,
@@ -118,7 +100,6 @@ func linkedCommonDir(
 	return filepath.Join(gitDir, dir)
 }
 
-// detectRemoteOrigin returns the URL of the "origin" remote for repoPath.
 func detectRemoteOrigin(
 	ctx context.Context,
 	repoPath string,
@@ -137,7 +118,6 @@ func detectRemoteOrigin(
 	return strings.TrimSpace(out.String()), nil
 }
 
-// kindFromURL derives the provider kind from the remote origin URL.
 func kindFromURL(
 	url string,
 ) string {
@@ -151,7 +131,6 @@ func kindFromURL(
 	return "none"
 }
 
-// cliAuthed checks whether the provider CLI is installed and authenticated.
 func cliAuthed(
 	ctx context.Context,
 	kind string,
@@ -167,8 +146,6 @@ func cliAuthed(
 		return false
 	}
 
-	// binpath.Resolve: a launchd daemon's minimal PATH misses Homebrew, where gh/glab live,
-	// and detection would mark the provider disabled.
 	cmd := execFn(ctx, binpath.Resolve(cli), "auth", "status")
 	var out bytes.Buffer
 	cmd.Stdout = &out

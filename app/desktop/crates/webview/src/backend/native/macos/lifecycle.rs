@@ -1,5 +1,3 @@
-//! Making and dropping a page on the `AppKit` backend.
-
 use std::rc::Rc;
 use std::sync::Arc;
 

@@ -1,22 +1,13 @@
-//! Embedded font files and the family names they register.
-//!
-//! GPUI draws a variable face at its default instance only, so each weight and the italic the UI
-//! sets is a static face of its own, made by `tools/scripts/font-instances.py`.
-
 use std::borrow::Cow;
 
 use gpui::App;
 
 use crate::error::Error;
 
-/// Family of the UI text (`CalSansUI`): a static face per weight the tokens use, and an oblique.
 pub const UI_FAMILY: &str = "Cal Sans UI";
-/// Family of headings (`font-heading`).
 pub const HEADING_FAMILY: &str = "Instrument Serif";
-/// Family of code, terminal and keyboard hints (`font-mono`).
 pub const MONO_FAMILY: &str = "Geist Mono";
 
-/// The settings hold the names the web bundle gives these faces; GPUI knows them by their own.
 #[must_use]
 pub fn registered_family(setting: &str) -> &str {
     match setting {
@@ -37,11 +28,6 @@ const FILES: [&[u8]; 8] = [
     include_bytes!("../../../assets/fonts/GeistMono-Bold.ttf"),
 ];
 
-/// Registers the embedded families with the text system of `cx`.
-///
-/// # Errors
-///
-/// Returns [`Error::Fonts`] when the text system cannot parse a font file.
 pub fn register(cx: &App) -> Result<(), Error> {
     let fonts = FILES.iter().map(|bytes| Cow::Borrowed(*bytes)).collect();
     cx.text_system().add_fonts(fonts).map_err(Error::Fonts)

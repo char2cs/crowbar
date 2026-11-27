@@ -22,7 +22,6 @@ import { findDocumentBuffer, openDocument } from '@/features/editor/documents/op
 import { loadEditorHost } from '@/features/editor/host/editor-host'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
-// The documents live in Monaco models: the first load is the slow part, not the tests.
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 async function open(path: string, text: string): Promise<DocumentRef> {

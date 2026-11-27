@@ -13,12 +13,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// errNoTurn is a message that names no turn the chat ever had: nothing can
-// hold it, so it is dead-lettered whole.
 var errNoTurn = fmt.Errorf("ingress: a message of no turn: %w", seam.ErrHookNotRecorded)
 
-// mapText decides what streamed text records: a numbered chunk or a whole
-// message is a row; anything else is only shown while it happens.
 func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, Effects, error) {
 	scope := subagentScope(ev)
 	if ev.Kind == engineagents.HookMessageComplete {
@@ -43,7 +39,6 @@ func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 		delta.Kind, delta.Replace = KindDiff, true
 	}
 	if delta.Kind != KindAnswer {
-		// One undifferentiated stream per turn names no block: the turn groups it.
 		delta.ID = cmp.Or(d.MessageID, d.TurnID)
 	}
 	if delta.ID == "" && delta.Kind == KindAnswer || d.Text == "" && !delta.Replace {
@@ -52,8 +47,6 @@ func mapText(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	return nil, Effects{Live: &delta}, nil
 }
 
-// mapChunk records chunk Index of a message, once. A message that began after
-// its turn closed on a reply it reads as names that reply, which it joins.
 func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, Effects, error) {
 	d := ev.Delta
 	if d.MessageID == "" || st.HasChunk(scope, d.MessageID, d.Index) {
@@ -82,9 +75,6 @@ func mapChunk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope
 	return []ledger.Row{row}, Effects{Live: live}, nil
 }
 
-// endedReplyOf is the turn a message first seen on turnID belongs to: the one
-// before it when the message is the reply that turn's end recorded, which the
-// CLI's next turn may have opened over before the message was handled.
 func endedReplyOf(st ledger.State, scope, turnID string, d *engineagents.MessageDelta) string {
 	if scope != "" || d.Index != 0 {
 		return turnID
@@ -95,7 +85,6 @@ func endedReplyOf(st ledger.State, scope, turnID string, d *engineagents.Message
 	return turnID
 }
 
-// joinedReply is the reply of turnID a message it began after closing joins.
 func joinedReply(st ledger.State, scope, turnID string, d *engineagents.MessageDelta) string {
 	if id, text, has := st.Reply(turnID); has && scope == "" && (d.Index != 0 || ledger.Related(d.Text, text)) {
 		return id
@@ -103,8 +92,6 @@ func joinedReply(st ledger.State, scope, turnID string, d *engineagents.MessageD
 	return ""
 }
 
-// mapComplete records a message the provider reported whole, once; one that
-// says nothing records nothing.
 func mapComplete(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
 	c := ev.Complete
 	if c == nil || c.MessageID == "" || c.Text == "" || st.HasChunk(scope, c.MessageID, ledger.IndexComplete) {
@@ -132,14 +119,11 @@ func toolPhase(kind string) string {
 	return ledger.ToolPre
 }
 
-// A call's output reads inline when it is at most this many lines and bytes.
 const (
 	inlineOutputLines = 5
 	inlineOutputBytes = 400
 )
 
-// shortOutput is out when it is short enough to read inline, else "": the
-// whole of it stays in the call's result.
 func shortOutput(out string) string {
 	out = strings.TrimRight(out, "\n")
 	if len(out) > inlineOutputBytes || strings.Count(out, "\n") >= inlineOutputLines {
@@ -148,8 +132,6 @@ func shortOutput(out string) string {
 	return out
 }
 
-// mapTool records one phase of a tool call in its scope, once. A call's end
-// closes the asks it raised: the CLI went on.
 func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string, refs BlobRefs) ([]ledger.Row, error) {
 	tool := ev.Tool
 	if tool == nil {
@@ -175,11 +157,9 @@ func mapTool(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	runOf(&body, tool)
 	scopeOf(&body, tool)
 	if !st.HasToolInput(scope, id) {
-		// A call is keyed once: its first input is the one an ask names it by.
 		body.InputKey = ledger.InputKey(tool.Input)
 	}
 	if tool.Kind == ledger.ToolKindMCP {
-		// Its kind makes a call an MCP one: other kinds name a tool too.
 		body.MCPServer, body.MCPTool = tool.MCPServer, tool.MCPTool
 	}
 	if phase == ledger.ToolPre {
@@ -232,7 +212,6 @@ func toolStatus(ev engineagents.CanonicalEvent) string {
 	return cmp.Or(ev.Tool.Status, domain.ToolStatusOK)
 }
 
-// mapPlan records the agent's plan as restated, in its scope.
 func mapPlan(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, error) {
 	items := make([]ledger.PlanItem, 0, len(ev.Plan))
 	for _, step := range ev.Plan {
@@ -243,9 +222,6 @@ func mapPlan(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope 
 	return []ledger.Row{row}, err
 }
 
-// mapCompaction opens and closes a compaction's marker, naming the turn it runs
-// as, whose end is then the compaction's. One asked for with a prompt spends
-// that prompt: no turn acknowledges it.
 func mapCompaction(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
 	open, _ := st.Compaction()
 	detail := ""

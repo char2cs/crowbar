@@ -1,5 +1,3 @@
-//! The picture of a space or repository.
-
 use sidebar::{AvatarTint, Mark};
 
 const TINTS: [(&str, AvatarTint); 8] = [

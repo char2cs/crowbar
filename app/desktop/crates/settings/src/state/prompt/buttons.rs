@@ -1,5 +1,3 @@
-//! Button rows and the confirmation prompt in front of them.
-
 use crate::schema::Action;
 use crate::schema::ButtonSpec;
 use crate::schema::Confirm;
@@ -8,7 +6,6 @@ use crate::state::effect::Effect;
 use crate::state::prompt::Prompt;
 
 impl State {
-    /// Whether the button `spec` can be pressed.
     pub fn button_enabled(
         &self,
         spec: &ButtonSpec,
@@ -18,7 +15,6 @@ impl State {
             .is_none_or(|rule| rule.holds(&self.scope()))
     }
 
-    /// Presses `spec`: asks its confirmation first, or returns the effect at once.
     pub fn press_button(
         &mut self,
         spec: &ButtonSpec,
@@ -33,7 +29,6 @@ impl State {
         self.confirm_or_run(spec.confirm.as_ref(), effect)
     }
 
-    /// Runs `effect` after asking `confirm`, or at once when there is nothing to ask.
     pub fn confirm_or_run(
         &mut self,
         confirm: Option<&Confirm>,
@@ -49,17 +44,14 @@ impl State {
         None
     }
 
-    /// The question waiting for an answer.
     pub fn prompt(&self) -> Option<&Prompt> {
         self.prompt.as_ref()
     }
 
-    /// The user confirmed: the effect the question guarded.
     pub fn accept_prompt(&mut self) -> Option<Effect> {
         self.prompt.take().map(|prompt| prompt.then)
     }
 
-    /// The user declined.
     pub fn dismiss_prompt(&mut self) {
         self.prompt = None;
     }

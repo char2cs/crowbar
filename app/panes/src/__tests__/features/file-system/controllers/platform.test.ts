@@ -13,8 +13,6 @@ import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
-// Files are addressed through the chat that holds the worktree, so every URL
-// below is named by a chat id and never by a workspace id.
 const CHAT_BASE = '/v0/chats/chat-1'
 
 beforeEach(() => {
@@ -55,9 +53,6 @@ describe('readDirectory', () => {
   })
 
   it('propagates a daemon failure instead of answering with an empty listing', async () => {
-    // The whole point: "Open All Files" wraps this in a try/catch that falls back
-    // to the already-loaded tree. A resolved [] skips that fallback AND the
-    // caller's length check, so the feature silently does nothing.
     mockFetch.mockRejectedValue(new ApiError('boom', 500))
     await expect(readDirectory('ws-1', 'src')).rejects.toThrow('boom')
   })

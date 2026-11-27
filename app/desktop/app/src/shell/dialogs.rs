@@ -1,5 +1,3 @@
-//! The shell's prompts: file, name and reload dialogs.
-
 pub(crate) mod file_prompt;
 pub(crate) mod name_event;
 pub(crate) mod name_prompt;

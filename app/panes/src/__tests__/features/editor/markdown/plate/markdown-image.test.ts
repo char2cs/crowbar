@@ -23,9 +23,6 @@ describe('markdown image round-trip', () => {
   })
 
   it('keeps content when an image sits inline among text (reflowed to its own block, not dropped)', () => {
-    // @platejs lifts an image out of a paragraph into its own block, so an
-    // inline image reflows to its own line. That's a re-canonicalization, not
-    // data loss — the surrounding text and the image all survive.
     const out = roundTrip('Before ![i](a.png) after.\n')
     expect(out).toContain('Before')
     expect(out).toContain('![i](a.png)')

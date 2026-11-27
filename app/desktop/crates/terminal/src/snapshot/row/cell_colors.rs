@@ -1,5 +1,3 @@
-//! The text and fill colours one grid cell draws with.
-
 use alacritty_terminal::term::cell::{Cell, Flags};
 
 use crate::snapshot::palette::ColorSource;

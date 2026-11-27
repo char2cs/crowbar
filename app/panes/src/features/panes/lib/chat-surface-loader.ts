@@ -3,9 +3,6 @@ type AgentChatPaneComponent =
 
 let loaded: AgentChatPaneComponent | null = null
 
-/** The chat surface once its chunk loaded, else null. Rendered directly it mounts in the first
- *  commit; a lazy one suspends first and its interruptible retry restarts under launch's burst
- *  of store updates. */
 export function loadedAgentChatPane(): AgentChatPaneComponent | null {
   return loaded
 }

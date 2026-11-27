@@ -23,18 +23,13 @@ interface DeviceAccessView {
   load: Load
   access: DeviceAccess | null
   devices: PairedDevice[]
-  /** Opens (with `address`) or closes device connections; resolves to why it failed, or null. */
   setEnabled: (enabled: boolean, address: string) => Promise<string | null>
-  /** A fresh one-time code for adding a device. */
   addDevice: () => Promise<PairingOffer>
   revoke: (id: string) => Promise<string | null>
-  /** Reads the paired devices again: a device can pair from outside while this is open. */
   refreshDevices: () => Promise<string | null>
   retry: () => void
 }
 
-/** The device connections of the instance `hostId` names, local or remote, as that instance
- *  holds them: nothing is kept here that the instance does not answer to. */
 export function useDeviceAccess(hostId: string): DeviceAccessView {
   const [load, setLoad] = useState<Load>({ status: 'loading' })
   const [access, setAccess] = useState<DeviceAccess | null>(null)

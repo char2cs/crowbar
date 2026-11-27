@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A serve can be a wrapper around the real binary: killing only the wrapper
-// orphaned the process it had started, which ran on forever.
 func TestForkServeProcess_KillEndsWhatTheProcessStarted(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
 	serve, stdio, err := forkServeProcess([]string{"sh", "-c", "sleep 60 & echo $! > " + pidFile + "; wait"})
@@ -37,7 +35,6 @@ func TestForkServeProcess_KillEndsWhatTheProcessStarted(t *testing.T) {
 		5*time.Second, 20*time.Millisecond, "the serve process's own child outlived it")
 }
 
-// processRunning reports whether pid exists and is not a zombie awaiting reap.
 func processRunning(pid int) bool {
 	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {

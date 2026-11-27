@@ -1,5 +1,3 @@
-//! Finds file paths, with optional line numbers, in text.
-
 use crate::hyperlink::scan::path_match::PathMatch;
 
 const PATH_PRECEDERS: &str = "\"'`([<";

@@ -1,6 +1,3 @@
-//! The whitespace markers of Monaco's `boundary` and `trailing` modes, which gpui-kit's editor
-//! cannot pick: painted over the visible lines after the editor, as its own `all` markers look.
-
 use editor::WhitespaceMode;
 use gpui::{
     App, Bounds, ContentMask, Entity, IntoElement, Pixels, ShapedLine, SharedString, Styled as _,

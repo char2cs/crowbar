@@ -1,5 +1,3 @@
-//! The 42px header: settings, host picker and the sidebar toggle.
-
 mod host_picker;
 mod icon_button;
 mod tile_shape;

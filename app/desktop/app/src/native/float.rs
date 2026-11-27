@@ -1,6 +1,3 @@
-//! Places the shell's pop-up window (tooltips, toasts) above its web views with the platform's X
-//! connection.
-
 use raw_window_handle::RawWindowHandle;
 
 struct Float(platform::FloatPlacer);

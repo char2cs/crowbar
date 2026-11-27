@@ -1,5 +1,3 @@
-//! The words under a row's label: its description, and the texts that replace it.
-
 use crate::schema::condition::Condition;
 use crate::schema::row::Row;
 

@@ -1,5 +1,3 @@
-//! Grid dimensions as the emulator wants them.
-
 use alacritty_terminal::grid::Dimensions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

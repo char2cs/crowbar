@@ -1,5 +1,3 @@
-//! The Changes tree's viewed checkbox, in the row's control slot as develop draws it.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, ParentElement, SharedString, Styled, div, px};
 use sidebar::{ChangedRow, Command, Intent};

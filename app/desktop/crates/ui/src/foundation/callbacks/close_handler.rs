@@ -1,5 +1,3 @@
-//! The shared callback that closes a dialog.
-
 use std::rc::Rc;
 
 use gpui::{App, Window};

@@ -59,8 +59,6 @@ const ImageDiffViewer = memo(({ diff, fileName }: ImageDiffViewerProps) => {
   const hasNewImage = !!diff.new_blob_base64
 
   return (
-    // No header: this renders inside a review row that already names the file and carries
-    // its controls.
     <div className="flex h-full flex-col overflow-hidden bg-background">
       <div className="flex items-center justify-center gap-2 border-border border-b bg-card py-1">
         <Button

@@ -34,15 +34,12 @@ const IDE = {
   onClick: () => useMobileScreenStore.getState().open('ide'),
 }
 
-/** The phone's shell: the focused chat, and its IDE (terminals, branch review) pushed full
- *  screen over it with the chat staying mounted beneath. The chat list is native, fed from here. */
 export function MobileShell() {
   const route = useShellRouteState()
   const navigate = useNavigate()
   const screen = useMobileScreenStore((s) => s.screen)
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const isHostPickerOpen = useUIState((s) => s.isHostPickerOpen)
-  // The native sheet's Agents page shows the active project's host: the phone has no local daemon.
   const agentsHostId = route.allProjects.find((p) => p.id === route.activeProjectId)?.hostId
   const wsId = route.effectiveActiveWorkspaceId
   const hasChat = useStore(windowPaneStore, (s) => Boolean(s.panes[s.activePaneId]?.chatId))
@@ -56,7 +53,6 @@ export function MobileShell() {
   useMobileNativeChrome({ ide: hasChat, shownHost })
 
   return (
-    // The desktop surfaces reused here read a sidebar context; the phone's list is native.
     <SidebarProvider className="h-dvh min-h-0 flex-1 text-foreground" open={false}>
       <div className="flex h-full w-full flex-col bg-background">
         <MobileTopBar trailing={{ ...IDE, disabled: !hasChat }} />
@@ -76,7 +72,6 @@ export function MobileShell() {
       {isSettingsOpen && hasNativeChrome() && <NativeHostsSettingsFeed shownHost={shownHost} />}
       {isHostPickerOpen && hasNativeChrome() && <NativeHostPickerFeed shownHost={shownHost} />}
       <SettingsDialog
-        // The phone app's own sheet presents Settings off the same `isSettingsOpen`.
         isOpen={isSettingsOpen && !hasNativeChrome()}
         onClose={() => useUIState.getState().setIsSettingsDialogVisible(false)}
       />
@@ -84,7 +79,6 @@ export function MobileShell() {
       <DetachHolderModal />
       <ImportDialog repoRowId={importRepoRowId} onClose={closeImport} />
       <PlaceholderToastWatcher />
-      {/* The removal service and the app's one toast viewport, as in the desktop shell. */}
       <RemovalTray />
       <SidebarToastOverlay sidebarOpen={false} sidebarSide="left" />
     </SidebarProvider>
@@ -101,7 +95,6 @@ function ImportDialog({ repoRowId, onClose }: { repoRowId: string | null; onClos
   return <RowBranchImportDialog repoRowId={repoRowId} repos={repos} onClose={onClose} />
 }
 
-/** Opening a chat from the list (a new route, or a new chat in the one pane) puts it away. */
 function useCloseChatListOnNavigation() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const chatId = useStore(windowPaneStore, (s) => s.panes[s.activePaneId]?.chatId ?? null)
@@ -113,7 +106,6 @@ function useCloseChatListOnNavigation() {
     const left = lastChat.current
     lastShown.current = shown
     lastChat.current = chatId
-    // Leaving a chat that is being removed is not opening another: the list stays up.
     if (left && treeUiStore.getState().hiddenIds.has(left)) return
     useMobileScreenStore.getState().setChatListOpen(false)
   }, [shown, chatId])

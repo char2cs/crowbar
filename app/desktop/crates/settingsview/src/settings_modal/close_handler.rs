@@ -1,5 +1,3 @@
-//! The callback that closes the modal.
-
 use std::rc::Rc;
 
 use gpui::{App, Window};

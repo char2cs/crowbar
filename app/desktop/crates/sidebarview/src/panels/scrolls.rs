@@ -1,5 +1,3 @@
-//! The scroll positions the sidebar keeps: one per space, plus the Files and Changes panels.
-
 use std::collections::HashMap;
 
 use gpui::ScrollHandle;

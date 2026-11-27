@@ -1,4 +1,3 @@
-// Package sqlite provides a GORM-backed Store[T, K] implementation.
 package sqlite
 
 import (
@@ -22,9 +21,6 @@ type gormStore[T any, K comparable] struct {
 	pkCol string
 }
 
-// New opens (or creates) a SQLite-backed ScopedStore[T, K] at path,
-// auto-migrating T. Like NewFromDB it returns the wider ScopedStore, which
-// satisfies Store everywhere the narrow surface is all that is wanted.
 func New[T any, K comparable](
 	path string,
 ) (store.ScopedStore[T, K], error) {
@@ -35,9 +31,6 @@ func New[T any, K comparable](
 	return NewFromDB[T, K](db)
 }
 
-// DSN carries per-connection pragmas, since the driver applies DSN pragmas on every pooled connection.
-// synchronous=NORMAL under WAL survives app crashes (only power loss can drop the last commits) and
-// avoids FULL's fsync per append, paid several times per mutation.
 func DSN(path string) string {
 	sep := "?"
 	if strings.Contains(path, "?") {
@@ -46,9 +39,6 @@ func DSN(path string) string {
 	return path + sep + "_pragma=synchronous(NORMAL)"
 }
 
-// ReadOnlyDSN opens the database at path for reading only. immutable=1 creates
-// no -wal or -shm but cannot see a WAL, so a database with a non-empty WAL
-// beside it opens mode=ro.
 func ReadOnlyDSN(path string) string {
 	query := "immutable=1"
 	if wal, err := os.Stat(path + "-wal"); err == nil && wal.Size() > 0 {
@@ -57,20 +47,14 @@ func ReadOnlyDSN(path string) string {
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String()
 }
 
-// readPoolConns sizes read-model/view pools so one long read cannot head-of-line-block the others
-// under WAL; event logs stay single-writer.
 const readPoolConns = 4
 
-// OpenDB opens a single-connection SQLite DB with WAL and a 5s busy timeout so a second opener gets no
-// SQLITE_BUSY on DDL. Used for per-entity workspace DBs, effectively single-tenant.
 func OpenDB(
 	path string,
 ) (*gorm.DB, error) {
 	return openWithMaxConns(path, 1)
 }
 
-// OpenReadPoolDB opens a multi-connection read pool for read-model/view DBs. WAL lives in the header
-// and busy_timeout is applied per connection, so every pooled connection inherits them.
 func OpenReadPoolDB(
 	path string,
 ) (*gorm.DB, error) {
@@ -104,8 +88,6 @@ func openWithMaxConns(
 	return db, nil
 }
 
-// NewFromDB builds a ScopedStore over an open DB, auto-migrating T; returning the wider type gives
-// FindWhere callers no type assertion.
 func NewFromDB[T any, K comparable](
 	db *gorm.DB,
 ) (store.ScopedStore[T, K], error) {
@@ -177,8 +159,6 @@ func (s *gormStore[T, K]) FindAll(
 	return items, nil
 }
 
-// FindWhere implements store.ScopedStore, pushing the equality match down as a GORM struct condition;
-// zero fields are ignored (see the interface doc).
 func (s *gormStore[T, K]) FindWhere(
 	ctx context.Context,
 	match T,

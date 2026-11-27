@@ -40,13 +40,7 @@ fn has_dot_segment(value: &str) -> bool {
     })
 }
 
-string_id!(
-    /// The path and query of a daemon request, for example `/v0/threads?limit=5`. It starts with
-    /// exactly one `/`, so it can never change the host a request is addressed to, and holds no
-    /// spaces, control characters, backslash or fragment.
-    RequestTarget,
-    validate
-);
+string_id!(RequestTarget, validate);
 
 #[cfg(test)]
 mod tests {

@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// WorkspaceBranchRenamer is the narrow write port set_branch_name needs from the
-// worktree usecase: renaming the current workspace's branch.
 type WorkspaceBranchRenamer interface {
 	RenameBranch(
 		ctx context.Context,
@@ -19,13 +17,10 @@ type WorkspaceBranchRenamer interface {
 	) (domain.Workspace, error)
 }
 
-// BranchOuter records that the calling thread becomes a branch at the end of its turn.
 type BranchOuter interface {
 	RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error)
 }
 
-// branchOutTools is branch_out: deferred to the turn's end, so the agent finishes
-// its answer where it is; a repeat while one is pending is the same request.
 func branchOutTools(deps Deps) []toolDef {
 	if deps.Branches == nil {
 		return nil

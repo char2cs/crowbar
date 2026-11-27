@@ -16,8 +16,6 @@ func spawnCall(kind, scope string) engineagents.CanonicalEvent {
 	return ev
 }
 
-// A spawning call starts its subagent; the call's end binds it, and it keeps
-// the chat busy past the turn that spawned it.
 func TestMap_ASpawningCallStartsItsSubagentAndItsEndBindsIt(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("delegate")
@@ -48,7 +46,6 @@ func TestMap_ASpawningCallStartsItsSubagentAndItsEndBindsIt(t *testing.T) {
 	assert.False(t, c.st.Busy())
 }
 
-// A call that only waits on or closes a subagent addresses it and binds nothing.
 func TestMap_ACallAddressingASubagentBindsNothing(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("delegate")
@@ -75,8 +72,6 @@ func TestMap_ASpawnThatFailsBeforeItsBindFailsItsSubagent(t *testing.T) {
 	assert.Equal(t, ledger.SubagentFailed, gone.Status)
 }
 
-// A stop of a subagent nothing started and that names no type is the CLI's own:
-// acknowledged with no row, as nothing about it is wrong.
 func TestMap_AStopOfAnUntypedUnknownSubagentIsInternal(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -136,7 +131,6 @@ func TestMap_APlanStepIsAnUpsertInItsScope(t *testing.T) {
 	assert.Empty(t, none, "a step names its id")
 }
 
-// A hand-back of a subagent the ledger never saw start still records it.
 func TestMap_AHandBackOfAnUnknownSubagentStartsIt(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -151,8 +145,6 @@ func TestMap_AHandBackOfAnUnknownSubagentStartsIt(t *testing.T) {
 	assert.Equal(t, "late", z.Result)
 }
 
-// A start of a subagent that already ended is a follow-up running it again;
-// one of a subagent still running records nothing.
 func TestMap_AStartOfAnEndedSubagentResumesIt(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("delegate")

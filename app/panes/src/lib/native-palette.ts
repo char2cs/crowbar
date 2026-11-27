@@ -1,8 +1,6 @@
 import { cssColorToHex } from '@/features/editor/theme/resolve-css-color'
 import type { NativePalette } from '@/lib/native-chrome'
 
-/** A token as a colour the phone parses: the browser resolves any CSS colour function or
- *  `var()` chain on a child of `host`, then it is sent as hex. */
 function colorOf(host: Element, name: string): string {
   const raw = getComputedStyle(host).getPropertyValue(name).trim()
   const probe = document.createElement('span')
@@ -18,8 +16,6 @@ const isLight = (hex: string) => {
   return (r * 299 + g * 587 + b * 114) / 1000 > 128
 }
 
-/** The sidebar's palette: what a `chrome-surface` region resolves to, or null where it keeps
- *  the plain chrome (told by its text being dark, not light, ink). */
 function readSidebarPalette(): NativePalette['sidebar'] {
   const probe = document.createElement('div')
   probe.className = 'chrome-surface'
@@ -37,7 +33,6 @@ function readSidebarPalette(): NativePalette['sidebar'] {
   return sidebar
 }
 
-/** The current theme's palette as CSS gives it: the Settings page's surface and its cards. */
 export function readNativePalette(): NativePalette {
   const root = document.documentElement
   return {

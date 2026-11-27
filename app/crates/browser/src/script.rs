@@ -1,5 +1,3 @@
-//! JavaScript injected into the page: agent operations, eval and element picking.
-
 use serde_json::Value;
 
 const REPORT: &str = include_str!("script/agent_report.js");
@@ -7,9 +5,6 @@ const PAGE_AGENT: &str = include_str!("../../../panes/src/features/browser/lib/p
 const POINTER_AGENT: &str =
     include_str!("../../../panes/src/features/browser/lib/pointer-agent.js");
 
-/// The script that runs one DOM op of the page scripts (`snapshot`, `click`, `type`, `press_key`,
-/// `scroll`, `wait`, `resolve`) for an agent. The page answers the request `id` through
-/// `window.ipc.postMessage` with the op's result or its failure.
 #[must_use]
 pub fn agent_script(
     id: &str,
@@ -19,8 +14,6 @@ pub fn agent_script(
     reporting(id, &op_body(op, &args.to_string()))
 }
 
-/// The script that runs `js`, the body of an async function, for an agent and reports its
-/// return value, or its failure, for the request `id`.
 #[must_use]
 pub fn eval_script(
     id: &str,
@@ -29,8 +22,6 @@ pub fn eval_script(
     reporting(id, js)
 }
 
-/// The script that starts a pick in the page. It posts the finished pick, or the failure, with
-/// `window.ipc.postMessage`, which is the only way the page answers.
 #[must_use]
 pub fn pick_script() -> String {
     let body = op_body("pick", "{}");
@@ -41,7 +32,6 @@ pub fn pick_script() -> String {
     )
 }
 
-/// The script that ends a pick in progress; the pending pick then posts a null result.
 #[must_use]
 pub fn cancel_pick_script() -> String {
     let body = op_body("cancelPick", "{}");

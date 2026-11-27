@@ -1,5 +1,3 @@
-//! [`LogStore`] on the local disk.
-
 use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;

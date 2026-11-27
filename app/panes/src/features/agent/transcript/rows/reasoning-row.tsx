@@ -4,7 +4,6 @@ import type { ReasoningItem } from '@/features/agent/stores/lib/transcript-items
 import { ShowFull } from '@/features/agent/transcript/rows/show-full'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
-/** What the model thought on its way to the reply, collapsed to how long it took. */
 function ReasoningRowBody({ chatId, item }: { chatId: string; item: ReasoningItem }) {
   const [open, setOpen] = useState(false)
   const seconds = Math.round((Date.parse(item.endedAt) - Date.parse(item.startedAt)) / 1000)

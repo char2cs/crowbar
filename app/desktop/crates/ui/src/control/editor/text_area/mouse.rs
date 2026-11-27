@@ -1,5 +1,3 @@
-//! Pointer handling of [`TextArea`]: click to place the caret, drag to select, wheel to scroll.
-
 use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollEvent, Window, point};
 
 use crate::control::editor::field::SelectionDrag;

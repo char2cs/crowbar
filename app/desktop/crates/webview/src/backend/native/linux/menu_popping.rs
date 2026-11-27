@@ -1,5 +1,3 @@
-//! The shell's context menus: develop's GTK menu, opened over the shell window where it asks.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 

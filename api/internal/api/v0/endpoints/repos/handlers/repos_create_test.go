@@ -26,8 +26,6 @@ import (
 
 var errStore = errors.New("store failure")
 
-// recordedOps is the real operation service over an in-memory store, with
-// every saved row on frames.
 type recordedOps struct {
 	*operation.Service
 	frames chan domain.Operation
@@ -43,8 +41,6 @@ func newRecordedOps(t *testing.T) *recordedOps {
 	return &recordedOps{Service: operation.New(opStore, func(op domain.Operation) { frames <- op }, time.Now), frames: frames}
 }
 
-// settled decodes the operation a 202 answered with and reads frames until it
-// has settled.
 func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	t.Helper()
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
@@ -69,13 +65,11 @@ func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) doma
 
 func statRepoOK(string) (os.FileInfo, error) { return nil, nil }
 
-// branchOutcome is what fakeRepoImporter reports for one protected branch.
 type branchOutcome struct {
 	id, branch string
 	err        error
 }
 
-// fakeRepoImporter records the ImportRepo call and reports branches to its progress.
 type fakeRepoImporter struct {
 	mu         sync.Mutex
 	got        []project.RepoImport
@@ -136,8 +130,6 @@ func doPost(r *gin.Engine, target string, body any) *httptest.ResponseRecorder {
 	return rec
 }
 
-// The add answers with its operation: the repo under the id minted here, then
-// one item per protected branch.
 func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	imp := &fakeRepoImporter{branches: []branchOutcome{{id: "w-main", branch: "main"}}}
 	ops := newRecordedOps(t)
@@ -163,8 +155,6 @@ func TestCreate_AnswersWithTheOperation(t *testing.T) {
 	assert.Equal(t, []project.RepoImport{{ID: repoID, ProjectID: "p1", Name: "alpha", Path: "/tmp/repo"}}, imp.calls())
 }
 
-// A protected branch that could not be set up fails its item with the reason,
-// and the operation as partial; the repo itself was added.
 func TestCreate_AFailedProtectedBranchIsAPartialFailure(t *testing.T) {
 	imp := &fakeRepoImporter{branches: []branchOutcome{
 		{id: "w-main", branch: "main", err: errors.New("mkdir: not a directory")},
@@ -184,7 +174,6 @@ func TestCreate_AFailedProtectedBranchIsAPartialFailure(t *testing.T) {
 	assert.Equal(t, domain.OpSucceeded, op.Items[2].State)
 }
 
-// A failed import fails the repo item with its reason.
 func TestCreate_AFailedImportFailsTheRepoItem(t *testing.T) {
 	imp := &fakeRepoImporter{err: errStore}
 	ops := newRecordedOps(t)
@@ -197,8 +186,6 @@ func TestCreate_AFailedImportFailsTheRepoItem(t *testing.T) {
 	assert.Equal(t, domain.OpFailed, op.Items[0].State)
 }
 
-// Re-adding a folder the project has returns the existing repo, and the
-// item names it rather than the id minted for the request.
 func TestCreate_ReAddingAFolderNamesTheExistingRepo(t *testing.T) {
 	imp := &fakeRepoImporter{repo: domain.Repository{ID: "r-old", ProjectID: "p1"}}
 	ops := newRecordedOps(t)
@@ -207,8 +194,6 @@ func TestCreate_ReAddingAFolderNamesTheExistingRepo(t *testing.T) {
 	assert.Equal(t, domain.EntityRef{Kind: domain.EntityRepo, ID: "r-old"}, op.Items[0].Ref)
 }
 
-// A folder another project owns is refused with the usecase's message, and
-// nothing is imported.
 func TestCreate_AlreadyImported_409(t *testing.T) {
 	imp := &fakeRepoImporter{importable: fmt.Errorf("%w in the project %q", project.ErrRepoAlreadyImported, "Cloned")}
 
@@ -246,9 +231,6 @@ func TestCreate_BadJSON_4xx(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// traversalNames is the set of repository names that must never reach a
-// filepath.Join: a repo with no parseable remote derives its worktree slug
-// from its name, so these would land worktrees outside the crowbar home.
 var traversalNames = []struct{ name, value string }{
 	{"parent traversal", "../../../../tmp/pwned"},
 	{"leading separator", "/etc/passwd"},

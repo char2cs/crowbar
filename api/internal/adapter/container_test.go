@@ -31,11 +31,6 @@ func TestGlobalView_HoldsProfilesAndSettings(t *testing.T) {
 	assert.NoError(t, statErr, "global view.db must exist under state/")
 }
 
-// TestGlobalView_UsesReadPool guards spec decision 12: the global view.db is a
-// read-model/view DB, so it MUST be opened with the multi-conn read pool, never
-// the single-conn OpenDB (the documented head-of-line "original wedge"). We pin
-// its MaxOpenConnections to the same value a fresh OpenReadPoolDB reports, so the
-// assertion tracks the read-pool sizing instead of a magic number.
 func TestGlobalView_UsesReadPool(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
@@ -67,10 +62,6 @@ func TestReviewThreadES_Global(t *testing.T) {
 	assert.NotNil(t, c.ReviewThreadSS())
 }
 
-// TestAgentChatES_Global mirrors TestReviewThreadES_Global for the additive
-// agentchat per-type plane (Task 9): opening the container must create the
-// event log at state/events/agent_chat.db and the read-model DB at
-// state/store/agent_chat.db, both non-nil.
 func TestAgentChatES_Global(t *testing.T) {
 	home := t.TempDir()
 	c, err := adapter.New(adapter.WithHomeDir(home))
@@ -94,7 +85,6 @@ func TestClose_ClosesAll(t *testing.T) {
 	c, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	// Touch every per-type plane so Close has real handles to checkpoint + close.
 	require.NotNil(t, c.WorkspaceES())
 	require.NotNil(t, c.WorkspaceSS())
 	require.NotNil(t, c.WorkspaceView())
@@ -108,8 +98,6 @@ func TestClose_ClosesAll(t *testing.T) {
 
 	require.NoError(t, c.Close())
 
-	// A fresh container opens the same home, and its per-type event store
-	// re-opens cleanly after the prior Close.
 	again, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = again.Close() })
@@ -120,8 +108,6 @@ func TestClose_ClosesAll(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// The home is held by the boot's migration session, which opens the stores
-// after it; the stores must not try to take the same lock a second time.
 func TestNew_OpensAHomeItsMigrationSessionHolds(t *testing.T) {
 	h, err := home.At(t.TempDir())
 	require.NoError(t, err)
@@ -161,8 +147,6 @@ func TestNew_CreatesAnOwnerOnlyHomeRoot(t *testing.T) {
 	}
 }
 
-// TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen: an older build made state/
-// and its two database dirs 0750; opening the home makes them owner-only.
 func TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "home")
 	h, err := home.ResolveDir(root)
@@ -183,8 +167,6 @@ func TestNew_NarrowsTheStateDirsAnOlderBuildLeftOpen(t *testing.T) {
 	}
 }
 
-// The home root is on the way to every checkout, which another uid may need to
-// traverse, so opening the home leaves its existing mode alone.
 func TestNew_LeavesTheModeOfAnExistingHomeRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "home")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -210,7 +192,6 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	// Every per-type DB file must live under `home`, never under the real ~/.crowbar.
 	for _, p := range []string{
 		filepath.Join(home, "state", "events", "workspace.db"),
 		filepath.Join(home, "state", "events", "review_thread.db"),
@@ -224,7 +205,6 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 		require.NoError(t, statErr, "expected %s to exist under the isolated home", p)
 	}
 
-	// The new per-type handles must be live.
 	assert.NotNil(t, c.WorkspaceES())
 	assert.NotNil(t, c.WorkspaceView())
 	assert.NotNil(t, c.ReviewThreadView())
@@ -232,10 +212,6 @@ func TestContainer_WithHomeDir_IsolatesAllState(t *testing.T) {
 	assert.NotNil(t, c.AgentChatReadDB())
 }
 
-// TestContainer_WithHomeDir_DoesNotUseEnvHome guards the decision-14 isolation
-// requirement: WithHomeDir must root every state subtree at the resolved
-// home, never CROWBAR_HOME; otherwise the per-type DBs would leak into
-// the CROWBAR_HOME root instead of the temp home.
 func TestContainer_WithHomeDir_DoesNotUseEnvHome(t *testing.T) {
 	envHome := t.TempDir()
 	t.Setenv("CROWBAR_HOME", envHome)
@@ -245,10 +221,8 @@ func TestContainer_WithHomeDir_DoesNotUseEnvHome(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close() })
 
-	// State lands under the explicit WithHomeDir root...
 	_, err = os.Stat(filepath.Join(home, "state", "events", "workspace.db"))
 	require.NoError(t, err)
-	// ...and NOT under the CROWBAR_HOME env root.
 	_, statErr := os.Stat(filepath.Join(envHome, "state", "events", "workspace.db"))
 	require.True(t, os.IsNotExist(statErr),
 		"adapter must not resolve state from CROWBAR_HOME when WithHomeDir is set")

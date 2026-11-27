@@ -1,5 +1,3 @@
-//! Geometry of the scrollbar thumb along one axis.
-
 const MARGIN: f32 = 4.0;
 const MIN_LENGTH: f32 = 24.0;
 

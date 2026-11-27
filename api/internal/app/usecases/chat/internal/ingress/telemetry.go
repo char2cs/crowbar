@@ -9,8 +9,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// RecordTelemetry records a usage report runner sent over channel. It is no
-// conversation event, so it is never judged by session.
 func (r *Recorder) RecordTelemetry(
 	ctx context.Context, runner engineagents.Runner, agent engineagents.Agent, raw []byte,
 	channel engineagents.Channel,
@@ -33,14 +31,11 @@ func (r *Recorder) RecordTelemetry(
 	return nil
 }
 
-// ForgetTelemetry drops chatID's report once another provider took the chat over:
-// it describes the CLI that left, and the incoming one may never report at all.
 func (r *Recorder) ForgetTelemetry(ctx context.Context, chatID string) {
 	r.telemetry.Forget(ctx, chatID)
 	r.frames.TelemetryGone(chatID)
 }
 
-// Telemetry is the chat provider's last usage report.
 func (r *Recorder) Telemetry(chatID string) (engineagents.Telemetry, bool) {
 	return r.telemetry.Get(chatID)
 }

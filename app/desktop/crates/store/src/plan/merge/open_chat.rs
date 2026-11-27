@@ -1,5 +1,3 @@
-//! The chat a panel follows and the host that holds it.
-
 use crate::live::PlanError;
 use crate::live::State;
 

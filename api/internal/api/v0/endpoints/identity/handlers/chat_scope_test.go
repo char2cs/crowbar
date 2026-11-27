@@ -16,14 +16,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// This file pins the handler half of identity's move onto /v0/chats/:chatId
-// (spec §4.2's shared bucket, §8 step 4c): WHICH workspace's worktree the
-// resolver is invoked with.
-//
-// The old /v0/workspaces/:wsId/identity mount (and its WorkspaceReader seam)
-// is gone as of spec §8 step 6 — resolveWorkspace now reads reqscope alone.
-
-// recordingResolver records the worktree path it was invoked with.
 type recordingResolver struct {
 	seenPaths []string
 }
@@ -55,9 +47,6 @@ func identityRouterForScopes(
 	return r
 }
 
-// TestChatScoped_ResolvesFromReqscope is the core assertion: a chat-scoped
-// request acts on the WORKSPACE resolveChatWorktree resolved, and the
-// resolver sees its worktree path rather than an empty best-effort fallback.
 func TestChatScoped_ResolvesFromReqscope(t *testing.T) {
 	resolver := &recordingResolver{}
 	resolved := domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved", Provisioning: domain.WorkspaceProvisioned}
@@ -72,9 +61,6 @@ func TestChatScoped_ResolvesFromReqscope(t *testing.T) {
 	assert.Equal(t, "/resolved", resolver.seenPaths[len(resolver.seenPaths)-1])
 }
 
-// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real: the
-// old /v0/workspaces/:wsId/identity mount this handler set used to also serve
-// answers nothing on this router any more.
 func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 	resolver := &recordingResolver{}
 	r := identityRouterForScopes(t, resolver, domain.Workspace{ID: "ws-resolved"})

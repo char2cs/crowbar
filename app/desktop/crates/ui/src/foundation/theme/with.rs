@@ -9,7 +9,6 @@ const MIN_UI_FONT_SIZE: f32 = 10.0;
 const MAX_UI_FONT_SIZE: f32 = 24.0;
 
 impl Theme {
-    /// The same theme with another id.
     #[must_use]
     pub fn with_id(
         self,
@@ -18,7 +17,6 @@ impl Theme {
         Self { id, ..self }
     }
 
-    /// The same theme with another mode.
     #[must_use]
     pub fn with_mode(
         self,
@@ -27,7 +25,6 @@ impl Theme {
         Self { mode, ..self }
     }
 
-    /// The same theme after the OS reported `system`.
     #[must_use]
     pub fn with_system(
         self,
@@ -36,7 +33,6 @@ impl Theme {
         Self { system, ..self }
     }
 
-    /// The same theme for a window with or without a blurred backdrop.
     #[must_use]
     pub fn with_vibrancy(
         self,
@@ -45,7 +41,6 @@ impl Theme {
         Self { vibrancy, ..self }
     }
 
-    /// The same theme for a UI font size in points (`uiFontSize` setting, 10 to 24).
     #[must_use]
     pub fn with_ui_font_size(
         self,
@@ -57,7 +52,6 @@ impl Theme {
         }
     }
 
-    /// The same theme with `family` for the UI text (`uiFontFamily` setting).
     #[must_use]
     pub fn with_ui_family(
         self,
@@ -69,7 +63,6 @@ impl Theme {
         }
     }
 
-    /// The same theme with `family` for headings (`headingFontFamily` setting).
     #[must_use]
     pub fn with_heading_family(
         self,
@@ -81,7 +74,6 @@ impl Theme {
         }
     }
 
-    /// The same theme with `family` for code (`fontFamily` setting).
     #[must_use]
     pub fn with_mono_family(
         self,

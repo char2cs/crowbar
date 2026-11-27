@@ -11,24 +11,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// The legacy tool statuses that ended a call well.
 const (
 	toolOK      = "ok"
 	toolRunning = "running"
 )
 
-// openTurnPrefix is the id the old daemon gave a reply still open on a runner:
-// "open-<chat id>-<runner id>".
 const openTurnPrefix = "open-"
 
-// pendingTurnPrefix is the id the old daemon gave a reply it opened for activity
-// before any text: "turn-<chat id>-<seq>". The reply took that activity on when it
-// closed, but not a record written after, as a subagent's own end.
 const pendingTurnPrefix = "turn-"
 
-// turnOf is the ledger turn a legacy record's turn id names: the turn holding
-// that legacy row, for an open reply's id the runner's turn at at, and for a
-// pending reply's the turn running at its seq.
 func (c *conversion) turnOf(legacyTurnID string, at time.Time) *group {
 	if g, ok := c.byID[legacyTurnID]; ok && legacyTurnID != "" {
 		return g
@@ -56,7 +47,6 @@ func (c *conversion) turnOf(legacyTurnID string, at time.Time) *group {
 	return found
 }
 
-// runningAt is the turn holding the last legacy row at or before seq.
 func (c *conversion) runningAt(seq int64) *group {
 	if c.bySeq == nil {
 		for _, g := range c.groups {
@@ -82,8 +72,6 @@ type seqGroup struct {
 	g   *group
 }
 
-// subagents restate each subagent as a start under its own scope and a stop:
-// its last reply when it ended, interrupted at its turn's end when it never did.
 func (c *conversion) subagents(agents []LegacySubagent) {
 	c.agents = map[string]*group{}
 	for _, a := range agents {
@@ -124,8 +112,6 @@ func (c *conversion) lastMessage(a LegacySubagent) string {
 	return messages[len(messages)-1].Text
 }
 
-// tools restate each call as its invocation and, once it ended, its outcome,
-// with the blob refs kept as they are. A call no turn holds is skipped.
 func (c *conversion) tools(tools []LegacyTool) {
 	for _, t := range tools {
 		g := c.turnOf(t.TurnID, t.StartedAt)

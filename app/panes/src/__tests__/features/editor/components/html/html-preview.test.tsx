@@ -32,9 +32,6 @@ beforeEach(() => {
   readDocument.mockImplementation(async (ref: DocumentRef) => ({ ref, text: 'png-bytes' }))
 })
 
-// The preview frames possibly agent-generated HTML: `allow-same-origin` with `allow-scripts`
-// would let it reach the Crowbar origin and lift its own sandbox. Asserted on the rendered iframe
-// attribute, so a runtime rebuild is caught too.
 describe('HtmlPreview iframe sandbox', () => {
   it('never grants allow-same-origin', async () => {
     const container = await previewOf(workspaceRef('w1', 'a.html'), '<h1>hi</h1>')

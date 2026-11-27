@@ -1,7 +1,3 @@
-//! The documents shown as their source rather than their rich view, by document URI: the view
-//! belongs to the document, as develop's markdown view store keys it by buffer, so every pane on
-//! a document shows the same view, and a document that closes opens rich again.
-
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 

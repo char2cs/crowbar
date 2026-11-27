@@ -13,7 +13,6 @@ export type Minted =
   { state: 'minting' } | { state: 'failed' } | { state: 'ready'; offer: PairingOffer }
 
 interface AddDeviceDialogProps {
-  /** The code being shown; null while the popup is closed. */
   minted: Minted | null
   onNewCode: () => void
   onClose: () => void
@@ -73,9 +72,6 @@ function OfferBody({ offer }: { offer: PairingOffer }) {
   )
 }
 
-/** Shows a one-time pairing code with the address and fingerprint a device confirms. The owner
- *  mints it on the click that opens the popup (and on `New code`), never on mount, because every
- *  mint replaces the last on the instance and a mount can run twice. */
 export function AddDeviceDialog({ minted, onNewCode, onClose }: AddDeviceDialogProps) {
   return (
     <Dialog open={minted !== null} onOpenChange={(open) => !open && onClose()}>

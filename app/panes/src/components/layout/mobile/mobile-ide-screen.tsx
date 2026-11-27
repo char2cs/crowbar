@@ -13,14 +13,11 @@ import { MobileFilesScreen } from './mobile-files-screen'
 import { useNativeFiles } from '@/features/window/hooks/use-native-files'
 import { useNativeTabs } from '@/features/window/hooks/use-native-tabs'
 
-// In the phone app the IDE's whole header row (Back, tabs, +, Files) is native.
 const NATIVE_CHROME = hasNativeChrome()
 const back = () => useMobileScreenStore.getState().back()
 const openFiles = () => useMobileScreenStore.getState().setFilesOpen(true)
 const closeFiles = () => useMobileScreenStore.getState().setFilesOpen(false)
 
-/** The phone's IDE: the focused chat's own editor tabs (terminals, branch review) full screen.
- *  Kept mounted while hidden, so a terminal keeps its screen between visits. */
 export function MobileIdeScreen({ hidden }: { hidden: boolean }) {
   const pane = useStore(windowPaneStore, (s) => s.panes[s.activePaneId] ?? null)
   const wsId = usePaneChatWorkspaceId(pane)
@@ -61,7 +58,6 @@ function PaneIde({
             </Button>
           </header>
         )}
-        {/* Under the native header row: its 44pt below the safe area. */}
         <div
           className="relative min-h-0 flex-1 data-[native=true]:mt-[calc(env(safe-area-inset-top)+44px)]"
           data-native={NATIVE_CHROME}
@@ -82,7 +78,6 @@ function PaneIde({
   )
 }
 
-/** The native tab strip's and file drawer's feeds; the drawer is the `#/mobile-files` webview. */
 function NativeIdeFeed({ paneId, wsId, chatId }: { paneId: string; wsId: string; chatId: string }) {
   useNativeTabs(paneId, wsId)
   useNativeFiles(wsId, chatId)

@@ -7,9 +7,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// RemoteBranchExists reports whether branch is on origin via a live `git ls-remote
-// --heads`. An unreachable, missing or dead origin (bounded by netQueryTimeout) answers
-// false with no error, so the caller falls back to creating the branch locally.
 func (e *engine) RemoteBranchExists(
 	ctx context.Context,
 	repoPath string,

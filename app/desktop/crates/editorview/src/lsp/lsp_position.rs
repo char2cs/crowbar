@@ -1,7 +1,3 @@
-//! LSP positions count UTF-16 code units, as develop's Monaco sends them and the daemon passes
-//! them through; the editor's rope counts chars. Every position crosses here on its way to or
-//! from a language server.
-
 use gpui_kit::base::input::{Rope, RopeExt as _};
 use lsp_types::{Position, Range};
 

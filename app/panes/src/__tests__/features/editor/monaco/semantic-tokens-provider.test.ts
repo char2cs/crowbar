@@ -1,14 +1,7 @@
-/**
- * The viewport provider answers synchronously (Monaco drops async answers on
- * every scroll): the language server's range tokens while its full request
- * is in flight, else shiki, else nothing.
- */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { editor, languages, CancellationToken, Range } from 'monaco-editor'
 import type { StateStack } from 'shiki/textmate'
 
-// `semantic-tokens-provider.ts` imports the light `editor.api.js` entry, not
-// the bare 'monaco-editor' specifier (see the comment there) — mock that.
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({
   editor: {},
   languages: { registerDocumentRangeSemanticTokensProvider: vi.fn() },
@@ -38,7 +31,6 @@ import { languages as monacoLanguages } from 'monaco-editor/esm/vs/editor/editor
 import { registerViewportSemanticTokens } from '@/features/editor/monaco/semantic-tokens-provider'
 import { SEMANTIC_TOKEN_LEGEND } from '@/features/editor/monaco/semantic-tokens-legend'
 
-// Registration is once-per-module, so the provider is captured from the first call.
 registerViewportSemanticTokens()
 const viewportSemanticTokensProvider = vi.mocked(
   monacoLanguages.registerDocumentRangeSemanticTokensProvider,
@@ -46,7 +38,6 @@ const viewportSemanticTokensProvider = vi.mocked(
 
 const typeIndex = (type: string) => SEMANTIC_TOKEN_LEGEND.tokenTypes.indexOf(type)
 
-/** Capitalized words are types, `#` a comment, everything else plain source. */
 function fakeGrammar(line: string) {
   const tokens: { startIndex: number; endIndex: number; scopes: string[] }[] = []
   for (const match of line.matchAll(/\S+/g)) {
@@ -86,7 +77,6 @@ function provide(model: editor.ITextModel): languages.SemanticTokens {
   ) as languages.SemanticTokens
 }
 
-/** A ready grammar's first compile runs on a timer, then the provider asks Monaco again. */
 async function warm(model: editor.ITextModel): Promise<void> {
   const changed = vi.fn()
   const subscription = viewportSemanticTokensProvider.onDidChange?.(changed)
@@ -128,7 +118,6 @@ describe('viewportSemanticTokensProvider', () => {
     await warm(model)
 
     const data = provide(model).data
-    // Only `Widget`: Monarch colors go's comments, so shiki leaves them alone.
     expect(Array.from(data)).toEqual([0, 0, 6, typeIndex('type'), 0])
   })
 

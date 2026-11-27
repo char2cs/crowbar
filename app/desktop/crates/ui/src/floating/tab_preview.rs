@@ -1,5 +1,3 @@
-//! The lifted editor tab under the pointer while it is dragged (develop's `TabDragPreview`).
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
@@ -21,9 +19,6 @@ const LINE: f32 = 1.5;
 const SHADOW_ALPHA: f32 = 0.15;
 const DIRTY_DOT: &str = "•";
 
-/// An editor tab's drag preview: the lifted control surface, `rounded-lg`, `px-2 py-1`, its
-/// `ui-text-xs` name (at most 200px) with the unsaved dot after it, as wide as the tab it lifts
-/// or else as its name. Return it from `on_drag`.
 #[derive(Clone)]
 pub struct TabPreview {
     name: SharedString,
@@ -32,7 +27,6 @@ pub struct TabPreview {
 }
 
 impl TabPreview {
-    /// A preview of the tab named `name`.
     pub fn new(name: impl Into<SharedString>) -> Self {
         Self {
             name: name.into(),
@@ -41,7 +35,6 @@ impl TabPreview {
         }
     }
 
-    /// Takes the width of the tab it lifts, as develop's drag overlay stretches its block preview.
     #[must_use]
     pub fn wide(
         mut self,
@@ -51,7 +44,6 @@ impl TabPreview {
         self
     }
 
-    /// Shows the unsaved dot after the name.
     #[must_use]
     pub fn unsaved(mut self) -> Self {
         self.unsaved = true;

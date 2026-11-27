@@ -60,7 +60,6 @@ describe('git slice', () => {
     expect(a.getState().gitLoad).toBe('ready')
   })
 
-  // A worktree whose repo moved still loads: the status failure is the fact the panel shows.
   it('keeps why git could not read the worktree, and clears it once git can', async () => {
     const a = createWorkspaceStore('ws-A')
     getGitStatus.mockRejectedValueOnce(new Error('not a git repository: /gone'))
@@ -73,8 +72,6 @@ describe('git slice', () => {
     expect(a.getState().gitStatus?.branch).toBe('main')
   })
 
-  // A commit made in the integrated terminal arrives only as a git push; a soft
-  // reset removes commits, so the reload must replace the list, not merge.
   it('reloadStatusAndLog replaces the commit list', async () => {
     const a = createWorkspaceStore('ws-A')
     await a.getState().gitActions.loadGitData()
@@ -112,8 +109,6 @@ describe('git slice', () => {
     expect(a.getState().workspaceGitStatus?.files).toHaveLength(200)
   })
 
-  // The sidebar's changed-files list is part of the workspace's git slice, so a
-  // switch back to a workspace shows it without refetching.
   it('loads the branch-review file summary with the git data, per workspace', async () => {
     const a = createWorkspaceStore('ws-A')
     const b = createWorkspaceStore('ws-B')

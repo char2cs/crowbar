@@ -149,7 +149,6 @@ mod tests {
     const CHUNK: usize = 1024;
     const LIMIT: usize = 4 * CHUNK;
 
-    /// (chunks the daemon would send, the relayed length or whether it was cut off as too large)
     type Relayed = Result<usize, bool>;
 
     const CASES: [(usize, Relayed); 2] = [(1024, Err(true)), (3, Ok(3 * CHUNK))];

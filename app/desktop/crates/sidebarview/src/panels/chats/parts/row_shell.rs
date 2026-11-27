@@ -1,5 +1,3 @@
-//! The 36px capsule every tree row is drawn in.
-
 use gpui::{Div, ElementId, InteractiveElement, Stateful, Styled, div, px, transparent_black};
 use ui::{Palette, radius};
 

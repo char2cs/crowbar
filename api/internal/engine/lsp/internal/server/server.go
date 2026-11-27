@@ -1,5 +1,3 @@
-// Package server runs one language-server process over JSON-RPC on stdio: it correlates responses
-// by id, dispatches diagnostics to a callback, and replays open documents when respawned.
 package server
 
 import (
@@ -21,105 +19,70 @@ import (
 
 const methodPublishDiagnostics = "textDocument/publishDiagnostics"
 
-// ErrClosed is returned by operations on a server that has been closed.
 var ErrClosed = errors.New("server: closed")
 
-// ErrNoSpawn is returned by Replay when the server was created without a spawn
-// closure (a test transport with no respawn support).
 var ErrNoSpawn = errors.New("server: no spawn closure")
 
-// ErrReplaced is delivered to in-flight requests when the transport is swapped
-// out by Replay: the old process is gone, so the pending response can never
-// arrive and the waiter is failed instead of blocking until its ctx cancels.
 var ErrReplaced = errors.New("server: transport replaced")
 
-// spawnFunc establishes a fresh transport to a (re)spawned language server.
 type spawnFunc func(ctx context.Context) (io.ReadWriteCloser, error)
 
-// waiterResult carries either a correlated JSON-RPC response or a terminal
-// error (server closed, transport replaced) to a blocked Request.
 type waiterResult struct {
 	resp protocol.Response
 	err  error
 }
 
-// Server is one running language-server process proxied over JSON-RPC.
 type Server interface {
-	// Request sends a JSON-RPC request and waits for the correlated response or
-	// ctx cancellation.
 	Request(
 		ctx context.Context,
 		method string,
 		params any,
 	) (json.RawMessage, error)
-	// Notify sends a JSON-RPC notification (no response expected). didOpen and
-	// didClose notifications update the tracked open-URI set.
 	Notify(
 		ctx context.Context,
 		method string,
 		params any,
 	) error
-	// Initialize performs the LSP initialize/initialized handshake, rooting the
-	// server at rootDir. It must be called once after spawn and before any
-	// feature request, or the language server ignores every message.
 	Initialize(
 		ctx context.Context,
 		rootDir string,
 	) error
-	// OnDiagnostics registers the callback invoked for every publishDiagnostics
-	// notification.
 	OnDiagnostics(
 		fn func(lsp.DiagnosticsEvent),
 	)
-	// OnExit registers the callback run once when the process exits on its own (crash/OOM), never on
-	// Close or a Replay swap, so the manager can evict the dead pool entry.
 	OnExit(
 		fn func(),
 	)
-	// OpenDocs returns the content-free set of currently open document URIs.
 	OpenDocs() *OpenDocs
-	// Replay respawns the process, repeats a handshake that ran before, and reopens every tracked
-	// document at its latest text; the pool entry, its refcount and the open documents survive.
 	Replay(
 		ctx context.Context,
 	) error
-	// SemanticTokens reports the server's semantic-token support, as its last
-	// initialize result declared it.
 	SemanticTokens() semtok.Support
-	// CanExecute reports whether the server declared command in its
-	// executeCommandProvider; any other command is the client's to run.
 	CanExecute(
 		command string,
 	) bool
-	// ExecuteCommand runs workspace/executeCommand and returns its result plus
-	// every workspace edit the server asked the client to apply while the
-	// command ran (commands edit through workspace/applyEdit, not their result).
 	ExecuteCommand(
 		ctx context.Context,
 		params any,
 	) (json.RawMessage, []json.RawMessage, error)
-	// Close terminates the process and fails any in-flight requests.
 	Close() error
 }
 
 type server struct {
 	spawn spawnFunc
 
-	mu         sync.Mutex
-	transport  io.ReadWriteCloser
-	reader     *bufio.Reader
-	nextID     int
-	waiters    map[int]chan waiterResult
-	onDiag     func(lsp.DiagnosticsEvent)
-	onExit     func()
-	closed     bool
-	rootDir    string
-	openParams map[string]json.RawMessage
-	// initOptions is the initializationOptions sent in every handshake.
-	initOptions map[string]any
-	features    serverFeatures
-	// commandEdits collects workspace/applyEdit requests while a command runs
-	// (nil otherwise); execMu serializes commands so each edit has one owner.
+	mu           sync.Mutex
+	transport    io.ReadWriteCloser
+	reader       *bufio.Reader
+	nextID       int
+	waiters      map[int]chan waiterResult
+	onDiag       func(lsp.DiagnosticsEvent)
+	onExit       func()
+	closed       bool
+	rootDir      string
+	openParams   map[string]json.RawMessage
+	initOptions  map[string]any
+	features     serverFeatures
 	commandEdits *[]json.RawMessage
 	execMu       sync.Mutex
 
@@ -138,9 +101,6 @@ func newServer(
 	}
 }
 
-// New spawns command/args in dir with its stdio as the transport. A reaper drives OnExit on a natural
-// exit so a crashed server is evicted rather than left a zombie in the pool; initOptions (nil for
-// none) is the handshake's initializationOptions.
 func New(
 	ctx context.Context,
 	command string,
@@ -167,9 +127,6 @@ func commandSpawn(
 	return func(
 		_ context.Context,
 	) (io.ReadWriteCloser, error) {
-		// The command and args come from the trusted server registry, not from
-		// untrusted input; launching the configured language server is the
-		// engine's entire purpose.
 		cmd := exec.Command(command, args...) // #nosec G204 G702
 		cmd.Dir = dir
 		return newProcessTransport(cmd, onExit)
@@ -244,8 +201,6 @@ func (s *server) OnExit(
 	s.onExit = fn
 }
 
-// handleProcessExit forwards a crash/OOM of the live process to OnExit; the transport suppresses it
-// on a deliberate Close or Replay.
 func (s *server) handleProcessExit() {
 	s.mu.Lock()
 	fn := s.onExit

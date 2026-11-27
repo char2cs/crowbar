@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useFileTreeStore } from '@/features/file-explorer/file-explorer/stores/file-explorer-tree-store'
 
-// Expanded paths are scoped per workspace: switching workspaces never borrows another's paths or
-// lets its toggles overwrite this one's.
 describe('useFileTreeStore expanded-path scoping', () => {
   beforeEach(() => {
     useFileTreeStore.setState({ expandedPathsByWorkspace: {}, selectedFiles: new Set() })
@@ -19,7 +17,7 @@ describe('useFileTreeStore expanded-path scoping', () => {
     useFileTreeStore.getState().toggleFolder('ws-a', 'src')
     useFileTreeStore.getState().toggleFolder('ws-b', 'src')
 
-    useFileTreeStore.getState().toggleFolder('ws-a', 'src') // collapse A
+    useFileTreeStore.getState().toggleFolder('ws-a', 'src')
 
     expect(useFileTreeStore.getState().isExpanded('ws-a', 'src')).toBe(false)
     expect(useFileTreeStore.getState().isExpanded('ws-b', 'src')).toBe(true)
@@ -64,8 +62,6 @@ describe('useFileTreeStore expanded-path scoping', () => {
   })
 
   it('getExpandedPaths returns a stable empty reference for an untouched workspace', () => {
-    // Referential stability matters: a selector returning a fresh Set every
-    // call would re-trigger every effect/memo keyed on it every render.
     const first = useFileTreeStore.getState().getExpandedPaths('ws-never-touched')
     const second = useFileTreeStore.getState().getExpandedPaths('ws-never-touched')
     expect(first).toBe(second)

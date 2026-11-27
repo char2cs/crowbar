@@ -2,26 +2,21 @@ use std::borrow::Borrow;
 
 use serde::{Deserialize, Serialize};
 
-/// The space (project) a tab belongs to, as develop's `ViewRecord.projectId`. Set once when the
-/// tab is made; the empty id is "no space yet", held by tabs stored before spaces were recorded.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SpaceId(String);
 
 impl SpaceId {
-    /// Wraps a project id.
     #[must_use]
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 
-    /// The project id, empty for a tab that has no space yet.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
-    /// Whether the tab was stored before spaces were recorded and still waits for one.
     #[must_use]
     pub fn is_unowned(&self) -> bool {
         self.0.is_empty()

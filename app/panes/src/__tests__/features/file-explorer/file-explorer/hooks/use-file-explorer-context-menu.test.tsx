@@ -11,9 +11,6 @@ import { toastManager } from '@/lib/toast-manager'
 
 const ROOT = '/root'
 
-// Base options: every required callback stubbed. Individual tests override the
-// handler + gating fields they exercise. rootFolderPath drives the absolute-path
-// join that Reveal in Finder and Copy Path perform.
 function baseOptions() {
   return {
     workspaceId: 'ws-1' as string | null,
@@ -35,9 +32,6 @@ function baseOptions() {
   }
 }
 
-// The hook returns a React element tree, not the raw item list; walk it to find
-// the ContextMenu element and read its `items` prop. This avoids rendering the
-// base-ui portal (which does not lay out meaningfully under jsdom).
 interface MenuProps {
   items: ContextMenuItem[]
   onClose: () => void
@@ -83,7 +77,6 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
     expect(labels).toContain('Upload File')
     expect(labels).toContain('Duplicate')
     expect(labels).toContain('Reveal in Finder')
-    // Not the workspace root, so no workspace-level affordances.
     expect(labels).not.toContain('Add Folder to Workspace')
     expect(labels).not.toContain('Remove From Workspace')
   })
@@ -103,7 +96,6 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
     const { labels } = openMenu(options, ROOT, true)
     expect(labels).toContain('Add Folder to Workspace')
     expect(labels).toContain('Upload File')
-    // Root hides file-management actions.
     expect(labels).not.toContain('Duplicate')
     expect(labels).not.toContain('Rename')
     expect(labels).not.toContain('Delete')
@@ -128,24 +120,20 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
       canRemoveWorkspaceRootPath: (p: string) => p === 'extra-root',
     }
 
-    // File: Duplicate + Reveal carry the node path; Reveal joins to absolute.
     const file = openMenu(options, 'api/main.go', false)
     click(file.items, 'Duplicate')
     expect(options.onDuplicatePath).toHaveBeenCalledWith('api/main.go')
     click(file.items, 'Reveal in Finder')
     expect(options.onRevealInFinder).toHaveBeenCalledWith(joinPath(ROOT, 'api/main.go'))
 
-    // Non-root directory: Upload targets that directory.
     const dir = openMenu(options, 'api', true)
     click(dir.items, 'Upload File')
     expect(options.onUploadFile).toHaveBeenCalledWith('api')
 
-    // Removable root: Remove passes its own path.
     const extra = openMenu(options, 'extra-root', true)
     click(extra.items, 'Remove From Workspace')
     expect(options.onRemoveFolderFromWorkspace).toHaveBeenCalledWith('extra-root')
 
-    // Workspace root: Upload normalises to '' and Add Folder fires path-less.
     const root = openMenu(options, ROOT, true)
     click(root.items, 'Upload File')
     expect(options.onUploadFile).toHaveBeenCalledWith('')
@@ -153,7 +141,6 @@ describe('useFileExplorerContextMenu — newly-rendered items', () => {
     expect(options.onAddFolderToWorkspace).toHaveBeenCalledTimes(1)
   })
 
-  // Its paths mean something only in the explorer's workspace: a paste anywhere else refuses.
   it.each([
     ['Copy', 'copy'],
     ['Cut', 'cut'],
@@ -190,7 +177,6 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
   it('hides every mutation item on a file while keeping read-only items (locked)', () => {
     const { labels } = openMenu({ ...baseOptions(), isLocked: true }, 'api/main.go', false)
     for (const label of MUTATION_LABELS) expect(labels).not.toContain(label)
-    // Read-only items and the file-open action stay reachable.
     expect(labels).toContain('Open')
     expect(labels).toContain('Copy Content')
     for (const label of READ_ONLY_LABELS) expect(labels).toContain(label)
@@ -201,7 +187,6 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
     expect(labels).not.toContain('New File')
     expect(labels).not.toContain('New Folder')
     expect(labels).not.toContain('Upload File')
-    // Read-only directory affordances remain.
     expect(labels).toContain('Refresh')
     expect(labels).toContain('Open All Files')
     expect(labels).toContain('Collapse All')
@@ -209,10 +194,8 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
   })
 
   it('hides env-template creation on a locked .env file', () => {
-    // Unlocked, the .env file offers env-template creation…
     const unlocked = openMenu({ ...baseOptions(), isLocked: false }, '.env', false)
     expect(unlocked.labels).toContain('Create .env.example')
-    // …locked, that mutation is gone but read-only actions stay.
     const locked = openMenu({ ...baseOptions(), isLocked: true }, '.env', false)
     expect(locked.labels).not.toContain('Create .env.example')
     expect(locked.labels).toContain('Open')
@@ -220,12 +203,10 @@ describe('useFileExplorerContextMenu — locked workspace gating', () => {
   })
 
   it('unlocked workspace is unchanged — mutation items present', () => {
-    // File-context mutations (New File/Folder + Upload are directory-only).
     const { labels } = openMenu({ ...baseOptions(), isLocked: false }, 'api/main.go', false)
     for (const label of ['Duplicate', 'Rename', 'Delete', 'Cut']) {
       expect(labels).toContain(label)
     }
-    // Directory-context mutations.
     const dir = openMenu({ ...baseOptions(), isLocked: false }, 'api', true)
     expect(dir.labels).toContain('Upload File')
     expect(dir.labels).toContain('New File')
@@ -277,7 +258,6 @@ describe('useFileExplorerContextMenu — failures', () => {
       )
     })
     click(findItems(result.current.contextMenuElement) ?? [], 'Properties')
-    // A chosen item closes the menu, which is modal while open.
     act(() => findMenu(result.current.contextMenuElement)?.onClose())
 
     render(<>{result.current.contextMenuElement}</>)
@@ -339,8 +319,6 @@ describe('useFileExplorerContextMenu — failures', () => {
   })
 })
 
-// "Create .env.example" reads and writes files: those belong to the workspace the tree
-// shows, never to whichever other one is in view.
 describe('useFileExplorerContextMenu — env template', () => {
   function createEnvExample(workspaceId: string) {
     const read = vi.spyOn(documents, 'readDocument').mockImplementation(async (target) => {

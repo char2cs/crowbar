@@ -1,5 +1,3 @@
-//! Links in the terminal text: finding, resolving and tokenising URLs and paths.
-
 mod cell_ref;
 mod finder;
 mod link;

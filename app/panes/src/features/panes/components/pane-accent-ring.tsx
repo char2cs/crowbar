@@ -9,9 +9,6 @@ interface PaneAccentRingProps {
   visible: boolean
 }
 
-// The active-pane border on a childless overlay faded by opacity: fading a colour on the large
-// translucent pane box repaints all of it each frame (85 vs 116 fps), while the compositor fades
-// an overlay without repainting beneath it.
 export function PaneAccentRing({
   position,
   sidebarPosition,

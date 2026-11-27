@@ -1,5 +1,3 @@
-//! What the system check says about the tools the flow needs.
-
 use store::Tool;
 
 use super::View;

@@ -1,21 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildFlickerStrip } from '@/components/ui/flicker-strip'
 
-/**
- * The strip builder bakes a flip-dot spinner's discrete SMIL timeline into a
- * static N-frame sprite so the animation can run as ONE compositor-driven
- * `transform: translateX()` instead of 25 main-thread SMIL timers.
- *
- * The correctness bar is exact visual equality, so the assertions here are
- * frame-by-frame reconstructions rather than shape checks: for every frame the
- * strip must carry the same dots, at the same radius, at the same opacity the
- * SMIL animation would be showing at that step.
- *
- * The parser under test is regex-based; this suite reads its output with
- * DOMParser instead, so a shared misreading of the markup can't make both
- * sides agree.
- */
-
 const svg = (body: string, viewBox = '0 0 30 30') =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="currentColor">${body}</svg>`
 
@@ -33,7 +18,6 @@ const parse = (markup: string) => {
   return root
 }
 
-/** Every circle in `markup`, as comparable plain records. */
 const dotsOf = (root: Element) =>
   Array.from(root.querySelectorAll('circle')).map((c) => ({
     cx: Number(c.getAttribute('cx')),
@@ -53,7 +37,6 @@ describe('buildFlickerStrip', () => {
     expect(strip!.markup).not.toContain('<animate')
 
     const root = parse(strip!.markup)
-    // Four frames of a 30-wide source, one row tall.
     expect(root.getAttribute('viewBox')).toBe('0 0 120 30')
     expect(dotsOf(root)).toEqual([
       { cx: 3, cy: 3, r: 2, fill: 'currentColor', opacity: '1' },
@@ -64,9 +47,6 @@ describe('buildFlickerStrip', () => {
   })
 
   it('emits every dot in every frame, so no dot is ever painted twice', () => {
-    // Two dots, one of which never changes. Both must appear in all 2 frames:
-    // layering an opaque dot over a translucent one would darken its
-    // antialiased edge, which is a visible difference at this size.
     const strip = buildFlickerStrip(svg(dot(3, 3, '1;0.15') + dot(9, 3, null)))
 
     const dots = dotsOf(parse(strip!.markup))
@@ -90,8 +70,6 @@ describe('buildFlickerStrip', () => {
   })
 
   describe('refuses to bake anything it cannot reproduce exactly', () => {
-    // Each of these returns null so the caller falls back to inlining the
-    // original SMIL asset — a slower spinner, never a wrong one.
     it('rejects interpolated (non-discrete) animation', () => {
       const source = svg(dot(3, 3, '1;0.15')).replace('calcMode="discrete"', 'calcMode="linear"')
       expect(buildFlickerStrip(source)).toBeNull()
@@ -127,11 +105,6 @@ describe('buildFlickerStrip', () => {
     })
   })
 
-  /**
-   * The exhaustive check. The spinner set is small and fully enumerable — 31
-   * assets, 4-18 frames each — so this proves equality for every frame the user
-   * can ever see, rather than sampling.
-   */
   describe('over the real spinner assets', () => {
     const assets = import.meta.glob('/src/components/ui/spinners/*.svg', {
       eager: true,
@@ -153,7 +126,6 @@ describe('buildFlickerStrip', () => {
       const strip = buildFlickerStrip(assets[path])
       expect(strip, `${path} must be bakeable`).not.toBeNull()
 
-      // What SMIL shows at step f, derived straight from the source document.
       const expected: ReturnType<typeof dotsOf> = []
       for (let f = 0; f < strip!.frames; f++) {
         for (const c of sourceDots) {

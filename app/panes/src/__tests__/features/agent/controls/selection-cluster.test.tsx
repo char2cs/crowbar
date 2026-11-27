@@ -20,7 +20,6 @@ afterEach(() => {
 
 const permission = { wsId: 'w1', chatId: 'c1', levels: ['guarded' as const, 'trusted' as const] }
 
-// The blank document and the dock's footer both draw this cluster, so both name the permission level.
 describe('SelectionCluster', () => {
   it('carries the permission chip on the desktop, after the model', () => {
     render(

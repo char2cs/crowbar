@@ -1,5 +1,3 @@
-//! One tab of a [`crate::Tabs`] list.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, ElementId, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,

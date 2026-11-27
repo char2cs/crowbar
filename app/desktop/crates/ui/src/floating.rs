@@ -1,6 +1,3 @@
-//! Everything painted above the window: portals, popovers, dialogs, menus,
-//! tooltips and drag ghosts.
-
 mod dialog;
 mod drag_ghost;
 mod layers;

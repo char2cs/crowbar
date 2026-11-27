@@ -1,5 +1,3 @@
-//! Sizes and strings of the remote folder picker.
-
 use gpui::{Pixels, px};
 
 pub(crate) const TREE_HEIGHT: Pixels = px(240.0);

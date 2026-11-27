@@ -4,11 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
-// The shared Dropdown animates open/close via framer-motion's AnimatePresence,
-// which keeps the exiting menu mounted until its exit transition resolves —
-// jsdom never fires that, so closing would only ever be observable through a
-// timing wait. Replace it with a synchronous, no-animation stand-in so a
-// closed menu is immediately absent from the DOM (no timers, no polling).
 vi.mock('framer-motion', () => {
   const MotionDiv = forwardRef<HTMLDivElement, Record<string, unknown>>(function MotionDiv(
     { initial: _initial, animate: _animate, exit: _exit, transition: _transition, ...domProps },
@@ -18,8 +13,6 @@ vi.mock('framer-motion', () => {
   })
   return {
     motion: new Proxy({} as Record<string, unknown>, { get: () => MotionDiv }),
-    // `m` is the LazyMotion-driven sibling of `motion` (see dropdown.tsx) — same
-    // no-animation stand-in works for it.
     m: new Proxy({} as Record<string, unknown>, { get: () => MotionDiv }),
     AnimatePresence: ({ children }: { children?: React.ReactNode }) => children ?? null,
     LazyMotion: ({ children }: { children?: React.ReactNode }) => children ?? null,
@@ -105,7 +98,6 @@ describe('ProviderSwitchDropdown', () => {
     )
     expect(screen.queryByRole('menuitem', { name: /claude/i })).toBeNull()
 
-    // Each menu row inlines that provider's own icon (not the current one's).
     expect(
       screen.getByRole('menuitem', { name: /codex/i }).querySelector('svg[data-p="codex"]'),
     ).toBeTruthy()
@@ -176,9 +168,6 @@ describe('ProviderSwitchDropdown', () => {
   })
 
   it('does not offer a DISABLED provider as a switch target', () => {
-    // "Disabled" means hidden entirely from every surface that OFFERS a provider
-    // — the New-chat rows and this switcher alike. Switching to a disabled
-    // provider would spawn the very CLI the user turned off.
     const withDisabled = providers.map((p) => (p.id === 'gemini' ? { ...p, enabled: false } : p))
     render(
       <ProviderSwitchDropdown
@@ -196,9 +185,6 @@ describe('ProviderSwitchDropdown', () => {
   })
 
   it('still names a disabled provider on the trigger when the chat is running on it', () => {
-    // Disabling never touches chats already running on that provider, so the
-    // trigger must keep naming what this chat is actually talking to — and the
-    // user must still be able to switch AWAY to an enabled one.
     const withDisabled = providers.map((p) => (p.id === 'gemini' ? { ...p, enabled: false } : p))
     render(
       <ProviderSwitchDropdown
@@ -216,9 +202,6 @@ describe('ProviderSwitchDropdown', () => {
   })
 
   it('explains what switching buys you when no other provider is enabled', () => {
-    // An empty menu is a dead end. Say why it is empty AND what enabling a second
-    // provider would give you — including that the conversation carries over,
-    // which is the non-obvious part users would never guess.
     const onlyClaude = providers.map((p) => (p.id === 'claude' ? p : { ...p, enabled: false }))
     render(
       <ProviderSwitchDropdown
@@ -230,7 +213,6 @@ describe('ProviderSwitchDropdown', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /claude/i }))
 
-    // Still nothing selectable — the hint must not masquerade as a switch target.
     expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
     expect(screen.getByText(/no other provider is enabled/i)).toBeTruthy()
     expect(screen.getByText(/context/i)).toBeTruthy()
@@ -264,7 +246,6 @@ describe('ProviderSwitchDropdown', () => {
     expect(trigger).toBeTruthy()
 
     fireEvent.click(trigger)
-    // All three providers are "other" relative to an unmatched current id.
     expect(screen.getAllByRole('menuitem')).toHaveLength(3)
   })
 })

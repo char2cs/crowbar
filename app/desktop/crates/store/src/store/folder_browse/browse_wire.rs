@@ -1,5 +1,3 @@
-//! A directory entry as `GET /v0/system/browse` sends it.
-
 use daemonapi::{EntryKind, Switch};
 use serde::Deserialize;
 

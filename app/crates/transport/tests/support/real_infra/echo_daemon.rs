@@ -8,8 +8,6 @@ use tokio_tungstenite::tungstenite::handshake::server::{
     Callback, ErrorResponse, Request, Response,
 };
 
-/// A fake daemon that upgrades every connection to a WebSocket, records the path it was dialled
-/// on, and echoes frames back with their kind intact.
 pub(crate) struct EchoDaemon {
     pub(crate) socket: PathBuf,
     pub(crate) paths: Arc<Mutex<Vec<String>>>,

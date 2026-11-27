@@ -2,9 +2,7 @@ use gpui::App;
 
 use crate::command::Command;
 
-/// What the shell does for the commands of the startup view; the view only asks.
 pub trait Actions {
-    /// Carries out `command`.
     fn perform(
         &self,
         command: Command,

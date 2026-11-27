@@ -2,9 +2,6 @@ import { cva } from 'class-variance-authority'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { cn } from '@/utils/cn'
 
-// `ghost` is for triggers on a surface; with no box, its optical edge is the icon, so text-column
-// alignment pulls back px-2 PLUS the 1px transparent border (9px). Variants are cn()'d so the
-// trigger's `px-2` wins; cva's base string skips tailwind-merge and would lose to buttonVariants.
 const TRIGGER_SHARED = 'min-w-0 gap-1 rounded-lg px-2 text-muted-foreground'
 
 const dropdownTriggerVariants = cva('', {

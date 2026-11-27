@@ -5,7 +5,6 @@ import type { ActiveSession } from '@/core/entities/active-sessions'
 
 type KillableAgent = Pick<ActiveSession, 'hostId' | 'chatId' | 'title' | 'viewers'>
 
-/** What to ask before ending `session`'s agent; the phone asks it in a native alert. */
 export function killAgentConfirmation(session: KillableAgent): { title: string; message: string } {
   const viewers =
     session.viewers > 0
@@ -17,7 +16,6 @@ export function killAgentConfirmation(session: KillableAgent): { title: string; 
   }
 }
 
-/** Force-kills `session`'s agent, reporting a refusal. Resolves to whether it went through. */
 export async function killAgent(session: KillableAgent): Promise<boolean> {
   try {
     await killChat(session.hostId, session.chatId)
@@ -28,8 +26,6 @@ export async function killAgent(session: KillableAgent): Promise<boolean> {
   }
 }
 
-/** The one way a client ends a running agent: confirm, then force-kill. Any paired client may kill
- *  any chat. Resolves to whether the kill went through. */
 export async function confirmAndKillAgent(session: KillableAgent): Promise<boolean> {
   const { title, message } = killAgentConfirmation(session)
   const confirmed = await primitiveConfirm(message, {

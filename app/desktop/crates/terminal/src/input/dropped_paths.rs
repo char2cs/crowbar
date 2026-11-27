@@ -1,13 +1,8 @@
-//! Files dropped on the terminal, as text for the shell.
-
 use std::path::PathBuf;
 
 const SAFE: &str = "/._-+@:,%=~";
 const ESCAPED: &str = "\"\\$`";
 
-/// The shell text for dropped `paths`: absolute paths only, double-quoted when they need it as
-/// develop's terminal does, each followed by a space. A name with a control character is skipped:
-/// it could type a command. Empty when no path qualifies.
 pub fn format_dropped_paths(paths: &[PathBuf]) -> String {
     paths
         .iter()

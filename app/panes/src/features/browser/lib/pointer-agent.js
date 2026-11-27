@@ -1,7 +1,4 @@
 /* global document, getComputedStyle, location, window -- runs in the page, not the app */
-// Injected after page-agent.js as `(<this file>)(base)`: the pick overlay and the
-// `resolve` op. A pick is a Promise the host awaits, so the page needs no channel
-// to the app; `pagehide` ends it, so a navigation never leaves it hanging.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the host evaluates this file as text, so nothing here references the name
 function pointerAgent(base) {
   const { roleOf, nameOf, hidden, refOf } = base.helpers
@@ -32,7 +29,6 @@ function pointerAgent(base) {
     const r = el.getBoundingClientRect()
     return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]
   }
-  // innerText keeps the break between cells; jsdom has none, so it falls back.
   const textOf = (el) => el.innerText ?? el.textContent
   const tagOf = (el) => el.tagName.toLowerCase()
 
@@ -172,8 +168,6 @@ function pointerAgent(base) {
     e.stopPropagation()
   }
 
-  // The click that follows the finishing mouseup would reach the page; the next
-  // mousedown means none is coming, so it ends the guard.
   function eatTrailingClick() {
     const release = () => {
       window.removeEventListener('click', eat, true)

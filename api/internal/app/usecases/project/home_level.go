@@ -9,17 +9,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// homeRow is one member of a project's home level. fresh marks a home chat predating Node rows: it holds
-// its frozen Chat.Order, and the first write that moves it mints its Node.
 type homeRow struct {
 	tree.Node
 	fresh     bool
 	createdAt time.Time
 }
 
-// homeLevel answers one project's rows in container folderID of its home level — its repos, home chats
-// (never the hidden owner) and home folders, never workspace anchors or other projects' rows — so an
-// index lands where the sidebar drew the drop line. Without a home workspace, chats are every chat there.
 func (u *projectUsecase) homeLevel(
 	ctx context.Context,
 	projectID string,
@@ -71,9 +66,6 @@ func (u *projectUsecase) homeLevel(
 	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), nil
 }
 
-// withNodelessRows appends root rows predating Node rows (repos, old home chats); their first move mints
-// the row. Absence from ListByParent("") is not "no Node" — a repo filed in a folder has one — so each
-// miss is confirmed with GetNode before being claimed fresh.
 func (u *projectUsecase) withNodelessRows(
 	ctx context.Context,
 	rows []homeRow,
@@ -87,10 +79,10 @@ func (u *projectUsecase) withNodelessRows(
 			continue
 		}
 		if _, gErr := u.nodes.GetNode(ctx, c.ID); gErr == nil {
-			continue // Node-backed, filed elsewhere
+			continue
 		}
 		if c.ParentID != "" && u.homeRowExists(ctx, c.ParentID, chats) {
-			continue // filed under a live row of the home
+			continue
 		}
 		rows = append(rows, homeRow{
 			Node:      tree.Node{ID: c.ID, Kind: tree.KindChat, Order: c.Order},
@@ -101,9 +93,6 @@ func (u *projectUsecase) withNodelessRows(
 	return rows
 }
 
-// homeRowExists reports whether id names a row a home chat can be filed
-// under; a pre-Node Chats-panel folder id names nothing, and the sidebar
-// draws such a chat at the root.
 func (u *projectUsecase) homeRowExists(
 	ctx context.Context,
 	id string,
@@ -124,7 +113,6 @@ func (u *projectUsecase) homeRowExists(
 	return err == nil && f != nil
 }
 
-// homeMember is homeLevel's per-kind membership rule for one Node row.
 func (u *projectUsecase) homeMember(
 	ctx context.Context,
 	n tree.Node,
@@ -147,8 +135,6 @@ func (u *projectUsecase) homeMember(
 	return false
 }
 
-// withoutHomeOwner drops the chat that owns the home workspace itself: it is
-// the workspace's own addressable row, not a row the top level draws.
 func withoutHomeOwner(
 	chats []domain.Chat,
 ) []domain.Chat {
@@ -165,7 +151,6 @@ func withoutHomeOwner(
 	return out
 }
 
-// NextHomeSlot implements Usecase.
 func (u *projectUsecase) NextHomeSlot(
 	ctx context.Context,
 	projectID string,
@@ -183,7 +168,6 @@ func (u *projectUsecase) NextHomeSlot(
 	return max(next, len(rows)), nil
 }
 
-// homeIndex is nodeIndex over homeLevel's rows.
 func homeIndex(
 	rows []homeRow,
 ) []slot {
@@ -194,9 +178,6 @@ func homeIndex(
 	return slots
 }
 
-// placeRepoAmongHomeSiblings gives subject the asked Order within (projectID, folderID), shifting
-// repos, home chats and home folders alike; subject is included authoritatively (see densifyRepos),
-// and a row with no Node yet is minted where it lands.
 func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	ctx context.Context,
 	projectID string,
@@ -226,8 +207,6 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	return decided, nil
 }
 
-// densifyHomeLevel closes the gap a departed repo left over the level's full member set; exclude is
-// the row known to have left even if Node's read model has not folded it yet.
 func (u *projectUsecase) densifyHomeLevel(
 	ctx context.Context,
 	projectID string,
@@ -243,8 +222,6 @@ func (u *projectUsecase) densifyHomeLevel(
 	return decided, err
 }
 
-// writeHomeLevel writes every move a home-level pass decided, mints the
-// fresh rows the level touched; the Tree's own announce publishes each move.
 func (u *projectUsecase) writeHomeLevel(
 	ctx context.Context,
 	rows []homeRow,
@@ -263,9 +240,6 @@ func (u *projectUsecase) writeHomeLevel(
 			return nil, nil, err
 		}
 	}
-	// A legacy root chat whose slot did not move (place reports no change, so
-	// its order IS its final index) still becomes Node-backed: the level was
-	// touched, and the next read must find every row on one surface.
 	for _, row := range rows {
 		if !row.fresh || written[row.ID] || row.ID == subjectID {
 			continue
@@ -278,7 +252,6 @@ func (u *projectUsecase) writeHomeLevel(
 	return decided, written, nil
 }
 
-// writeHomeRow mints a row with no Node yet where it lands, and moves any other.
 func (u *projectUsecase) writeHomeRow(
 	ctx context.Context,
 	row homeRow,

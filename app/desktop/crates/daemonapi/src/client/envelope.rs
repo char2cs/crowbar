@@ -1,5 +1,3 @@
-//! The `{success, data, error, code}` envelope every daemon route answers with.
-
 use protocol::DaemonResponse;
 use serde::Deserialize;
 use serde_json::Value;
@@ -7,10 +5,6 @@ use serde_json::Value;
 use crate::client::proxy_failure;
 use crate::error::{Error, Result};
 
-/// The `{success, data, error, code}` envelope a daemon route answers with.
-///
-/// [`Client::send`](crate::Client::send) opens it; a caller that sends its own requests opens
-/// the answer with [`Envelope::unwrap`].
 #[derive(Debug, Deserialize)]
 pub struct Envelope {
     #[serde(default)]
@@ -26,15 +20,6 @@ pub struct Envelope {
 pub(crate) const FIRST_ERROR_STATUS: u16 = 400;
 
 impl Envelope {
-    /// The `data` of a daemon answer to `path`, or why the daemon refused.
-    ///
-    /// An empty body with a success status reads as `null`.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Refused`] when the status is an error or the envelope says `success: false` (with
-    /// the daemon's message when it sent one), and [`Error::Body`] when a success body is not an
-    /// envelope.
     pub fn unwrap(
         path: &str,
         response: &DaemonResponse,
@@ -79,7 +64,6 @@ fn refused(
     status: u16,
     envelope: Envelope,
 ) -> Error {
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/lib/host-failure-notice.ts
     let worded = envelope.error.is_some() || envelope.code.is_some();
     let code = envelope
         .code

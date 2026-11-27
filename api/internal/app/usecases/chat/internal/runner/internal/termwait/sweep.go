@@ -12,8 +12,6 @@ func (d *detector) Sweep(ctx context.Context, publish Publish) {
 	d.sweep(ctx, publish)
 }
 
-// sweep reports whether the loop should keep ticking: true while any runner is
-// live, and on a census failure (the next tick retries it).
 func (d *detector) sweep(ctx context.Context, publish Publish) bool {
 	runners, err := d.deps.Runners.AllLive(ctx)
 	if err != nil {
@@ -39,7 +37,6 @@ func (d *detector) publishAndClose(ctx context.Context, publish Publish, runners
 	}
 }
 
-// endingNotice is a notice that ends the turn, on runner's screen.
 type endingNotice struct {
 	runner agents.Runner
 	notice agents.TerminalNotice

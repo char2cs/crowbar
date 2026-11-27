@@ -15,8 +15,6 @@ const MARKERS_THAT_STOP = new Set([
   'turn_interrupted',
 ])
 
-/** The newest marker that stopped the chat, while nothing was asked after it: no later
- *  prompt in the transcript or on its way. */
 export function useNewestStop(chatId: string): MarkerItem | undefined {
   return useChatStore((s) => {
     const feed = s.feeds[chatId]
@@ -24,11 +22,9 @@ export function useNewestStop(chatId: string): MarkerItem | undefined {
     for (let at = feed.order.length - 1; at >= 0; at--) {
       const item = feed.items.get(feed.order[at] ?? '')
       if (item?.kind === 'user') {
-        // A prompt the provider never took is no answer to a stop: it is its casualty.
         const refused = item.requestId && feed.facts.prompts[item.requestId]?.state === 'refused'
         if (!refused) return undefined
       }
-      // The newest stop decides: one the person made themselves leaves nothing to say.
       if (item?.kind === 'marker' && MARKERS_THAT_STOP.has(item.marker)) {
         return markerFailure(item) ? item : undefined
       }
@@ -37,7 +33,6 @@ export function useNewestStop(chatId: string): MarkerItem | undefined {
   })
 }
 
-/** The request id of the prompt that started `turnId`. */
 function usePromptOf(chatId: string, turnId: string | undefined): string | undefined {
   return useChatStore((s) => {
     const feed = s.feeds[chatId]
@@ -50,7 +45,6 @@ function usePromptOf(chatId: string, turnId: string | undefined): string | undef
   })
 }
 
-/** Sends the prompt that started the turn again, once. */
 function RetryButton({ requestId, retry }: { requestId: string; retry: FailureActions['retry'] }) {
   const [sent, setSent] = useState(false)
   return (
@@ -70,7 +64,6 @@ function RetryButton({ requestId, retry }: { requestId: string; retry: FailureAc
 const hasCatalogue = (providers: AgentProvider[]) =>
   providers.some((p) => p.connected && p.enabled && p.modelSelect && (p.models?.length ?? 0) > 0)
 
-/** The chat's latest stop, above the input box, with the one way on the person has. */
 export function TurnFailureTray({
   chatId,
   item,
@@ -83,7 +76,6 @@ export function TurnFailureTray({
   actions: FailureActions
 }) {
   const telemetry = useChatTelemetry(chatId)
-  // The provider the stopped turn ran on.
   const provider = useChatStore((s) =>
     item.turnId ? s.feeds[chatId]?.facts.providers[item.turnId] : undefined,
   )

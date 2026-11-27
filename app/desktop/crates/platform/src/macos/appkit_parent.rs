@@ -10,18 +10,10 @@ use raw_window_handle::{
     AppKitWindowHandle, HandleError, HasWindowHandle, RawWindowHandle, WindowHandle,
 };
 
-/// An `NSView` of one of the app's open windows that a native web view can be embedded into,
-/// presented as an `AppKit` window handle.
-///
-/// It holds a strong reference to the view, so the view outlives every handle borrowed from it.
 #[derive(Debug, Clone)]
 pub struct AppkitParent(Retained<NSView>);
 
 impl AppkitParent {
-    /// Finds the view at `address` among the views of the app's open windows.
-    ///
-    /// Returns `None` when no open window shows a view at that address, so a stale or made-up
-    /// address never becomes a parent.
     pub fn find(
         address: usize,
         main_thread: MainThreadMarker,
@@ -39,14 +31,12 @@ impl AppkitParent {
         &self.0
     }
 
-    /// The window that shows the view, while one does.
     #[must_use]
     pub fn window(&self) -> Option<Retained<NSWindow>> {
         self.0.window()
     }
 }
 
-/// Runs `task` on the next turn of the main run loop.
 // PLATFORM: macos a menu is tracked in a run loop of its own, which re-enters its opener if popped inside its update.
 #[expect(unsafe_code, reason = "performBlock is unsafe in objc2")]
 pub fn on_next_turn(

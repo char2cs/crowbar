@@ -68,7 +68,6 @@ describe('useWorkspaceFileTree', () => {
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
     expect(fetchFileTree).toHaveBeenCalledWith('ws-test')
     expect(store.getState().files).toEqual(rootTree)
-    // Buffers restored while the workspace was never shown are checked against disk.
     expect(reconcileBuffers).toHaveBeenCalledWith('ws-test')
   })
 
@@ -132,7 +131,7 @@ describe('useWorkspaceFileTree', () => {
     await waitFor(() => expect(held()).toEqual(['files:ws-test']))
     expect(fetchFileTree).toHaveBeenCalledTimes(1)
 
-    attach() // a change before the attach may be missing from the read
+    attach()
     fetchFileTree.mockResolvedValueOnce([rootTree[1]])
     read(rootTree)
     await waitFor(() => expect(store.getState().files).toEqual([rootTree[1]]))
@@ -170,8 +169,6 @@ describe('useWorkspaceFileTree', () => {
     )
   })
 
-  // A structural change is applied in place and a plain content edit never
-  // re-lists a directory.
   it('re-lists the parent directory on a structural change only', async () => {
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
@@ -189,8 +186,6 @@ describe('useWorkspaceFileTree', () => {
     await waitFor(() => expect(store.getState().files).toHaveLength(3))
   })
 
-  // After a reconnect the tree and any open buffers may have missed writes: the
-  // resubscribe's synced re-reads both from disk.
   it('re-lists the root and reconciles open buffers when the stream reconnects', async () => {
     const { store } = setup()
     await waitFor(() => expect(store.getState().fileTreeStatus).toBe('ready'))
@@ -207,7 +202,6 @@ describe('useWorkspaceFileTree', () => {
   it('fetches an expanded folder’s children once, and again if a re-list drops them', async () => {
     const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
     useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-test': new Set(['src']) } })
-    // The snapshot may land during the first read, which then re-lists the root.
     fetchFileTree.mockImplementation(async (_ws: string, path?: string) =>
       path === 'src' ? srcChildren : rootTree,
     )
@@ -353,7 +347,6 @@ describe('on an install that has paired a remote host', () => {
     expect(fetchFileTree).not.toHaveBeenCalled()
   })
 
-  // The scope's synced on re-hold re-reads a tree that may have missed changes in the gap.
   it('re-lists the tree when its host returns, picking up what changed in the gap', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     const { store } = setup('ws-remote')
@@ -365,7 +358,6 @@ describe('on an install that has paired a remote host', () => {
       { name: 'new.ts', path: 'new.ts', isDir: false },
     ])
 
-    // A re-paired host streams its projects again.
     act(() => {
       pairRemoteHost('host-1')
       loadProjects(projectOn('p-remote', 'host-1'))

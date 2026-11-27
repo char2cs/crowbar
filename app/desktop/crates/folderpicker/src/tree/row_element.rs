@@ -1,5 +1,3 @@
-//! One row of the tree: an indent, a caret and icon for a folder, and the name or note.
-
 use gpui::{
     App, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window, div,

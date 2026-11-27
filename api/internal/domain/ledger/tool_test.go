@@ -37,7 +37,6 @@ func TestState_KeepsWhatARetriedToolPhaseIsRecognisedBy(t *testing.T) {
 	assert.Equal(t, "T1", turn)
 }
 
-// An ask that names no file is guarded by its call's: the aim its first phase recorded.
 func TestState_ToolAimIsWhatItsFirstPhaseSaid(t *testing.T) {
 	pre := scoped(t, ledger.KindToolCall, "T1", "", ledger.ToolCall{
 		ToolID: "c1", Phase: ledger.ToolPre, Name: "fileChange", Kind: ledger.ToolKindEdit, Target: "/old/a.txt",
@@ -66,8 +65,6 @@ func TestState_OpenToolIsTheNewestUnfinishedCallOfItsName(t *testing.T) {
 	assert.False(t, open)
 }
 
-// Of two open calls of one name, an input names the one it was given to; a
-// call whose input was never recorded is told apart by its name alone.
 func TestState_OpenToolOfAnInputIsTheCallGivenThatInput(t *testing.T) {
 	keyed := func(id, input string) ledger.Row {
 		return scoped(t, ledger.KindToolCall, "T1", "", ledger.ToolCall{
@@ -119,7 +116,6 @@ func TestCheck_AToolCallNeedsAnIDAndAPhase(t *testing.T) {
 	require.ErrorIs(t, ledger.Check(ledger.State{}, toolCall(t, "", "t", "later", "Bash")), ledger.ErrMalformedRow)
 }
 
-// A command that returned names where it ran and its process; the one still open is told by that handle.
 func TestState_AnOpenCallIsFoundByItsProcessHandle(t *testing.T) {
 	pre := scoped(t, ledger.KindToolCall, "T1", "", ledger.ToolCall{
 		ToolID: "c1", Phase: ledger.ToolPre, Name: "run", Kind: ledger.ToolKindExecute, Cwd: "/work", Ref: "77",

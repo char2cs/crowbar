@@ -1,18 +1,13 @@
-//! How long a toast stays.
-
 use std::time::Duration;
 
 use crate::display::toast::toast_kind::ToastKind;
 use crate::foundation::tokens::timing;
 
-/// Whether a toast leaves on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ToastLifetime {
-    /// Dismissed after five seconds; a loading toast never expires.
     #[default]
     Auto,
-    /// Stays until it is dismissed (the React `timeout: 0` toast).
     Pinned,
 }
 

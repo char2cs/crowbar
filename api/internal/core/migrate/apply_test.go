@@ -198,7 +198,7 @@ func TestRun_AClosingRecordThatFailsDoesNotUndoTheMigration(t *testing.T) {
 	tick := tickingClock()
 	b.clock = func() time.Time {
 		if s != nil && s.run != nil && s.run.done == s.run.total {
-			require.NoError(t, s.led.Close()) // every step is recorded; run.end is next
+			require.NoError(t, s.led.Close())
 		}
 		return tick()
 	}
@@ -323,7 +323,6 @@ func TestProgress_ReportsThePhaseAndStep(t *testing.T) {
 	case err := <-done:
 		require.FailNow(t, "RunPreOpen returned before step 1 ran", "%v", err)
 	}
-	// Another goroutine, as the health handler reads it.
 	assert.Equal(t, Progress{Phase: PreOpen, Step: ID{Number: 1, Name: "a"}, Index: 1, Total: 2}, s.Progress())
 	close(release)
 	require.NoError(t, <-done)
@@ -381,8 +380,7 @@ func TestRun_CancelledContextIsInterruptedNotHalted(t *testing.T) {
 
 func TestRun_InterruptionIsToldFromFailureByTheErrorNotJustTheContext(t *testing.T) {
 	tests := []struct {
-		name string
-		// stop runs in the failing call, which cancels ctx and returns the error.
+		name        string
 		stop        func(ctx context.Context, cancel context.CancelFunc) error
 		interrupted bool
 	}{

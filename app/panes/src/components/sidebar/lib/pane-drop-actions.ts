@@ -9,7 +9,6 @@ import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-// Middle of a Recents row (spec §8.1): every dragged chat joins the target's view.
 function openRecentsEntryThenMerge(
   target: SidebarRow,
   targetChatId: string,
@@ -25,15 +24,11 @@ function openRecentsEntryThenMerge(
   }
   if (!targetPaneId) return
   for (const subject of dragged) {
-    // Compared by resolved CHAT id: a Recents row whose chat owns a workspace
-    // is a `branch` row, and the tree's copy may name it by workspace id.
     if (paneChatSubject(subject)?.chatId === targetChatId) continue
     openChatIntoPane(subject, targetPaneId, 'center')
   }
 }
 
-// Above/below a Recents row (spec §8.1): a member dragged out of a group detaches first; a
-// whole view moves within `viewOrder`.
 function reorderRecentsEntries(
   subjectChatIds: readonly string[],
   targetChatId: string,
@@ -54,8 +49,6 @@ function reorderRecentsEntries(
     const paneId = chatPaneIndex(state.panes).get(chatId)
     const sourceViewId = paneId ? state.panes[paneId]?.viewId : null
     if (!paneId || !sourceViewId || moved.has(sourceViewId)) continue
-    // A drag carrying every chat of a view moves the view; a partial one
-    // pulls its chats out of the group first.
     const viewChats = viewChatIds(state, sourceViewId)
     if (viewChats.length > 1 && !viewChats.every((id) => subjectSet.has(id))) {
       state.paneActions.detachPane(paneId)
@@ -69,9 +62,6 @@ function reorderRecentsEntries(
   }
 }
 
-// A drop onto a Recents row (spec §8.1): the middle opens the dragged chats into that view, the
-// edges reorder the band — no tree placement. Recents rows are always chats, but one owning a
-// workspace wears `kind: 'branch'`, so resolve through paneChatSubject, never `kind === 'chat'`.
 export function performRecentsDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
@@ -91,17 +81,12 @@ export function performRecentsDrop(
   reorderRecentsEntries(subjectChatIds, targetChatId, mode)
 }
 
-/** The chat a row opens into a pane, and the workspace that chat belongs to. */
 interface PaneChatSubject {
   chatId: string
   workspaceId: string
 }
 
-// What a dragged row means to the pane system: one chat and its workspace, or null. A chat row
-// answers directly; a branch row resolves its owning chat from the sidebar tree, since one whose
-// owner hasn't arrived would point the pane at no chat. Folders and workflows: null.
 function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
-  // The row carries the daemon's own answer for its workspace, which the view member records.
   if (row.kind === 'chat') {
     return row.workspaceId ? { chatId: row.id, workspaceId: row.workspaceId } : null
   }
@@ -111,8 +96,6 @@ function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
   return { chatId: owner, workspaceId: row.workspaceId }
 }
 
-// A row dropped onto a pane (spec §8.1/§8.2). Every drop ADDS: nothing here can remove a pane or
-// evict a chat already showing.
 export function performSidebarPaneDrop(
   subjects: SidebarRow[],
   paneId: string,
@@ -123,8 +106,6 @@ export function performSidebarPaneDrop(
   }
 }
 
-// One chat, clicked (spec §8.4: "clicking a chat makes its own view"). A click never merges;
-// merging is the drag-and-drop gesture alone.
 export function openChatInOwnPane(subject: SidebarRow): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
@@ -134,8 +115,6 @@ export function openChatInOwnPane(subject: SidebarRow): void {
   })
 }
 
-// One chat dropped onto one pane (§8.1/§8.2), the only gesture that puts two chats in one view.
-// An already-open chat is moved, never opened twice.
 function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
@@ -143,8 +122,6 @@ function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPane
   const target = panes[paneId]
   if (!target) return
 
-  // LAW 4: content never crosses a project. An unresolvable side is allowed
-  // through — a sidebar one frame behind must not break a same-project drop.
   const targetProject = target.viewId ? views[target.viewId]?.projectId : undefined
   const subjectProject = resolveChatProjectId(resolved.chatId, resolved.workspaceId)
   if (targetProject && subjectProject && targetProject !== subjectProject) {

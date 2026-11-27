@@ -1,5 +1,3 @@
-//! What keeping a terminal's zoom as a setting tells the log.
-
 use std::fmt;
 
 use journal::Level;

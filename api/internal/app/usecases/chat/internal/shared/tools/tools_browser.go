@@ -15,21 +15,16 @@ const (
 	maxWaitMs     = 30_000
 )
 
-// BrowserBridge is the daemon's route to the desktop app's browser tabs. Both
-// methods take the CALLER'S chat id, so what an agent can touch is decided
-// by who it is, never by an argument it supplies.
 type BrowserBridge interface {
-	// Tabs lists, as raw JSON, only the tabs that belong to chatID.
 	Tabs(chatID string) json.RawMessage
-	// Do runs op against a tab of chatID (or, with no tab, against the window).
 	Do(ctx context.Context, chatID, op, tabID string, args json.RawMessage) (json.RawMessage, error)
 }
 
 type browserSpec struct {
 	name, op, description string
-	props                 string // JSON object members, besides the shared "tab"
+	props                 string
 	required              []string
-	noTab                 bool // the op is not addressed to an existing tab
+	noTab                 bool
 }
 
 var browserSpecs = []browserSpec{
@@ -103,15 +98,13 @@ func (s browserSpec) schema() json.RawMessage {
 	}
 	quoted := make([]string, 0, len(s.required))
 	for _, name := range s.required {
-		quoted = append(quoted, strconv.Quote(name)) // field names are plain identifiers
+		quoted = append(quoted, strconv.Quote(name))
 	}
 	return json.RawMessage(fmt.Sprintf(
 		`{"type":"object","properties":{%s},"required":[%s],"additionalProperties":false}`,
 		props, strings.Join(quoted, ",")))
 }
 
-// rejectUnknown enforces the schema's additionalProperties:false, so nothing
-// the model invents (a chat id, say) is ever forwarded to the desktop.
 func (s browserSpec) rejectUnknown(fields map[string]json.RawMessage) error {
 	var known map[string]json.RawMessage
 	if err := json.Unmarshal(s.schema(), &struct {
@@ -181,9 +174,6 @@ func runBrowserOp(
 	return raw, nil
 }
 
-// pickTab resolves the tab an agent addressed. The id is still checked against
-// the caller's chat by the bridge; this only supplies the default when the
-// agent named none.
 func pickTab(b BrowserBridge, chatID string, fields map[string]json.RawMessage) (string, error) {
 	var named string
 	if raw, ok := fields["tab"]; ok {
@@ -226,8 +216,6 @@ func clampWait(raw json.RawMessage) json.RawMessage {
 	return json.RawMessage(strconv.Itoa(min(ms, maxWaitMs)))
 }
 
-// browserText shows a peer's answer to the model: a JSON string as itself,
-// anything else as compact JSON.
 func browserText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {

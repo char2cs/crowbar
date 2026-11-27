@@ -1,7 +1,5 @@
 import type { TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 
-/** A long chat holds tens of thousands of items and a live row changes one or
- *  two: copying them all per row cost a frame, so a write copies one bucket. */
 const BUCKETS = 64
 type Bucket = Map<string, TranscriptItem>
 
@@ -11,7 +9,6 @@ function bucketOf(id: string): number {
   return (hash >>> 0) % BUCKETS
 }
 
-/** A chat's items by id, immutable: an edit shares every bucket it did not touch. */
 export class ItemMap {
   static readonly empty = new ItemMap(Array.from({ length: BUCKETS }, () => new Map()))
 
@@ -20,7 +17,6 @@ export class ItemMap {
   get = (id: string) => this.buckets[bucketOf(id)]!.get(id)
   has = (id: string) => this.buckets[bucketOf(id)]!.has(id)
 
-  /** Every item, for a snapshot to keep; `ItemMap.of` is its inverse. */
   all(): TranscriptItem[] {
     return this.buckets.flatMap((bucket) => [...bucket.values()])
   }
@@ -31,8 +27,6 @@ export class ItemMap {
     return draft.finish()
   }
 
-  /** `finish` is the edited map (this one when nothing was written); a replay
-   *  writes on after it, into the map it gave. */
   edit() {
     let buckets: Bucket[] | null = null
     let finished: ItemMap | null = null

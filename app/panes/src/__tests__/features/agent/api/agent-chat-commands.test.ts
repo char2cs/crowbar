@@ -2,11 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
 vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
-// Only the scope REGISTRY is faked; the URL builders themselves run for real,
-// so these assertions pin the actual paths this client dials rather than a
-// stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
-// repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
-// falls back to the still-live /home mount; anything else is unrecorded scope.
 vi.mock('@/lib/workspace-scope', () => ({
   bindActiveWorkspaceId: () => {},
   getWorkspaceScope: (id: string) => {
@@ -54,8 +49,6 @@ describe('agent-chat-commands', () => {
     )
   })
 
-  // A staged cross-provider pick travels on the prompt like model/effort, so clicking a row never
-  // kills the live CLI before anything is sent; the backend decides whether to switch.
   it('threads a staged provider onto the same prompt body, committed atomically', async () => {
     apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
     await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'provider-b', '', '')
@@ -149,9 +142,6 @@ describe('agent-chat-commands', () => {
     expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({ optionIds: ['allow'] })
   })
 
-  // ONE call carries the whole prompt however many questions it asked: the option
-  // ids say which question each pick answers, so there is never a second call —
-  // and never a partial one, which is the shape that stranded the agent.
   it('answerChoice sends every question’s picks in a single flat list', async () => {
     apiFetch.mockResolvedValue(undefined)
 
@@ -165,8 +155,6 @@ describe('agent-chat-commands', () => {
     })
   })
 
-  // Several ids in ONE answer is what `multi` means, and the elicitation form
-  // travels beside them as the provider's own document.
   it('answerChoice carries several options and a form document', async () => {
     apiFetch.mockResolvedValue(undefined)
 
@@ -192,7 +180,6 @@ describe('agent-chat-commands', () => {
           terminalSessionId: '',
           activeProviderId: 'provider-a',
           createdAt: '2026-01-01T00:00:00Z',
-          // parentId/order omitted on the wire chat — grounded by mapChat below.
         },
         shifted: [{ id: 'f1', workspaceId: 'w1', title: 'F1', parentId: '', order: 3 }],
       })

@@ -93,8 +93,6 @@ function uniqueFontFamilies(families: string[]): string[] {
   return result
 }
 
-/** xterm.js measures cell width from the first font it resolves, so the order is: primary ->
- *  Nerd Font glyph fallbacks -> platform native -> generic monospace. */
 function buildTerminalFontFamily(primaryFont: string): string {
   const requestedFonts = splitFontFamilyList(primaryFont)
   const concreteRequestedFonts = requestedFonts.filter(
@@ -111,7 +109,6 @@ function buildTerminalFontFamily(primaryFont: string): string {
     .join(', ')
 }
 
-/** `false` if the font failed to load or timed out. */
 async function loadAndVerifyFont(fontFamily: string, fontSize: number): Promise<boolean> {
   const testString = `${fontSize}px "${fontFamily}"`
 
@@ -121,28 +118,20 @@ async function loadAndVerifyFont(fontFamily: string, fontSize: number): Promise<
     return false
   }
 
-  // `check()` returns true only if every glyph in the test string can be
-  // rendered with the requested font (i.e. the font actually loaded).
   return document.fonts.check(testString)
 }
 
-// Bundled Nerd Font symbols (theme.css @font-face): TUIs draw private-use icon glyphs that no text
-// mono font carries.
 const SYMBOL_FALLBACK_FONT = 'Symbols Nerd Font Mono'
 
-/** Warm the symbol font before first paint so icons aren't tofu; never throws or blocks init. */
 async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return
   try {
     await document.fonts.load(`${fontSize}px "${SYMBOL_FALLBACK_FONT}"`)
   } catch {
-    return // a missing font leaves the chain to degrade to a box
+    return
   }
 }
 
-/** The requested font when it loads, else platform mono, then glyph fallbacks. xterm's DOM
- *  renderer handles variable fonts natively, at WebGL-level throughput; block elements
- *  (U+2588-259F) come from the font rather than being drawn to the cell box. */
 export async function resolveTerminalFont(
   requestedFont: string,
   fontSize: number,

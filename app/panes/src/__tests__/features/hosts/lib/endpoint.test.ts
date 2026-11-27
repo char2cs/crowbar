@@ -13,7 +13,6 @@ describe('normalizeEndpoint', () => {
     ['homelab', 'homelab:3737'],
     ['my-host-2.lan', 'my-host-2.lan:3737'],
     ['xn--bcher-kva.example', 'xn--bcher-kva.example:3737'],
-    // A scheme and a trailing slash, as an address copied from a browser carries them.
     ['https://Lab.Example.com/', 'lab.example.com:3737'],
     ['http://lab.example.com:8080', 'lab.example.com:8080'],
     ['HTTPS://lab.example.com:8080/', 'lab.example.com:8080'],
@@ -24,14 +23,12 @@ describe('normalizeEndpoint', () => {
     ['0.0.0.0:1', '0.0.0.0:1'],
     ['255.255.255.255:65535', '255.255.255.255:65535'],
     ['127.0.0.1:38737', '127.0.0.1:38737'],
-    // A bare IPv6 address is all colons, so it takes the default port inside brackets.
     ['::1', '[::1]:3737'],
     ['FD00::2', '[fd00::2]:3737'],
     ['[::1]', '[::1]:3737'],
     ['[::1]:4000', '[::1]:4000'],
     ['[FD00:0:0:0:0:0:0:2]:4000', '[fd00::2]:4000'],
     ['https://[::1]:4000/', '[::1]:4000'],
-    // A non-ASCII name dials as the punycode its resolver looks up.
     ['Bücher.example', 'xn--bcher-kva.example:3737'],
     [`${'a'.repeat(63)}.com`, `${'a'.repeat(63)}.com:3737`],
     [`${'a.'.repeat(126)}a`, `${'a.'.repeat(126)}a:3737`],

@@ -1,6 +1,3 @@
-//! The keyboard of a chord button while it captures: it holds the focus and takes every key,
-//! the dialog's Escape and Tab included, as develop's capture-phase listener does.
-
 use gpui::{
     App, Div, FocusHandle, InteractiveElement as _, KeyBinding, NoAction, Stateful, Window,
 };
@@ -11,7 +8,6 @@ use crate::modal::key_routing::pressed;
 
 const CONTEXT: &str = "SettingsCapture";
 
-/// The bindings that keep the dialog's own keys off a capturing chord button.
 pub fn bindings() -> Vec<KeyBinding> {
     ["escape", "tab", "shift-tab"]
         .into_iter()

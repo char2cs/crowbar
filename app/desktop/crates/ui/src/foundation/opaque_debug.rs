@@ -1,6 +1,3 @@
-//! `Debug` for types that hold closures or elements and so cannot derive it.
-
-/// Implements `Debug` printing only the type name, for types that hold closures or elements.
 #[macro_export]
 macro_rules! opaque_debug {
     ($($ty:ident),+ $(,)?) => {$(

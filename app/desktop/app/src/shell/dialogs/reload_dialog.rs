@@ -1,6 +1,3 @@
-//! The question asked before reloading a tab whose edits are unsaved.
-
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/tabs/components/tab-bar-context-menu.tsx
 pub(crate) fn message_for(name: &str) -> String {
     format!("Discard unsaved changes to {name} and reload it from disk?")
 }

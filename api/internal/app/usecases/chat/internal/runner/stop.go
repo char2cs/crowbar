@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// StopChat answers the Stop button: the turn is interrupted in place where the
-// provider allows it, and the runner is retired otherwise.
 func (rs *Runners) StopChat(
 	ctx context.Context,
 	chatID string,
@@ -20,20 +18,13 @@ func (rs *Runners) StopChat(
 	return rs.endRunner(ctx, chatID, true)
 }
 
-// KillChat is the explicit force-kill: the runner is retired even mid-turn. The
-// chat record stays, dormant and resumable.
 func (rs *Runners) KillChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	// Detached: nothing re-sends a kill, so a request dropped mid-teardown
-	// (app quit, socket loss) must not leave the runner live.
 	return rs.endRunner(context.WithoutCancel(ctx), chatID, false)
 }
 
-// endRunner is the one owner of what a Stop or Kill records. Parked waits are
-// cancelled, not queued behind, so Stop is bounded by the teardown alone; an end
-// already under way is waited out with the lock released.
 func (rs *Runners) endRunner(
 	ctx context.Context,
 	chatID string,
@@ -66,7 +57,6 @@ func (rs *Runners) endRunner(
 		if err != nil || !retiring {
 			return err
 		}
-		// Outside the lock: the CLI's own hooks on the way down need it.
 		if err := rs.endMarked(ctx, v.runner); err != nil {
 			return fmt.Errorf("agent: stop chat: %w", err)
 		}
@@ -74,9 +64,6 @@ func (rs *Runners) endRunner(
 	}
 }
 
-// stopRunner ends the turn and settles pending prompts in one commit, then tells live:
-// an api provider mid-turn is interrupted in place; otherwise the runner is marked
-// retiring for the caller to end.
 func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Runner, gentle bool) (bool, error) {
 	stopped := false
 	_, _, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
@@ -103,9 +90,6 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	return retiring, nil
 }
 
-// settleStaleWork stops what the ledger folds as working on a chat with no CLI:
-// nothing will ever end that turn, and it would refuse every resume. The caller
-// holds the chat's lock, or runs at boot before any runner exists.
 func (rs *Runners) settleStaleWork(ctx context.Context, chatID string) error {
 	if _, live := rs.live.byChat(chatID); live {
 		return nil
@@ -122,13 +106,8 @@ func (rs *Runners) settleStaleWork(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// interruptEvent is the outbound event a provider declares when Crowbar can cancel
-// its turn without ending the session; key presence is the whole capability check.
 const interruptEvent = "interrupt"
 
-// interruptTurn asks a live api connection to cancel its turn in place; false (no
-// driver or reachable gesture) falls back to retire. Sent in the background: the turn
-// is already over in the ledger.
 func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {
@@ -158,9 +137,6 @@ func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 	return true
 }
 
-// divide records a divider of Crowbar's own doing on chatID: a provider,
-// model or effort it changed to detail. Best-effort: the change is made, and
-// a divider that failed to record must never undo it.
 func (rs *Runners) divide(ctx context.Context, chatID, kind, detail string) {
 	row, err := ledger.NewRow(ledger.KindMarker, "", "", ledger.Marker{Kind: kind, Detail: detail})
 	if err == nil {

@@ -83,7 +83,6 @@ describe('ChoiceRequest with a very long input', () => {
   it('draws a 1 MB single line bounded, and quickly', () => {
     const start = performance.now()
     show({ request: { toolName: 'Bash', toolInput: { command } } })
-    // Drawn whole, this took ~300 ms in escaping alone; bounded it is a few.
     expect(performance.now() - start).toBeLessThan(150)
     const code = screen.getByTestId('whole').querySelector('pre')!
     expect(code.textContent!.length).toBeLessThan(300)
@@ -94,7 +93,6 @@ describe('ChoiceRequest with a very long input', () => {
     show({ request: { toolName: 'Bash', toolInput: { command } }, expanded: true })
     const code = screen.getByTestId('whole').querySelector('pre')!
     expect(code.textContent).toBe(`${command}\n`)
-    // It scrolls inside its own bound, so it must be reachable by keyboard.
     expect(code).toHaveAttribute('tabindex', '0')
   })
 

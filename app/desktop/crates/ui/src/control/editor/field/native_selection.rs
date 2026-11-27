@@ -1,5 +1,3 @@
-//! The fill under selected text in a field, as the webview draws it for develop's inputs.
-
 use gpui::{Hsla, rgba};
 
 // PLATFORM: linux WebKitGTK draws Adwaita's accent at 30% since develop sets no selection colour.

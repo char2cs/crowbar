@@ -1,5 +1,3 @@
-//! The fixed part of the xterm 256-colour table: the 6x6x6 cube and the grey ramp.
-
 use crate::snapshot::palette::rgb::Rgb;
 
 const CUBE_START: u8 = 16;

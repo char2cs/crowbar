@@ -1,5 +1,3 @@
-//! Pointer gestures on the row: strip drags, drag sessions, presses, settling, tab drops, incoming drops and new tabs.
-
 mod drag_session;
 mod held_gap;
 mod incoming_drop;

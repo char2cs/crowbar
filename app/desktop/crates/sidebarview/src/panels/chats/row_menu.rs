@@ -1,5 +1,3 @@
-//! The context menu of a tree row.
-
 use sidebar::{
     Command, Intent, Lock, MenuContext, MoveTarget, Question, Row, RowKind, WorkspaceStatus,
     Worktree,

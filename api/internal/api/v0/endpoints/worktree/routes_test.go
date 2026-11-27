@@ -24,8 +24,6 @@ func TestMain(
 	m.Run()
 }
 
-// stubWorktrees resolves every chat to the same workspace, which is all the
-// route table has to know: whether the chat-keyed verbs are MOUNTED.
 type stubWorktrees struct{}
 
 func (stubWorktrees) Resolve(
@@ -146,8 +144,6 @@ func (stubOps) Start(
 func registerOn(
 	r *gin.Engine,
 ) {
-	// Register mounts on the repo-scoped group, so build the hierarchical prefix
-	// to mirror the production router chain.
 	repoScoped := r.Group("/v0/projects/:projectId/repos/:repoId")
 	worktree.Register(
 		repoScoped,
@@ -171,8 +167,6 @@ func TestRegisterMountsRoutes(
 		method string
 		path   string
 	}{
-		// The worktree lifecycle verbs, on the repo-scoped chat prefix beside
-		// chat's own verbs. Addressed by the thing that HOLDS the worktree.
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/lock"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/sync"},
 		{http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/merge-into-parent"},
@@ -191,10 +185,6 @@ func TestRegisterMountsRoutes(
 	}
 }
 
-// Spec §8 step 6: the thirteen :wsId routes this group used to mount are GONE,
-// every one of them replaced by a chat-keyed twin above. Asserting their absence
-// is what makes the deletion real rather than a package that merely stopped
-// being named after them — a re-mount for any reason fails here.
 func TestRegisterMountsNoWorkspaceKeyedRoutes(
 	t *testing.T,
 ) {
@@ -228,8 +218,6 @@ func TestRegisterMountsNoWorkspaceKeyedRoutes(
 	}
 }
 
-// Without a resolver the verbs cannot answer which worktree a chat holds, so
-// they are not mounted at all. The batch import does not need one and stays.
 func TestRegisterWithoutAResolverMountsOnlyTheImport(
 	t *testing.T,
 ) {

@@ -1,5 +1,3 @@
-//! The directory listing to load again once a change to the workspace's files has run.
-
 use crate::live::panel_loader::load_directory;
 use crate::live::state::Hub;
 

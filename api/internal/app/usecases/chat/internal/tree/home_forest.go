@@ -10,11 +10,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The Node-backed read side: rendering Folder/Node rows as the Chat-shaped view this package plans and
-// broadcasts against, and mergeForest, the one Node forest walk every scope (home and repo) shares.
-
-// homeFolderView renders a Folder+Node pair, home- or repo-scoped, as the Chat-shaped row the wire
-// contract carries. A zero Node is valid: a folder with no Node row yet sits at the root with Order 0.
 func homeFolderView(
 	f dtree.Folder,
 	n dtree.Node,
@@ -29,13 +24,8 @@ func homeFolderView(
 	}
 }
 
-// workspaceAnchorType marks a workspace's own Node row riding through the Chat-shaped snapshot: neither
-// folder nor chat, never persisted, distinct from nodePhantomType only so a fresh mint gets KindWorkspace.
 const workspaceAnchorType domain.ChatType = "__workspace_anchor__"
 
-// workspaceAnchorView renders a locked workspace's Node row as a Chat-shaped row, the container for rows
-// filed under a workspace id (which names no Chat or Folder) and the subject of its own placement.
-// WorkspaceID is its own id so repo scoping resolves; createdAt is the workspace's, the sidebar's tie-break.
 func workspaceAnchorView(
 	workspaceID string,
 	n dtree.Node,
@@ -51,8 +41,6 @@ func workspaceAnchorView(
 	}
 }
 
-// anchorView is workspaceAnchorView with the workspace's own creation time; a
-// workspace that is gone ties as the oldest, a read that fails is returned.
 func (u *chatFolderUsecase) anchorView(
 	ctx context.Context,
 	workspaceID string,
@@ -65,13 +53,8 @@ func (u *chatFolderUsecase) anchorView(
 	return workspaceAnchorView(workspaceID, n, createdAt), nil
 }
 
-// nodePhantomType marks a repo's own Node row riding through the Chat-shaped snapshot: neither folder nor
-// chat, written only through Nodes, never persisted or serialised.
 const nodePhantomType domain.ChatType = "__node_phantom__"
 
-// correctHomePlacement overrides a workspace chat's ParentID/Order with its live Node row: once placed,
-// Chat.ParentID/Order are frozen and Node is the authority. A chat with no Node row yet keeps its own
-// placement, except a parent that no longer exists, which puts it at the root.
 func (u *chatFolderUsecase) correctHomePlacement(
 	ctx context.Context,
 	row domain.Chat,
@@ -82,7 +65,7 @@ func (u *chatFolderUsecase) correctHomePlacement(
 	n, err := u.nodes.GetNode(ctx, row.ID)
 	if err != nil {
 		if row.ParentID != "" && !u.rowExists(ctx, row.ParentID) {
-			row.ParentID = "" // a retired Chats-panel folder: drawn at the root
+			row.ParentID = ""
 		}
 		return row, nil
 	}
@@ -91,9 +74,6 @@ func (u *chatFolderUsecase) correctHomePlacement(
 	return row, nil
 }
 
-// mergeForest folds the Node forest into baseRows breadth-first: chats get their live placement; folders,
-// repo phantoms and drawn anchors are appended. Seeds reach containers no Node leads to (owning chats,
-// anchors); at the shared bare root only scope's members count, so a densify never writes another level.
 func (u *chatFolderUsecase) mergeForest(
 	ctx context.Context,
 	baseRows []domain.Chat,
@@ -154,14 +134,10 @@ func (u *chatFolderUsecase) mergeForest(
 	if err := u.addNodelessAnchors(ctx, &f, scope, nodeSeen); err != nil {
 		return forest{}, err
 	}
-	// Decided over the CORRECTED rows: a Node-backed chat's raw ParentID is
-	// frozen at "", and only its live Node says where it really sits.
 	f.foreign = u.foreignAtRoot(ctx, f.rows, scope, aliases)
 	return f, nil
 }
 
-// forest is mergeForest's answer: the merged rows and the facts the
-// snapshot plans them with.
 type forest struct {
 	rows    []domain.Chat
 	homeIDs map[string]bool
@@ -170,8 +146,6 @@ type forest struct {
 	aliases levelAliases
 }
 
-// mergeHomeNode merges one discovered Node into *baseRows, returning whether it is Node-backed and the
-// container id to queue next ("" for a leaf: repos, and anything outside scope at the root).
 func (u *chatFolderUsecase) mergeHomeNode(
 	ctx context.Context,
 	n dtree.Node,
@@ -187,7 +161,6 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		}
 		if !u.rootMember(ctx, n, scope, aliases, row) {
 			if n.Kind == dtree.KindWorkspace && n.ID == scope.workspaceID {
-				// The header's anchor still holds the threads filed under it.
 				return false, n.ID, nil
 			}
 			return false, "", nil
@@ -200,14 +173,11 @@ func (u *chatFolderUsecase) mergeHomeNode(
 			return false, "", fmt.Errorf("agent chat folder: node forest: folder %s: %w", n.ID, ferr)
 		}
 		if f == nil {
-			// An orphaned Node -- not this walk's to include.
 			return false, "", nil
 		}
 		*baseRows = append(*baseRows, homeFolderView(*f, n))
 		return true, n.ID, nil
 	case dtree.KindChat:
-		// A fork's siblings can live in other workspaces and be absent from baseRows; append a stub
-		// so the densify counts them instead of seeing a level of one.
 		if i, ok := byID[n.ID]; ok {
 			(*baseRows)[i].ParentID = n.ParentID
 			(*baseRows)[i].Order = n.Order
@@ -218,7 +188,6 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		return true, n.ID, nil
 	case dtree.KindRepo:
 		if !scope.home || (scope.repoMemberIDs != nil && !scope.repoMemberIDs[n.ID]) {
-			// A repo is a sibling only at its own project's home; a deleted repo's row is nobody's.
 			return false, "", nil
 		}
 		*baseRows = append(*baseRows, domain.Chat{
@@ -228,7 +197,6 @@ func (u *chatFolderUsecase) mergeHomeNode(
 	case dtree.KindWorkspace:
 		included, err := u.mergeAnchorNode(ctx, n, baseRows)
 		if problem.CodeOf(err) == problem.NotFound {
-			// An orphaned Node, as for a folder: its workspace is gone.
 			return false, "", nil
 		}
 		return included, n.ID, err
@@ -236,8 +204,6 @@ func (u *chatFolderUsecase) mergeHomeNode(
 	return false, "", nil
 }
 
-// mergeAnchorNode appends a workspace's anchor only when the sidebar draws it (a locked branch); an unlocked
-// fork is drawn by its owning chat. Either way the walk queues it, since threads filed under it count.
 func (u *chatFolderUsecase) mergeAnchorNode(
 	ctx context.Context,
 	n dtree.Node,
@@ -258,8 +224,6 @@ func (u *chatFolderUsecase) mergeAnchorNode(
 	return true, nil
 }
 
-// homeSnapshotAround is workspaceSnapshotAround's body for a real workspace: rows merged against the Node
-// forest within workspaceID's scope, with subject treated as Node-backed.
 func (u *chatFolderUsecase) homeSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
@@ -271,7 +235,6 @@ func (u *chatFolderUsecase) homeSnapshotAround(
 	if err != nil {
 		return nil, err
 	}
-	// The subject's own container may be an owning chat no walk would otherwise discover.
 	f, err := u.mergeForest(ctx, rows, scope, append([]string{subject.ParentID}, seeds...))
 	if err != nil {
 		return nil, err
@@ -279,8 +242,6 @@ func (u *chatFolderUsecase) homeSnapshotAround(
 	return buildHomeSnapshot(f, subject, subject.ID != ""), nil
 }
 
-// repoMemberIDsForHome returns the home's project repo ids, or nil ("do not filter") when they cannot be
-// resolved: an unscoped densify is preferable to refusing the placement.
 func (u *chatFolderUsecase) repoMemberIDsForHome(
 	ctx context.Context,
 	homeWorkspaceID string,
@@ -292,8 +253,6 @@ func (u *chatFolderUsecase) repoMemberIDsForHome(
 	return ids
 }
 
-// buildHomeSnapshot builds the snapshot from a merged forest, marking subject Node-backed when
-// subjectIsHome, and fresh too when the walk found no Node row for it, so persist mints one.
 func buildHomeSnapshot(
 	f forest,
 	subject domain.Chat,

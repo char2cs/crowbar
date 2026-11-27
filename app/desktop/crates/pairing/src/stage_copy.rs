@@ -1,8 +1,5 @@
-//! The words of each stage of the dialog.
-
 use store::{PairingPending, PairingStage, PairingState};
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
 const ADDRESS_LEAD: &str = "On the host, open Settings → Devices and tap Add a device, or run crowbar pair: either shows the address, fingerprint and code you’ll need.";
 const FINGERPRINT_LEAD: &str = "Confirm this matches the fingerprint shown on that host:";
 

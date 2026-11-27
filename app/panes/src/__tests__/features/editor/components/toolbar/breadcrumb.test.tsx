@@ -26,7 +26,6 @@ function renderBuffer(doc: DocumentRef) {
   render(<Breadcrumb bufferId={bufferId} />)
 }
 
-// The pane shows ws-b's file while ws-a is the active workspace.
 function renderForeignBuffer(path: string) {
   setActiveWorkspaceId('ws-a')
   renderBuffer(workspaceRef('ws-b', path))

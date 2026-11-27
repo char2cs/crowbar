@@ -20,14 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// TestCreate_Success proves Create reads the workspace id from the :wsId path
-// param (Task 3: nested under .../workspaces/:wsId/chats) and the provider
-// from the body, forwards both to the create, and responds 201 with the mutation
-// envelope carrying the new chat's id.
-//
-// A body with no parentId names the panel root, and the handler must forward that
-// as the empty string rather than inventing anything — that is the path every
-// plain new chat still takes.
 func TestCreate_Success(
 	t *testing.T,
 ) {
@@ -54,10 +46,6 @@ func TestCreate_Success(
 	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2)
 }
 
-// Create forwards what the request names and nothing it does not: the
-// surface the chat is born on, its parent (thread or panel root), the
-// workspace from the path or the body, and ownWorktree only when no workspace
-// is named. A refused body reaches nothing; a tree failure is a mapped error.
 func TestCreate_ForwardsWhatTheRequestNames(t *testing.T) {
 	const wsPath, repoPath = "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", "/v0/projects/p1/repos/r1/chats"
 	wsParams, repoParams := gin.Params{{Key: "wsId", Value: "ws-1"}}, gin.Params{{Key: "repoId", Value: "r1"}}
@@ -101,11 +89,6 @@ func TestCreate_ForwardsWhatTheRequestNames(t *testing.T) {
 	}
 }
 
-// TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate pins
-// the sidebar's "type the branch name before it forks" flow (2026-09-09): the
-// body's branch must reach WorktreeSpec.Branch, distinct from Import.Branch
-// (an EXISTING branch being adopted, not a fresh one being cut) and forwarded
-// only alongside ownWorktree.
 func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
 	t *testing.T,
 ) {
@@ -124,49 +107,29 @@ func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
 		"the typed branch name must reach WorktreeSpec, not be dropped in favour of the auto-generated one")
 }
 
-// configurableListGetUsecase is a configurable agent-port double dedicated to
-// the List/Get handlers: each test dials in the chats or errors it needs to
-// exercise a given branch. SpawnChat/IngestHook are not exercised through this
-// double (see fakeAgentUsecase for those).
 type configurableListGetUsecase struct {
-	chats     []domain.Chat
-	listErr   error
-	listWsIDs []string
-	// listInRepoIDs records the repo ids List's repo-scoped branch forwarded
-	// (no :wsId in the URL), which reuses chats/listErr exactly as
-	// ListChatsByWorkspace does.
+	chats         []domain.Chat
+	listErr       error
+	listWsIDs     []string
 	listInRepoIDs []string
 
 	chat   domain.Chat
 	getErr error
 
-	// cwdWorkspaceID is where a BUBBLE's cwd walk lands (model spec §3.2);
-	// "" is the true orphan, whose whole ancestry owns no workspace.
 	cwdWorkspaceID string
 	cwdErr         error
 
-	// renamed records the chat ids RenameChat was called with, so a scope
-	// refusal can be proved to have landed BEFORE the write.
 	renamed []string
 
-	// liveRunners maps a chat id to the runner live on it; a chat ABSENT from
-	// the map is DORMANT. liveErr is the genuine-failure branch (a read that
-	// blew up).
 	liveRunners map[string]engineagents.Runner
 	liveErr     error
 
-	// conversations maps a chat id to its append-only history, OLDEST FIRST, so
-	// the last element is the chat's last conversation — the provider fallback a
-	// dormant chat's activeProviderId derives from.
 	conversations map[string][]engineagents.ChatConversation
 	convErr       error
 
 	selection    selectionCall
 	selectionErr error
 
-	// terminalWait is the standing "this chat's CLI is parked on a modal we
-	// cannot answer" verdict, keyed by chat id. A chat absent from the map is not
-	// waiting, which is the answer for every chat unless a test says otherwise.
 	terminalWait map[string]domain.AgentTerminalWait
 }
 
@@ -174,9 +137,6 @@ func (*configurableListGetUsecase) TelemetryOnChatSurface(context.Context, strin
 	return true
 }
 
-// ChatSnapshot assembles the double's own canned answers the way the snapshot
-// owner does: the chat row (from the list, else the single chat), the runner
-// placed on it, and the in-memory runtime facts.
 func (u *configurableListGetUsecase) ChatSnapshot(
 	_ context.Context,
 	chatID string,
@@ -233,10 +193,6 @@ func (u *configurableListGetUsecase) ListChatsByWorkspace(
 	return u.chats, nil
 }
 
-// ListChatsInRepo answers the repo-scoped list. It records the repo ids it was
-// asked for, because the whole point of the route's scoping is WHICH repo the
-// handler forwarded — a fixture that answered the same rows for every repo (as
-// the unscoped ListChats it replaced did) proves nothing about that.
 func (u *configurableListGetUsecase) ListChatsInRepo(
 	_ context.Context,
 	repoID string,
@@ -395,9 +351,6 @@ func (configurableListGetUsecase) SetModelManifestFetchEnabled(context.Context, 
 	return nil
 }
 
-// TestList_Success proves List reads the :wsId path param (Task 3: nested
-// under .../workspaces/:wsId/chats), forwards it to
-// ListChatsByWorkspace, and returns every chat as wire DTOs.
 func TestList_Success(
 	t *testing.T,
 ) {
@@ -427,11 +380,6 @@ func TestList_Success(
 	require.Equal(t, []string{"ws1"}, uc.listWsIDs)
 }
 
-// TestList_NoPathWorkspace_ScopesToTheRepo proves that at the repo-scoped mount
-// (Task 17: no :wsId path param) List reads the chats of the REPO in the URL
-// rather than ListChatsByWorkspace — and that it forwards the :repoId it was
-// given, which is the whole of the scoping. It used to read the daemon-global
-// list here and serve every other repo's chats with it.
 func TestList_NoPathWorkspace_ScopesToTheRepo(
 	t *testing.T,
 ) {
@@ -464,12 +412,6 @@ func TestList_NoPathWorkspace_ScopesToTheRepo(
 	assert.Empty(t, uc.listWsIDs, "ListChatsByWorkspace must not run when no workspace is named")
 }
 
-// chatRow mirrors the derived runner facts on the wire shape of dto.AgentChatDTO:
-// the runner PLACED on the chat right now and the PTY the pane attaches to, both
-// joined on at read time from the live-runner projection, plus the provider the
-// switch dropdown shows. There is deliberately no status/isLive field to read: the
-// presence of liveRunnerId IS the liveness answer, because the live row exists
-// exactly while the process does.
 type chatRow struct {
 	ID                string `json:"id"`
 	LiveRunnerID      string `json:"liveRunnerId"`
@@ -477,11 +419,6 @@ type chatRow struct {
 	ActiveProviderID  string `json:"activeProviderId"`
 }
 
-// TestList_LiveChatCarriesRunnerAndPTY proves the live join: a chat a runner is
-// placed on carries that runner's id (the liveness answer) and its terminal session
-// (what the pane attaches to), and activeProviderId is the LIVE runner's provider —
-// which wins over the history even when the last conversation names another vendor
-// (mid-switch, the new runner is already the truth).
 func TestList_LiveChatCarriesRunnerAndPTY(
 	t *testing.T,
 ) {
@@ -518,10 +455,6 @@ func TestList_LiveChatCarriesRunnerAndPTY(
 	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "the live runner's provider wins over the history")
 }
 
-// TestList_ChatWithNoRunnerEverIsEmpty proves a chat that has NEVER had a runner —
-// no live row, no conversation history — reads empty everywhere and does not error.
-// "Never ran" and "ran and exited" are both dormant; only the provider fallback tells
-// them apart.
 func TestList_ChatWithNoRunnerEverIsEmpty(
 	t *testing.T,
 ) {
@@ -546,8 +479,6 @@ func TestList_ChatWithNoRunnerEverIsEmpty(
 	assert.Empty(t, envelope.Data[0].ActiveProviderID)
 }
 
-// TestList_LiveRunnerLookupError proves a GENUINE live-runner read failure (not the
-// ErrNotFound that merely means "dormant") surfaces as a mapped error.
 func TestList_LiveRunnerLookupError(
 	t *testing.T,
 ) {
@@ -565,9 +496,6 @@ func TestList_LiveRunnerLookupError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGet_Success proves Get returns the scoped chat with the same derived runner
-// facts List carries, PLUS the chat's conversations — the append-only history that
-// replaced the deleted segment list.
 func TestGet_Success(
 	t *testing.T,
 ) {
@@ -615,12 +543,6 @@ func TestGet_Success(
 	assert.Equal(t, "sess-1", envelope.Data.Conversations[0].SessionID)
 }
 
-// TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers proves the list
-// route joins in TerminalWait per chat, the same way it joins in the live runner
-// and the conversation history: a chat the detector has flagged carries the
-// verdict on the wire, and a chat it has not carries no field at all — the field
-// must be genuinely ABSENT for the untouched chat, not present-and-null, since
-// that absence is the whole point of the *bool for "was this ever computed".
 func TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers(
 	t *testing.T,
 ) {
@@ -658,10 +580,6 @@ func TestList_CarriesTerminalWaitForAWaitingChatAndOmitsItForOthers(
 		"the key itself must appear exactly once — present for c1, genuinely omitted (not null) for c2")
 }
 
-// TestGet_CarriesTerminalWait proves the single-chat GET response joins in the
-// same TerminalWait verdict the list route does, so a client opening one chat
-// directly (a deep link, a reload) sees the banner without waiting on the
-// lifecycle socket to repeat it.
 func TestGet_CarriesTerminalWait(
 	t *testing.T,
 ) {
@@ -682,9 +600,6 @@ func TestGet_CarriesTerminalWait(
 	assert.Contains(t, rec.Body.String(), `"terminalWait":{"kind":"workspace_trust"}`)
 }
 
-// TestGet_ConversationsIsNeverNull proves the detail endpoint carries `conversations`
-// (the successor of the deleted `segments`) as [] rather than null on a chat that has
-// hosted none — the FE maps over it unguarded.
 func TestGet_ConversationsIsNeverNull(
 	t *testing.T,
 ) {
@@ -703,9 +618,6 @@ func TestGet_ConversationsIsNeverNull(
 	assert.NotContains(t, rec.Body.String(), `"segments"`, "segments are gone with AgentSegment")
 }
 
-// TestGet_RuntimeLookupError proves a failing runner-projection read on the detail
-// route surfaces as a mapped error rather than a chat with silently empty runner
-// facts — an empty liveRunnerId means DORMANT, and must never mean "the read broke".
 func TestGet_RuntimeLookupError(
 	t *testing.T,
 ) {
@@ -723,16 +635,6 @@ func TestGet_RuntimeLookupError(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGet_NoPathWorkspace_AnyWorkspaceIsVisible proves the repo-scoped mount
-// (Task 17: no :wsId path param) drops the WORKSPACE-ownership half of
-// requireChatInWorkspace: a chat anchored to some OTHER workspace OF THIS REPO
-// is served regardless, since the model spec addresses a chat by id alone
-// (§5.1) and a URL naming no workspace has no stale comparison left to make.
-//
-// The repo half is not dropped with it — see
-// TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome — so the
-// fixture now has to say which repo ws-other rides. It said nothing before,
-// and the assertion held only because nothing asked.
 func TestGet_NoPathWorkspace_AnyWorkspaceIsVisible(
 	t *testing.T,
 ) {
@@ -751,26 +653,6 @@ func TestGet_NoPathWorkspace_AnyWorkspaceIsVisible(
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// The repo mount's SCOPE check. requireChatInWorkspace enforced a scope only
-// when the route happened to carry a :wsId — which only the home mount does —
-// so the repo mount resolved ANY chat id in the daemon by id alone. Caught
-// live: GET .../repos/<r>/chats/<project-home-chat> answered 200 with a chat
-// the same repo's own GET .../chats never lists, and the client's
-// "a chat the list never mentions" recovery wrote it into that repo's store,
-// where the next seed computed it as vanished and deleted its pane and its
-// Recents row.
-//
-// The rule these pin: a chat is addressable through a mount when the GROUND it
-// runs on belongs to that mount — its own workspace, or, for a bubble, the one
-// its cwd walk lands on (model spec §3.2). That is the membership
-// ListChatsInRepo computes for the list beside it, so Get and List can no
-// longer disagree. Spec §9.2's open set is about the LINEAGE a row reads, not
-// the ground it runs on: a bubble whose chat ancestors live in the repo it left
-// still RUNS where its cwd walk lands, and is still addressed there.
-
-// TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome is the live
-// repro: the project home rides no repo, so a home chat belongs to no repo's
-// list and must belong to no repo's by-id route either.
 func TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome(
 	t *testing.T,
 ) {
@@ -789,8 +671,6 @@ func TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegression_RepoMountRefusesAChatThatRunsInAnotherRepo is the same rule
-// for the other repo-less-ness: a real workspace, a real repo, the wrong one.
 func TestRegression_RepoMountRefusesAChatThatRunsInAnotherRepo(
 	t *testing.T,
 ) {
@@ -809,10 +689,6 @@ func TestRegression_RepoMountRefusesAChatThatRunsInAnotherRepo(
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestRegression_RepoMountRefusesAHomeChatOnAMutatingRoute proves the check is
-// the SHARED one, not a special case bolted onto Get: every route that takes a
-// bare chat id goes through requireChatInWorkspace, and a write reached through
-// the wrong mount must be refused before it lands.
 func TestRegression_RepoMountRefusesAHomeChatOnAMutatingRoute(
 	t *testing.T,
 ) {
@@ -833,9 +709,6 @@ func TestRegression_RepoMountRefusesAHomeChatOnAMutatingRoute(
 	assert.Empty(t, uc.renamed, "RenameChat must never be called once the scope check 404s")
 }
 
-// TestGet_RepoMount_BubbleIsHeldToTheRepoItsWalkLandsIn proves a BUBBLE —
-// which carries no workspace of its own — is scoped by the same cwd walk the
-// list scopes it by, not waved through for lack of a field to compare.
 func TestGet_RepoMount_BubbleIsHeldToTheRepoItsWalkLandsIn(
 	t *testing.T,
 ) {
@@ -869,13 +742,6 @@ func TestGet_RepoMount_BubbleIsHeldToTheRepoItsWalkLandsIn(
 	}
 }
 
-// TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed is the other half
-// of the rule, and the one that keeps this from being worse than the bug: a
-// root bubble whose whole ancestry owns no workspace has NO scope to be held
-// to (the same posture matchScopeOrUnscoped takes on the socket), and a read
-// that simply failed is not a scope verdict. Neither may 404 — that would
-// hand the client's vanished-chat path the very deletion this fix exists to
-// prevent.
 func TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed(
 	t *testing.T,
 ) {
@@ -912,9 +778,6 @@ func TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed(
 	}
 }
 
-// TestRename_PostsTitleAndSource proves Rename decodes {title}, forwards the
-// path id, decoded title, and the `source` query param to RenameChat, and
-// responds 204 with an empty body on success.
 func TestRename_PostsTitleAndSource(
 	t *testing.T,
 ) {
@@ -978,9 +841,6 @@ func (configurableListGetUsecase) ReadAttachment(
 	return nil, "", nil
 }
 
-// TestSetSelection_ForwardsTheWholeSelection proves the endpoint decodes both
-// halves and forwards them together with the path id, answering 204 with an empty
-// body.
 func TestSetSelection_ForwardsTheWholeSelection(
 	t *testing.T,
 ) {
@@ -999,9 +859,6 @@ func TestSetSelection_ForwardsTheWholeSelection(
 	assert.Equal(t, selectionCall{chatID: "c-1", model: "opus", effort: "high"}, uc.selectionCalls[0])
 }
 
-// TestSetSelection_EmptyBodyClearsBothHalves: the body is the WHOLE selection, so
-// an omitted field is a cleared one — that is how a user returns a chat to the
-// provider's own default.
 func TestSetSelection_EmptyBodyClearsBothHalves(
 	t *testing.T,
 ) {

@@ -1,5 +1,3 @@
-//! The toast card.
-
 mod close;
 mod motion;
 mod phase;
@@ -42,10 +40,6 @@ use crate::foundation::tokens::timing;
 const CLOSE_CLEARANCE: f32 = 24.0;
 const TITLE_GAP: f32 = 2.0;
 
-/// A message card: icon by tone and text, under a title when it has one.
-///
-/// An updated error shakes and an updated success pulses; the card fades in when it first appears and
-/// out when it is [`Toast::leaving`]. With [`Toast::on_close`] it shows the corner close button.
 #[derive(IntoElement)]
 pub struct Toast {
     id: ElementId,
@@ -59,7 +53,6 @@ pub struct Toast {
 }
 
 impl Toast {
-    /// A toast of `kind` showing `message`.
     pub fn new(
         id: impl Into<ElementId>,
         kind: ToastKind,
@@ -77,7 +70,6 @@ impl Toast {
         }
     }
 
-    /// Puts `title` above the message in medium weight; the message then reads muted, as detail.
     #[must_use]
     pub fn title(
         mut self,
@@ -87,7 +79,6 @@ impl Toast {
         self
     }
 
-    /// Marks the toast as updated `updates` times; an updated error shakes again, a success pulses.
     #[must_use]
     pub fn updated(
         mut self,
@@ -97,7 +88,6 @@ impl Toast {
         self
     }
 
-    /// Shows the close button; `handler` runs when it is clicked.
     #[must_use]
     pub fn on_close(
         mut self,
@@ -107,14 +97,12 @@ impl Toast {
         self
     }
 
-    /// Stretches the card to the width of its container instead of fitting its text.
     #[must_use]
     pub fn full_width(mut self) -> Self {
         self.fill = true;
         self
     }
 
-    /// Fades the card out instead of in; the owner removes it once the fade is done.
     #[must_use]
     pub fn leaving(mut self) -> Self {
         self.phase = Phase::Leaving;

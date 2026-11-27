@@ -36,8 +36,6 @@ func (injectedPrompts) Check(d *spec.Descriptor) error {
 	return nil
 }
 
-// checkOpening holds an entry to one way of recognising its prompt, one that
-// cannot match every user message.
 func checkOpening(id string, i int, p spec.InjectedPromptSpec) error {
 	if p.Match != nil && p.Needle != "" {
 		return invalid(id, "injected_prompts[%d]: name needle or match, not both", i)

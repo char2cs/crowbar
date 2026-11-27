@@ -27,13 +27,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
-// shippedDescriptors is where the descriptors the daemon embeds live, from api/.
 const shippedDescriptors = "internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3"
 
-// recordedServeTurns holds the live app-server captures a served fake replays, from api/.
 const recordedServeTurns = "internal/engine/agents/internal/protocol/testdata/fixtures"
 
-// runnerTokenHeader is the header an HTTP hook proves its runner with.
 const runnerTokenHeader = "X-Crowbar-Runner-Token"
 
 var fakeCLI struct {
@@ -43,13 +40,11 @@ var fakeCLI struct {
 	err  error
 }
 
-// apiDir is the api/ module root, found from this file so tests need no cwd.
 func apiDir() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
-// FakeCLIPath builds tests/kit/fakecli once per test binary and returns the binary.
 func FakeCLIPath(tb testing.TB) string {
 	tb.Helper()
 	fakeCLI.once.Do(func() {
@@ -69,7 +64,6 @@ func FakeCLIPath(tb testing.TB) string {
 	return fakeCLI.path
 }
 
-// removeFakeCLI drops the built binary once the test binary's run is over.
 func removeFakeCLI() {
 	if fakeCLI.dir == "" {
 		return
@@ -79,33 +73,23 @@ func removeFakeCLI() {
 	}
 }
 
-// FakeProvider is a provider descriptor installed under <home>/descriptors whose
-// process is the fake CLI.
 type FakeProvider struct {
-	ID         string // descriptor id the chat is created with
-	Dir        string // capture directory the fake CLI writes into
-	descriptor string // the installed <home>/descriptors/<id>.yaml
+	ID         string
+	Dir        string
+	descriptor string
 }
 
-// FakeSpec selects what the installed descriptor is built from.
 type FakeSpec struct {
-	Base       string                   // shipped descriptor to keep ("claude"); "" = EventsYAML alone
-	ID         string                   // installed id; defaults to Base
-	EventsYAML string                   // replaces the events: block when non-empty (stub providers)
-	Patch      func(doc map[string]any) // test-specific edit of the decoded document
-	// Turn names the recorded frames an api-transport fake's turn replays between
-	// its start and completion, in place of the default reply.
-	Turn []string
-	// Composer, when set, makes the fake CLI a TUI input box (see Composer).
-	Composer *Composer
+	Base       string
+	ID         string
+	EventsYAML string
+	Patch      func(doc map[string]any)
+	Turn       []string
+	Composer   *Composer
 }
 
-// InstallFakeProvider writes the descriptor and points the daemon's provider
-// homes at temp dirs. Tests that call it must not run in parallel.
 func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider {
 	tb.Helper()
-	// Crowbar never reads a provider's home; temp roots keep anything that would
-	// resolve one off the developer's real one.
 	tb.Setenv(ClaudeHomeEnv, tb.TempDir())
 	tb.Setenv(CodexHomeEnv, tb.TempDir())
 
@@ -130,11 +114,8 @@ func InstallFakeProvider(tb testing.TB, home string, spec FakeSpec) FakeProvider
 	return FakeProvider{ID: id, Dir: dir, descriptor: path}
 }
 
-// writeDescriptor writes an override only once descriptorcheck accepts it.
 func writeDescriptor(tb testing.TB, path string, raw []byte) {
 	tb.Helper()
-	// A refused override silently falls back to the shipped descriptor, which
-	// would launch the real CLI.
 	for _, f := range descriptorcheck.Validate(raw).Findings {
 		require.NotEqual(tb, descriptorcheck.SeverityError, f.Severity,
 			"kit: fake descriptor %s refused: %s (line %d): %s", path, f.Rule, f.Line, f.Message)
@@ -142,8 +123,6 @@ func writeDescriptor(tb testing.TB, path string, raw []byte) {
 	require.NoError(tb, os.WriteFile(path, raw, 0o600))
 }
 
-// BreakSpawn points every later launch at a CLI that does not exist. The new
-// mtime is what makes the daemon reload the descriptor.
 func (f FakeProvider) BreakSpawn(tb testing.TB) {
 	tb.Helper()
 	before, err := os.Stat(f.descriptor)
@@ -175,7 +154,6 @@ func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any 
 		require.NoError(tb, yaml.Unmarshal([]byte(spec.EventsYAML), &events), "kit: EventsYAML")
 		doc["events"] = events
 	}
-	// An api-transport base serves from the fake too, replaying its recorded app-server turn.
 	if api, ok := block(tb, doc, "runtime")["api"].(map[string]any); ok {
 		fixtures := filepath.Join(apiDir(), recordedServeTurns, spec.Base)
 		serve := []any{cli, "app-server", dir, "{segid}", fixtures}
@@ -191,7 +169,6 @@ func fakeDocument(tb testing.TB, spec FakeSpec, cli, dir string) map[string]any 
 		setEnv("FAKECLI_DIR", dir),
 		setEnv("FAKECLI_SEG", "{segid}"),
 		setEnv("FAKECLI_TOKEN", "{runner_token}"),
-		// The only hook-command shape descriptorcheck accepts as wiring the hooks.
 		setEnv("FAKECLI_HOOK", "{hook_curl} {hook_url}"),
 	}
 	for _, kv := range composerEnv(spec.Composer) {
@@ -216,8 +193,6 @@ func bareDocument(cli string) map[string]any {
 	}
 }
 
-// shippedDocument is the embedded descriptor with the fake as its process and
-// everything the fake cannot take (flags, models, MCP, prompts) removed.
 func shippedDocument(tb testing.TB, base, cli string) map[string]any {
 	tb.Helper()
 	raw, err := os.ReadFile(filepath.Join(apiDir(), shippedDescriptors, base+".yaml")) //nolint:gosec // G304: a checked-in descriptor under api/
@@ -255,17 +230,15 @@ func pass(positional string) map[string]any {
 	return map[string]any{"pass_arg": map[string]any{"positional": positional}}
 }
 
-// Launch is what one fake CLI process recorded at start.
 type Launch struct {
 	RunnerID string   `json:"runnerId"`
 	Token    string   `json:"token"`
 	Argv     []string `json:"argv"`
 	PID      int      `json:"pid"`
-	Cwd      string   `json:"cwd"` // the working directory the CLI was started in
-	dir      string   // the provider's capture directory, where the CLI wrote its records
+	Cwd      string   `json:"cwd"`
+	dir      string
 }
 
-// AwaitLaunch blocks until the fake CLI for runnerID has written its capture.
 func (f FakeProvider) AwaitLaunch(tb testing.TB, runnerID string) Launch {
 	tb.Helper()
 	var l Launch
@@ -277,7 +250,6 @@ func (f FakeProvider) AwaitLaunch(tb testing.TB, runnerID string) Launch {
 	return l
 }
 
-// LaunchedRunners is every runner the fake CLI has recorded a launch for, sorted.
 func (f FakeProvider) LaunchedRunners(tb testing.TB) []string {
 	tb.Helper()
 	entries, err := os.ReadDir(f.Dir)
@@ -293,14 +265,11 @@ func (f FakeProvider) LaunchedRunners(tb testing.TB) []string {
 	return runners
 }
 
-// RefuseResume makes every later launch that resumes sessionID print line and
-// exit 1.
 func (f FakeProvider) RefuseResume(tb testing.TB, sessionID, line string) {
 	tb.Helper()
 	require.NoError(tb, os.WriteFile(filepath.Join(f.Dir, "refuse-"+sessionID), []byte(line+"\n"), 0o600))
 }
 
-// Kill sends SIGTERM to the launch's process: an exit with no hook.
 func (l Launch) Kill(tb testing.TB) {
 	tb.Helper()
 	proc, err := os.FindProcess(l.PID)
@@ -308,8 +277,6 @@ func (l Launch) Kill(tb testing.TB) {
 	require.NoError(tb, proc.Signal(syscall.SIGTERM))
 }
 
-// OnQuit makes l's CLI post payload as event once it is told to quit, before
-// it exits: what a real CLI flushes on its way down.
 func (l Launch) OnQuit(tb testing.TB, f FakeProvider, baseURL, provider, event string, payload []byte) {
 	tb.Helper()
 	raw, err := json.Marshal(map[string]string{
@@ -320,9 +287,6 @@ func (l Launch) OnQuit(tb testing.TB, f FakeProvider, baseURL, provider, event s
 	require.NoError(tb, os.WriteFile(filepath.Join(f.Dir, "onquit-"+l.RunnerID+".json"), raw, 0o600))
 }
 
-// PostHook posts payload to <baseURL>/chats/runners/<runner>/hooks/<provider>/<event>
-// with the runner token. baseURL is the server URL plus the repo or home route
-// prefix. The body is read and closed, then kept readable on the response.
 func (l Launch) PostHook(tb testing.TB, baseURL, provider, event string, payload []byte) *http.Response {
 	tb.Helper()
 	url := fmt.Sprintf("%s/chats/runners/%s/hooks/%s/%s", baseURL, l.RunnerID, provider, event)
@@ -339,8 +303,6 @@ func (l Launch) PostHook(tb testing.TB, baseURL, provider, event string, payload
 	return resp
 }
 
-// claudeHookRoutes are the canonical events the shipped claude descriptor's
-// hook registration posts each hook as. Notification is registered twice.
 var claudeHookRoutes = map[string][]string{
 	"SessionStart":       {"session_start"},
 	"UserPromptSubmit":   {"user_prompt"},
@@ -362,9 +324,6 @@ var claudeHookRoutes = map[string][]string{
 	"TaskCompleted":      {"plan_step"},
 }
 
-// ClaudeHookRoutes is where the shipped claude descriptor posts a hook named
-// hookEventName for a call of toolName: a TaskUpdate's PostToolUse also goes
-// to plan_step, by its own matcher.
 func ClaudeHookRoutes(hookEventName, toolName string) []string {
 	routes := claudeHookRoutes[hookEventName]
 	if hookEventName == "PostToolUse" && toolName == "TaskUpdate" {
@@ -373,9 +332,6 @@ func ClaudeHookRoutes(hookEventName, toolName string) []string {
 	return routes
 }
 
-// ReplayHooks posts each *.json in dir (lexical order) through l once per route of its
-// hook_event_name, after replacing every key of rewrite with its value in the raw bytes.
-// A payload with no route is skipped and its file name returned.
 func (l Launch) ReplayHooks(tb testing.TB, baseURL, provider, dir string,
 	routes func(hookEventName, toolName string) []string, rewrite map[string]string,
 ) (responses []*http.Response, skipped []string) {

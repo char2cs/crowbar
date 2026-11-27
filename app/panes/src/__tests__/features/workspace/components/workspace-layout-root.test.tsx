@@ -9,7 +9,6 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
     return platform.mobile
   },
 }))
-// The desktop's split tree and editor hosts have their own suites.
 vi.mock('@/features/panes/components/split-view-root', () => ({
   SplitViewRoot: () => <div data-testid="split-view-root" />,
 }))

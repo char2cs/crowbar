@@ -1,27 +1,17 @@
-//! Keyboard control of the focused separator.
-
 use crate::frame::metrics::{MAX_WIDTH, MIN_WIDTH};
 use crate::frame::panel::Panel;
 use crate::frame::separator::key_step::KeyStep;
 
-/// A key pressed on the focused separator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResizeKey {
-    /// Moves the separator left by one step.
     Left,
-    /// Moves the separator right by one step.
     Right,
-    /// Collapses the sidebar.
     Home,
-    /// Widens the sidebar to its maximum.
     End,
-    /// Collapses an open sidebar or reopens a collapsed one at its remembered width.
     Enter,
 }
 
 impl ResizeKey {
-    /// The sidebar width after this key, from `current` in a window `container` wide.
-    /// Arrow keys follow the dock side and clamp to the allowed range; below zero collapses.
     pub fn apply(
         self,
         step: KeyStep,

@@ -9,7 +9,6 @@ import { documentRefOf, documentUri } from '@/features/editor/documents/document
 import type { EditorDraft } from '@/features/editor/documents/draft-store'
 import type { WorkspaceLayout } from '@/lib/persistence/schemas'
 
-/** A native webview id; Rust names the webview `browser-<id>`. */
 const WEBVIEW_ID = /^[A-Za-z0-9_-]+$/
 
 function isRestorable(buffer: PaneContent): boolean {
@@ -17,8 +16,6 @@ function isRestorable(buffer: PaneContent): boolean {
   return buffer.type !== 'browser' || (WEBVIEW_ID.test(buffer.id) && typeof buffer.url === 'string')
 }
 
-/** Strips what belongs to this session alone: a live webview's in-flight load, and a failed
- *  read's reason (the boot restore reads the file again). */
 function withoutTransient(buffer: PaneContent): PaneContent {
   if (buffer.type === 'editor' && buffer.unavailable) {
     const { unavailable: _reason, ...kept } = buffer
@@ -30,7 +27,6 @@ function withoutTransient(buffer: PaneContent): PaneContent {
   return rest
 }
 
-/** The buffers as they are written to the saved layout. */
 export function toPersistedBuffers(buffers: PaneContent[]): PaneContent[] {
   return buffers.map(withoutTransient)
 }
@@ -40,23 +36,16 @@ interface PersistablePane {
   activeEditorTabId: string | null
 }
 
-// Generic over the pane type so a real `Record<string, PaneGroup>` round-trips
-// unchanged in every field this function does not touch.
 export interface Snapshot<P extends PersistablePane = PersistablePane> {
   buffers: PaneContent[]
   panes: Record<string, P>
 }
 
 interface Adoption {
-  /** The pane that takes a kept buffer no pane lists. */
   adoptInto: string
-  /** Keep every unlisted buffer, not only unsaved ones (a record with no views). */
   keepUnlisted?: boolean
 }
 
-/** The only check of persisted buffers: unknown content types are dropped, then C2 is set up once
- *  — dangling tab ids leave their pane, unlisted buffers are dropped unless they hold unsaved
- *  edits (`adoptInto` takes those). The store keeps C2 after that. */
 export function validateLoadedBuffers<P extends PersistablePane, T extends Snapshot<P>>(
   snapshot: T,
   { adoptInto, keepUnlisted = false }: Adoption,
@@ -92,8 +81,6 @@ export function validateLoadedBuffers<P extends PersistablePane, T extends Snaps
   return { ...snapshot, buffers, panes }
 }
 
-/** Buffers saved before a buffer named its document: an editor's file and a preview's source
- *  were always its workspace's. */
 export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
   return buffers.map((buffer) => {
     const saved = buffer as unknown as Record<string, unknown>
@@ -107,8 +94,6 @@ export function upgradeLegacyBuffers(buffers: PaneContent[]): PaneContent[] {
   })
 }
 
-/** Layouts saved while buffers carried their text: unsaved text becomes a draft and each buffer
- *  keeps only its identity. Runs after upgradeLegacyBuffers, so every editor names its document. */
 export function splitLegacyEditorContent(layout: WorkspaceLayout): {
   layout: WorkspaceLayout
   drafts: EditorDraft[]

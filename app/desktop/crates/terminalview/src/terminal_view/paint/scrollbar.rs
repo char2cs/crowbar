@@ -1,5 +1,3 @@
-//! Paints the scrollbar thumb.
-
 use gpui::{Hsla, PaintQuad, Window, fill, px};
 use terminal::ScrollbarThumb;
 

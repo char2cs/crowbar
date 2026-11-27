@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// SocketPath resolves the daemon's unix socket path from a host string ("unix://" or
-// "unix:///abs/path"); with no explicit path it is the resolved home's socket. Shared
-// by the daemon and unix-socket clients.
 func SocketPath(host string) (string, error) {
 	if path := strings.TrimPrefix(host, "unix://"); path != "" {
 		return path, nil

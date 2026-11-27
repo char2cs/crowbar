@@ -1,5 +1,3 @@
-//! What the user asked of the modal.
-
 mod runner;
 mod sink;
 

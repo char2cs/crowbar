@@ -1,5 +1,3 @@
-//! What a row of the Files or Changes panel shows.
-
 use sidebar::{FileKind, GitStatus};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

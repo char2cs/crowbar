@@ -36,10 +36,8 @@ import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { getBaseName, getRelativePath, joinPath } from '@/utils/path-helpers'
 
 interface UseFileExplorerContextMenuOptions {
-  /** The workspace the tree shows — every workspace-keyed action uses it. */
   workspaceId: string | null
   rootFolderPath?: string
-  /** A locked worktree refuses every write, so mutation items are hidden; read-only ones stay. */
   isLocked?: boolean
   onFileSelect: (path: string, isDir: boolean) => void | Promise<void>
   onCreateNewFileInDirectory?: (
@@ -138,8 +136,6 @@ export function useFileExplorerContextMenu({
     setContextMenu({ x, y, path: filePath, isDir, isOpen: true })
   }, [])
 
-  // Closing keeps the menu mounted until base-ui finishes closing it, so an
-  // item that moved focus (an inline name input) keeps it.
   const closeContextMenu = useCallback(() => {
     setContextMenu((menu) => menu && { ...menu, isOpen: false })
   }, [])
@@ -151,16 +147,10 @@ export function useFileExplorerContextMenu({
     const staged = [{ path: contextMenu.path, is_dir: contextMenu.isDir }]
 
     if (contextMenu.isDir) {
-      // A root right-click passes the root itself as the path while tree nodes are
-      // worktree-relative (root === ''): the actions address ''. The Rename/Delete
-      // gate below keeps reading contextMenu.path, so those stay hidden on the root.
       const isRootTarget = isWorkspaceRootPath?.(contextMenu.path) ?? false
       const dirTargetPath = isRootTarget ? '' : contextMenu.path
 
       items.push(
-        // New File / New Folder / Upload mutate the worktree — hidden on a locked
-        // workspace (every write there is a guaranteed 409). Refresh / Open All /
-        // Collapse All / Open in Terminal below are read-only and always shown.
         ...(isLocked
           ? []
           : [
@@ -206,8 +196,6 @@ export function useFileExplorerContextMenu({
           label: 'Collapse All',
           icon: <CaretDoubleUp />,
           onClick: () => {
-            // '' doesn't match relative paths, so the root collapses everything
-            // via collapseAll(); a subdir collapses just its own subtree.
             const treeStore = useFileTreeStore.getState()
             const wsId = workspaceId ?? ''
             if (isRootTarget) treeStore.collapseAll(wsId)
@@ -240,8 +228,6 @@ export function useFileExplorerContextMenu({
         })
       }
 
-      // "Add Folder to Workspace" is a workspace-level affordance: its impl takes no path (it opens
-      // a folder picker), so it belongs on the root target only, not on every subdirectory.
       if (isRootTarget && onAddFolderToWorkspace) {
         items.push({
           id: 'add-folder-to-workspace',
@@ -254,8 +240,6 @@ export function useFileExplorerContextMenu({
       items.push({ id: 'sep-dir', label: '', separator: true, onClick: () => {} })
     } else {
       const fileName = getBaseName(contextMenu.path, '')
-      // Env-template items create a sibling .env file — a mutation, so hidden on
-      // a locked workspace and without one.
       const canCreateEnvTemplate =
         Boolean(workspaceId && onCreateNewFileInDirectory) && !isLocked && isEnvFileName(fileName)
 
@@ -306,7 +290,6 @@ export function useFileExplorerContextMenu({
         label: 'Copy Path',
         icon: <Link />,
         onClick: () => {
-          // Tree nodes are root-relative; the workspace root itself arrives absolute.
           const absolutePath =
             rootFolderPath && !contextMenu.path.startsWith(rootFolderPath)
               ? joinPath(rootFolderPath, contextMenu.path)
@@ -322,8 +305,6 @@ export function useFileExplorerContextMenu({
         label: 'Copy Relative Path',
         icon: <FileText />,
         onClick: () => {
-          // getRelativePath strips rootFolderPath when the path is absolute.
-          // For already-relative paths it returns the path unchanged, which is correct.
           const relativePath = getRelativePath(contextMenu.path, rootFolderPath)
           navigator.clipboard.writeText(relativePath || '.').then(
             () => flashFeedback(contextMenu.path, 'copied-rel'),
@@ -338,9 +319,6 @@ export function useFileExplorerContextMenu({
               label: 'Reveal in Finder',
               icon: <FolderOpen />,
               onClick: () => {
-                // Tree nodes carry a root-relative path; Finder needs the absolute
-                // one. Mirror the Copy Path join (skip when already absolute, which
-                // happens for the workspace root itself).
                 const absolutePath =
                   rootFolderPath && !contextMenu.path.startsWith(rootFolderPath)
                     ? joinPath(rootFolderPath, contextMenu.path)
@@ -356,8 +334,6 @@ export function useFileExplorerContextMenu({
         icon: <Copy />,
         onClick: () => void clipboardActions.copy(staged, workspaceId),
       },
-      // Cut stages a move whose completion (paste) deletes from this workspace —
-      // a mutation, so hidden when locked. Copy above only reads, so it stays.
       ...(isLocked
         ? []
         : [
@@ -380,8 +356,6 @@ export function useFileExplorerContextMenu({
         : []),
     )
 
-    // The file-management group (Duplicate / Rename / Delete) mutates the
-    // worktree — hidden entirely on a locked workspace.
     if (shouldShowFileManagementItems && !isLocked) {
       items.push(
         ...(onDuplicatePath

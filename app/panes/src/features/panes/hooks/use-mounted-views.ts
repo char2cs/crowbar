@@ -14,16 +14,12 @@ interface ViewSlot {
 
 const NONE: ReadonlySet<string> = new Set()
 
-/** How recently any pane of the view was active: lower is more recent. */
 function recencyRank(view: ViewSlot, recentPaneIds: readonly string[]): number {
   const leaves = new Set(getAllLeafIds(view.layout))
   const rank = recentPaneIds.findIndex((id) => leaves.has(id))
   return rank === -1 ? recentPaneIds.length : rank
 }
 
-/** The showing view mounts at once; parked ones follow, MRU first, one per idle task in a
- *  transition, only after the showing chat surfaces commit (idle while a chunk loads isn't done).
- *  Once mounted a view stays mounted: parking is not a teardown. */
 export function useMountedViews<T extends ViewSlot>(views: readonly T[]): T[] {
   const [mounted, setMounted] = useState<ReadonlySet<string>>(NONE)
   const surfacesPending = useStore(pendingChatSurfaces, (state) => state.pending.size > 0)

@@ -1,5 +1,3 @@
-//! The daemon's `GET chats/:id/git/status` answer.
-
 mod file_body;
 pub(super) mod git_diff_body;
 pub(super) mod line_counts;

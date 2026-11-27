@@ -109,8 +109,6 @@ func TestAt_AndResolve_NeverCreateTheHome(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(base, "not"))
 }
 
-// A caller handed an optional directory gets that home, or the one Resolve
-// names when it was handed none.
 func TestResolveDir_IsAtForADirAndResolveWithout(t *testing.T) {
 	override := filepath.Join(t.TempDir(), "override")
 	given := filepath.Join(t.TempDir(), "given")

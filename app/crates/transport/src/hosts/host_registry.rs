@@ -14,10 +14,6 @@ use crate::hosts::target::check_registrable;
 
 type Hosts = BTreeMap<HostId, Endpoint>;
 
-/// Host id to the `host:port` its daemon listens on, optionally backed by a JSON file. Secrets
-/// are not here: tokens and pins live in a [`TokenStore`](crate::TokenStore). Changes are
-/// written through on the blocking pool; a failed write leaves the list as it was, and readers
-/// never wait for the disk.
 #[derive(Debug, Default)]
 pub struct HostRegistry {
     hosts: RwLock<Hosts>,
@@ -26,19 +22,11 @@ pub struct HostRegistry {
 }
 
 impl HostRegistry {
-    /// A registry that forgets everything on exit.
     #[must_use]
     pub fn in_memory() -> Self {
         Self::default()
     }
 
-    /// A registry persisted at `path`. A missing file is an empty list; a corrupt one is an
-    /// error rather than silently dropping the user's hosts. Reads the file on the calling
-    /// thread, so call it at startup or from the blocking pool.
-    ///
-    /// # Errors
-    /// [`Error::HostsIo`], [`Error::HostsCorrupt`], [`Error::HostsInvalid`] or
-    /// [`Error::HostsVersion`] when the file cannot be read or understood.
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, Error> {
         Self::with_storage(Arc::new(FileStorage::new(path.into())))
     }
@@ -52,7 +40,6 @@ impl HostRegistry {
         })
     }
 
-    /// Where `host_id` listens, `None` when it is not registered.
     #[must_use]
     pub fn get(
         &self,
@@ -61,7 +48,6 @@ impl HostRegistry {
         self.read().get(host_id).cloned()
     }
 
-    /// Every registered host, ordered by id.
     #[must_use]
     pub fn list(&self) -> Vec<(HostId, Endpoint)> {
         self.read()
@@ -70,11 +56,6 @@ impl HostRegistry {
             .collect()
     }
 
-    /// Registers or moves `host_id`.
-    ///
-    /// # Errors
-    /// [`Error::BadHostId`] for an id that names the local daemon, or a hosts-file error when
-    /// the list cannot be saved.
     pub async fn insert(
         self: &Arc<Self>,
         host_id: HostId,
@@ -84,10 +65,6 @@ impl HostRegistry {
         run_blocking(move || registry.insert_blocking(host_id, endpoint)).await
     }
 
-    /// Removes `host_id`; removing an unknown host is not an error.
-    ///
-    /// # Errors
-    /// A hosts-file error when the list cannot be saved.
     pub async fn remove(
         self: &Arc<Self>,
         host_id: HostId,

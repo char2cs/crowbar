@@ -11,7 +11,6 @@ import (
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
-// WorkspaceRepo is the workspace surface Usecase needs.
 type WorkspaceRepo interface {
 	Get(
 		ctx context.Context,
@@ -26,7 +25,6 @@ type WorkspaceRepo interface {
 	SetParentFromPR(ctx context.Context, id, parentID string) (domain.Workspace, error)
 }
 
-// Engine is the provider-engine surface Usecase needs.
 type Engine interface {
 	PollOnView(
 		ctx context.Context,
@@ -36,18 +34,12 @@ type Engine interface {
 	) (engineprovider.ProviderState, error)
 }
 
-// Usecase polls the provider for a workspace and applies the result
-// via SyncProviderState. PollWorkspace is the on-view trigger; SyncFromState is
-// the background-sweep callback.
 type Usecase interface {
-	// PollWorkspace loads the workspace, calls PollOnView, and applies the result.
 	PollWorkspace(
 		ctx context.Context,
 		wsID string,
 	) error
 
-	// SyncFromState maps a provider.ProviderState to a workspace.ProviderInput and
-	// issues SyncProviderState; the background sweep invokes it.
 	SyncFromState(
 		ctx context.Context,
 		wsID string,
@@ -61,7 +53,6 @@ type providerSyncUsecase struct {
 	engine     Engine
 }
 
-// New builds a Usecase from the workspace repo and provider engine.
 func New(
 	workspaces WorkspaceRepo,
 	engine Engine,
@@ -72,8 +63,6 @@ func New(
 	}
 }
 
-// PollWorkspace loads the workspace, calls PollOnView, and applies the result.
-// A project home has no remote to ask, so it is never polled.
 func (u *providerSyncUsecase) PollWorkspace(
 	ctx context.Context,
 	wsID string,
@@ -92,15 +81,12 @@ func (u *providerSyncUsecase) PollWorkspace(
 	return u.SyncFromState(ctx, wsID, state, time.Now())
 }
 
-// SyncFromState maps a provider.ProviderState to a workspace.ProviderInput and
-// issues SyncProviderState; the background sweep invokes it.
 func (u *providerSyncUsecase) SyncFromState(
 	ctx context.Context,
 	wsID string,
 	state engineprovider.ProviderState,
 	now time.Time,
 ) error {
-	// Load the current workspace to read ParentID and RepoID.
 	current, err := u.workspaces.Get(ctx, wsID)
 	if err != nil {
 		return fmt.Errorf("provider sync: sync from state: get workspace: %w", err)
@@ -121,13 +107,9 @@ func (u *providerSyncUsecase) SyncFromState(
 		return fmt.Errorf("provider sync: sync from state: %w", err)
 	}
 
-	// A locked branch is a tree root and never reparented whatever a PR says, guarded on its own
-	// so it survives any relaxing of the parent-state precondition below.
 	if current.Status == domain.WorkspaceStatusLocked {
 		return nil
 	}
-	// Auto-reparent only for an OPEN PR targeting a branch while the workspace has no parent: a
-	// long-closed PR must not reshape the tree on the first poll after import.
 	if state.PR != nil &&
 		state.PR.Status == "open" &&
 		state.PR.TargetBranch != "" &&
@@ -137,9 +119,6 @@ func (u *providerSyncUsecase) SyncFromState(
 	return nil
 }
 
-// maybeReparentFromPR parents ws under the same-repo workspace on targetBranch, skipping a
-// self-parent and any candidate whose ancestor chain reaches ws (a cycle spins every tree walk).
-// A failed reparent is logged so it is visible rather than silently leaving the tree unparented.
 func (u *providerSyncUsecase) maybeReparentFromPR(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -158,7 +137,6 @@ func (u *providerSyncUsecase) maybeReparentFromPR(
 			continue
 		}
 		if candidate.ID == ws.ID {
-			// PR targets its own branch — never self-parent.
 			return
 		}
 		if isAncestor(byID, ws.ID, candidate.ID) {
@@ -174,9 +152,6 @@ func (u *providerSyncUsecase) maybeReparentFromPR(
 	}
 }
 
-// isAncestor reports whether ancestorID appears in nodeID's ParentID chain.
-// The visited set bounds the walk so a pre-existing cycle in the data can't hang
-// it (defensive: the reparent guards exist precisely to keep the tree acyclic).
 func isAncestor(byID map[string]domain.Workspace, ancestorID, nodeID string) bool {
 	visited := make(map[string]bool)
 	cur := nodeID

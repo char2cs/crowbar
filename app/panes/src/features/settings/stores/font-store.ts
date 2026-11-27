@@ -1,4 +1,3 @@
-// Tauri font APIs replaced with stubs — font enumeration not available in web mode
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { FontInfo } from '@/features/settings/stores/types/font'
@@ -17,9 +16,7 @@ interface FontActions {
 }
 
 const FONT_CACHE_KEY = 'crowbar_font_cache:v1'
-const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
-// Fonts that ship with the app, so they are selectable even though the
-// WKWebView can't enumerate OS fonts. Defaults live in typography-defaults.ts.
+const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000
 const BUNDLED_FONTS: FontInfo[] = [
   {
     name: 'CalSansUI',
@@ -61,7 +58,6 @@ const loadFontsFromCache = (): FontCache | null => {
     const cache: FontCache = JSON.parse(cached)
     const now = Date.now()
 
-    // Check if cache is expired
     if (now - cache.timestamp > FONT_CACHE_EXPIRY) {
       localStorage.removeItem(FONT_CACHE_KEY)
       return null
@@ -91,7 +87,6 @@ const saveFontsToCache = (availableFonts: FontInfo[], monospaceFonts: FontInfo[]
 export const useFontStore = createSelectors(
   create<FontState>()(
     immer((set, get) => {
-      // Try to load from cache immediately
       const cache = loadFontsFromCache()
       const initialValues = cache
         ? {
@@ -109,14 +104,10 @@ export const useFontStore = createSelectors(
           loadAvailableFonts: async (forceRefresh = false) => {
             const current = get()
 
-            // Use cached data if available and not forcing refresh
-            // But only if we have more than just the web fonts
             if (!forceRefresh && current.availableFonts.length > 1) {
               return
             }
 
-            // OS font enumeration is unavailable in the WKWebView, so the
-            // selectable set is the fonts the app bundles.
             const fonts: FontInfo[] = BUNDLED_FONTS
             const monospaceFonts = fonts.filter((font) => font.is_monospace)
 
@@ -131,8 +122,6 @@ export const useFontStore = createSelectors(
           loadMonospaceFonts: async (forceRefresh = false) => {
             const current = get()
 
-            // Use cached data if available and not forcing refresh
-            // Ensure we have actual fonts loaded
             if (!forceRefresh && current.monospaceFonts.length > 0) {
               return
             }
@@ -143,15 +132,12 @@ export const useFontStore = createSelectors(
               state.monospaceFonts = fonts
             })
 
-            // Cache needs the full list, so only write once it has been loaded.
             const updatedState = get()
             if (updatedState.availableFonts.length > 0) {
               saveFontsToCache(updatedState.availableFonts, fonts)
             }
           },
 
-          // Every selectable font is bundled with the app (see BUNDLED_FONTS),
-          // so anything the picker can offer is by definition installed.
           validateFont: async (): Promise<boolean> => true,
         },
       }

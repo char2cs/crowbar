@@ -16,8 +16,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// A chat nobody has reported for is UNKNOWN, not zero. The UI shows a context
-// gauge off this, and "0% used" is a claim; "no report yet" is the truth.
 func TestGet_UnreportedChatIsUnknownNotZero(t *testing.T) {
 	t.Parallel()
 
@@ -64,8 +62,6 @@ func TestForget_OfAnUnknownChatIsSilent(t *testing.T) {
 	telemetry.NewDurable(context.Background(), nil).Forget(context.Background(), "never-seen")
 }
 
-// Reports arrive on hook goroutines while the chats panel polls. Under -race a
-// store that is not actually guarded fails here.
 func TestStore_IsSafeUnderConcurrentReportsAndReads(t *testing.T) {
 	t.Parallel()
 
@@ -88,9 +84,6 @@ func TestStore_IsSafeUnderConcurrentReportsAndReads(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// newPersistedStore opens a real sqlite-backed AgentChatTelemetry store at a
-// temp path — the same generic store production wires through app/gorm.go —
-// so these tests pin the actual persistence contract, not a fake of it.
 func newPersistedStore(t *testing.T) (dbPath string) {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "telemetry.db")
@@ -103,9 +96,6 @@ func openStore(t *testing.T, path string) telemetry.Persistence {
 	return store
 }
 
-// A durable Store must recover a chat's last report from a FRESH construction
-// over the same backing store — this is what a daemon restart does: the
-// process-local map is gone, but NewDurable seeds a new one from disk.
 func TestNewDurable_RecoversReportsWrittenByAPriorStore(t *testing.T) {
 	t.Parallel()
 
@@ -118,8 +108,6 @@ func TestNewDurable_RecoversReportsWrittenByAPriorStore(t *testing.T) {
 		Context: &engineagents.ContextUsage{UsedPercent: floatPtr(42)},
 	})
 
-	// A brand-new Store, as a restarted daemon would construct, over the SAME
-	// persistence — the in-memory map is gone, but the disk row is not.
 	after := telemetry.NewDurable(context.Background(), persist)
 	report, ok := after.Get("chat-1")
 
@@ -130,8 +118,6 @@ func TestNewDurable_RecoversReportsWrittenByAPriorStore(t *testing.T) {
 	assert.InDelta(t, 42, *report.Context.UsedPercent, 0.001)
 }
 
-// Forget must purge the durable row too, not just the in-memory copy — a
-// deleted chat must not come back on the next restart.
 func TestNewDurable_ForgetPurgesTheDurableRow(t *testing.T) {
 	t.Parallel()
 
@@ -147,9 +133,6 @@ func TestNewDurable_ForgetPurgesTheDurableRow(t *testing.T) {
 	assert.False(t, ok, "a forgotten chat must not reappear after a restart")
 }
 
-// NewDurable(ctx, nil) is the same contract as New() — the seam production and
-// every non-durable test share, so a caller with no persistence configured
-// still gets a working, process-local-only store rather than a panic.
 func TestNewDurable_WithNilPersistenceBehavesLikePlainNew(t *testing.T) {
 	t.Parallel()
 

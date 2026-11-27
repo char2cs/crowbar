@@ -27,7 +27,6 @@ import { normalizeBrowserUrl } from '@/features/browser/lib/normalize-url'
 interface BrowserPaneProps {
   paneId: string
   bufferId: string
-  /** This tab is the one on screen: the active tab of a shown, unhidden pane. */
   visible: boolean
 }
 
@@ -70,7 +69,6 @@ export function BrowserPane({ paneId, bufferId, visible }: BrowserPaneProps) {
     if (!hasUrl && visible) inputRef.current?.focus()
   }, [hasUrl, visible])
 
-  /** A toolbar action on this tab; a failure is reported as `action`. */
   const run = (op: (id: string) => Promise<void>, action: string) => () =>
     void op(bufferId).catch((err: unknown) => report(err, { action }))
 

@@ -1,6 +1,3 @@
-// Pure LSP ⇄ Monaco conversions. Monaco's enums are mirrored as numbers, so nothing imports Monaco
-// at runtime and this stays out of chunks that don't load it. LSP positions are 0-based, Monaco's
-// 1-based (both UTF-16): a plain ±1 on each axis.
 import type * as Monaco from 'monaco-editor'
 import type {
   CodeAction,
@@ -22,13 +19,11 @@ export interface LspRange {
   end: { line: number; character: number }
 }
 
-/** A daemon Location: workspace-relative path (absolute when outside the worktree). */
 export interface DaemonLocation {
   filePath: string
   range: LspRange
 }
 
-/** The daemon's WorkspaceEdit: edits keyed by workspace-relative path. */
 export interface DaemonWorkspaceEdit {
   changes?: Record<string, TextEdit[]>
   documentChanges?: Array<{ textDocument: { uri: string }; edits: TextEdit[] } | unknown>
@@ -54,33 +49,32 @@ export function toLspRange(range: Monaco.IRange): LspRange {
   }
 }
 
-// LSP CompletionItemKind (1-based, LSP order) → monaco.languages.CompletionItemKind.
 const COMPLETION_KIND: Record<number, number> = {
-  1: 18, // Text
-  2: 0, // Method
-  3: 1, // Function
-  4: 2, // Constructor
-  5: 3, // Field
-  6: 4, // Variable
-  7: 5, // Class
-  8: 7, // Interface
-  9: 8, // Module
-  10: 9, // Property
-  11: 12, // Unit
-  12: 13, // Value
-  13: 15, // Enum
-  14: 17, // Keyword
-  15: 28, // Snippet
-  16: 19, // Color
-  17: 20, // File
-  18: 21, // Reference
-  19: 23, // Folder
-  20: 16, // EnumMember
-  21: 14, // Constant
-  22: 6, // Struct
-  23: 10, // Event
-  24: 11, // Operator
-  25: 24, // TypeParameter
+  1: 18,
+  2: 0,
+  3: 1,
+  4: 2,
+  5: 3,
+  6: 4,
+  7: 5,
+  8: 7,
+  9: 8,
+  10: 9,
+  11: 12,
+  12: 13,
+  13: 15,
+  14: 17,
+  15: 28,
+  16: 19,
+  17: 20,
+  18: 21,
+  19: 23,
+  20: 16,
+  21: 14,
+  22: 6,
+  23: 10,
+  24: 11,
+  25: 24,
 }
 const MONACO_COMPLETION_TEXT = 18
 const INSERT_AS_SNIPPET = 4
@@ -97,7 +91,6 @@ function toMarkdown(
       ? [{ value: content.value }]
       : [{ value: escapeMarkdown(content.value) }]
   }
-  // MarkedString { language, value }: a fenced code block.
   return content.value ? [{ value: '```' + content.language + '\n' + content.value + '\n```' }] : []
 }
 
@@ -226,7 +219,6 @@ export function documentSymbolsToMonaco(
   return symbols.map(convert)
 }
 
-/** Monaco marker severity (Hint 1, Info 2, Warning 4, Error 8) → LSP severity. */
 export function markerToLspDiagnostic(marker: Monaco.editor.IMarkerData): Diagnostic {
   const severity =
     marker.severity === 8 ? 1 : marker.severity === 4 ? 2 : marker.severity === 2 ? 3 : 4
@@ -240,7 +232,6 @@ export function markerToLspDiagnostic(marker: Monaco.editor.IMarkerData): Diagno
   }
 }
 
-/** Every text edit a workspace edit carries, grouped by workspace-relative path. */
 export function workspaceEditByPath(edit: DaemonWorkspaceEdit | null): Map<string, TextEdit[]> {
   const byPath = new Map<string, TextEdit[]>()
   if (!edit) return byPath

@@ -1,10 +1,6 @@
-// The one semantic-token legend every provider speaks (the LSP tier, whose legends the daemon
-// rewrites into it, and the shiki tier), plus how each type is colored. Pure: no DOM, no Monaco.
 import type { SyntaxTokenKey } from '@/features/editor/theme/resolve-css-color'
 import type { ShikiToken } from './shiki-tokens'
 
-/** Mirrors the daemon's `semtok.TokenTypes` index for index (LSP 3.18 standard types plus
- *  tag/attribute); both sides pin the list in a test. */
 const SEMANTIC_TOKEN_TYPES = [
   'namespace',
   'type',
@@ -35,7 +31,6 @@ const SEMANTIC_TOKEN_TYPES = [
 ] as const
 type SemanticTokenType = (typeof SEMANTIC_TOKEN_TYPES)[number]
 
-/** Mirrors `semtok.TokenModifiers`; readonly first so "variable.readonly" matches a theme rule. */
 const SEMANTIC_TOKEN_MODIFIERS = [
   'readonly',
   'declaration',
@@ -54,7 +49,6 @@ export const SEMANTIC_TOKEN_LEGEND = {
   tokenModifiers: [...SEMANTIC_TOKEN_MODIFIERS] as string[],
 }
 
-/** The syntax palette color each token type is painted with. */
 const TYPE_PALETTE: Record<SemanticTokenType, SyntaxTokenKey> = {
   namespace: 'type',
   type: 'type',
@@ -84,8 +78,6 @@ const TYPE_PALETTE: Record<SemanticTokenType, SyntaxTokenKey> = {
   attribute: 'attribute',
 }
 
-/** Theme-rule selectors for the legend: Monaco matches a token's "type.modifier…" against theme
- *  rules by longest dotted prefix. */
 export const SEMANTIC_TOKEN_RULES: ReadonlyArray<[selector: string, key: SyntaxTokenKey]> = [
   ...SEMANTIC_TOKEN_TYPES.map((type): [string, SyntaxTokenKey] => [type, TYPE_PALETTE[type]]),
   ['variable.readonly', 'constant'],
@@ -94,7 +86,6 @@ export const SEMANTIC_TOKEN_RULES: ReadonlyArray<[selector: string, key: SyntaxT
 const typeIndex = (type: SemanticTokenType) => SEMANTIC_TOKEN_TYPES.indexOf(type)
 const READONLY = 1 << SEMANTIC_TOKEN_MODIFIERS.indexOf('readonly')
 
-/** The legend entry a shiki category is encoded as: [type index, modifier set]. */
 const SHIKI_ENCODING: Record<ShikiToken['category'], [number, number]> = {
   function: [typeIndex('function'), 0],
   type: [typeIndex('type'), 0],
@@ -110,9 +101,6 @@ const SHIKI_ENCODING: Record<ShikiToken['category'], [number, number]> = {
   operator: [typeIndex('operator'), 0],
 }
 
-/** Encode shiki tokens as Monaco's semantic-tokens array: 5 ints per token [deltaLine,
- *  deltaStartChar, length, typeIndex, modifierSet], relative to the previous one. Tokens must be
- *  ordered by position and non-overlapping. */
 export function encodeShikiTokens(tokens: readonly ShikiToken[]): Uint32Array {
   const data = new Uint32Array(tokens.length * 5)
   let prevRow = 0

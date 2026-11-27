@@ -67,8 +67,6 @@ describe('useCurrentIdentity', () => {
     expect(mocks.getIdentity).toHaveBeenCalledWith('ws-ready-1')
   })
 
-  // The route records a scope with no chat id; the sidebar's chat-list fetch attaches it later.
-  // The hook must retry when it arrives rather than stay null.
   it('retries and resolves identity once the owning chat id arrives after mount', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race-2' })
     mocks.getIdentity.mockResolvedValue(identity('mona'))
@@ -121,8 +119,6 @@ describe('useCurrentIdentity on an install that has paired a remote host', () =>
   })
   afterEach(() => resetHostWorld())
 
-  // resolveIdentity swallows a failed fetch into null and the hook asks once per
-  // wsId, so asking before the host is known would leave the identity null for good.
   it('asks nothing until the project list names the host, then resolves the identity', async () => {
     mocks.getIdentity.mockResolvedValue(identity('mona'))
     const { result } = renderHook(() => useCurrentIdentity('ws-remote-id'))

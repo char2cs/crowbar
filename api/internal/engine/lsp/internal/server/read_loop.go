@@ -28,8 +28,6 @@ func (s *server) readLoop(
 func (s *server) dispatch(
 	payload []byte,
 ) {
-	// The id is read raw: a request FROM the server (id and method) may carry a
-	// string id, while responses to our requests always carry our int ids.
 	var msg struct {
 		ID     json.RawMessage    `json:"id"`
 		Method string             `json:"method"`

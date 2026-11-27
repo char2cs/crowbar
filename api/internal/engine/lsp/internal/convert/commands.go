@@ -6,9 +6,6 @@ import (
 	"log/slog"
 )
 
-// ClientCodeActions shapes a codeAction result for the editor: edits name
-// workspace-relative files and only commands the server runs (canRun) survive. Undecodable
-// results pass through; an undecodable entry is dropped and logged.
 func ClientCodeActions(
 	worktreePath string,
 	raw json.RawMessage,
@@ -32,8 +29,6 @@ func ClientCodeActions(
 	return marshalOr(kept, raw)
 }
 
-// clientCodeAction rewrites one Command | CodeAction in place and reports
-// whether the editor can still do anything with it.
 func clientCodeAction(
 	worktreePath string,
 	action map[string]json.RawMessage,
@@ -54,7 +49,6 @@ func clientCodeAction(
 	return hasEdit || hasCommand, nil
 }
 
-// dropUnrunnable strips an action's command when the server cannot run it.
 func dropUnrunnable(
 	action map[string]json.RawMessage,
 	canRun func(string) bool,
@@ -71,16 +65,13 @@ func dropUnrunnable(
 	return nil
 }
 
-// ClientLenses shapes a codeLens or codeLens/resolve result for the editor: a lens whose
-// command the server cannot run keeps its title only. Undecodable results pass through;
-// an undecodable lens command is dropped and logged (a resolved lens becomes null).
 func ClientLenses(
 	raw json.RawMessage,
 	canRun func(string) bool,
 ) json.RawMessage {
 	var lenses []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &lenses); err == nil {
-		kept := lenses[:0] // in place: a null result stays null, an empty one empty
+		kept := lenses[:0]
 		for _, lens := range lenses {
 			if err := clientLens(lens, canRun); err != nil {
 				slog.Warn("lsp: code lens dropped", "entry", entryName(lens), "err", err)
@@ -123,7 +114,6 @@ func clientLens(
 	return nil
 }
 
-// commandName reads an LSP Command's command identifier ("" when absent).
 func commandName(
 	raw json.RawMessage,
 ) (string, error) {
@@ -136,7 +126,6 @@ func commandName(
 	return cmd.Command, nil
 }
 
-// entryName names a dropped entry in the log: its title, or a lens's range.
 func entryName(entry map[string]json.RawMessage) string {
 	if title, ok := entry["title"]; ok {
 		return string(title)
@@ -144,8 +133,6 @@ func entryName(entry map[string]json.RawMessage) string {
 	return string(entry["range"])
 }
 
-// decodes reports whether raw has v's shape: a result of another shape is not
-// one this package shapes.
 func decodes(
 	raw json.RawMessage,
 	v any,

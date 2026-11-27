@@ -22,7 +22,6 @@ import {
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 import type { ReviewMessage } from '@/features/workspace/stores/slices/branch-review-slice'
 
-/** Copy a message body to the clipboard as Markdown (the body already is Markdown). */
 async function copyAsMarkdown(body: string) {
   try {
     await navigator.clipboard.writeText(body)
@@ -57,8 +56,6 @@ export function MessageRow({
 }) {
   const agent = useAgentAttribution(message)
   const display = resolveAuthorDisplay(message, currentIdentity, agent)
-  // Show the menu only when at least one management action (Edit or Delete) is
-  // available for this message; Copy-as-Markdown then rides along inside it.
   const showMenu = !isEditing && (canEdit || canDelete)
   return (
     <div className="group/msg ui-font flex gap-2.5 border-border/60 border-b px-3.5 py-2.5 last:border-b-0">

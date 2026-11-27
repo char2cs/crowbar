@@ -1,18 +1,13 @@
-//! Where the toast column of a [`crate::ToastQueue`] sits.
-
 pub(super) mod toast_side;
 
 use crate::display::toast::toast_queue::toast_placement::toast_side::ToastSide;
 
 const DOCKED_LIMIT: usize = 3;
 
-/// Docked to the bottom of its container (open sidebar) or floating in the window (collapsed sidebar).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ToastPlacement {
-    /// Full width at the bottom of the container, newest at the bottom, at most three transient toasts.
     Docked(ToastSide),
-    /// 288px wide, 16px from the bottom and from `side`, newest on top, every toast shown.
     Floating(ToastSide),
 }
 

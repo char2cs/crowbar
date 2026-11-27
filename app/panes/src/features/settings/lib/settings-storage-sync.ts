@@ -15,8 +15,6 @@ function parse(raw: string | null): unknown {
   }
 }
 
-/** Keeps this webview's settings in step with another's (the phone's settings page shares
- *  localStorage): a setting saved there is taken here, never saved back. Returns the teardown. */
 export function startSettingsStorageSync(win: Window = window): () => void {
   const onStorage = (event: StorageEvent) => {
     if (!event.key?.startsWith(PREFIX)) return

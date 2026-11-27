@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// doRaw sends raw (possibly invalid) JSON to trigger ShouldBindJSON failures.
 func doRaw(
 	r *gin.Engine,
 	method, path, raw string,
@@ -22,7 +21,6 @@ func doRaw(
 	return rec
 }
 
-// TestGitWriteHandlers_BadJSON exercises the ShouldBindJSON error branches.
 func TestGitWriteHandlers_BadJSON(
 	t *testing.T,
 ) {

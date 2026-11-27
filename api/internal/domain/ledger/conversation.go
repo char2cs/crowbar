@@ -5,31 +5,23 @@ import (
 	"time"
 )
 
-// Why a session was bound to the chat.
 const (
-	CauseAssigned  = "assigned"  // Crowbar minted the id and launched the CLI with it
-	CauseAnnounced = "announced" // the CLI announced an id of its own
-	CauseFresh     = "fresh"     // Crowbar minted the id to replace a lost session
-	CauseMoved     = "moved"     // the CLI resumed a session another chat held, which gave it up
-	CauseCleared   = "cleared"   // the CLI started over on the person's command, leaving the old one behind
+	CauseAssigned  = "assigned"
+	CauseAnnounced = "announced"
+	CauseFresh     = "fresh"
+	CauseMoved     = "moved"
+	CauseCleared   = "cleared"
 )
 
-// SessionBound is the body of a session_bound row: from now on the chat's
-// conversation with Provider is SessionID.
 type SessionBound struct {
 	Provider  string `json:"provider"`
 	SessionID string `json:"sessionId"`
-	Cause     string `json:"cause"` // CauseAssigned | CauseAnnounced | CauseFresh | CauseMoved | CauseCleared
+	Cause     string `json:"cause"`
 	Previous  string `json:"previous,omitempty"`
-	From      string `json:"from,omitempty"` // CauseMoved: the chat that gave the session up
-	// RelayID is the identity the session's MCP relay presents, for a provider whose
-	// server pins that block at creation; it lives and dies with this binding.
-	RelayID string `json:"relayId,omitempty"`
+	From      string `json:"from,omitempty"`
+	RelayID   string `json:"relayId,omitempty"`
 }
 
-// SessionLost is the body of a session_lost row: the CLI refused to resume
-// SessionID, and Reason is the line it refused with; or, with MovedTo, the
-// session was resumed in that chat, which took it.
 type SessionLost struct {
 	Provider  string `json:"provider"`
 	SessionID string `json:"sessionId"`
@@ -37,10 +29,8 @@ type SessionLost struct {
 	MovedTo   string `json:"movedTo,omitempty"`
 }
 
-// ReasonMovedAway is a session_lost's reason when another chat took the session.
 const ReasonMovedAway = "resumed in another chat"
 
-// ConversationState is where a chat's conversation with one provider stands.
 type ConversationState string
 
 const (
@@ -55,8 +45,6 @@ var conversationEdges = map[ConversationState][]ConversationState{
 	ConversationLost:    {ConversationBound},
 }
 
-// Next reports the state a transition lands in and whether the conversation
-// diagram allows it: unbound→bound, bound→lost, lost→bound, bound→bound.
 func (s ConversationState) Next(to ConversationState) (ConversationState, bool) {
 	if slices.Contains(conversationEdges[s], to) {
 		return to, true
@@ -64,23 +52,19 @@ func (s ConversationState) Next(to ConversationState) (ConversationState, bool) 
 	return s, false
 }
 
-// Conversation is one (provider, session) the chat has been bound to.
 type Conversation struct {
 	Provider, SessionID string
 	State               ConversationState
 	BoundAt             time.Time
-	Cause               string // of its latest binding
-	RelayID             string // of its latest binding; "" for a provider that pins no relay
-	// Turned: a turn started on it, so its CLI has written it and can resume it.
-	Turned bool
+	Cause               string
+	RelayID             string
+	Turned              bool
 }
 
-// Resumable reports whether the chat's next launch resumes this session.
 func (c Conversation) Resumable() bool {
 	return c.State == ConversationBound && c.Turned
 }
 
-// Conversation is the chat's current conversation with provider.
 func (s State) Conversation(provider string) (Conversation, bool) {
 	i, ok := s.current[provider]
 	if !ok {
@@ -89,8 +73,6 @@ func (s State) Conversation(provider string) (Conversation, bool) {
 	return s.conversations[i], true
 }
 
-// RelayConversation is the bound conversation whose binding holds relayID. A
-// lost or replaced one holds nothing, so its relay resolves to no chat.
 func (s State) RelayConversation(relayID string) (Conversation, bool) {
 	if relayID == "" {
 		return Conversation{}, false
@@ -103,11 +85,8 @@ func (s State) RelayConversation(relayID string) (Conversation, bool) {
 	return Conversation{}, false
 }
 
-// ClearedAt is when the person last cleared the chat's conversation; zero if never.
 func (s State) ClearedAt() time.Time { return s.clearedAt }
 
-// Conversations is every (provider, session) ever bound, oldest first. A
-// session the chat moved off reads unbound, unless it was lost.
 func (s State) Conversations() []Conversation {
 	return slices.Clone(s.conversations)
 }
@@ -159,9 +138,6 @@ func (s *State) applySessionLost(r Row) {
 	s.conversations[i].State, _ = s.conversations[i].State.Next(ConversationLost)
 }
 
-// Assign is the session_bound row for a session Crowbar minted for provider,
-// replacing the one it had. It is fresh while it replaces a lost session or a
-// fresh one that never turned: neither carries the conversation.
 func Assign(st State, provider, sessionID string) (Row, error) {
 	body := SessionBound{Provider: provider, SessionID: sessionID, Cause: CauseAssigned}
 	if c, ok := st.Conversation(provider); ok {
@@ -173,16 +149,10 @@ func Assign(st State, provider, sessionID string) (Row, error) {
 	return NewRow(KindSessionBound, "", "", body)
 }
 
-// Announce is what a CLI announcing sessionID adds: nothing for the bound session, a
-// binding, a change, or a move/conflict when owner (another chat) holds it. Only leaving
-// a session that turned is a change; an unturned one takes owner's session. relayID is
-// the identity a new binding carries; a session moved here keeps the one it had.
 func Announce(st State, provider, sessionID, owner, relayID string) ([]Row, error) {
 	return announce(st, provider, sessionID, owner, relayID, CauseAnnounced)
 }
 
-// AnnounceCleared is Announce for a session the CLI started because the person
-// cleared the conversation: what was said before it is no conversation of its.
 func AnnounceCleared(st State, provider, sessionID string) ([]Row, error) {
 	return announce(st, provider, sessionID, "", "", CauseCleared)
 }
@@ -212,15 +182,10 @@ func announce(st State, provider, sessionID, owner, relayID, cause string) ([]Ro
 	return []Row{r, m}, err
 }
 
-// Lose is the session_lost row for a resume the CLI refused, plus a settle
-// for every pending prompt runnerID carried. Nil when sessionID is not the
-// provider's bound session any more.
 func Lose(st State, provider, sessionID, reason, runnerID string) ([]Row, error) {
 	return lose(st, SessionLost{Provider: provider, SessionID: sessionID, Reason: reason}, runnerID)
 }
 
-// MoveAway is Lose for a session the chat gives up to toChat, which resumed it.
-// Nil when it is not the bound session: one the chat left is only history here.
 func MoveAway(st State, provider, sessionID, toChat, runnerID string) ([]Row, error) {
 	return lose(st, SessionLost{Provider: provider, SessionID: sessionID, Reason: ReasonMovedAway, MovedTo: toChat}, runnerID)
 }

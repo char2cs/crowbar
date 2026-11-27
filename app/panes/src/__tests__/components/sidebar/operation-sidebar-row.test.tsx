@@ -51,7 +51,6 @@ describe('a create drawn from its operation', () => {
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument()
   })
 
-  // An unlabeled empty input read as a chat box: what got typed became the branch name.
   it('a draft shows the branch-name placeholder on its naming input', () => {
     const draft: SidebarRowType = { ...failedImport, operation: undefined, draft: true, label: '' }
     render(<OperationSidebarRow row={draft} depth={0} />)

@@ -10,20 +10,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// compactStartEvent is the canonical outbound event a provider declares when Crowbar
-// can ask it to compact. Key-presence on the descriptor is the whole capability check.
 const compactStartEvent = "compact_start"
 
-// Compact asks the chat's CLI to compact its own context by the gesture its
-// descriptor declares (ErrNotFound for none), from Crowbar's own chat only. The
-// CLI reports it back through compact_pre and compact_post.
 func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: compact: %w", err)
 	}
-	// Before anything is resolved: the SURFACE decides, not the provider
-	// (ErrCompactionOffSurface).
 	if chat.Surface == domain.SurfaceTerminal {
 		return ErrCompactionOffSurface
 	}
@@ -68,10 +61,7 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		return nil
 	}
 
-	// Any other wire is a call over the chat's live api connection, as an
-	// interrupt is: a fresh dial has no session to compact, so a chat with no
-	// live connection cannot be asked yet.
-	live, _ := rs.live.byChat(chatID) // dormant: no id, so no connection
+	live, _ := rs.live.byChat(chatID)
 	conn, ok := rs.apiConns.get(live.ID)
 	if !ok {
 		return fmt.Errorf(

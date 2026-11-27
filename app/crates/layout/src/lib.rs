@@ -1,31 +1,3 @@
-//! Layout and view-state model of the Crowbar shell.
-//!
-//! Pure data and operations, no GUI and no I/O. A [`Layout`] holds [`Tab`]s; a tab arranges
-//! [`PaneInstance`]s in a binary split tree ([`SplitNode`]). Every change goes through
-//! [`Layout::apply`] with a [`Command`], which either succeeds completely or changes
-//! nothing, and [`LayoutHistory`] adds undo and redo of structural commands. The stored form
-//! is versioned ([`SCHEMA_VERSION`]) and older versions are migrated on load.
-//!
-//! ```
-//! use layout::{Command, Layout, PaneInstance, SpaceId, TabId};
-//! use protocol::{PaneId, PaneState, PaneTypeId, Params};
-//!
-//! let mut layout = Layout::default();
-//! layout.apply(Command::AddTab { id: TabId(1), title: "Chat".into(), space: SpaceId::default() })?;
-//! layout.apply(Command::OpenPane {
-//!     tab: TabId(1),
-//!     instance: PaneInstance {
-//!         pane_id: PaneId::new("p1")?,
-//!         type_id: PaneTypeId::new("core.chat")?,
-//!         params: Params::default(),
-//!         state: PaneState::default(),
-//!     },
-//!     placement: None,
-//! })?;
-//! assert_eq!(layout.showing("").map(|tab| tab.pane_ids().len()), Some(1));
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! ```
-
 mod drag_subject;
 mod error;
 mod ide;

@@ -1,5 +1,3 @@
-//! Which branches the list shows and what it says when it shows none.
-
 use store::{BranchListing, ImportBranch};
 
 use crate::look::{FAILED, LOADING, NONE_MATCH, NONE_ON_REMOTE};

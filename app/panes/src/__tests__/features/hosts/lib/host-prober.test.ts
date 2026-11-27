@@ -6,7 +6,6 @@ import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-
 
 const INTERVAL = 15_000
 
-/** Each host's health answer, by host; a missing one never answers. */
 let answers: Record<string, () => Promise<Response>>
 let fetchMock: ReturnType<typeof vi.fn>
 let stop: (() => void) | undefined
@@ -20,7 +19,6 @@ const probesOf = (hostId: string) =>
   fetchMock.mock.calls.filter(([url]) => url === `crowbar://${hostId}/v0/health`).length
 const statusOf = (hostId: string) => getHostRuntime(hostId)?.getState().status
 
-/** A host whose health read waits until the test releases it. */
 function parked(): { answer: () => Promise<Response>; release: () => void } {
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -65,7 +63,6 @@ describe('startHostProber', () => {
     expect([probesOf('h1'), probesOf('h2')]).toEqual([2, 2])
   })
 
-  // A host that hangs costs one request, however many intervals pass.
   it('never overlaps two probes of one host', async () => {
     pairRemoteHost('h1')
     const h1 = parked()
@@ -99,7 +96,6 @@ describe('startHostProber', () => {
     h1.release()
   })
 
-  // /v0/health is guarded over TLS: a revoked token is a 401 on the periodic probe.
   it('marks a host whose token is refused as needing repair', async () => {
     pairRemoteHost('h1')
     answers = { h1: refused }
@@ -137,7 +133,6 @@ describe('startHostProber', () => {
     expect(probesOf('h1')).toBe(1)
   })
 
-  // A restarting daemon is back within seconds: its streams must not wait out a whole interval.
   it('probes a host a stream finds down again within a second, and sees it back at once', async () => {
     pairRemoteHost('h1')
     answers = { h1: healthy }
@@ -177,7 +172,6 @@ describe('startHostProber', () => {
     expect(statusOf('h1')).toBe('down')
   })
 
-  // A host back up has recovered: its next outage starts from the first step again.
   it('restarts the backoff when a host that was down comes back', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const probedAt: number[] = []
@@ -215,7 +209,6 @@ describe('startHostProber', () => {
     await vi.waitFor(() => expect(statusOf('h1')).toBe('up'))
   })
 
-  // A removed host has no status: nothing may go on reading it as up.
   it('lets go of a removed host’s runtime, however it was removed', async () => {
     pairRemoteHost('h1')
     answers = { h1: healthy }

@@ -1,10 +1,8 @@
 import type { LogFrame } from './frames'
 import { createLogStream, type LogSocket, type LogStreamState } from './log-stream'
 
-/** Frames from the stream are folded into the store in batches, not one render each. */
 const FLUSH_MS = 50
 
-/** What the controller reads of the console store and the actions it takes on it. */
 interface ConsoleView {
   open: boolean
   cursor: number | null
@@ -30,13 +28,9 @@ export interface ConsoleController {
   dispose(): void
 }
 
-/** Keeps the log stream open while the console is, folding frames into the store. Each replay
- *  is held until its `ready`, because a `reset` there means it replaces what is shown. Holds
- *  no state beyond handles. */
 export function createConsoleController(deps: ControllerDeps): ConsoleController {
   const { store, timers } = deps
   let queue: LogFrame[] = []
-  /** The replay being held; null once it is over, when frames pass straight through. */
   let replay: LogFrame[] | null = null
   let flushTimer: unknown = null
 
@@ -65,8 +59,6 @@ export function createConsoleController(deps: ControllerDeps): ConsoleController
       if (queue.length > 0) flushTimer ??= timers.set(flush, FLUSH_MS)
     },
     onState: (state) => {
-      // Every new socket begins with a replay, and its frames can beat `onopen`,
-      // so the hold starts at the attempt, not at the open.
       if (state === 'connecting' || state === 'reconnecting') replay = []
       if (state === 'idle') replay = null
       store.getState().setStream(state)

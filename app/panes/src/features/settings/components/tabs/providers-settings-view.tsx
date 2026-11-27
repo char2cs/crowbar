@@ -20,7 +20,6 @@ import { cn } from '@/utils/cn'
 import { IS_MOBILE } from '@/utils/platform'
 import Section, { SettingsCard } from '../settings-section'
 
-// Notes line up with the section titles and the text inside the cards.
 const NOTE_INSET = IS_MOBILE ? 'px-4' : 'px-1'
 import { ProviderColumnHeader } from './provider-columns'
 import { SortableProviderRow } from './sortable-provider-row'
@@ -31,19 +30,13 @@ interface ProvidersSettingsViewProps {
   status: AgentProvidersStatus
   onToggle: (id: string, enabled: boolean) => void
   onToggleTools: (id: string, enabled: boolean) => void
-  /** The whole list in its new priority order. */
   onReorder: (orderedIds: string[]) => void
-  /** The default permission level row. */
   permission: ReactNode
-  /** Adding an agent from a descriptor file, where the surface offers it. */
   descriptor?: ReactNode
   footer?: ReactNode
-  /** Ask again after a failed load, where the surface can. */
   onRetry?: () => void
 }
 
-/** The Agents tab as drawn, fed its list and handlers: the desktop dialog owns the list
- *  itself; the phone's settings page draws the main webview's snapshot of it. */
 export function ProvidersSettingsView({
   providers,
   status,
@@ -80,13 +73,7 @@ export function ProvidersSettingsView({
 
   return (
     <Section title="Agents" plain>
-      {/* A Section's header is hidden when it is the first one in a tab
-          (settings-section.tsx `first:[&>.settings-section-header]:hidden`),
-          so this tab renders its own heading and intro in the BODY, mirroring
-          that header's typography. Without them the group is a bare list of
-          names that never says what an agent actually is. */}
       <div className={cn('mb-2', IS_MOBILE ? 'px-4' : 'px-1 py-1.5')}>
-        {/* The phone's native screen is titled Agents already. */}
         {!IS_MOBILE && <h3 className="font-heading text-[32px] text-foreground">Agents</h3>}
         <p className="ui-font ui-text-sm text-muted-foreground">
           Agents are the coding CLIs Crowbar runs your chats on — Claude Code, Codex, and any others
@@ -96,11 +83,6 @@ export function ProvidersSettingsView({
       </div>
       {permission && <SettingsCard>{permission}</SettingsCard>}
       {descriptor}
-      {/* THREE STATES, NOT ONE SENTENCE. "No agents available." is a claim
-          about the MACHINE, and it was being shown for two situations that
-          assert nothing of the kind: a fetch still in flight, and a fetch that
-          never got an answer. A user with both CLIs installed and enabled read
-          it and believed Crowbar. */}
       {providers.length === 0 && status === 'loading' ? (
         <p
           data-testid="providers-loading"
@@ -129,15 +111,11 @@ export function ProvidersSettingsView({
         </p>
       ) : (
         <>
-          {/* What a one-word column header can't say: turning Tools off keeps the agent running
-              and only cuts its way into Crowbar. */}
           <p className={cn('ui-font ui-text-sm pb-1 text-muted-foreground', NOTE_INSET)}>
             Drag to set which agent a new chat opens first, and turn one off to hide it from every
             New chat surface. Tools lets that agent use Crowbar itself — reading your workspaces and
             leaving review comments; turn it off and the agent still runs, with no way in.
           </p>
-          {/* Only over a real list: the loading, unavailable and empty states
-              have no columns to title. */}
           <ProviderColumnHeader />
           <DndContext
             sensors={sensors}

@@ -10,10 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// A repo delete records its intent before any teardown. A crash right after
-// that write left a repo half-way to deleted with nothing to finish it (D5):
-// the next boot now re-drives the same delete — its workspaces are retired and
-// purged, and its row goes.
 func TestCrash_RepoDeleteIntent_BootFinishesTheDelete(t *testing.T) {
 	home := kit.TempHomeForTest(t)
 	env1 := kit.BuildEnvAt(t, home)

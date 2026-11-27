@@ -1,5 +1,3 @@
-//! Search in the scrollback: options, query, state and summary.
-
 mod search_options;
 mod search_query;
 mod search_state;

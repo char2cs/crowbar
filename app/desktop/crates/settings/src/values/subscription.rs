@@ -1,12 +1,8 @@
-//! A registration that ends when it is dropped.
-
-/// Keeps a listener registered with a backend; dropping it unregisters the listener.
 pub struct Subscription {
     cancel: Option<Box<dyn FnOnce()>>,
 }
 
 impl Subscription {
-    /// A subscription that runs `cancel` when dropped.
     pub fn new(cancel: impl FnOnce() + 'static) -> Self {
         Self {
             cancel: Some(Box::new(cancel)),

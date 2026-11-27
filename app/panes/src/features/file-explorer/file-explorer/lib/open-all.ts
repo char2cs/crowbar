@@ -2,7 +2,6 @@ import { findFileInTree } from '@/features/file-system/controllers/file-tree-uti
 import type { DirectoryEntry } from '@/features/file-system/controllers/platform'
 import type { FileEntry } from '@/features/file-system/types/app'
 
-/** Past this many files, "Open All" asks before opening tabs. */
 export const OPEN_ALL_CONFIRM_THRESHOLD = 100
 
 const ALWAYS_HIDDEN_FILE_NAMES = new Set(['.ds_store'])
@@ -20,8 +19,6 @@ export const getPathBaseName = (path: string): string => {
   return segments[segments.length - 1] || path
 }
 
-/** Every file under `directoryPath` in the loaded (filtered) tree. The root, addressed as '' or
- *  its absolute path (=== rootFolderPath), has no node of its own: walk the top-level entries. */
 export function collectLoadedFilesInDirectory(
   tree: FileEntry[],
   directoryPath: string,
@@ -47,8 +44,6 @@ export function collectLoadedFilesInDirectory(
   return collected
 }
 
-/** Every file under `directoryPath` on disk, skipping what the tree would hide; `isVisible`
- *  gets the entry's path, base name and whether it is a directory. */
 export async function collectLocalFilesInDirectory(
   directoryPath: string,
   readDirectory: (path: string) => Promise<Array<Pick<DirectoryEntry, 'path' | 'is_dir'>>>,

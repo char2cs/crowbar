@@ -18,7 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// appendV2 writes one schema-2 event carrying patches onto id's history.
 func appendV2(t *testing.T, es asynxModels.Store, id, patches string) {
 	t.Helper()
 	ctx := context.Background()
@@ -33,7 +32,6 @@ func appendV2(t *testing.T, es asynxModels.Store, id, patches string) {
 	require.NoError(t, es.Atomically(ctx, func(tx asynxModels.Tx) error { return tx.Append(ctx, "events:"+id, v, evt) }))
 }
 
-// upcastingRepo is buildRepo with the upcasters production registers.
 func upcastingRepo(t *testing.T, ad *adapter.Container) workspace.Workspace {
 	t.Helper()
 	rm, err := workspace.OpenReadModel(ad.WorkspaceView())
@@ -49,8 +47,6 @@ func upcastingRepo(t *testing.T, ad *adapter.Container) workspace.Workspace {
 	return repo
 }
 
-// History written while workspaces carried lastError still sets, clears and
-// replaces it; replayed against a struct without the key, it fails every read.
 func TestWorkspace_AV2HistoryThatPatchesLastErrorStillReplays(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
 	repo := upcastingRepo(t, ad)
@@ -60,8 +56,6 @@ func TestWorkspace_AV2HistoryThatPatchesLastErrorStillReplays(t *testing.T) {
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
-	// A fold that starts after a snapshot of the old struct has no key to
-	// replace or remove: the first two patches are what that history looks like.
 	for _, patches := range []string{
 		`[{"op":"replace","path":"/lastError","value":"second"}]`,
 		`[{"op":"remove","path":"/lastError"}]`,

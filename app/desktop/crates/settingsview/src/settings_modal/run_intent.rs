@@ -1,5 +1,3 @@
-//! Applies an [`Intent`] to the state and performs the resulting effect.
-
 use gpui::{Context, Window};
 use settings::{Control, Effect, Key, RecordCommand, Value};
 use ui::TextInputEvent;

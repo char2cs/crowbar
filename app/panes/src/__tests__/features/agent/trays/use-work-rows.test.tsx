@@ -50,7 +50,6 @@ describe('useWorkRows', () => {
     })
     expect(result.current[1]).toMatchObject({ kind: 'subagent', label: 'plan' })
     push(l.row('subagent', { phase: 'stop' }, { turnId: 'turn-1', scope: 'sub-1' }))
-    // The one that finished stays beside the one still running, how it ended on its row.
     expect(result.current.map((row) => [row.label, row.status])).toEqual([
       ['plan', 'running'],
       ['Scout', 'done'],

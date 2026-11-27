@@ -19,20 +19,14 @@ interface DraftDeps {
   wsId: string
   chatId: string
   providerId: string
-  /** A parked tab probes its slash catalogue the moment it is shown, not before. */
   catalogActive: boolean
-  /** History recall restarts from the newest prompt after any edit. */
   history: { reset: () => void }
 }
 
-/** The composer's text, the slash picker that filters on it, its stashes and its
- *  one error line. The text lives in the editor only: this reads it on demand and
- *  loads text into it through the handle. */
 export function useComposerDraft({ wsId, chatId, providerId, catalogActive, history }: DraftDeps) {
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const slash = useSlashCatalog({ wsId, chatId, providerId, active: catalogActive })
   const mention = useFileMention(wsId)
-  // Read from storage, never copied: the outbox stashes a failed prompt while this is open.
   const stashes = useSyncExternalStore(subscribePromptStashes, () =>
     promptStashesSnapshot(wsId, chatId),
   )
@@ -51,15 +45,12 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
     [],
   )
 
-  /** Puts text back after what was typed since; false when there is no box to take it. */
   const putBack = useCallback((text: string) => {
     if (!editorRef.current) return false
     editorRef.current.appendMarkdown(text)
     return true
   }, [])
 
-  // Fires per edit: only what changed sets state, so plain typing renders nothing.
-  // Any edit, keyed or not (a drop, a paste menu), abandons a walk through history.
   const noteShape = (shape: ComposerShape, edited: boolean) => {
     if (edited) history.reset()
     if (error) setError('')
@@ -69,7 +60,6 @@ export function useComposerDraft({ wsId, chatId, providerId, catalogActive, hist
   }
 
   const restoreStash = (item: PromptStash) => {
-    // The picker can outlive an edit; never replace words typed after it opened.
     if (read().trim()) {
       setStashPickerOpen(false)
       setError('Stash or clear the current draft before restoring another one.')

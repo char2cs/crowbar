@@ -1,5 +1,3 @@
-//! Pointer handling of [`TextInput`]: click to place the caret, drag to select.
-
 use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, Window};
 
 use crate::control::editor::field::SelectionDrag;

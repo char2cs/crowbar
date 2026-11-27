@@ -1,5 +1,3 @@
-//! Text set with letter spacing, as CSS `letter-spacing` sets develop's `tracking-*` text.
-
 mod tracked_line;
 
 use gpui::{
@@ -11,9 +9,6 @@ pub(crate) use tracked_line::TrackedLine;
 
 const ELLIPSIS: &str = "\u{2026}";
 
-/// One line of text with `em` of its font size added after every glyph, styled by the text
-/// style around it. Where that style truncates (`.truncate()`), it ends in an ellipsis that
-/// fits the width it is given.
 #[derive(Debug)]
 pub struct TrackedText {
     text: SharedString,
@@ -21,7 +16,6 @@ pub struct TrackedText {
 }
 
 impl TrackedText {
-    /// `text` spaced by `em` (see [`crate::tracking`]).
     pub fn new(
         text: impl Into<SharedString>,
         em: f32,

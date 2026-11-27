@@ -1,6 +1,3 @@
-//! Moving Files rows by dragging them onto a folder, beside a file or onto the panel itself,
-//! as develop's `use-file-explorer-drag-drop.ts` does; a file dropped on a pane opens there.
-
 mod drop_area;
 mod file_drag_state;
 mod file_draggable;
@@ -16,7 +13,6 @@ use sidebar::{Command, DropSpot, FileDrop};
 
 use crate::sidebar::{FileGesture, Sidebar};
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-drag-drop.ts
 const UNFOLD_AFTER: Duration = Duration::from_millis(550);
 
 fn xy(at: Point<Pixels>) -> (f32, f32) {

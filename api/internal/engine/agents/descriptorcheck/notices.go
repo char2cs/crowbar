@@ -6,8 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// noticeRules check that every terminal notice can tell its banner from a
-// quote of it: it matches only behind its anchor.
 func noticeRules(doc document, d *spec.Descriptor) []Finding {
 	var out []Finding
 	for i, n := range d.TerminalNotices {

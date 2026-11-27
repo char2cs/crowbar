@@ -9,8 +9,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Decide turns the options a person picked into a decision a provider can render. The options must be
-// of one kind: no provider's answer format can express a decision that both allows and denies.
 func Decide(
 	choice domain.ActivityChoice,
 	optionIDs []string,
@@ -37,8 +35,6 @@ func Decide(
 		return engineagents.AnswerDecision{}, err
 	}
 	decision.Key = key
-	// A provider reads a deny with no message as its own hook's refusal, and a bare
-	// reason as tool output it should not trust: both must read as the person's.
 	if key == domain.ChoiceOptionDeny {
 		said := strings.TrimSpace(decision.Reason)
 		decision.Reason = strings.TrimSuffix("The user denied this request and said: "+said, " and said: ")
@@ -52,8 +48,6 @@ func Decide(
 	return decision, nil
 }
 
-// RefusalKey is the canonical reply that declines an ask of kind event without
-// ending the turn — what a desk sends when nobody answered in time.
 func RefusalKey(event string) string {
 	if event == engineagents.HookElicitation {
 		return "decline"

@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// createdBody decodes a create's 201 answer.
 func createdBody(t *testing.T, body []byte) (id, workspaceID string) {
 	t.Helper()
 	var env struct {
@@ -26,8 +25,6 @@ func createdBody(t *testing.T, body []byte) (id, workspaceID string) {
 	return env.Data.ID, env.Data.WorkspaceID
 }
 
-// The client draws the new row under an id it minted; the create is made
-// under that id, so the row and the chat that lands are one.
 func TestCreate_UsesTheClientChatID(t *testing.T) {
 	id := uuid.NewString()
 	tree := &fakeChatTree{placed: domain.Chat{ID: id}}
@@ -61,8 +58,6 @@ func TestCreate_ATakenIDIsAnIDConflict(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), string(problem.IDConflict))
 }
 
-// A branch create answers the workspace it minted too, so the client can wait
-// for both rows before it opens the chat.
 func TestCreate_AnOwnWorktreeCreateAnswersItsWorkspace(t *testing.T) {
 	id := uuid.NewString()
 	tree := &fakeChatTree{placed: domain.Chat{ID: id}, createdWorkspace: "ws-new"}
@@ -76,8 +71,6 @@ func TestCreate_AnOwnWorktreeCreateAnswersItsWorkspace(t *testing.T) {
 	assert.Equal(t, "ws-new", gotWorkspace)
 }
 
-// A branch forks from its parent row's worktree; with no parent there is none,
-// which is the caller's mistake, not a conflict with the daemon's state.
 func TestCreate_AnOwnWorktreeCreateWithNoParentIsAnInvalidArgument(t *testing.T) {
 	tree := &fakeChatTree{createdWorkspace: "ws-new"}
 

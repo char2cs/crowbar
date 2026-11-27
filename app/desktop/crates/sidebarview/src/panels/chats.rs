@@ -1,5 +1,3 @@
-//! The chats panel: one scrolling tree per space on a horizontal carousel.
-
 mod foot_menu;
 mod kinds;
 mod parts;

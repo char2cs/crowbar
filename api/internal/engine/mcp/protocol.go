@@ -5,34 +5,24 @@ import (
 	"encoding/json"
 )
 
-// ProtocolVersion is the revision this server speaks. See the package doc for
-// why it is not 2026-07-28.
 const ProtocolVersion = "2025-11-25"
 
-// Tool is one advertised tool; InputSchema is a raw JSON Schema object. There is no
-// OutputSchema: declaring one requires structuredContent duplicated into content.
 type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
 
-// ToolSet is everything the protocol layer needs to know about Crowbar: nothing,
-// beyond a list of tools and a way to call one. Call returns the text a model
-// should read; an error is rendered as a TOOL error, not a transport error.
 type ToolSet interface {
 	Tools() []Tool
 	Call(ctx context.Context, name string, args json.RawMessage) (string, error)
 }
 
-// Image is one image a tool answers with; Data is base64 with no data: prefix.
 type Image struct {
 	MIMEType string
 	Data     string
 }
 
-// ImageToolSet is a ToolSet whose tools may also answer with an image. The
-// server prefers it when present; plain ToolSets keep answering text only.
 type ImageToolSet interface {
 	ToolSet
 	CallWithImages(ctx context.Context, name string, args json.RawMessage) (string, []Image, error)

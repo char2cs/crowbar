@@ -11,14 +11,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// LegacyNodeLog is the retired position aggregate's event log under state/events.
 const LegacyNodeLog = "node.db"
 
-// legacyChatLog is the chat event log, whose older events carry each placement.
 const legacyChatLog = "agent_chat.db"
 
-// planPlacementTree opens no store: a home with either log has placements to
-// copy, how many is only known once the stores are open.
 func planPlacementTree(_ context.Context, env migrate.Env) (migrate.Plan, error) {
 	found := false
 	for _, name := range []string{LegacyNodeLog, legacyChatLog} {

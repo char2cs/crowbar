@@ -19,7 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// fakeRows is a chat-1 whose rows before 9 are one page of rows 5-8, with older ones behind.
 type fakeRows struct{ asked [2]int64 }
 
 func (f *fakeRows) ReadRows(_ context.Context, chatID string, before, bytes int64) (agentusecase.RowsPage, error) {

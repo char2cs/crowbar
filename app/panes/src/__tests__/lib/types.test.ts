@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { WorkspaceDTO, RepoDTO, ProjectDTO, ThreadDTO, ThreadReplyDTO } from '@/lib/types'
 
-// These DTOs are the camelCase mirrors of the Go Canonical Contracts. The asserts
-// are type-level (the file fails to compile if a field is missing/renamed) plus a
-// trivial runtime check so vitest counts the suite.
 describe('canonical DTO shapes', () => {
   it('WorkspaceDTO carries the §5 7-value status union and fields', () => {
     const ws: WorkspaceDTO = {

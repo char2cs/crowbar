@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// tickingClock advances one second per call, so every record and run id of a
-// test is distinct and ordered.
 func tickingClock() func() time.Time {
 	at := ledgerEpoch
 	return func() time.Time {
@@ -23,18 +21,14 @@ func tickingClock() func() time.Time {
 	}
 }
 
-// bench is a fixture home with a catalog. Each begin is another boot of the
-// same home, on one clock.
 type bench struct {
-	tb    testing.TB
-	home  home.Home
-	cat   *Catalog
-	clock func() time.Time
-	log   *slog.Logger // nil means the default logger
-	// free and haveGit stand in for the machine, so no test depends on the disk or on git.
-	free    FreeBytesFunc
-	haveGit func() bool
-	// implemented is what a preview is told this build can run; every step by default.
+	tb          testing.TB
+	home        home.Home
+	cat         *Catalog
+	clock       func() time.Time
+	log         *slog.Logger
+	free        FreeBytesFunc
+	haveGit     func() bool
 	implemented func(number int) bool
 	explain     func(error) (string, bool)
 }
@@ -52,7 +46,6 @@ func newBench(
 	}
 }
 
-// begin opens a session that is closed with the test; closing it earlier is fine.
 func (b *bench) begin() *Session {
 	b.tb.Helper()
 	s, err := Begin(context.Background(), b.home, b.cat, Options{
@@ -65,7 +58,6 @@ func (b *bench) begin() *Session {
 	return s
 }
 
-// records is what the ledger holds on disk now.
 func (b *bench) records() []record {
 	b.tb.Helper()
 	view, err := readLedger(filepath.Join(b.home.MigrateDir(), ledgerName))
@@ -73,7 +65,6 @@ func (b *bench) records() []record {
 	return view.records
 }
 
-// seedLedger leaves the ledger a process that stopped part-way would have left.
 func (b *bench) seedLedger(
 	recs ...record,
 ) {
@@ -121,7 +112,6 @@ func ofKind(
 	return out
 }
 
-// impl is an Impl whose Apply is fn and which has nothing to verify.
 func impl(
 	fn func(cp *Checkpoints) (Counts, error),
 ) Impl {
@@ -130,7 +120,6 @@ func impl(
 	}}
 }
 
-// healthy gives each step number an Impl that does nothing.
 func healthy(
 	numbers ...int,
 ) Impls {
@@ -143,7 +132,6 @@ func healthy(
 	return impls
 }
 
-// tracing gives each step number an Impl that appends its number to order.
 func tracing(
 	order *[]int,
 	numbers ...int,

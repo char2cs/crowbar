@@ -4,7 +4,6 @@ import { IS_MAC } from '@/utils/platform'
 export const ATTACH_SHORTCUT_LABEL = IS_MAC ? '⌘U' : 'Ctrl+U'
 export const PASTE_SHORTCUT_LABEL = IS_MAC ? '⌘V' : 'Ctrl+V'
 
-/** The chord the plus menu's "Attach files…" row advertises. */
 export function isAttachShortcut(
   event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>,
 ): boolean {
@@ -12,7 +11,6 @@ export function isAttachShortcut(
   return modifier && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'u'
 }
 
-/** The images on the system clipboard, as files named for their type. Empty when it holds none. */
 export async function readClipboardImages(): Promise<File[]> {
   const items = await navigator.clipboard.read()
   const files = await Promise.all(

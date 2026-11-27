@@ -26,7 +26,6 @@ const RENDER_WHITESPACE_MODES = new Set<Settings['renderWhitespace']>([
   'trailing',
   'all',
 ])
-// Only the variable Geist Mono cut is bundled, so a persisted static one maps to it.
 const REMOVED_STATIC_GEIST_MONO = /^(\s*)(['"]?)Geist Mono\2(\s*(?:,|$))/i
 
 function normalizeMonoFontFamily(fontFamily: string): string {
@@ -54,8 +53,6 @@ function normalizeFileTreeIndentSize(value: number): number {
   return Math.min(FILE_TREE_INDENT_SIZE_MAX, Math.max(FILE_TREE_INDENT_SIZE_MIN, snapped))
 }
 
-// A persisted theme id can outlive its theme, so an id the registry doesn't know reads as the
-// default. Checked against the registry, so a theme uploaded this session still round-trips.
 function normalizeTheme(value: unknown): Settings['theme'] {
   if (typeof value === 'string' && themeRegistry.getTheme(value)) {
     return value
@@ -64,12 +61,10 @@ function normalizeTheme(value: unknown): Settings['theme'] {
   return getDefaultSetting('theme')
 }
 
-// A non-boolean (older profile, hand-edited export) carries no choice: the default, not `false`.
 function normalizeChatIsDefaultPresentation(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('chatIsDefaultPresentation')
 }
 
-// The dev split-view switch: a non-boolean resolves to the default (off), as above.
 function normalizeChatSplitPresentationEnabled(value: unknown): boolean {
   return typeof value === 'boolean' ? value : getDefaultSetting('chatSplitPresentationEnabled')
 }

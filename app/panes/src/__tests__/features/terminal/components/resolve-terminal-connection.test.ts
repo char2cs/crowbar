@@ -2,14 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveTerminalSession } from '@/features/terminal/components/resolve-terminal-connection'
 import { loadReconnect, saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 
-// Which daemon PTY a terminal view attaches to. The invariants:
-//   - a bound session the daemon still has is attached, never replaced;
-//   - a bound session the daemon no longer has ENDED — it is reported gone,
-//     for a shell tab as much as an agent view, and never replaced by a spawn;
-//   - an agent view is bound to the PTY it names, and never spawns;
-//   - only a tab that was never bound gets a fresh PTY;
-//   - a daemon that could not be asked is not a death: nothing changes.
-
 const createTerminal = vi.fn(async () => 'fresh-pty')
 const listLive = vi.fn(async () => ['pty-1'])
 

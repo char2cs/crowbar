@@ -25,9 +25,6 @@ func (s stubWorkspaceRepo) List(
 	return s.rows, s.err
 }
 
-// ListInRepo mirrors List: ResolveMergeEligibility filters siblings by ID and
-// repo itself (see merge_eligibility.go), so returning the unfiltered rows
-// here preserves every existing test's behavior unchanged.
 func (s stubWorkspaceRepo) ListInRepo(
 	_ context.Context,
 	_ string,
@@ -36,7 +33,6 @@ func (s stubWorkspaceRepo) ListInRepo(
 	return s.rows, s.err
 }
 
-// discardHub keeps the last workspace row published.
 type discardHub struct {
 	last dto.WorkspaceDTO
 }
@@ -68,7 +64,6 @@ func TestBroadcastWorkspace_ListError_DegradesToEmptyEligibility(t *testing.T) {
 		domain.Workspace{ID: "child", ProjectID: "p1", RepoID: "r1", ParentID: "parent"},
 	)
 
-	// The broadcast still lands, just without eligibility.
 	assert.Equal(t, "child", h.last.ID)
 	assert.False(t, h.last.CanMergeLocally)
 }
@@ -78,7 +73,6 @@ func TestBroadcastWorkspace_SkipsWrongRepoSiblings(t *testing.T) {
 	c := &Container{
 		publishWorkspace: h.publish,
 		Workspace: stubWorkspaceRepo{rows: []domain.Workspace{
-			// Same id as the parent but a different repo: must be skipped.
 			{ID: "parent", ProjectID: "p1", RepoID: "rX", Branch: "wrong"},
 			{ID: "parent", ProjectID: "p1", RepoID: "r1", Branch: "main"},
 		}},
@@ -129,8 +123,6 @@ func TestBroadcastWorkspace_ParentLocked_NotEligible(t *testing.T) {
 	assert.Equal(t, "main", h.last.ParentBranch)
 }
 
-// batchOnlyGit answers the batched dry-run and nothing else: the broadcast must
-// reach git only through it, so it shares the list's cached verdicts.
 type batchOnlyGit struct {
 	asked [][]gitengine.MergePair
 }

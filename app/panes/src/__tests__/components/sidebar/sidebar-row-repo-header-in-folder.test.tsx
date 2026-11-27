@@ -9,12 +9,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
-/**
- * A repo header row is identified by the row itself (`repoIcon`, the same
- * signal `sidebar-drop-policy.ts`/`drop-actions.ts` already key on), never by
- * `parentId === null`: a repo's entry can be filed into a project-home folder
- * (`repo.folderId`), and it is still the repo.
- */
 function makeRepo(folderId: string): Repo {
   return {
     id: 'repo-alpha',

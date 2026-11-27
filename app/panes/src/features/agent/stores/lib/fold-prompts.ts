@@ -31,7 +31,6 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
     setPrompt(fold, retryOf, { state: 'retried', by: requestId })
   }
   const running = fold.facts.running
-  // A prompt steered into the running turn is delivered by its own row.
   const steered = row.turnId && running?.turnId === row.turnId
   setPrompt(
     fold,
@@ -47,7 +46,6 @@ export function applyUserMessage(fold: FeedFold, row: LedgerRow<'user_message'>)
   )
 }
 
-// A retracted prompt went back to the composer, so its row leaves the transcript.
 export function applyPromptSettled(fold: FeedFold, row: LedgerRow<'prompt_settled'>) {
   const { requestId, consumed, reason } = row.body
   if (consumed)
@@ -61,7 +59,6 @@ export function applyPromptSettled(fold: FeedFold, row: LedgerRow<'prompt_settle
   } else setPrompt(fold, requestId, { state: 'refused', reason })
 }
 
-/** A turn its prompt's retract ended before it said anything leaves no trace. */
 export function retractTurn(fold: FeedFold, row: LedgerRow<'turn_ended'>) {
   const requestId = fold.facts.running?.turnId === row.turnId && fold.facts.running?.requestId
   const turn = row.turnId ?? ''
@@ -73,8 +70,6 @@ export function retractTurn(fold: FeedFold, row: LedgerRow<'turn_ended'>) {
   fold.unplace(userItemId(requestId, row.seq))
 }
 
-/** Output after a retract: the provider ran the prompt, so its row and end show
- *  above that output, even when the composer already got the text back. */
 export function reviveTurn(fold: FeedFold, turn: string) {
   const lost = fold.facts.traceless[turn]
   if (!lost) return
@@ -96,12 +91,10 @@ const PILL_MARKERS = new Set([
 ])
 const LAUNCH_DIVIDERS = new Set(['provider_switched', 'model_changed', 'effort_changed'])
 
-// The ids a provider stamps on each repeat of the same warning (cf-ray, request id).
 const STAMP = /\b(cf-ray|request[ _-]?id)\s*[:=]\s*[\w-]+/gi
 
 const sameWarning = (detail: string | undefined) => (detail ?? '').replace(STAMP, '$1')
 
-/** A CLI repeats some warnings on every connection; the chat says each once. */
 export function warningShown(fold: FeedFold, detail: string | undefined) {
   const said = sameWarning(detail)
   return fold.placedOrder.some((id) => {
@@ -112,9 +105,6 @@ export function warningShown(fold: FeedFold, detail: string | undefined) {
 
 const LAUNCH_ORDER = ['provider_switched', 'model_changed', 'effort_changed']
 
-/** One launch's switches read as one divider, and a switch made with nothing
- *  said since replaces the earlier one of its kind: a quiet chat reads as where
- *  it landed. `drawn` joins the launch divider placed just before it, if any. */
 function joinLaunch(fold: FeedFold, drawn: string) {
   const order = fold.placedOrder
   const at = order.lastIndexOf(drawn)
@@ -129,14 +119,12 @@ function joinLaunch(fold: FeedFold, drawn: string) {
   fold.unplace(drawn)
 }
 
-/** A session lost and then continued from the record is one event, said by the continuation. */
 function absorbLostSession(fold: FeedFold, drawn: string) {
   const order = fold.placedOrder
   const head = fold.item<MarkerItem>(order[order.lastIndexOf(drawn) - 1] ?? '')
   if (head?.kind === 'marker' && head.marker === 'session_lost') fold.unplace(head.id)
 }
 
-/** `/compact` and the compaction it ran are one event, said once with the command in the pill. */
 function absorbCompactCommand(fold: FeedFold, drawn: string) {
   const order = fold.placedOrder
   const head = fold.item(order[order.lastIndexOf(drawn) - 1] ?? '')
@@ -146,9 +134,6 @@ function absorbCompactCommand(fold: FeedFold, drawn: string) {
   fold.unplace(head.id)
 }
 
-/** Draws a pill marker; a launch's lands above the prompt it carries, which
- *  the ledger records first so the new CLI can find it. A selection change
- *  takes no busy guard, so a queued prompt stays where it is. */
 export function divider(fold: FeedFold, kind: string, draw: () => string) {
   if (!PILL_MARKERS.has(kind)) return
   let carried: string | undefined

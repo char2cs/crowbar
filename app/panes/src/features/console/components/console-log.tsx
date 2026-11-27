@@ -3,26 +3,19 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { ConsoleEntry } from '@/features/console/lib/entries'
 import { EntryRow } from './entry-row'
 
-/** A rough row height; each row is measured once it has rendered. */
 const ESTIMATED_ROW = 20
 
-/** Within this many pixels of the bottom, the view follows new lines. */
 const FOLLOW_SLACK = 32
 
-/** How long after the user touches the pane a scroll still counts as theirs. */
 const USER_SCROLL_WINDOW_MS = 250
 
 interface ConsoleLogProps {
   entries: readonly ConsoleEntry[]
   expandedId: number | null
   onToggle: (id: number) => void
-  /** While true the console is shown: the view returns to the newest line and takes focus. */
   open: boolean
 }
 
-// Virtualized: thousands of lines, each as tall as its fields wrap. Follows the newest line until
-// the user scrolls up. Only a scroll after user input (wheel, touch, scrollbar, keys) stops it:
-// row measuring, buffer trims and position clamps also fire scrolls that mean nothing.
 export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogProps) {
   const scroller = useRef<HTMLDivElement>(null)
   const following = useRef(true)
@@ -36,7 +29,6 @@ export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogPr
     overscan: 15,
     getItemKey: (index) => entries[index].id,
   })
-  // The pane pins itself; the virtualizer shifting the position as rows are measured would fight it.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false
   const total = virtualizer.getTotalSize()
 
@@ -48,7 +40,6 @@ export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogPr
     }, USER_SCROLL_WINDOW_MS)
   }, [])
 
-  // Only the scrollbar and the gutter press the pane itself: a click on a row is not a scroll.
   const onPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       if (event.target === event.currentTarget) markUser()
@@ -86,7 +77,6 @@ export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogPr
     return () => cancelAnimationFrame(frame)
   }, [entries.length, total, expandedId, open])
 
-  // Resizing or re-docking changes the viewport without touching the entries.
   useEffect(() => {
     const el = scroller.current
     if (!el || typeof ResizeObserver === 'undefined') return
@@ -101,12 +91,10 @@ export function ConsoleLog({ entries, expandedId, onToggle, open }: ConsoleLogPr
     <div
       ref={scroller}
       onScroll={onScroll}
-      // The user's own input: evidence that a scroll is theirs.
       onWheel={markUser}
       onTouchMove={markUser}
       onKeyDown={markUser}
       onPointerDown={onPointerDown}
-      // A scrollable region the keyboard can reach, so the arrow and page keys scroll it.
       tabIndex={0}
       data-slot="console-log"
       role="log"

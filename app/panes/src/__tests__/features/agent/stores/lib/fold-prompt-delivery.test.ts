@@ -4,9 +4,7 @@ import { applyLive, applyRow, emptyFeed } from '@/features/agent/stores/lib/fold
 import type { ChatFeed, TextItem } from '@/features/agent/stores/lib/transcript-items'
 import { applyRows, delta, ledger, recordedRows } from '@/__tests__/__fixtures__/ledger-rows'
 
-/** A recording cut mid-ledger: the feed already holds every row before it. */
 const feedAt = (seq: number): ChatFeed => ({ ...emptyFeed(), seq })
-/** What the transcript draws: the folded order, then what is still streaming. */
 const shown = (f: ChatFeed) => [...f.order, ...f.liveTail]
 
 describe('prompt delivery', () => {
@@ -53,7 +51,6 @@ describe('prompt delivery', () => {
     expect(feed.order).toEqual(['p:r1', 'm:turn-1:m1', 'k:4'])
   })
 
-  // A recorded Stop mid-turn; the partial reply's row and a second turn_ended land after.
   it('draws a stopped turn once, under the reply its provider flushed after the stop', () => {
     const rows = recordedRows('feed-codex-pre-unix.txt', 52, 58)
     const prompt = rows[0] as LedgerRow<'user_message'>
@@ -85,16 +82,13 @@ describe('prompt delivery', () => {
     const thought = `r:${prompt.turnId}:${reply.body.messageId}`
     for (const row of rows.slice(2)) {
       feed = applyRow(feed, row)
-      // The reasoning row lands at the turn's end and reads above the reply.
       const reasoned = row.seq >= 57 ? [thought] : []
       expect(shown(feed)).toEqual([`p:${prompt.body.requestId}`, ...reasoned, text, 'k:54'])
-      // A settled text stops following its stream, so it must hold the words itself.
       const item = feed.items.get(text) as TextItem
       if (item.settled) expect(item.text).toMatch(/^1\. Apple/)
     }
   })
 
-  // The provider ran a prompt whose turn shows output, even if Esc handed the text back.
   it('brings a retracted prompt back above whatever output follows its retract', () => {
     for (const late of ['text', 'tool'] as const) {
       const l = ledger()

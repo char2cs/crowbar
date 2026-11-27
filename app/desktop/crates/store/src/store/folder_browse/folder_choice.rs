@@ -1,14 +1,9 @@
-//! Where a repository's folder is chosen.
-
 use crate::live::State;
 use crate::reads::{active_project, host_of};
 
-/// The OS dialog reaches this computer's disk only; a paired host's disk is browsed through its daemon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FolderChoice {
-    /// The native folder dialog of this computer.
     Native,
-    /// The picker that browses the host's own disk.
     OnHost,
 }
 

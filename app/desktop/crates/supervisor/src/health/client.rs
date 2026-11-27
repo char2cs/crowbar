@@ -1,5 +1,3 @@
-//! HTTP over the daemon socket: the dial port, its socket adapter with fetch, and get.
-
 pub(crate) mod dial;
 mod get;
 mod socket_dial;

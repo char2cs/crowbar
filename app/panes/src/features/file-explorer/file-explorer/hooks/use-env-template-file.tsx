@@ -35,7 +35,6 @@ async function documentExists(ref: DocumentRef): Promise<boolean> {
   }
 }
 
-/** Creates a sibling env template from an env file, asking before it overwrites one. */
 export function useEnvTemplateFile({
   workspaceId,
   onCreateNewFileInDirectory,
@@ -68,7 +67,6 @@ export function useEnvTemplateFile({
             targetPath
         await writeDocument(workspaceRef(workspaceId, createdPath), templateContent)
 
-        // Buffers are window-level: a sibling worktree's same relative path is another document.
         const createdBuffer = findDocumentBuffer(workspaceRef(workspaceId, createdPath))
         if (createdBuffer) {
           windowPaneStore.setState((state) => ({

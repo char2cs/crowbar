@@ -10,8 +10,6 @@ const CURRENT_COLOR: &str = "currentColor";
 const DEFAULT_SIZE: Pixels = px(16.0);
 const CHANNEL: f32 = 255.0;
 
-/// A provider's own artwork, an SVG the daemon serves, drawn with its `currentColor` parts in
-/// the host's ink as an inline SVG inherits the text colour.
 #[derive(Debug, Clone, IntoElement)]
 pub struct ProviderGlyph {
     svg: SharedString,
@@ -20,7 +18,6 @@ pub struct ProviderGlyph {
 }
 
 impl ProviderGlyph {
-    /// The artwork `svg` in `color`, 16px square.
     #[must_use]
     pub fn new(
         svg: impl Into<SharedString>,
@@ -33,7 +30,6 @@ impl ProviderGlyph {
         }
     }
 
-    /// Draws the artwork `size` square.
     #[must_use]
     pub fn size(
         mut self,

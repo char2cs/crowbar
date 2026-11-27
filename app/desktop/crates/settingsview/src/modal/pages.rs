@@ -1,5 +1,3 @@
-//! The scrolling page on the right.
-
 mod block_view;
 mod button_block;
 mod heading_view;
@@ -58,7 +56,6 @@ fn blocks(
     div().flex().flex_col().children(views.collect::<Vec<_>>())
 }
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/settings/components/tabs/active-sessions-settings.tsx a heading's `mb-2` outranks its page's `space-y`.
 fn spaced(
     frame: &Frame<'_>,
     block: (usize, &Block),

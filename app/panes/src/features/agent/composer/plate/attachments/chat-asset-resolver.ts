@@ -2,7 +2,6 @@ import { chatBase } from '@/features/agent/api/agent-chat-reads'
 import { apiUrl } from '@/lib/api/fetch'
 import type { MarkdownAssetInfo } from '@/features/editor/markdown/plate/markdown-asset'
 
-/** `chats/{chatId}/attachments/{filename}`; the chatId need not be the open chat. */
 export interface ParsedChatAttachmentRef {
   chatId: string
   filename: string
@@ -17,8 +16,6 @@ export function parseChatAttachmentRef(ref: string): ParsedChatAttachmentRef | n
   return { chatId, filename }
 }
 
-/** Never throws: `chatBase` throws for an unrecorded workspace scope, and that
- *  becomes `null` like every other failure here. */
 export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   const parsed = parseChatAttachmentRef(ref)
   if (!parsed) return null
@@ -32,7 +29,6 @@ export function chatAttachmentUrl(wsId: string, ref: string): string | null {
   }
 }
 
-/** An abort stops the read too: an image unmounted mid-read must not keep encoding. */
 function blobToDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -57,7 +53,6 @@ function blobToDataUrl(blob: Blob, signal?: AbortSignal): Promise<string> {
   })
 }
 
-/** Never rejects, so it plugs into `MarkdownAssetInfo.resolve` with no adapter. */
 async function fetchChatAttachmentDataUrl(
   wsId: string,
   ref: string,
@@ -76,11 +71,9 @@ async function fetchChatAttachmentDataUrl(
 
 export interface ChatAttachmentMetadata {
   filename: string
-  /** null when unknown; the file card still renders without a size. */
   size: number | null
 }
 
-/** A HEAD, so the card never downloads the body. Never rejects. */
 export async function fetchChatAttachmentMetadata(
   wsId: string,
   ref: string,

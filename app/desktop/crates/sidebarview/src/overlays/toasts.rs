@@ -1,5 +1,3 @@
-//! Showing toasts at the bottom of the sidebar column.
-
 use gpui::{AnyElement, App, Context, Entity, IntoElement, ParentElement, Styled, div};
 use sidebar::{DockSide, Panel, Visibility};
 use ui::{Portal, ToastContent, ToastLifetime, ToastPlacement, ToastQueue, ToastSide};
@@ -7,8 +5,6 @@ use ui::{Portal, ToastContent, ToastLifetime, ToastPlacement, ToastQueue, ToastS
 use crate::sidebar::Sidebar;
 
 impl Sidebar {
-    /// Shows a toast over the bottom of the sidebar; a toast with the same `key` is rewritten in
-    /// place, and an automatic one goes away after a few seconds.
     pub fn toast(
         &mut self,
         content: ToastContent,
@@ -25,7 +21,6 @@ impl Sidebar {
         });
     }
 
-    /// Takes down the toast shown under `key`, for example once the problem it reports is gone.
     pub fn clear_toast(
         &mut self,
         key: &str,
@@ -34,9 +29,6 @@ impl Sidebar {
         self.toasts.update(cx, |queue, cx| queue.clear(key, cx));
     }
 
-    /// The window's one toast queue: docked at the bottom of the column while the sidebar is
-    /// open, floating at the window corner on the dock edge while it is hidden, where the shell
-    /// draws it.
     pub fn toast_queue(&self) -> Entity<ToastQueue> {
         self.toasts.clone()
     }
@@ -54,7 +46,6 @@ impl Sidebar {
         Some(div().absolute().inset_0().child(layer).into_any_element())
     }
 
-    /// The toast edge matching the sidebar's dock edge: toasts swipe away toward it.
     pub fn toast_side(side: DockSide) -> ToastSide {
         match side {
             DockSide::Left => ToastSide::Left,

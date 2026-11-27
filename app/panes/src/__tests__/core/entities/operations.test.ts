@@ -84,7 +84,6 @@ describe('operations store', () => {
     expect(problemOf('ws1')).toBeNull()
   })
 
-  // Shallow-equal across frames that change no reason, so the sidebar does not re-derive.
   it('selectFailedOps keys each failing entity to its operation, by reference', () => {
     const held = { code: 'conflict' as const, message: 'held' }
     streamOperation(op({ state: 'failed', error: held }))
@@ -150,7 +149,6 @@ describe('operations store', () => {
 
   it('the newest operation is by time, whatever the offset or precision its timestamp is written in', () => {
     streamOperation(op({ id: 'later', state: 'failed', createdAt: '2026-10-28T12:30:00Z' }))
-    // 21:00+09:00 is 12:00Z, earlier, though it sorts after as text.
     streamOperation(
       op({ id: 'earlier', state: 'succeeded', createdAt: '2026-10-28T21:00:00.5+09:00' }),
     )

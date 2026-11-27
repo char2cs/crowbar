@@ -13,10 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// TestRegression_GitArgInjection_Reset_RejectsBadMode proves that a reset mode
-// outside the {soft,mixed,hard,keep,merge} allowlist is rejected at the usecase
-// boundary with problem.ErrInvalidArgument and never reaches the engine (where it
-// would become an arbitrary `--<mode>` git flag → argument injection).
 func TestRegression_GitArgInjection_Reset_RejectsBadMode(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -36,8 +32,6 @@ func TestRegression_GitArgInjection_Reset_RejectsBadMode(t *testing.T) {
 	assert.False(t, syncer.Synced, "a rejected reset must not resync")
 }
 
-// TestRegression_GitArgInjection_Reset_RejectsBadCommit proves a leading-dash
-// commit operand is rejected (reset's commit cannot be hidden behind `--`).
 func TestRegression_GitArgInjection_Reset_RejectsBadCommit(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -51,8 +45,6 @@ func TestRegression_GitArgInjection_Reset_RejectsBadCommit(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
-// TestRegression_GitArgInjection_Reset_AllowsValidModes proves the happy path:
-// every allowlisted mode reaches the engine with the operands intact.
 func TestRegression_GitArgInjection_Reset_AllowsValidModes(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -71,8 +63,6 @@ func TestRegression_GitArgInjection_Reset_AllowsValidModes(t *testing.T) {
 	}
 }
 
-// TestRegression_GitArgInjection_Merge_RejectsDashBranch proves a branch value
-// beginning with '-' is rejected before the engine runs `git merge`.
 func TestRegression_GitArgInjection_Merge_RejectsDashBranch(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -91,7 +81,6 @@ func TestRegression_GitArgInjection_Merge_RejectsDashBranch(t *testing.T) {
 	assert.False(t, syncer.Synced)
 }
 
-// TestRegression_GitArgInjection_Merge_AllowsNormalBranch proves the happy path.
 func TestRegression_GitArgInjection_Merge_AllowsNormalBranch(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -106,9 +95,6 @@ func TestRegression_GitArgInjection_Merge_AllowsNormalBranch(t *testing.T) {
 	}
 }
 
-// TestRegression_GitArgInjection_Rebase_RejectsDashOnto proves an onto value
-// beginning with '-' (e.g. `--exec=<cmd>` → arbitrary command per commit) is
-// rejected before `git rebase` runs.
 func TestRegression_GitArgInjection_Rebase_RejectsDashOnto(t *testing.T) {
 	git, syncer, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -127,7 +113,6 @@ func TestRegression_GitArgInjection_Rebase_RejectsDashOnto(t *testing.T) {
 	assert.False(t, syncer.Synced)
 }
 
-// TestRegression_GitArgInjection_Rebase_AllowsNormalOnto proves the happy path.
 func TestRegression_GitArgInjection_Rebase_AllowsNormalOnto(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -140,8 +125,6 @@ func TestRegression_GitArgInjection_Rebase_AllowsNormalOnto(t *testing.T) {
 	assert.Equal(t, "main", gotOnto)
 }
 
-// TestRegression_GitArgInjection_BranchOps_RejectDashOperands proves the branch
-// create/rename/delete/switch operands are all validated.
 func TestRegression_GitArgInjection_BranchOps_RejectDashOperands(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -180,9 +163,6 @@ func TestRegression_GitArgInjection_BranchOps_RejectDashOperands(t *testing.T) {
 	}
 }
 
-// TestRegression_GitArgInjection_CommitDiff_RejectsBadSha proves the read-side
-// commit-diff sha (a user query param flowing to `git show`/`git diff`) is
-// validated, so `--output=<path>` cannot be smuggled in to write a file.
 func TestRegression_GitArgInjection_CommitDiff_RejectsBadSha(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -199,7 +179,6 @@ func TestRegression_GitArgInjection_CommitDiff_RejectsBadSha(t *testing.T) {
 	}
 }
 
-// TestRegression_GitArgInjection_CommitDiff_AllowsValidSha proves the happy path.
 func TestRegression_GitArgInjection_CommitDiff_AllowsValidSha(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -213,9 +192,6 @@ func TestRegression_GitArgInjection_CommitDiff_AllowsValidSha(t *testing.T) {
 	assert.Equal(t, "0a1b2c3d4e5f", gotSha)
 }
 
-// TestRegression_GitArgInjection_Operand_RejectsMetacharacters proves the
-// check-ref-format-style validator rejects operands carrying shell/pathspec
-// metacharacters or git-forbidden ref shapes, while accepting legitimate refs.
 func TestRegression_GitArgInjection_Operand_RejectsMetacharacters(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()
@@ -226,15 +202,15 @@ func TestRegression_GitArgInjection_Operand_RejectsMetacharacters(t *testing.T) 
 	}
 
 	bad := []string{
-		"foo bar",       // space
-		"foo;rm -rf /",  // shell metachar
-		"foo`whoami`",   // backtick
-		"$(touch x)",    // command substitution shape
-		"foo..bar",      // git-forbidden ".."
-		"foo@{0}",       // git-forbidden "@{"
-		"refs/heads/x/", // trailing slash
-		".hidden",       // leading dot
-		"foo.lock",      // trailing .lock
+		"foo bar",
+		"foo;rm -rf /",
+		"foo`whoami`",
+		"$(touch x)",
+		"foo..bar",
+		"foo@{0}",
+		"refs/heads/x/",
+		".hidden",
+		"foo.lock",
 	}
 	for _, b := range bad {
 		err := uc.Merge(ctx, "w1", b, now)
@@ -242,8 +218,6 @@ func TestRegression_GitArgInjection_Operand_RejectsMetacharacters(t *testing.T) 
 	}
 }
 
-// TestRegression_GitArgInjection_Operand_AllowsLegitimateRefs proves the
-// validator does not break normal branch names, full refs, SHAs, and revisions.
 func TestRegression_GitArgInjection_Operand_AllowsLegitimateRefs(t *testing.T) {
 	git, _, uc := newGitUsecase(t)
 	ctx := context.Background()

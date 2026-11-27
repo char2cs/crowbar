@@ -1,5 +1,3 @@
-//! What turning a connection away from a busy relay logs.
-
 use std::{fmt, io};
 
 use journal::Level;

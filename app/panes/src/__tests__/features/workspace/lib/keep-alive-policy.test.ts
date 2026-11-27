@@ -45,10 +45,6 @@ describe('planRetention', () => {
   })
 
   it('retains the active workspace even when it is not present in entries at all', () => {
-    // Defensive: planRetention only reports on entries it was handed; a
-    // caller must include the active id in `entries` for it to be reported,
-    // but nothing here should crash or misbehave if it's asked about ids
-    // that don't include it.
     const plan = planRetention([{ wsId: 'other', hasViewChat: false }], 'active')
     expect(plan.retain).toEqual([])
     expect(plan.evict).toEqual(['other'])
@@ -76,9 +72,9 @@ describe('planRetention', () => {
   it('preserves input order in retain and evict arrays', () => {
     const plan = planRetention(
       [
-        { wsId: 'x', hasViewChat: false }, // no view chat, evicted
-        { wsId: 'y', hasViewChat: false }, // active
-        { wsId: 'z', hasViewChat: true }, // has a view chat
+        { wsId: 'x', hasViewChat: false },
+        { wsId: 'y', hasViewChat: false },
+        { wsId: 'z', hasViewChat: true },
       ],
       'y',
     )

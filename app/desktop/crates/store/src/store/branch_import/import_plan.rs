@@ -1,5 +1,3 @@
-//! What an import will do, as the dialog's hint states it.
-
 use std::collections::HashSet;
 
 use crate::store::branch_import::availability::Availability;
@@ -7,12 +5,9 @@ use crate::store::branch_import::entry::Entry;
 use crate::store::branch_import::parent_chains::ParentChains;
 use crate::store::branch_import::pr_link::PrLink;
 
-/// How many branches come in and how many missing parents the daemon will create for them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ImportPlan {
-    /// Branches selected.
     pub import_count: usize,
-    /// Ancestors along the open-PR chains that do not yet exist as workspaces.
     pub parent_count: usize,
 }
 

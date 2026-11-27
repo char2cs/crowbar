@@ -3,8 +3,6 @@ import type { Terminal } from '@xterm/xterm'
 import { mountXterm } from '@/features/terminal/lib/mount-xterm'
 import { clearInputTape, dumpInputTape } from '@/__tests__/__fixtures__/input-tape'
 
-// The mount's one dispose owns everything it hung on the terminal's DOM: once it
-// has run, no listener it added still reacts, even on a detached element.
 function mount() {
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -20,7 +18,6 @@ function mount() {
 const writeTo = (terminal: Terminal, data: string) =>
   new Promise<void>((resolve) => terminal.write(data, resolve))
 
-/** Fires the copy a Cmd+C sends to the focused terminal; returns what landed on the clipboard. */
 function copyFrom(textarea: HTMLTextAreaElement): string | undefined {
   const setData = vi.fn()
   const event = new Event('copy', { bubbles: true, cancelable: true })

@@ -1,22 +1,13 @@
-//! One request to a daemon route.
-
 use serde_json::Value;
 
 use crate::client::multipart::file_field;
 
-/// One request to a daemon route: its method, path, body and headers.
-///
-/// Built with a verb such as [`Call::get`], then the body and header builders.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Call {
-    /// The HTTP method, such as `GET`.
     pub method: &'static str,
-    /// The route's path, with its query string.
     pub path: String,
-    /// The JSON body, when the call sends one.
     pub body: Option<Value>,
     pub(crate) raw: Option<Vec<u8>>,
-    /// The extra request headers, as name and value pairs.
     pub headers: Vec<(String, String)>,
 }
 
@@ -34,32 +25,26 @@ impl Call {
         }
     }
 
-    /// A `GET` of `path`, with no body and no extra headers.
     pub fn get(path: impl Into<String>) -> Self {
         Self::with("GET", path)
     }
 
-    /// A `POST` to `path`, with no body and no extra headers.
     pub fn post(path: impl Into<String>) -> Self {
         Self::with("POST", path)
     }
 
-    /// A `PATCH` of `path`, with no body and no extra headers.
     pub fn patch(path: impl Into<String>) -> Self {
         Self::with("PATCH", path)
     }
 
-    /// A `PUT` to `path`, with no body and no extra headers.
     pub fn put(path: impl Into<String>) -> Self {
         Self::with("PUT", path)
     }
 
-    /// A `DELETE` of `path`, with no body and no extra headers.
     pub fn delete(path: impl Into<String>) -> Self {
         Self::with("DELETE", path)
     }
 
-    /// The call with `body` as its JSON body.
     #[must_use]
     pub fn json(
         mut self,
@@ -69,7 +54,6 @@ impl Call {
         self
     }
 
-    /// The call with `text` as its body, sent as `application/yaml`.
     #[must_use]
     pub fn yaml(
         mut self,
@@ -81,8 +65,6 @@ impl Call {
         self
     }
 
-    /// The call with a `multipart/form-data` body whose `field` carries `bytes` as the file
-    /// `name` of type `mime`.
     #[must_use]
     pub fn file(
         mut self,
@@ -99,7 +81,6 @@ impl Call {
         self
     }
 
-    /// The call with `key` as its idempotency key, so a retried call takes effect once.
     #[must_use]
     pub fn idempotent(
         mut self,
@@ -109,7 +90,6 @@ impl Call {
         self
     }
 
-    /// The call with the `crowbar-discard-work` header, consenting to lose unsaved work.
     #[must_use]
     pub fn discarding_work(mut self) -> Self {
         self.headers

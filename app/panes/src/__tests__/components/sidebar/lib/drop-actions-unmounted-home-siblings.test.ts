@@ -2,9 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { stubDropBoundary } from '@/__tests__/__fixtures__/drop-boundary'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 
-// A home chat dropped beside another home chat plans its `order` off the
-// rendered home tree, which is drawn whether or not that workspace is mounted.
-
 import { performSidebarDrop } from '@/components/sidebar/lib/drop-actions'
 import { setChatPlacement } from '@/features/agent/api/agent-chat-commands'
 import { treeUiStore } from '@/features/workspace/tree/tree-ui-store'
@@ -30,8 +27,6 @@ beforeEach(() => {
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   vi.mocked(getHomeWorkspaceId).mockReturnValue('home-ws-1')
-  // Three home chats, as the sidebar renders them — and NO workspace store
-  // for home: its pane is not open.
   seedHomeTree('proj-1', {
     folders: [],
     chats: [
@@ -77,7 +72,6 @@ describe('reordering a home chat past another home chat while home is not mounte
 
     await performSidebarDrop([homeRow('a', 0)], homeRow('c', 2), 'after')
 
-    // a lifted out of [a, b, c] -> [b, c]; after c -> index 2.
     expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'a', { parentId: '', order: 2 })
   })
 })

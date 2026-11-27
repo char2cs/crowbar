@@ -24,14 +24,11 @@ import (
 
 const stepNumber = 6
 
-// boot runs this step alone through the engine, as a daemon's pre-open half.
 func boot(t *testing.T, h home.Home) {
 	t.Helper()
 	require.NoError(t, bootLogging(t, h, slog.Default()))
 }
 
-// bootLogging is boot with the session logging to log; it returns how the
-// pre-open half ended.
 func bootLogging(t *testing.T, h home.Home, log *slog.Logger) error {
 	t.Helper()
 	cat, err := migrate.NewCatalog(migrate.Step{Number: stepNumber, Name: "chat-ledger", Phase: migrate.PreOpen, Plan: Plan, Recurs: true})
@@ -43,7 +40,6 @@ func bootLogging(t *testing.T, h home.Home, log *slog.Logger) error {
 	return err
 }
 
-// recorder keeps every record match accepts.
 type recorder struct {
 	match func(slog.Record) bool
 	got   *[]slog.Record
@@ -67,7 +63,6 @@ func capture(match func(slog.Record) bool) (*slog.Logger, *[]slog.Record) {
 	return slog.New(recorder{match: match, got: &got}), &got
 }
 
-// held is chatID's rows in h's ledger.
 func held(t *testing.T, h home.Home, chatID string) []ledger.Row {
 	t.Helper()
 	var rows []ledger.Row
@@ -113,8 +108,6 @@ func TestApply_ConvertsEachChatOnceAndResumesFromItsCheckpoints(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "a second boot converts nothing")
 }
 
-// An attempt stopped after an import committed and before its checkpoint left
-// exactly the rows a rerun produces: that chat is converted, not skipped.
 func TestApply_AnImportAStoppedAttemptCommittedIsConverted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())
@@ -150,8 +143,6 @@ func TestApply_AChatAlreadyInTheLedgerIsSkippedAndCounted(t *testing.T) {
 	assert.Equal(t, int64(1), applied[0]["skipped_chats"])
 }
 
-// The earlier chat claims a session two legacy chats name; the later one gets
-// the conflict marker, and a rerun makes the same choice.
 func TestApply_TheEarlierChatKeepsASessionTwoChatsName(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	later := chatB()
@@ -181,7 +172,6 @@ func TestApply_AHomeWithoutLegacyRecordsCreatesNoLedger(t *testing.T) {
 	assert.Equal(t, []migrate.Counts{nil}, migratetest.Applied(t, h)[stepNumber])
 }
 
-// landed checks chat-x as an import of rows would be checked.
 func landed(t *testing.T, h home.Home, chatID string, rows int64, adopted ...LegacyRunner) error {
 	t.Helper()
 	var err error
@@ -192,8 +182,6 @@ func landed(t *testing.T, h home.Home, chatID string, rows int64, adopted ...Leg
 	return err
 }
 
-// A chat left with work open, or not ending at the rows the import just wrote,
-// is not what the conversion made.
 func TestLandedAsWritten_FailsUnlessTheChatHoldsWhatItWroteAtRest(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	open, err := ledger.NewRow(ledger.KindUserMessage, "T-1", "", ledger.UserMessage{RequestID: "r1", Origin: ledger.OriginCrowbar})
@@ -214,8 +202,6 @@ func TestLandedAsWritten_FailsUnlessTheChatHoldsWhatItWroteAtRest(t *testing.T) 
 	require.NoError(t, landed(t, h, "chat-z", 2))
 }
 
-// Each chat skipped, and each record a converted chat left out, is logged
-// with the chat and why, so an upgrade's skips can be read back.
 func TestApply_LogsWhatItSkippedAndWhy(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	a := chatA()
@@ -237,8 +223,6 @@ func TestApply_LogsWhatItSkippedAndWhy(t *testing.T) {
 	assert.Equal(t, `interruption i-9: unknown kind "weather"`, testutil.Attrs(got[1])["skipped"].String())
 }
 
-// A chat whose records do not restate is skipped and named; the boot goes on
-// and its legacy files stay as they were, for a later build to convert.
 func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	broken := chatB()
@@ -267,11 +251,7 @@ func TestApply_AChatThatCannotBeConvertedIsSkippedNotAHalt(t *testing.T) {
 	}
 }
 
-// One row the reader cannot read, in any legacy table, is left out of its
-// chat: the rest converts, the chat shows how many records it lost, and the
-// warning names the row and the column.
 func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
-	// A record left out takes with it what only it held: a subagent its tools.
 	for _, tc := range []struct {
 		db, table, column, shown string
 	}{
@@ -311,7 +291,6 @@ func TestApply_ARowItCannotReadIsLeftOutOfItsChatAndShown(t *testing.T) {
 	}
 }
 
-// A chat none of whose records can be read is skipped and named.
 func TestApply_AChatWithNothingReadableIsSkipped(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	only := LegacyChat{ChatID: "chat-z", Turns: chatB().Turns[:1]}
@@ -326,8 +305,6 @@ func TestApply_AChatWithNothingReadableIsSkipped(t *testing.T) {
 	assert.Equal(t, convert(t, chatB(), nobody).Rows, held(t, h, "chat-b"))
 }
 
-// A legacy database that cannot be read is no chat to skip: the boot halts
-// while planning, naming the step, and the file is left as it was.
 func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/store/"+ActivityDB, "this is not a sqlite database, not even a little")
@@ -342,8 +319,6 @@ func TestApply_ALegacyDatabaseThatCannotBeReadHalts(t *testing.T) {
 	assert.Equal(t, "this is not a sqlite database, not even a little", string(raw))
 }
 
-// A home a build before the newer columns last wrote converts: each column its
-// tables lack reads as empty, as a row written before the column existed does.
 func TestApply_AHomeAnOlderBuildLastWroteConverts(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	writeLegacy(t, h, chatA())

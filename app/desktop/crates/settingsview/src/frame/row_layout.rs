@@ -1,5 +1,3 @@
-//! Whether setting rows put the control beside their text or under it.
-
 use gpui::Window;
 use ui::Breakpoint;
 

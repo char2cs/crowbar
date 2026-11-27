@@ -4,12 +4,6 @@ use crate::error::Result;
 use crate::pane_host::PaneHost;
 
 impl PaneHost {
-    /// Replaces the breakpoints the window clears and pushes them to mounted panes; a pane
-    /// mounted later gets them on mount. An unchanged set sends nothing, so a resize between
-    /// thresholds stays quiet.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::Error::WebView) when a pane cannot be reached.
     pub fn set_breakpoints(
         &mut self,
         cleared: Vec<Breakpoint>,

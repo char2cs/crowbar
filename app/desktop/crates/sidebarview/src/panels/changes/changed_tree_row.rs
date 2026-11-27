@@ -1,5 +1,3 @@
-//! A row of the Changes tree: a folder that folds, or a changed file that opens the review.
-
 use gpui::{
     App, ClickEvent, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div,

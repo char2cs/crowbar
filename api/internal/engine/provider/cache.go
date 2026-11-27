@@ -8,14 +8,11 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Detection and protected-branch lists change on human timescales, so they are cached
-// per repo rather than re-derived (a fork, an auth round-trip, a paginated API call) on
-// every poll tick, which then costs one PR lookup.
 const (
 	detectTTL         = 5 * time.Minute
-	detectMissTTL     = time.Minute // a fresh `gh auth login` is picked up quickly
+	detectMissTTL     = time.Minute
 	protectedTTL      = 5 * time.Minute
-	protectedCacheCap = 256 // repos; bounded so a long-lived daemon cannot grow it
+	protectedCacheCap = 256
 )
 
 type ttlEntry[V any] struct {
@@ -23,8 +20,6 @@ type ttlEntry[V any] struct {
 	expires time.Time
 }
 
-// ttlCache is a small per-key cache with expiry and a hard size cap. Keys name repos, so
-// the working set is tiny: on overflow expired entries go, then the whole map resets.
 type ttlCache[V any] struct {
 	mu     sync.Mutex
 	now    func() time.Time
@@ -42,7 +37,6 @@ func (c *ttlCache[V]) get(key string) (V, bool) {
 	return e.val, ok
 }
 
-// entry returns key's unexpired entry, expiry included.
 func (c *ttlCache[V]) entry(key string) (ttlEntry[V], bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -53,8 +47,6 @@ func (c *ttlCache[V]) entry(key string) (ttlEntry[V], bool) {
 	return e, true
 }
 
-// load returns key's entry, running fn on a miss; concurrent misses on one key
-// share a single fn call. A failed fn caches nothing.
 func (c *ttlCache[V]) load(
 	key string,
 	fn func() (V, time.Duration, error),
@@ -90,7 +82,6 @@ func (c *ttlCache[V]) putEntry(key string, e ttlEntry[V]) {
 	c.m[key] = e
 }
 
-// evictLocked drops expired entries and, if the map is still full, all of them.
 func (c *ttlCache[V]) evictLocked(now time.Time) {
 	for k, e := range c.m {
 		if !now.Before(e.expires) {
@@ -102,9 +93,6 @@ func (c *ttlCache[V]) evictLocked(now time.Time) {
 	}
 }
 
-// cachedDetect wraps detect with a per-repo TTL cache (worktrees share an origin), and
-// concurrent misses share one detection. Errors are not cached; unauthenticated or
-// provider-less results are, briefly.
 func cachedDetect(
 	detect func(ctx context.Context, repoPath string) (DetectResult, error),
 	now func() time.Time,
@@ -117,7 +105,6 @@ func cachedDetect(
 		e, err := cache.load(repoKey(repoPath), func() (DetectResult, time.Duration, error) {
 			res, err := detect(ctx, repoPath)
 			if err == nil {
-				// A detection cut short by its caller degrades to "none", which is not the repo's answer.
 				err = ctx.Err()
 			}
 			if !res.Enabled {
@@ -128,7 +115,6 @@ func cachedDetect(
 		if err != nil {
 			return DetectResult{}, err
 		}
-		// The asked path shares the repo entry's expiry, so a hit costs no path resolution.
 		cache.putEntry(repoPath, e)
 		return e.val, nil
 	}

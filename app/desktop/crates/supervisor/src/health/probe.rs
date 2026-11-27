@@ -10,13 +10,9 @@ const PROBE_BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Probe {
-    /// The daemon answered.
     Healthy,
-    /// The daemon was dialled and did not serve the request.
     Unserved,
-    /// This process hit its own open-file limit while dialling; says nothing about the daemon.
     LocalDescriptorExhaustion,
-    /// The daemon is alive but deliberately not serving: preparing its home, or halted.
     Held,
 }
 
@@ -61,7 +57,6 @@ mod tests {
         include_str!("../../../../../../api/internal/core/bootgate/testdata/health-halted.json");
     const THRESHOLD: u32 = 6;
 
-    /// Answers `/v0/health` with `health` and every other path with status `other`.
     fn daemon(
         health: &'static str,
         other: u16,

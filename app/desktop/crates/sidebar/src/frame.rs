@@ -1,5 +1,3 @@
-//! The sidebar column's geometry: panel width, dock side, visibility, presentation, peek zone, mode and the preferences file.
-
 mod dock_side;
 mod metrics;
 mod mode;

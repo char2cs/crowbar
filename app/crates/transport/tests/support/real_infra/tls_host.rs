@@ -7,7 +7,6 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::http_daemon::{Handler, Log, serve_http};
 
-/// A fake remote daemon: TLS with a self-signed certificate it owns, speaking HTTP/1.1.
 pub(crate) struct TlsHost {
     pub(crate) addr: SocketAddr,
     pub(crate) cert_der: Vec<u8>,

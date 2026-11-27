@@ -2,8 +2,6 @@ import { useChatStore } from '@/features/agent/stores/chat-store'
 import type { ChatFeed } from '@/features/agent/stores/lib/transcript-items'
 import { labelText, liveLabel } from '@/features/agent/transcript/lib/tool-label'
 
-/** What a subagent is doing, from its own rows: its newest running call, else
- *  its newest finished one, else nothing yet. Computed, never stored. */
 export function subagentAction(feed: ChatFeed | undefined, scope: string | undefined): string {
   const ids = scope ? (feed?.scoped[scope] ?? []) : []
   let settled: string | undefined

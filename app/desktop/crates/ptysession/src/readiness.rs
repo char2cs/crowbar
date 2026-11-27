@@ -1,13 +1,9 @@
-//! When a daemon serves, so a session asks nothing of a daemon that is still starting.
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// A wait that ends once the daemon serves.
 pub type Wait = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-/// Says when the daemon a session binds through serves; the owner of the daemon's state answers.
 #[derive(Clone)]
 pub struct Readiness(Arc<dyn Fn() -> Wait + Send + Sync>);
 
@@ -21,7 +17,6 @@ impl std::fmt::Debug for Readiness {
 }
 
 impl Readiness {
-    /// Readiness as `wait` tells it: each call waits until the daemon serves.
     #[must_use]
     pub fn new(wait: impl Fn() -> Wait + Send + Sync + 'static) -> Self {
         Self(Arc::new(wait))

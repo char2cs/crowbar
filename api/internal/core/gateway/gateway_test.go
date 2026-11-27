@@ -21,8 +21,6 @@ func closeAll(t *testing.T, ls []net.Listener) {
 	})
 }
 
-// TestGatewayTCP proves a loopback tcp:// bind is the dev path: one plaintext
-// listener and no unix socket beside it.
 func TestGatewayTCP(t *testing.T) {
 	ls, err := gateway.New("tcp://127.0.0.1:0", "")
 	require.NoError(t, err)
@@ -45,8 +43,6 @@ func TestGatewayUnix_ExplicitPath(t *testing.T) {
 	assert.Len(t, ls, 1)
 }
 
-// A bare "unix://" binds the socket the caller resolved, never one New looks
-// up from the environment on its own.
 func TestGatewayUnix_BarePathBindsTheGivenSocket(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir())
 	sock := testutil.ShortSocket(t)
@@ -58,9 +54,6 @@ func TestGatewayUnix_BarePathBindsTheGivenSocket(t *testing.T) {
 	assert.FileExists(t, sock)
 }
 
-// TestRegression_New_NetworkExposedHostIsTheDeviceListenersNotAGatewayBind proves
-// the gateway binds only local listeners: a non-loopback host never binds here, so
-// it can never be served without TLS and a paired token.
 func TestRegression_New_NetworkExposedHostIsTheDeviceListenersNotAGatewayBind(t *testing.T) {
 	for _, host := range []string{"tcp://0.0.0.0:0", "tcp://:3737", "tcp://192.168.1.50:3737"} {
 		ls, err := gateway.New(host, testutil.ShortSocket(t))

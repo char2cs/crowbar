@@ -15,9 +15,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// A delete never destroys work that exists nowhere else unless the request
-// carries consent: without it the whole delete stops, untouched, and names it.
-
 const managed = "/tmp/crowbar-test/projects/p/app/"
 
 func TestDeleteCascade_WithoutConsentRefusesOverUnmergedCommitsAndTouchesNothing(t *testing.T) {
@@ -51,7 +48,6 @@ func TestDeleteCascade_WithConsentDiscardsWorkAtRisk(t *testing.T) {
 	assert.Equal(t, 1, countOp(g.ops(), "ForceDeleteBranch"))
 }
 
-// Uncommitted work counts only in a live worktree that would be FORCE-removed.
 func TestDeleteRepoWorkspaces_WithoutConsentRefusesOverUncommittedWork(t *testing.T) {
 	home := t.TempDir()
 	dirty := filepath.Join(home, "projects", "p", "app", "dirty", "worktree")
@@ -74,7 +70,6 @@ func TestDeleteRepoWorkspaces_WithoutConsentRefusesOverUncommittedWork(t *testin
 	assert.Zero(t, countOp(g.ops(), "WorktreeRemove"))
 }
 
-// Work git cannot assess is not assumed safe.
 func TestDeleteCascade_AnUnassessableWorkspaceStopsTheDeleteWithoutConsent(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
 		{ID: "root", RepoID: "r1", Branch: "feature/a", WorktreePath: managed + "a/worktree", CreatedBranch: true, Provisioning: domain.WorkspaceProvisioned},
@@ -89,9 +84,6 @@ func TestDeleteCascade_AnUnassessableWorkspaceStopsTheDeleteWithoutConsent(t *te
 	assert.Equal(t, []string{"root"}, *deleted)
 }
 
-// The repo's main checkout, and any checkout outside <home>/projects, is the
-// user's: its row goes with the repo, but git is never asked to remove it —
-// not even with consent, and not trusting git to refuse.
 func TestDeleteRepoWorkspaces_NeverRemovesACheckoutCrowbarDidNotCreate(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
 		{ID: "home", RepoID: "r1", Branch: "main", WorktreePath: "/repo", IsDefault: true, Provisioning: domain.WorkspaceProvisioned},
@@ -132,12 +124,7 @@ func TestWorkAtRisk_ListsEachDoomedWorkspaceOnce(t *testing.T) {
 	}, risks)
 }
 
-// TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch proves that
-// removing a managed workspace on the repo's default branch re-attaches the main
-// folder to that branch and NEVER force-deletes it (the shared integration
-// branch must survive).
 func TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch(t *testing.T) {
-	// The main folder is exactly as a create's detach left it: detached at the tip.
 	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
 	ws := &fakeWorkspace{
@@ -156,9 +143,6 @@ func TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch(t *testin
 	assert.NotContains(t, g.ops(), "ForceDeleteBranch", "the default branch must never be force-deleted")
 }
 
-// TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch proves removing a
-// managed workspace on a non-default branch still force-deletes that branch (the
-// default-branch protection must not leak into ordinary teardown).
 func TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch(t *testing.T) {
 	g := &fakeGit{}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
@@ -178,12 +162,6 @@ func TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch(t *testing.T) {
 	assert.NotContains(t, g.ops(), "CheckoutBranch", "no re-attach for a non-default branch")
 }
 
-// TestRemoveOne_PlaceholderSkipsGitTeardown proves a placeholder (empty
-// WorktreePath) whose branch is a protected NON-default branch is torn down as a
-// pure read-model drop: no WorktreeRemove, no ForceDeleteBranch, no CheckoutBranch
-// — the real branch is never git-touched (spec §5 defense-in-depth). The
-// placeholder is created NON-locked here only to exercise removeOne directly
-// (DeleteCascade's locked guard is proven separately by TestDeleteCascade).
 func TestRemoveOne_PlaceholderSkipsGitTeardown(t *testing.T) {
 	g := &fakeGit{}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}

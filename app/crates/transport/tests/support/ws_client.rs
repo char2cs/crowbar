@@ -10,7 +10,6 @@ use crate::memory_listener::MemoryDialer;
 
 pub(crate) type Client = WebSocketStream<DuplexStream>;
 
-/// How a pane's `WebSocket` dials the relay; each field can be bent to break one check.
 pub(crate) struct Dial {
     pub(crate) dialer: MemoryDialer,
     pub(crate) port: u16,

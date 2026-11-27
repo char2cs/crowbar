@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestRegression_MergeStrategyCreatesAMergeCommit: "Create a merge commit"
-// fast-forwarded the parent whenever it could, so no merge commit was made.
 func TestRegression_MergeStrategyCreatesAMergeCommit(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -37,8 +35,6 @@ func TestRegression_MergeStrategyCreatesAMergeCommit(t *testing.T) {
 	require.Equal(t, childTip, parents[1], "the merge commit's second parent is the child's tip")
 }
 
-// A merge asked to delete a child whose chat is mid-turn is refused before
-// anything merges, with the reason, so nothing is left half-done.
 func TestRegression_AMergeThatWouldDeleteAWorkingChildIsRefusedFirst(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	var child chatRow

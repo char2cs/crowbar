@@ -1,5 +1,3 @@
-//! The one place a stored or window-sized `f64` becomes the `f32` the toolkit paints with.
-
 use gpui::Pixels;
 
 pub(crate) fn single_precision(value: f64) -> f32 {

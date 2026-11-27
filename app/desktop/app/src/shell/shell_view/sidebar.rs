@@ -1,5 +1,3 @@
-//! Sidebar actions, position, follows-focus and file actions.
-
 mod file_actions;
 mod file_reply;
 mod file_tree_flag;

@@ -1,5 +1,3 @@
-//! The plan that makes a folder in the chat tree: at the top of a space or beside a row.
-
 use daemonapi::Call;
 use serde_json::json;
 use sidebar::ProjectId;

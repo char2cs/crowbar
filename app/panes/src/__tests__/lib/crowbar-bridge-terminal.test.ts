@@ -5,7 +5,6 @@ const tauri = vi.hoisted(() => ({
   refuse: false,
 }))
 
-// The desktop transport: a WebSocket-shaped shim over the Rust bridge.
 vi.mock('@/lib/ws/tauri-transport', () => ({
   TauriWebSocket: class {
     onopen: (() => void) | null = null
@@ -29,7 +28,6 @@ import {
   type TerminalFrame,
 } from '@/lib/crowbar-bridge'
 
-// A socket the test drives by hand.
 function fakeSocket() {
   const socket = {
     onopen: null as (() => void) | null,
@@ -77,8 +75,6 @@ describe('TerminalConnection', () => {
     expect(frames.map((f) => !f.exit && f.snapshot)).toEqual([true, false])
   })
 
-  // The exit frame is the only thing that ends a terminal; the close that
-  // follows it is not a drop, so nothing reconnects an exited session.
   it('delivers the exit frame in order and does not report the following close as a drop', () => {
     const socket = fakeSocket()
     const conn = new TerminalConnection('s1', '/x', socket)

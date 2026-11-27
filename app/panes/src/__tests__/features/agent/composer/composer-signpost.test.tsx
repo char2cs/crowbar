@@ -63,8 +63,6 @@ describe('ComposerSignpost', () => {
     expect(screen.getByRole('button', { name: /Terminal/ })).toBeInTheDocument()
   })
 
-  // Crowbar's own revive is in flight — there is nothing to click, only a
-  // spinner saying so isn't stalled.
   it('shows a spinner and no button while reviving', () => {
     const { container } = render(
       <ComposerSignpost reason="reviving" message="Resuming this chat…" onOpenTerminal={vi.fn()} />,

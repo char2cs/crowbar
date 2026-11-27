@@ -1,5 +1,3 @@
-//! A setting row: label, reset, description and control.
-
 mod controls;
 mod reset_button;
 
@@ -22,7 +20,6 @@ use crate::modal::pages::rows::reset_button::reset_button;
 const LABEL_LINE: f32 = 20.0;
 const TEXT_LEADING: f32 = 1.5;
 const WASH: f32 = 0.5;
-// SPEC: app/panes/src/components/ui/label.tsx: `sm:text-sm/4` outranks `ui-text-sm`; 14px at any UI size.
 const LABEL_TEXT: (f32, f32) = (14.0, 16.0);
 const STACKED_LABEL_TEXT: (f32, f32) = (16.0, 18.0);
 

@@ -10,9 +10,6 @@ import (
 
 const contentLengthHeader = "Content-Length"
 
-// WriteMessage frames payload with an LSP Content-Length header and writes it
-// to w. The format is: "Content-Length: N\r\n\r\n" followed by exactly N bytes
-// of payload.
 func WriteMessage(
 	w io.Writer,
 	payload []byte,
@@ -27,8 +24,6 @@ func WriteMessage(
 	return nil
 }
 
-// ReadMessage reads one LSP-framed message from r. It parses headers until the
-// blank line, then reads exactly Content-Length bytes and returns them.
 func ReadMessage(
 	r *bufio.Reader,
 ) ([]byte, error) {
@@ -44,8 +39,6 @@ func ReadMessage(
 	return buf, nil
 }
 
-// parseHeaders reads header lines until the blank line and extracts the
-// Content-Length value. It returns an error for malformed or missing headers.
 func parseHeaders(
 	r *bufio.Reader,
 ) (int, error) {
@@ -56,7 +49,7 @@ func parseHeaders(
 		line, err := r.ReadString('\n')
 		if err != nil {
 			if first {
-				return 0, err // propagate EOF directly on the very first byte
+				return 0, err
 			}
 			return 0, fmt.Errorf("framing: read header: %w", err)
 		}
@@ -64,7 +57,6 @@ func parseHeaders(
 
 		line = strings.TrimRight(line, "\r\n")
 
-		// Blank line signals end of headers.
 		if line == "" {
 			break
 		}
@@ -84,9 +76,6 @@ func parseHeaders(
 	return contentLen, nil
 }
 
-// parseHeaderLine parses a single "Key: Value" header line. It returns the
-// Content-Length value if the key matches, -1 for any other recognised header,
-// or an error for malformed lines.
 func parseHeaderLine(
 	line string,
 ) (int, error) {

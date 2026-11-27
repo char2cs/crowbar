@@ -16,14 +16,11 @@ import { cn } from '@/lib/utils'
 
 interface ChatBranchHeaderViewProps {
   model: ChatHeaderModel
-  /** Replaces the title line (the pane's inline rename). */
   titleSlot?: ReactNode
   className?: string
   onDoubleClick?: () => void
 }
 
-/** The chat header's drawing from plain data, shared by the pane header and the phone's file
- *  drawer so both show a chat the same way. */
 export function ChatBranchHeaderView({
   model,
   titleSlot,
@@ -95,8 +92,6 @@ export function ChatBranchHeaderView({
   )
 }
 
-/** The chat-kind mark (or the working spinner). Where it sits is the caller's
- *  call: left slot when there is no repo to show, else leading the route. */
 function KindGlyph({
   working,
   isThread,
@@ -130,9 +125,6 @@ function KindGlyph({
 
 const ROUTE_SEPARATOR = <span className="shrink-0">/</span>
 
-/** `repo / parent / branch` on one line. The parent is the daemon-resolved fork
- *  parent's branch (`Workspace.parentBranch`); the leading segments give up
- *  their width first so the branch, the one that names this chat, stays legible. */
 function WorkspaceRoute({
   repoName,
   parentBranch,
@@ -162,8 +154,6 @@ function WorkspaceRoute({
   )
 }
 
-/** The name line. A `null` title (a draft, or a store gap) draws nothing, and is
- *  marked as such, never as a chat that happens to be untitled. */
 function ChatTitle({ title, className }: { title: string | null; className: string }) {
   return (
     <span

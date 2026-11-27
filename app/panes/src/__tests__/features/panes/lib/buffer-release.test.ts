@@ -29,12 +29,10 @@ import { workspaceRef } from '@/lib/api/documents'
 import { toastManager } from '@/lib/toast-manager'
 import { ApiError } from '@/lib/errors/api-error'
 
-/** The PTYs the daemon was told to close, by tab session id. */
 function killed(): string[] {
   return terminalKill.mock.calls.map(([connectionId]) => String(connectionId).replace(/^conn-/, ''))
 }
 
-/** Invariant C2, checked on every notification the store emits. */
 function orphans(store: WindowPaneStore): string[] {
   const s = store.getState()
   const listed = new Set(Object.values(s.panes).flatMap((p) => p.editorTabIds))

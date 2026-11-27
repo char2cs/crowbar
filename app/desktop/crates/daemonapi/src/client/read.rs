@@ -1,5 +1,3 @@
-//! Reading a daemon route as the type it promises.
-
 use serde::de::DeserializeOwned;
 
 use crate::client::Client;
@@ -8,11 +6,6 @@ use crate::client::decode::typed;
 use crate::error::Result;
 
 impl Client {
-    /// Gets `path` and returns the answer's `data` as the type the route promises.
-    ///
-    /// # Errors
-    ///
-    /// As [`Client::fetch`].
     pub async fn read<T: DeserializeOwned>(
         &self,
         path: impl Into<String>,
@@ -20,14 +13,6 @@ impl Client {
         self.fetch(Call::get(path)).await
     }
 
-    /// Sends `call` and returns the answer's `data` as the type the route promises.
-    ///
-    /// A `null` reads as an empty list when `T` is a list.
-    ///
-    /// # Errors
-    ///
-    /// `Error::Request`, `Error::Refused` or `Error::Body` when the request fails, as in
-    /// [`Client::send`], and `Error::Json` when the `data` is not a `T`.
     pub async fn fetch<T: DeserializeOwned>(
         &self,
         call: Call,

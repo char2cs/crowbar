@@ -1,14 +1,9 @@
-//! A flag of a daemon record, as an enum so no struct or signature carries a bare bool.
-
 use serde::Deserialize;
 
-/// A flag of a daemon record; a missing or `null` flag reads as off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(from = "Option<bool>")]
 pub enum Switch {
-    /// The flag is set.
     On,
-    /// The flag is unset.
     #[default]
     Off,
 }
@@ -23,7 +18,6 @@ impl From<Option<bool>> for Switch {
 }
 
 impl Switch {
-    /// Whether the flag is set.
     pub fn is_on(self) -> bool {
         self == Self::On
     }

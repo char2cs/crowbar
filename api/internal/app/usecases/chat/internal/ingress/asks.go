@@ -11,11 +11,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// maxAskInput bounds the bytes of its call's input an ask row keeps.
 const maxAskInput = 16 << 10
 
-// mapAsk records a question the CLI is blocked on, bound to the open tool of
-// its scope that raised it. A retried delivery joins the ask it repeats.
 func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope string) ([]ledger.Row, Effects, error) {
 	a, err := askOf(ev)
 	if err != nil {
@@ -44,12 +41,10 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 		fx.HoldAsk = a.AskID
 		return []ledger.Row{row}, fx, nil
 	case src.Channel == engineagents.ChannelAPI:
-		// Its connection refuses every ask Crowbar does not hold.
 		closing = ledger.ResolutionRefused
 	case live && waitedOn(st, scope):
 		return []ledger.Row{row}, fx, nil
 	default:
-		// A past runner's, or one no end closes: nothing waits on it.
 		closing = ledger.ResolutionAbandoned
 	}
 	closed, err := ledger.NewRow(ledger.KindAskResolved, turnID, scope,
@@ -60,9 +55,6 @@ func mapAsk(st ledger.State, ev engineagents.CanonicalEvent, src Source, scope s
 	return []ledger.Row{row, closed}, fx, nil
 }
 
-// bindTool keys a by its input and binds it to the open call of scope it asks
-// about. It reports an ask bound to none though calls of its tool are open:
-// each of them was given another input.
 func bindTool(st ledger.State, scope string, a *ledger.Ask, c *engineagents.ChoicePrompt) bool {
 	if c == nil {
 		return false
@@ -76,8 +68,6 @@ func bindTool(st ledger.State, scope string, a *ledger.Ask, c *engineagents.Choi
 	return !bound && open
 }
 
-// waitedOn reports whether an ask in scope is waited on: the chat's agent's
-// while a turn runs, a nested conversation's while no turn end outlived it.
 func waitedOn(st ledger.State, scope string) bool {
 	if _, known := st.SubagentOf(scope); scope == "" || !known {
 		_, running := st.RunningTurn()
@@ -86,8 +76,6 @@ func waitedOn(st ledger.State, scope string) bool {
 	return st.ScopeWaits(scope)
 }
 
-// heldAgain is the ask a repeated delivery's reply is held on: the one it
-// repeats, while Crowbar can still hold it.
 func heldAgain(st ledger.State, askID string, src Source) string {
 	for _, p := range st.PendingAsks() {
 		if p.AskID == askID && p.Answerable && src.Answerable {
@@ -129,9 +117,6 @@ func askOf(ev engineagents.CanonicalEvent) (ledger.Ask, error) {
 	return a, nil
 }
 
-// askInput is input as an ask row keeps it: whole while that is JSON of at
-// most maxAskInput bytes, else as a JSON string of its leading text. Each is
-// measured as the row encodes it, escapes included, so the bound is on the bytes kept.
 func askInput(input []byte) (json.RawMessage, bool, error) {
 	if len(input) == 0 {
 		return nil, false, nil
@@ -148,7 +133,6 @@ func askInput(input []byte) (json.RawMessage, bool, error) {
 		if len(lead) <= maxAskInput {
 			return lead, n < len(text), nil
 		}
-		// Escaping grew it past the bound: shrink by as much, and try again.
 		n = n * maxAskInput / len(lead)
 	}
 }

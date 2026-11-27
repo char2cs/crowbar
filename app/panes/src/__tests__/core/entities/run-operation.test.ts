@@ -95,7 +95,6 @@ describe('runOperation', () => {
   })
 })
 
-/** Resolves once the stored operation matches. */
 function whenSettledOrState(id: string, match: (op: Operation) => boolean): Promise<void> {
   return new Promise((resolve) => {
     const check = () => {
@@ -124,7 +123,6 @@ describe('whenSettled', () => {
     expect(err).toMatchObject({ operationId: 'op-f', problem: { message: 'gone' } })
   })
 
-  // The daemon publishes an operation's entities before its succeeded frame on one scope.
   it('whenSettled for a create resolves on succeeded, its entities already sent', async () => {
     const items = [
       { ref: { kind: 'chat' as const, id: 'c1' }, label: 'c', state: 'succeeded' as const },

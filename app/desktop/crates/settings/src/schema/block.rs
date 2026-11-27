@@ -1,5 +1,3 @@
-//! The building blocks of a page.
-
 mod heading;
 mod list_block;
 mod section;
@@ -11,18 +9,12 @@ pub use section::Section;
 use crate::keys::ShortcutGroup;
 use crate::schema::button_spec::ButtonSpec;
 
-/// One vertical piece of a page.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Block {
-    /// Titled rows.
     Section(Section),
-    /// A large heading with an explanation.
     Heading(Heading),
-    /// A category of rebindable shortcuts.
     Shortcuts(ShortcutGroup),
-    /// A list of backend records.
     List(ListBlock),
-    /// A button between blocks.
     Button(ButtonSpec),
 }
 

@@ -1,5 +1,3 @@
-//! The dialled event stream of a daemon: local and relayed dials, the connection and its frames.
-
 mod connection;
 mod core_origin;
 mod dial;

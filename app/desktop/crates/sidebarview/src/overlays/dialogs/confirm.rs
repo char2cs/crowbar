@@ -1,5 +1,3 @@
-//! Asks the delete confirmation as the desktop's message dialog.
-
 use gpui::{Context, TaskExt as _, Window};
 use sidebar::{Confirmation, RemovalTarget};
 use ui::{AlertButton, AlertRequest, AlertRole, NativeAlert};

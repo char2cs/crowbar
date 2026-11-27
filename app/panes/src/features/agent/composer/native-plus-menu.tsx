@@ -16,9 +16,7 @@ interface NativePlusMenuProps {
   onClose: () => void
 }
 
-/** The plus menu as the phone's native sheet: pushed whole while open, a row answers with its id. */
 export function NativePlusMenuSheet({ open, title, items, onPick, onClose }: NativePlusMenuProps) {
-  // Keyed by the rows themselves, not the array's identity.
   const key = JSON.stringify(items)
   useEffect(() => {
     if (!open) return

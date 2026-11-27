@@ -20,12 +20,10 @@ const WRONG_CODE = 'the host refused pairing (401 Unauthorized): pairing code is
 const firstSlot = () => screen.getByRole('textbox', { name: 'Pairing code' })
 const slot = (n: number) => screen.getByRole('textbox', { name: `Character ${n} of 6` })
 const pairButton = () => screen.getByRole('button', { name: /^Pair(ing…)?$/ })
-// The first slot carries the field's label; autofill and an input method write the whole code there.
 const codeSlot = () => screen.findByRole('textbox', { name: 'Pairing code' })
 const slotValues = () =>
   screen.getAllByRole('textbox').map((input) => (input as HTMLInputElement).value)
 
-// The repo's DataTransfer stub does not map user.paste(string)'s `text` onto `text/plain`.
 function pasteText(user: ReturnType<typeof userEvent.setup>, text: string) {
   const data = new DataTransfer()
   data.setData('text/plain', text)
@@ -48,7 +46,6 @@ beforeEach(() => {
   useHostConfigStore.setState({ hosts: [] })
 })
 
-// A disabled control drops the focus it had to the page behind the dialog.
 describe('AddHostDialog while a code is tried', () => {
   it('leaves the user in the code field, which cannot be edited or sent twice meanwhile', async () => {
     let refuse!: (reason: string) => void
@@ -88,7 +85,6 @@ describe('AddHostDialog while a code is tried', () => {
 })
 
 describe('AddHostDialog after a code was refused', () => {
-  // A message about a code the user has since changed describes a code that is no longer there.
   it('takes the failure away as soon as the code changes', async () => {
     vi.mocked(redeemPairingCode).mockRejectedValueOnce(WRONG_CODE)
     await reachCodeStage()
@@ -115,7 +111,6 @@ describe('AddHostDialog hint while a code is typed', () => {
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
-  // Focus is already on the first slot when the paste is refused, so nothing moves to be read.
   it('announces a refused paste, without changing what the slots are described by', async () => {
     const user = userEvent.setup()
     await reachCodeStage()
@@ -150,7 +145,6 @@ describe('AddHostDialog hint while a code is typed', () => {
 })
 
 describe('AddHostDialog code entry', () => {
-  // A code copied from a terminal often carries a space; the host wants exactly six digits.
   it('a pasted code loses its spaces, and Pair waits for exactly six digits', async () => {
     const user = userEvent.setup()
     await reachCodeStage()
@@ -164,7 +158,6 @@ describe('AddHostDialog code entry', () => {
     await user.keyboard('{Backspace}')
     expect(slotValues()).toEqual(['1', '2', '3', '4', '5', ''])
     expect(pair).toHaveAttribute('aria-disabled', 'true')
-    // Merely incomplete is not wrong: the hint stays, and nothing is announced.
     expect(
       screen.getAllByRole('textbox', {
         description: 'The 6-digit code shown on the host.',
@@ -173,7 +166,6 @@ describe('AddHostDialog code entry', () => {
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
-  // A wrong code costs one of ten guesses before the host burns it: only the user's Pair sends one.
   it('redeems the typed digits on Enter, never on the sixth keystroke', async () => {
     vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
     const user = userEvent.setup()
@@ -214,7 +206,6 @@ describe('AddHostDialog code entry', () => {
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
 
-  // Each wrong code costs one of ten guesses: more digits than a code holds is no code at all.
   it('refuses a paste of more than six digits instead of cutting it down to a code', async () => {
     const user = userEvent.setup()
     await reachCodeStage()
@@ -240,7 +231,6 @@ describe('AddHostDialog code entry', () => {
     expect(screen.getByRole('button', { name: 'Pair' })).not.toHaveAttribute('aria-disabled')
   })
 
-  // After a refused code focus sits on the last slot; a code pasted there must not splice into it.
   it('refuses a paste that runs past the last slot, then takes it into the emptied field', async () => {
     const user = userEvent.setup()
     await reachCodeStage()
@@ -258,7 +248,6 @@ describe('AddHostDialog code entry', () => {
     expect(pair).not.toHaveAttribute('aria-disabled')
   })
 
-  // An input method's text is not entered until committed: rewriting it or moving focus first aborts it.
   it('leaves an input method composing alone and takes its digits once committed', async () => {
     const user = userEvent.setup()
     await reachCodeStage()
@@ -303,7 +292,6 @@ describe('AddHostDialog code entry', () => {
     expect(screen.getByRole('button', { name: 'Pair' })).toHaveAttribute('aria-disabled', 'true')
   })
 
-  // An East Asian input method types full-width digits (and spaces) unless switched out of it.
   it('reads a code typed in full-width digits as the digits it is', async () => {
     vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
     await reachCodeStage()

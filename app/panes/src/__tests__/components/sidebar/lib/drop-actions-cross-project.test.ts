@@ -1,7 +1,3 @@
-// LAW 4 of the project-scoped panes design, at the call site §6.5 names:
-// "no drop, no click, no command may put chat X into a view of a project that
-// is not X's." The user's own words: "I shouldn't be able to move a view into
-// another project."
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 
 vi.mock('@/lib/persistence/workspace-layout', () => ({
@@ -10,8 +6,6 @@ vi.mock('@/lib/persistence/workspace-layout', () => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
-// The chat→project walk itself is exercised in chat-project's own tests; what
-// matters here is which answer makes the drop land and which makes it refuse.
 const { resolveChatProjectId } = vi.hoisted(() => ({ resolveChatProjectId: vi.fn() }))
 vi.mock('@/features/panes/lib/chat-project', () => ({
   resolveChatProjectId: (...args: unknown[]) => resolveChatProjectId(...args),
@@ -38,7 +32,6 @@ const chatRow = (id: string, wsId: string): SidebarRow => ({
   hasView: false,
 })
 
-/** A view of `project`, on screen, holding `chatId`. Returns its pane id. */
 function showChatUnderProject(project: string, chatId: string): string {
   const actions = windowPaneStore.getState().paneActions
   actions.setActiveProject(project)
@@ -75,9 +68,6 @@ describe('performSidebarPaneDrop — law 4', () => {
   })
 
   it('lets an UNRESOLVABLE chat through rather than refusing on a guess', () => {
-    // The sidebar is routinely a frame behind. Refusing on "don't know" would
-    // break ordinary same-project drops, and the geometry already makes a
-    // genuine cross-project drop nearly unreachable.
     const paneId = showChatUnderProject('project-a', 'chat-a')
     resolveChatProjectId.mockReturnValue(null)
 

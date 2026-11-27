@@ -25,8 +25,6 @@ const READ: WorkspaceRouteKnowledge = { repos: REPOS, synced: true, merging: fal
 
 const route = (wsId: string | undefined, repoId = 'repo-1') => ({ projectId: 'p1', repoId, wsId })
 
-// A deep link on a cold cache: the tree is empty only because nothing has
-// been read from the daemon yet, which says nothing about the workspace.
 test('does not redirect before the daemon has answered for the route', () => {
   const cold: WorkspaceRouteKnowledge = { ...READ, repos: [], synced: false }
   expect(shouldRedirectUnknownWorkspace(route('ws-base'), cold)).toBe(false)
@@ -51,8 +49,6 @@ test('does not redirect for the repo default workspace id (excluded from the tre
   expect(shouldRedirectUnknownWorkspace(route('ws-default'), READ)).toBe(false)
 })
 
-// A merge's fold removes the child before its operation settles; the merge
-// moves the user to the parent, and a guard redirect home would override it.
 test('does not redirect while a merge folds the workspace', () => {
   expect(shouldRedirectUnknownWorkspace(route('ghost'), { ...READ, merging: true })).toBe(false)
 })

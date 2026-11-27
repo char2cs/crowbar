@@ -1,5 +1,3 @@
-//! Plans that make something new: threads, forks, folders, spaces.
-
 pub(crate) mod draft;
 pub(crate) mod folder;
 pub(crate) mod landing;

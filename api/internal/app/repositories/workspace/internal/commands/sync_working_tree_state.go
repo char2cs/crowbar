@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SyncWorkingTreeState recomputes the diff/conflict summary from git; a local
-// conflict surfaces as Status=pr-conflicts. HasConflicts and HasCommits drive
-// the status and are not stored.
 type SyncWorkingTreeState struct {
 	ID           string
 	Added        int
@@ -49,8 +46,6 @@ func (c SyncWorkingTreeState) EmitEvent(
 	ws.Added = clampZero(c.Added)
 	ws.Deleted = clampZero(c.Deleted)
 	ws.LastActivity = c.Now
-	// When local conflicts appear, surface them via the Status enum. Status
-	// stays at its current value otherwise.
 	if c.HasConflicts {
 		ws.Status = domain.WorkspaceStatusPRConflicts
 	}

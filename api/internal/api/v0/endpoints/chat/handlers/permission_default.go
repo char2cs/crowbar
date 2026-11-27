@@ -8,7 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// GetDefaultPermissionLevel handles GET /v0/settings/chat/permission-level.
 func (h *Handlers) GetDefaultPermissionLevel(
 	ctx *gin.Context,
 ) {
@@ -20,7 +19,6 @@ func (h *Handlers) GetDefaultPermissionLevel(
 	libs.WriteQueryOK(ctx, gin.H{"level": level})
 }
 
-// PutDefaultPermissionLevel handles PUT /v0/settings/chat/permission-level.
 func (h *Handlers) PutDefaultPermissionLevel(
 	ctx *gin.Context,
 ) {

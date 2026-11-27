@@ -6,9 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 )
 
-// Snapshot returns the session's persisted blob and whether it changed since the last
-// flush. It samples the foreground reset, reuses lastBlob when clean, otherwise
-// serializes header+redraw under one s.mu hold and clears the dirty bit in that same hold.
 func (s *Session) Snapshot() (blob []byte, changed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -22,9 +19,6 @@ func (s *Session) Snapshot() (blob []byte, changed bool) {
 	return blob, true
 }
 
-// ScreenText renders the VISIBLE screen as text if it moved since generation since; unchanged
-// returns no text, so polling costs one compare. A placeholder or a backend without
-// ScreenReader reports gen 0, unchanged.
 func (s *Session) ScreenText(since uint64) (text string, gen uint64, changed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -41,8 +35,6 @@ func (s *Session) ScreenText(since uint64) (text string, gen uint64, changed boo
 	return reader.ScreenText(), s.screenGen, true
 }
 
-// ScreenState reads the visible text, cursor and bracketed-paste mode under one s.mu hold. ok is false
-// for a placeholder or a model that cannot report it.
 func (s *Session) ScreenState() (st model.ScreenState, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,9 +48,6 @@ func (s *Session) ScreenState() (st model.ScreenState, ok bool) {
 	return reader.ScreenState(), true
 }
 
-// header builds the mandatory CRWB1 size line, sourced entirely from the model's
-// HeaderState so it never re-parses the stream. Caller holds s.mu; only live sessions
-// (model != nil) call it.
 func (s *Session) header() string {
 	cols, rows, alt, sb := s.model.HeaderState()
 	altBit := 0
@@ -68,8 +57,6 @@ func (s *Session) header() string {
 	return fmt.Sprintf("CRWB1 %d %d %d %d\n", cols, rows, altBit, sb)
 }
 
-// InjectLocal feeds clean ANSI into this session's model only (never the wire or the .buf):
-// the sanctioned way to show a daemon-authored notice on the next Serialize.
 func (s *Session) InjectLocal(
 	b []byte,
 ) {
@@ -78,8 +65,6 @@ func (s *Session) InjectLocal(
 	s.injectLocalLocked(b)
 }
 
-// injectLocalLocked feeds bytes through writeModelLocked's recover, on the primary buffer so a
-// notice never lands in an alt screen; it marks dirty and never fans out. Caller holds s.mu.
 func (s *Session) injectLocalLocked(
 	b []byte,
 ) {
@@ -94,8 +79,6 @@ func (s *Session) injectLocalLocked(
 	s.lastBlob = nil
 }
 
-// ForceSuspendSnapshot forces primary, injects the notice, serializes and caches in ONE s.mu
-// section, so no pump chunk can repaint alt content before the serialize. Caller must NOT hold s.mu.
 func (s *Session) ForceSuspendSnapshot(
 	notice []byte,
 ) []byte {
@@ -109,8 +92,6 @@ func (s *Session) ForceSuspendSnapshot(
 	return blob
 }
 
-// Health reports degraded state and recovered parse panics: the model's own ModelHealth count
-// plus s.modelPanics (panics that escaped into the session recover and flipped it to raw).
 func (s *Session) Health() (degraded bool, parsePanics int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -124,25 +105,17 @@ func (s *Session) Health() (degraded bool, parsePanics int) {
 	return degraded, parsePanics
 }
 
-// ModelBytes returns the session's estimated resident size for the engine's memory ceiling:
-// the model's grid+scrollback estimate plus the cached blob and the diff emitter's
-// retained lastGrid estimate.
 func (s *Session) ModelBytes() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	total := s.model.ModelBytes() + int64(len(s.lastBlob))
 	if s.emitter != nil {
-		// Estimated from the model's dims (model.EmitterGridBytes) so the reported size is stable
-		// from spawn for the maintenance ceiling.
 		cols, rows, _, _ := s.model.HeaderState()
 		total += model.EmitterGridBytes(cols, rows)
 	}
 	return total
 }
 
-// DropCachedBlob reclaims the blob cache under memory pressure: it
-// nils lastBlob and marks the session dirty so the next Snapshot re-serializes a correct,
-// current blob. Returns the bytes reclaimed.
 func (s *Session) DropCachedBlob() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

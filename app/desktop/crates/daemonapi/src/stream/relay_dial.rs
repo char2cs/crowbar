@@ -1,5 +1,3 @@
-//! Opening the daemon's stream through the shell's loopback relay.
-
 use std::sync::Arc;
 
 use futures_util::future::ready;
@@ -23,7 +21,6 @@ const TOKEN_PREFIX: &str = "crowbar.token.";
 const STREAM_PATH: &str = "/v0/stream";
 const QUEUE: usize = 1024;
 
-/// A [`Dial`] that opens one host's `/v0/stream` through the shell's loopback relay.
 pub struct RelayDial {
     transport: Arc<dyn DaemonTransport>,
     host: HostId,
@@ -44,7 +41,6 @@ impl std::fmt::Debug for RelayDial {
 }
 
 impl RelayDial {
-    /// A dial of `host`'s stream through `transport`'s relay, sending `origin` in the handshake.
     pub fn new(
         transport: Arc<dyn DaemonTransport>,
         host: HostId,

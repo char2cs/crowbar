@@ -1,9 +1,6 @@
 import type { LedgerRow } from '@/features/agent/api/chat-rows'
 import type { FeedFold } from '@/features/agent/stores/lib/fold-rows'
 
-/** A turn's main-scope calls since its last message. One response's pres all
- *  come before any of their ends, so a pre after an end opens the next round.
- *  `closing` is a message read above a round whose calls had all ended. */
 export interface CallRound {
   first?: string
   open: string[]
@@ -28,10 +25,6 @@ export function endCall(fold: FeedFold, turn: string, toolId: string) {
   fold.record('calls')[turn] = { ...round, open, ended: true }
 }
 
-/** A model says nothing while its calls run, so text landing then was said
- *  before them. claude also reports a one-chunk message only when its response
- *  ended, maybe after all its calls ended: then it may instead be the closing
- *  reply, which the turn's end tells. */
 export function placeMessage(fold: FeedFold, row: LedgerRow<'assistant_text'>, id: string) {
   const turn = row.turnId ?? ''
   const round = row.scope ? undefined : fold.facts.calls[turn]

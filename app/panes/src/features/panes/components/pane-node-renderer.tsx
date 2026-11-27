@@ -10,9 +10,6 @@ interface PaneNodeRendererProps {
   node: LayoutNode
   hiddenPaneId?: string | null
   position?: PanePosition
-  /** False for a parked view: mounted to keep state, `display: none`, and told so the surfaces
-   *  stop — a hidden xterm must not render, and a chat thinking itself visible revives and
-   *  spawns a vendor CLI nobody is looking at. */
   showing?: boolean
 }
 
@@ -43,9 +40,6 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
   position = ROOT_PANE_POSITION,
   showing = true,
 }: PaneNodeRendererProps) {
-  // Only this node's pane, never all of `panes`: immer keeps siblings' references, so a change
-  // to pane A skips B's renderer instead of re-rendering the whole tree. A split's id resolves
-  // to null here, unused.
   const pane = usePaneById(node.id)
   const { resizePaneSplit } = usePaneActions()
 

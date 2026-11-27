@@ -17,7 +17,6 @@ func dialedAgent(t *testing.T, connect string) agents.Agent {
 	return dialedAgentWith(t, connect, "")
 }
 
-// dialedAgentWith is dialedAgent with extra top-level descriptor YAML.
 func dialedAgentWith(t *testing.T, connect, extra string) agents.Agent {
 	t.Helper()
 	home := t.TempDir()
@@ -74,7 +73,6 @@ func TestAgent_StartAPIEndpointReportsAConnectCommandThatFails(t *testing.T) {
 	require.ErrorContains(t, err, "connect")
 }
 
-// A dialed server has no argv to take --mcp-config, but its relay still reads the token from a file.
 func TestAgent_StartAPIEndpointWritesTheMCPTokenFile(t *testing.T) {
 	a := dialedAgentWith(t, `[sh, -c, 'echo "{\"url\":\"http://127.0.0.1:1\"}"']`, `
 mcp_injection:

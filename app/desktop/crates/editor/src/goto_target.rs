@@ -5,8 +5,6 @@ use typed_number::{clamp_signed, leading_number, signed};
 const PREFIX: char = ':';
 const SEPARATORS: [char; 3] = [',', ':', '#'];
 
-/// Where ctrl+g goes for what is typed after its `:`, with the line Monaco's go-to-line picker
-/// shows for it (`gotoLineQuickAccess.ts`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GotoTarget {
     position: Option<(usize, usize)>,
@@ -14,7 +12,6 @@ pub struct GotoTarget {
 }
 
 impl GotoTarget {
-    /// Reads the picker's `value` (its leading `:` included) against `text`.
     #[must_use]
     pub fn parse(
         value: &str,
@@ -28,19 +25,16 @@ impl GotoTarget {
         }
     }
 
-    /// The 1-based line and column to go to; `None` while no line is typed.
     #[must_use]
     pub fn position(&self) -> Option<(usize, usize)> {
         self.position
     }
 
-    /// The picker's one row.
     #[must_use]
     pub fn label(&self) -> &str {
         &self.label
     }
 
-    /// The UTF-8 offset of the target in `text`.
     #[must_use]
     pub fn offset_in(
         &self,

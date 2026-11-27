@@ -13,10 +13,8 @@ import (
 func TestRangeDiff_HappyPath(t *testing.T) {
 	dir := initRepo(t)
 
-	// base branch: one commit
 	makeCommit(t, dir, "base.go", "package main\n", "base commit")
 
-	// feature branch: add a new file
 	gitRun(t, dir, "checkout", "-b", "feature")
 	makeCommit(t, dir, "feature.go", "package main\n\nfunc feature() {}\n", "add feature file")
 

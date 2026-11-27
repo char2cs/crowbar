@@ -20,9 +20,7 @@ import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { PHONE_SETTINGS_PAGES } from '@/features/settings/lib/phone-settings-pages'
 
 interface Workspaces {
-  /** The host the chat list shows. */
   shownHost: string | null
-  /** A chat is on screen, with a workspace whose IDE can open. */
   ide: boolean
 }
 
@@ -63,7 +61,6 @@ function handleTap(id: string) {
   if (id === 'ide') screens.open('ide')
 }
 
-// Navigation intents say where to be, not what to toggle, so a repeated one changes nothing.
 function handleIntent(intent: NativeChromeIntent) {
   const screens = useMobileScreenStore.getState()
   if (intent.type === 'tap') handleTap(intent.id)
@@ -83,8 +80,6 @@ function handleIntent(intent: NativeChromeIntent) {
   if ('seq' in intent && intent.seq !== undefined) screens.acknowledge(intent.seq)
 }
 
-/** The phone shell's native chrome: glass corner buttons and the edge-swipe reveals of the chat
- *  list and the IDE, drawn from the shell's navigation store and driving that same store. */
 export function useMobileNativeChrome({ ide, shownHost }: Workspaces) {
   const screen = useMobileScreenStore((s) => s.screen)
   const listOpen = useMobileScreenStore((s) => s.chatListOpen)
@@ -94,9 +89,7 @@ export function useMobileNativeChrome({ ide, shownHost }: Workspaces) {
   const appearance = useSettingsStore((s) => s.settings.themeMode)
   const theme = useSettingsStore((s) => s.settings.theme)
   const hostStatus = useHostDotState(shownHost ?? LOCAL_HOST.id)
-  // Colours are read from CSS, so a theme change must hand them over again.
   const themeVersion = useThemeVersion()
-  // What the keyboard or a shrunk webview uncovers is painted from this, not left black.
   useSurfaceThemeColor()
 
   useEffect(() => {

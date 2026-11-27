@@ -33,7 +33,6 @@ func TestStore_DeadLettersKeepThePayloadTruncatedAt64KiB(t *testing.T) {
 	assert.Empty(t, stored.ChatID, "a runner Crowbar does not know names no chat")
 }
 
-// Dead letters are counted by why they were kept, and go with their chat.
 func TestStore_DeadLettersAreCountedByReasonAndForgottenWithTheirChat(t *testing.T) {
 	s, err := ledgerstore.Open(t.Context(), openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName)), clock)
 	require.NoError(t, err)
@@ -51,8 +50,6 @@ func TestStore_DeadLettersAreCountedByReasonAndForgottenWithTheirChat(t *testing
 	assert.Zero(t, count)
 }
 
-// A dead letter outlives no retention, whatever chat it names or why it was
-// kept: the next open purges the ones older than it and keeps the rest.
 func TestStore_DeadLettersOlderThanTheRetentionArePurgedAtOpen(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
 	now := fixedNow
@@ -76,8 +73,6 @@ func TestStore_DeadLettersOlderThanTheRetentionArePurgedAtOpen(t *testing.T) {
 	assert.Equal(t, 1, count, "only the letter younger than the retention is kept")
 }
 
-// A purge that fails leaves the letters for the next open: the store still
-// opens, since the ledger matters more than its dead letters.
 func TestStore_AFailedDeadLetterPurgeStillOpens(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), ledgerstore.FileName))
 	s, err := ledgerstore.Open(t.Context(), db, clock)

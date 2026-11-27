@@ -1,4 +1,3 @@
-/** The sidebar "+": forks (named, then minted) and threads off repo rows. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
@@ -78,8 +77,6 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 })
 
 afterEach(() => {
-  // A GLOBAL store — a leaked 'terminal' default would silently arm every
-  // later create in this file with a surface its own assertions never named.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
   }))
@@ -90,7 +87,6 @@ beforeEach(() => {
   resetEntities()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   resetOperations()
-  // A create needs a provider, read from the global store: there is no workspace yet to scope by.
   useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
@@ -99,19 +95,16 @@ const ANY = expect.any(String)
 const offerProviders = (...providers: { id: string; enabled: boolean; [k: string]: unknown }[]) =>
   useAgentProvidersStore.setState({ status: 'ready', providers: providers as never })
 
-/** Confirms the naming input `handleCreate` opened, as the row's input does. */
 function confirmArmedBranchName(name = 'typed-branch', navigate = vi.fn()): void {
   if (!treeUiStore.getState().draft) throw new Error('no draft is open')
   confirmCreateDraft(name, navigate)
 }
 
-/** The one own-worktree create, typed-branch off `parent` in r1 of p1. */
 const expectForked = (provider: string, parent: string, surface?: 'terminal') =>
   expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
     ...[ANY, ANY, 'p1', 'r1', provider, parent, 'typed-branch', surface],
   )
 
-/** The user prefers Terminal, and codex can start there. */
 function preferTerminalOnCodex() {
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: false },
@@ -119,7 +112,6 @@ function preferTerminalOnCodex() {
   offerProviders({ id: 'codex', enabled: true, hasTerminal: true, terminalStartHere: true })
 }
 
-/** The chat id the client minted for the last own-worktree create. */
 function mintedForkId(): string {
   return (createChatWithOwnWorktree.mock.calls.at(-1) as unknown as [string])[0]
 }
@@ -137,12 +129,7 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
     const entries = treeUiStore.getState().removals
     expect(entries).toHaveLength(1)
     expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', label: 'a chat' })
-    // repo()'s default `defaultWorkspaceId` ('home-1') is the scoped
-    // workspace id the DELETE request is addressed through once the hold
-    // actually commits — a repo with no real `workspaces` entries.
     expect(entries[0].wsId).toBe('home-1')
-    // A chat drains on the same 8s clock every non-cascading kind uses —
-    // it does not wait on Cancel/Remove the way a repo/project does.
     expect(entries[0].deadlineAt).not.toBeNull()
   })
 
@@ -155,9 +142,6 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
   })
 })
 
-// "Create workspace" mints the workspace AND its first chat in one call. The
-// parentId may be a WORKSPACE id with no owning chat: the daemon resolves it
-// (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
 describe('creating a workspace off the repo-home row', () => {
   it('calls the atomic own-worktree endpoint, not postWorkspace', async () => {
     offerProviders({ id: 'claude', enabled: true })
@@ -193,8 +177,6 @@ describe('creating a workspace off the repo-home row', () => {
     expectForked('codex', 'home-1')
   })
 
-  // A workspace's first chat lands on the user's default surface like any other create: born on
-  // codex's default (no PTY), a terminal-preferring pane would relaunch it on the terminal.
   it("creates the workspace's chat on the user's default terminal surface", async () => {
     preferTerminalOnCodex()
     seedRepos([repo()])
@@ -206,8 +188,6 @@ describe('creating a workspace off the repo-home row', () => {
     expectForked('codex', 'home-1', 'terminal')
   })
 
-  // One default: with Terminal preferred, a New thread starts on the terminal as a fork's
-  // chat does, instead of a Chat draft whose first prompt the terminal would hold unsent.
   it("starts a new thread on the user's default terminal surface, like a fork", async () => {
     preferTerminalOnCodex()
     seedRepos([repo()])
@@ -241,9 +221,6 @@ describe('creating a workspace off the repo-home row', () => {
     handleCreate('home-1', 'workspace', vi.fn())
     handleCreate('home-1', 'workspace', vi.fn())
     handleCreate('home-1', 'workspace', vi.fn())
-    // The naming lock itself proves the point (only ONE naming entry armed no
-    // matter how many "+" clicks landed) — confirming it is what turns that
-    // into a network assertion.
     confirmArmedBranchName()
     await Promise.resolve()
 
@@ -300,7 +277,6 @@ describe('creating a workspace off a REGULAR fork row', () => {
     expectForked('claude', 'c-owner')
   })
 
-  // The daemon sends the branch's entities before the operation's succeeded.
   it('a branch create draws its row from the operation and opens the chat once it succeeded', async () => {
     resetWindowPaneStoreForTests()
     offerProviders({ id: 'claude', enabled: true })
@@ -368,8 +344,6 @@ describe('creating a workspace off a REGULAR fork row', () => {
     )
   })
 
-  // The naming row sits at the OWNING CHAT parent: a real sibling's parentId is
-  // the parent's rendered id, never the raw workspace id.
   it('confirming a name starts the create; cancelling clears the draft', async () => {
     offerProviders({ id: 'claude', enabled: true })
     seedRepos([forkRepo()])
@@ -408,7 +382,6 @@ describe('creating a workspace off a REGULAR fork row', () => {
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
   })
 
-  // The phone lands a new thread on the chat, so it opens the draft whatever the default.
   it('opens its thread "+" as a draft on the phone, even with Terminal preferred', async () => {
     preferTerminalOnCodex()
     seedRepos([forkRepo()])
@@ -438,8 +411,6 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 })
 
-// A provider list belongs to a daemon: a fork on a remote host reads that host's list
-// on its first use, and says so — once — when the host does not answer.
 describe('forking a workspace of a project on a remote host', () => {
   const remoteRepo = () =>
     repo({

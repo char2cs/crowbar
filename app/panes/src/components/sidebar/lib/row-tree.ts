@@ -6,8 +6,6 @@ export interface SidebarRowTree {
   childrenByParent: Map<string, SidebarRow[]>
 }
 
-/** One project's flat, parentId-linked rows as the tree draws them: a row whose parent is not
- *  among them is a root, and every sibling list is in display order. */
 export function sidebarRowTree(rows: readonly SidebarRow[]): SidebarRowTree {
   const ids = new Set(rows.map((r) => r.id))
   const childrenByParent = new Map<string, SidebarRow[]>()

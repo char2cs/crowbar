@@ -43,7 +43,6 @@ struct RowSource {
     payload: DraggedRow,
 }
 
-/// The payload of the sidebar's row for chat `t1`.
 pub(crate) fn chat_row() -> DraggedRow {
     DraggedRow {
         row: "t1".into(),
@@ -52,7 +51,6 @@ pub(crate) fn chat_row() -> DraggedRow {
     }
 }
 
-/// The payload of the Files panel's row for the file at `path`.
 pub(crate) fn file_row(path: &str) -> DraggedRow {
     DraggedRow {
         row: path.into(),
@@ -155,7 +153,6 @@ pub(crate) fn open_under_row_source<'a>(
     }
 }
 
-/// A layout view in a visual window, where drags, drop previews and the handle are drawn.
 pub(crate) struct Floating {
     pub(crate) view: Entity<LayoutView>,
     pub(crate) window: VisualTestContext,

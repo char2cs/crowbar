@@ -39,18 +39,6 @@ func TestGet_UnknownAgentIsReported(t *testing.T) {
 	assert.ErrorIs(t, err, agents.ErrUnknownAgent)
 }
 
-// TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges is
-// the fix for a live-reported bug: Codex's streaming view visibly stalled
-// mid-reply, self-correcting only once the turn ended, while Claude streamed
-// smoothly. Get sits on the ingest hot path (once per hook, including once
-// per streamed delta), and protocol.Resolve is deliberately uncached — a full
-// disk read, YAML parse and rule-validate on every call, over a millisecond
-// for codex's own descriptor, measured. Codex's much higher per-second event
-// rate over its api-transport connection paid that cost often enough to fall
-// behind the incoming stream; Claude's hooks-paced rate never did. This
-// proves the cache holds an override's resolved descriptor stable across
-// repeated Get calls — corrupting the override on disk WITHOUT changing its
-// mtime must not be noticed, because noticing would mean Resolve ran again.
 func TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, "descriptors")
@@ -68,10 +56,6 @@ func TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges(t *t
 	require.NoError(t, err)
 	stableModTime := info.ModTime()
 
-	// Corrupted, but pinned back to the EXACT mtime Get already saw — no
-	// sleep, no timing dependency: the cache is asked to distinguish "this
-	// file's content is different" (which it cannot, and must not try to)
-	// from "this file's mtime is different" (which it can, cheaply).
 	require.NoError(t, os.WriteFile(path, []byte("id: [unclosed"), 0o600))
 	require.NoError(t, os.Chtimes(path, stableModTime, stableModTime))
 
@@ -79,10 +63,6 @@ func TestRegression_GetCachesAResolvedDescriptorUntilItsOverrideFileChanges(t *t
 	require.NoError(t, err, "THE FIX: an unchanged mtime serves the cached descriptor, "+
 		"never re-reading a file that Get has no reason to believe changed")
 
-	// Now genuinely invalidate it: a real mtime change must still be caught,
-	// or this would not be a cache with correct invalidation — it would just
-	// be permanently stale, and a developer's edited override would never
-	// take effect without a daemon restart.
 	changedModTime := stableModTime.Add(time.Second)
 	require.NoError(t, os.Chtimes(path, changedModTime, changedModTime))
 
@@ -106,11 +86,6 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 	assert.False(t, found)
 }
 
-// manifestDescriptorYAML is a synthetic model.manifest: descriptor pointing
-// at url — the shared embedded model-manifest.json has no "synthetic"
-// provider key, so this id's embedded half always resolves empty, letting a
-// test tell "the network was actually consulted" apart from "the embedded
-// fallback still applies".
 func manifestDescriptorYAML(url string) string {
 	return `
 id: synthetic
@@ -143,28 +118,16 @@ model:
 `
 }
 
-// TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired proves the
-// engine-side half of the fetch toggle (agents.go's own doc on
-// SetManifestFetchEnabled): a bare New(), never wired to a settings getter,
-// must NEVER dial out as a side effect of resolving a descriptor — only the
-// embedded/disk halves apply. Wiring a getter that reports true is what
-// switches the network half on.
 func TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired(t *testing.T) {
 	calls := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
-		// updatedAt must beat the REAL embedded model-manifest.json's own
-		// timestamp (ProbeManifest picks whichever candidate is freshest),
-		// so far in the future it can never accidentally lose that race.
 		_, _ = w.Write([]byte(
 			`{"updatedAt":"2099-01-01T00:00:00Z","providers":{"synthetic":{"models":[` +
 				`{"id":"m1","label":"M1"}]}}}`,
 		))
 	}))
 	defer server.Close()
-	// model.manifest.url must be https: (rules.modelManifest) — httptest's
-	// plain server can't satisfy that, so this borrows the TLS variant's own
-	// trusting client for the one real net/http call ProbeManifest makes.
 	realClient := http.DefaultClient
 	http.DefaultClient = server.Client()
 	t.Cleanup(func() { http.DefaultClient = realClient })
@@ -179,12 +142,6 @@ func TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired(t *testing.
 	assert.Equal(t, 0, calls, "a bare New() must never dial out")
 
 	svc.SetManifestFetchEnabled(func() bool { return true })
-	// List, not Get: Get short-circuits on its own descriptor cache when the
-	// override file's mtime is unchanged (agents.go's own doc on
-	// descriptorCacheEntry), so it would never re-trigger
-	// refreshModelsIfDeclared here. List always does. The refresh itself is
-	// async, so poll the real signal (the model actually landing) instead
-	// of sleeping.
 	require.Eventually(t, func() bool {
 		list, err := svc.List(context.Background(), home)
 		if err != nil {

@@ -1,10 +1,5 @@
 package tree_test
 
-// Coverage for project-home (RepoID == "") folder CRUD and chat placement
-// migrating onto dtree.Folder + dtree.Node (2026-09-08
-// sidebar-placement-unification Task 5). Repo-scoped folder CRUD keeps its
-// existing coverage in tree_test.go/move_test.go/chats_test.go, untouched.
-
 import (
 	"context"
 	"errors"
@@ -20,13 +15,8 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// homeWorkspaceID is never registered against a repo via SetRepo, so
-// AgentWorkspaceGitStatus.RepoOf answers "" for it -- the same convention the
-// real home workspace's RepoOf answers (see project.go's own doc).
 const homeWorkspaceID = "home-ws-1"
 
-// newHomeUsecase builds the tree usecase with fresh Folder/Node fakes exposed,
-// for the home-scoped (RepoID == "") tests below.
 func newHomeUsecase(
 	t *testing.T,
 ) (
@@ -45,9 +35,6 @@ func newHomeUsecase(
 	return chats, folders, nodes, uc
 }
 
-// newHomeUsecaseWithGitStatus is newHomeUsecase with the fake
-// WorkspaceGitStatus exposed, for the tests below that configure
-// RepoIDsForHome (SDD review fix round 3).
 func newHomeUsecaseWithGitStatus(
 	t *testing.T,
 ) (
@@ -66,8 +53,6 @@ func newHomeUsecaseWithGitStatus(
 	return chats, nodes, gitStatus, uc
 }
 
-// nodeRowFor returns the Node row a fake NodePlacements holds for id, failing
-// the test if there is none.
 func nodeRowFor(
 	t *testing.T,
 	nodes *mocks.NodePlacements,
@@ -83,9 +68,6 @@ func nodeRowFor(
 	return dtree.Node{}
 }
 
-// A home folder mints a dtree.Folder row plus a dtree.Node row -- never a
-// ChatTypeFolder Chat row, unlike a repo-scoped folder (tree_test.go's
-// TestCreate_AppendsAtTheEndOfTheSiblingSpace and friends).
 func TestCreate_Home_MintsFolderPlusNode(t *testing.T) {
 	chats, folders, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -124,11 +106,6 @@ func TestCreate_Home_TrimsAndRefusesABlankName(t *testing.T) {
 	assert.Len(t, folders.Saved, 1, "the refused second create mints nothing beyond the first")
 }
 
-// The golden rule (checkFolderContainer) still applies to a home folder over
-// the SAME unified snapshot a repo-scoped folder plans against: filing it
-// under a REPO-scoped folder is refused, exactly as filing a repo-scoped
-// folder under a home one already is (tree_test.go's
-// TestCreate_RefusesAChatParentFromAnotherRepo).
 func TestCreate_Home_RefusesUnderARepoScopedFolder(t *testing.T) {
 	chats, _, _, uc := newHomeUsecase(t)
 	chats.Rows = append(chats.Rows,
@@ -138,8 +115,6 @@ func TestCreate_Home_RefusesUnderARepoScopedFolder(t *testing.T) {
 	assert.ErrorIs(t, err, tree.ErrCrossContext)
 }
 
-// A create that mints the Folder row but fails to place it takes the Folder
-// row back out, mirroring the repo-scoped path's own discardFolder.
 func TestCreate_Home_DiscardsOnPlacementFailure(t *testing.T) {
 	_, folders, nodes, uc := newHomeUsecase(t)
 	nodes.CreateErr = errors.New("disk full")
@@ -149,8 +124,6 @@ func TestCreate_Home_DiscardsOnPlacementFailure(t *testing.T) {
 	assert.Empty(t, folders.Saved, "the folder row is taken back out when placement fails")
 }
 
-// Renaming a home folder writes ONLY dtree.Folder.Name -- its position
-// (dtree.Node) is untouched, and no Chat aggregate is ever consulted.
 func TestRename_Home_UpdatesFolderNameOnly(t *testing.T) {
 	chats, folders, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -173,9 +146,6 @@ func TestRename_Home_UnknownIDIsNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Moving a home folder reparents its dtree.Node row and never touches the
-// chat aggregate -- the direct opposite of a repo-scoped folder move
-// (move_test.go's TestMove_TakesWholeSubtree), which writes through Chats.
 func TestMove_Home_ReparentsViaNode(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -194,8 +164,6 @@ func TestMove_Home_ReparentsViaNode(t *testing.T) {
 	assert.Empty(t, chats.Ordered, "a home move never writes the chat aggregate")
 }
 
-// A Node read that fails is not a folder without a Node: minting a fresh one
-// would file the folder at a slot its real row does not hold.
 func TestMove_Home_ANodeLookupFailureIsReturned(t *testing.T) {
 	_, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -209,14 +177,6 @@ func TestMove_Home_ANodeLookupFailureIsReturned(t *testing.T) {
 	require.ErrorIs(t, err, cause)
 }
 
-// A repo's own Node phantom row (mergeHomeForest's placeholder, purely so a
-// repo densifies alongside its home siblings) is NOT a legal container for
-// anything — hardened after an SDD review caught it reachable via a raw
-// PATCH with no frontend involvement: checkFolderContainer's repoScopeOf
-// used to answer nil ("nothing to conflict with") for it, the same posture
-// correctly taken for a plain bubble sibling, silently letting a folder be
-// filed under a repo and become permanently unreachable (repos are BFS
-// leaves — nothing walks INTO one to find what was filed there).
 func TestMove_Home_RefusesFilingUnderARepo(t *testing.T) {
 	_, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -228,9 +188,6 @@ func TestMove_Home_RefusesFilingUnderARepo(t *testing.T) {
 	assert.ErrorIs(t, err, tree.ErrNotAContainer)
 }
 
-// The CHAT-placement half of the same hardening (checkParentKind, not
-// checkFolderContainer) -- a home chat's parent may never resolve to a repo
-// either.
 func TestPlaceChat_Home_RefusesFilingUnderARepo(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -241,18 +198,9 @@ func TestPlaceChat_Home_RefusesFilingUnderARepo(t *testing.T) {
 	assert.ErrorIs(t, err, tree.ErrNotAContainer)
 }
 
-// TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBareRoot
-// is project.go's TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeChats
-// (Critical 2) in the REVERSE direction: a chat placement in project A's home
-// must not renumber -- and WRITE, via Nodes.SetOrder/.SetPlacement -- project
-// B's own repo Node row sharing the same literal "" root (SDD review fix
-// round 3; mergeHomeForest's repo-phantom rows carry no project id of their
-// own, the same underlying gap Critical 2 closed for CHAT-kind rows).
 func TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBareRoot(t *testing.T) {
 	chats, nodes, gitStatus, uc := newHomeUsecaseWithGitStatus(t)
 	ctx := context.Background()
-	// Project A's home workspace (homeWorkspaceID) owns repo-A only --
-	// repo-B belongs to a DIFFERENT project's home, sharing the bare root.
 	gitStatus.SetHomeRepoMembers(homeWorkspaceID, "repo-A")
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
 	nodes.Rows = []dtree.Node{
@@ -271,17 +219,11 @@ func TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBa
 	for _, w := range nodes.Placed {
 		assert.NotEqual(t, "repo-B", w.ID, "another project's repo must never be WRITTEN")
 	}
-	// This project's OWN repo still correctly densifies against the chat
-	// that just landed before it -- the fix scopes, it does not disable.
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "repo-A").Order,
 		"this project's own repo still shifts correctly")
 	assert.Equal(t, 0, nodeRowFor(t, nodes, "c1").Order)
 }
 
-// The direct Node-native proof of Task 5's whole point: moving a home folder
-// densifies against a REPO's own Node row sharing the exact same container,
-// read from ONE Node.ListByParent call -- no cross-aggregate merge step (the
-// interim fix Task 3 kept alive and this task deletes from project.go).
 func TestMove_Home_DensifiesAgainstRepoNodeRowsToo(t *testing.T) {
 	_, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -299,9 +241,6 @@ func TestMove_Home_DensifiesAgainstRepoNodeRowsToo(t *testing.T) {
 		"the repo sibling shifted too, written back through the SAME Node surface")
 }
 
-// A folder delete PROMOTES what it held to its own parent -- a chat filed
-// under it stays a chat, only its container closes up. Both the Folder row
-// and the Node row are erased outright.
 func TestDelete_Home_PromotesChildrenAndErasesFolderAndNode(t *testing.T) {
 	_, folders, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -319,9 +258,6 @@ func TestDelete_Home_PromotesChildrenAndErasesFolderAndNode(t *testing.T) {
 	assert.Equal(t, "", nodeRowFor(t, nodes, child.ID).ParentID, "the child is promoted to the root")
 }
 
-// The DIRECT counterpart of TestMove_Home_DensifiesAgainstRepoNodeRowsToo for
-// a home-scoped CHAT: PlaceChat's position write goes through Node, densified
-// against a repo AND a home folder sharing the same container in one read.
 func TestPlaceChat_Home_DensifiesAgainstRepoAndFolderSiblings(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -343,10 +279,6 @@ func TestPlaceChat_Home_DensifiesAgainstRepoAndFolderSiblings(t *testing.T) {
 	assert.Empty(t, chats.Ordered, "a home chat's position write never touches the chat aggregate")
 }
 
-// A home-scoped chat's FIRST placement mints its Node row (the same
-// Create-vs-SetPlacement dispatch a fresh home folder gets) -- proving
-// CreateChat's ordinary MintChat-then-PlaceChat sequence needs no special
-// casing for home scope at all.
 func TestPlaceChat_Home_FirstPlacementMintsANodeRow(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -364,21 +296,10 @@ func TestPlaceChat_Home_FirstPlacementMintsANodeRow(t *testing.T) {
 	assert.Empty(t, chats.Placed, "the write went to Node, never Chat.SetPlacement")
 }
 
-// The adversarial case TestPlaceChat_Home_FirstPlacementMintsANodeRow does
-// NOT cover: a lone chat, no Node row, no siblings sharing its container to
-// displace, ordered to the exact index (0) its own zero-value degrade already
-// reads as. This is the SAME coincidence project.go's original repo-side bug
-// missed (place()'s numeric diff sees no change and never visits the row at
-// all) -- proving freshIDs' independent "was this id ever discovered by the
-// Node walk" signal (buildHomeSnapshot), not a diff-driven one, is what saves
-// this path. Written after that live incident specifically to confirm the
-// home-chat side was never exposed to it, not just reasoned to be safe.
 func TestPlaceChat_Home_LoneChatWithNoNodeRowStillMintsWhenTargetCoincidesWithZero(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
-	// Deliberately no nodes.Rows entry for "c1", and no other Node row shares
-	// the bare root -- the exact lone-subject shape the repo-side bug needed.
 
 	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{Order: index(0)})
 	require.NoError(t, err, "a lone home chat with no Node row must mint one, not silently do nothing")
@@ -389,10 +310,6 @@ func TestPlaceChat_Home_LoneChatWithNoNodeRowStillMintsWhenTargetCoincidesWithZe
 	assert.Equal(t, 0, n.Order)
 }
 
-// Chat.ParentID/.Order are write-once-at-creation-then-ignored for a
-// home-scoped chat (brief's own contract, not deleted until Task 11): a
-// SECOND move reads its live position off Node (not the frozen Chat field)
-// to compute the next densify correctly, and never restates the Chat field.
 func TestPlaceChat_Home_SecondMoveReadsLivePositionFromNodeNotChat(t *testing.T) {
 	chats, _, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -414,10 +331,6 @@ func TestPlaceChat_Home_SecondMoveReadsLivePositionFromNodeNotChat(t *testing.T)
 	assert.Empty(t, chats.Ordered)
 }
 
-// ListInRepo("") reads home folders from Folder/Node, isolated from
-// repo-scoped ChatTypeFolder rows -- the home half of tree_test.go's
-// TestListInRepo_IsolatesByRepo, which used to seed this fixture directly
-// onto chats.Rows before home folders left the Chat aggregate.
 func TestListInRepo_Home_IsolatesFromRepoScoped(t *testing.T) {
 	chats, _, _, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -448,8 +361,6 @@ func TestListInHome_ListsOnlyTheFoldersOfThatHome(t *testing.T) {
 	assert.Equal(t, mine.ID, rows[0].ID)
 }
 
-// A home folder written before HomeID existed belongs to one home, not to
-// whichever lists it: the home its member chat runs in wins over the lister.
 func TestListInHome_AdoptsALegacyFolderByTheHomeItsMemberChatRunsIn(t *testing.T) {
 	chats, folders, nodes, uc := newHomeUsecase(t)
 	ctx := context.Background()
@@ -472,7 +383,6 @@ func TestListInHome_AdoptsALegacyFolderByTheHomeItsMemberChatRunsIn(t *testing.T
 	assert.Equal(t, "home-b", scope.HomeID, "the adoption is persisted")
 }
 
-// With nothing around it to say, the first home that lists a legacy folder owns it.
 func TestListInHome_AFolderNothingAttributesGoesToTheFirstHomeThatListsIt(t *testing.T) {
 	_, folders, _, uc := newHomeUsecase(t)
 	ctx := context.Background()

@@ -40,7 +40,9 @@ impl WindowMemory {
             window_background: background(),
             app_owns_titlebar_drag: true,
             // PLATFORM: linux X11 shows the icon a window carries; macOS takes the bundle's.
-            icon: window_icon(),
+            icon: image::load_from_memory_with_format(ICON, image::ImageFormat::Png)
+                .ok()
+                .map(|icon| Arc::new(icon.into_rgba8())),
             ..WindowOptions::default()
         }
     }
@@ -70,13 +72,6 @@ impl WindowMemory {
             },
         }
     }
-}
-
-fn window_icon() -> Option<Arc<image::RgbaImage>> {
-    image::load_from_memory_with_format(ICON, image::ImageFormat::Png)
-        .map(|icon| Arc::new(icon.into_rgba8()))
-        .inspect_err(|error| tracing::warn!(%error, "the window icon cannot be read"))
-        .ok()
 }
 
 fn first_run(cx: &mut App) -> Placement {

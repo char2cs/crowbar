@@ -1,30 +1,18 @@
-//! The inline input a tree row is showing, if any.
-
 use crate::shell::NewEntry;
 use crate::shell::RowId;
 
 use crate::shell::ProjectId;
-/// Which name the sidebar's inline input is collecting; at most one is open at a time.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Editing {
-    /// No input is open.
     #[default]
     Nothing,
-    /// The row's new name.
     Renaming(RowId),
-    /// The space's new name, typed over its name in the switcher.
     RenamingProject(ProjectId),
-    /// The name of the branch the chat row turns into.
     Branching(RowId),
-    /// The name of a fork of the row.
     Drafting(RowId),
-    /// The new name of the file at this workspace-relative path.
     RenamingFile(String),
-    /// The name of a new file or folder.
     Creating {
-        /// The directory it is created in.
         dir: String,
-        /// Whether it is a file or a folder.
         entry: NewEntry,
     },
 }

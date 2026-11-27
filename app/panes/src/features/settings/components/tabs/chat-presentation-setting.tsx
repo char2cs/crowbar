@@ -2,8 +2,6 @@ import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import { Switch } from '@/components/ui/switch'
 import Section, { SettingRow } from '../settings-section'
 
-// Which surface a chat opens on. The copy must say turning it off takes nothing away: Chat and
-// Terminal are peers in every chat, and this only picks which is in front.
 export function ChatPresentationSetting() {
   const chatIsDefaultPresentation = useSettingsStore((s) => s.settings.chatIsDefaultPresentation)
   const updateSetting = useSettingsStore((s) => s.updateSetting)

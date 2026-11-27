@@ -1,5 +1,3 @@
-//! The Git page.
-
 use super::rows::row;
 use crate::schema::Control;
 use crate::schema::Page;

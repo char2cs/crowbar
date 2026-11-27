@@ -35,12 +35,10 @@ function park(ctx: ChannelContext, endpoint: string, hostId: string, retry?: Ret
   return ch
 }
 
-/** The retry that reopens `ch`'s endpoint at `reconnectDelay`, taking over its subscribers and waiters. */
 export function retryOf(ch: Channel, reconnectDelay: number): Retry {
   return { callbacks: ch.callbacks, waiters: ch.waiters.splice(0), reconnectDelay }
 }
 
-/** Dials `endpoint`, or parks it while its host may not be dialled. */
 export function openChannel(ctx: ChannelContext, endpoint: string, retry?: Retry): Channel {
   const { hostId } = splitHostPath(endpoint)
   if (!ctx.ports.mayDial(hostId)) return park(ctx, endpoint, hostId, retry)

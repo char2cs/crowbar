@@ -21,23 +21,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// workspace is the singleton-backed aggregate repository: one axWorkspace shards ids by hash
-// (asynx serializes each aggregate's commands), and the store read model is the location index.
 type workspace struct {
 	ax         asynx.Asynx[domain.Workspace]
 	readModel  store.Store
 	reconciler ReconcileOnOpener
-	// purger is the one physical purger, built by RegisterDeleteReactor and
-	// shared by the delete reactor and the boot Sweep.
-	purger *reactors.Purger
+	purger     *reactors.Purger
 }
 
-// Option configures the workspace repository at construction.
 type Option func(*workspace)
 
-// WithReconciler wires the reconcile-on-open trigger consulted by Get: the
-// first per-id open dispatches a deduped background reconcile. Absent
-// it, Get is a pure read-model fold with no reconcile.
 func WithReconciler(
 	r ReconcileOnOpener,
 ) Option {
@@ -46,9 +38,6 @@ func WithReconciler(
 	}
 }
 
-// New builds the Workspace repository over axWorkspace, which must have been
-// built with Subscriber(rm). es is the log axWorkspace wraps, kept so the read
-// model can heal itself by lazy Replay after a loss.
 func New(
 	ax asynx.Asynx[domain.Workspace],
 	es asynxModels.Store,
@@ -76,8 +65,6 @@ func (w *workspace) Create(
 	in CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	// SendWait: the row is readable (GetHomeForProject, ListInRepo) when Create
-	// returns, so whatever the caller announces next can be looked up at once.
 	evt, err := w.ax.SendWait(ctx, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
@@ -140,15 +127,10 @@ func (w *workspace) Get(
 	ctx context.Context,
 	id string,
 ) (domain.Workspace, error) {
-	// Per-id reads fold the aggregate directly from the event log, so Get
-	// is always current and needs no read-model rebuild. asynx returns ErrNotFound
-	// for an unknown id, which handlers map to 404.
 	got, err := w.ax.Get(ctx, id)
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: get: %w", err)
 	}
-	// A per-id open triggers a lazy, deduplicated background reconcile; Get returns from the
-	// folded aggregate immediately. List never triggers this.
 	if w.reconciler != nil {
 		w.reconciler.OnOpen(ctx, id)
 	}
@@ -170,8 +152,6 @@ func (w *workspace) SyncProviderState(
 		PRTargetBranch: in.PRTargetBranch,
 		Now:            now,
 	}
-	// A poll that changes nothing must not write an event and snapshot. EmitEvent is pure, so applying
-	// it answers what the write would; read through ax, not w.Get, whose lazy reconcile would schedule this.
 	if cur, getErr := w.ax.Get(ctx, in.ID); getErr == nil && cmd.EmitEvent(&cur) == cur {
 		return cur, nil
 	}
@@ -298,9 +278,6 @@ func (w *workspace) RenameBranch(
 	id string,
 	branch string,
 ) (domain.Workspace, error) {
-	// WorktreePath is deliberately NOT touched. A workspace's directory is fixed
-	// at creation, so a rename moves nothing, and the purge removes exactly the
-	// tombstone's WorktreePath.
 	evt, err := w.ax.SendWait(ctx, commands.RenameBranch{ID: id, Branch: branch})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: rename branch: %w", err)
@@ -320,9 +297,6 @@ func (w *workspace) SetParentFromPR(
 	return evt.Aggregate, nil
 }
 
-// Delete folds the tombstone with no io; the store projection keeps the row for the orphan sweep
-// and the delete reactor tears down off the write path. SendWait, not Send: a caller often purges the
-// owning chat next, and a purge that beats the hub projection drops the frame, leaving a ghost row.
 func (w *workspace) Delete(
 	ctx context.Context,
 	id string,
@@ -334,8 +308,6 @@ func (w *workspace) Delete(
 	return nil
 }
 
-// List reads the durable read model and MUST NOT trigger per-workspace reconcile; ListOrRebuild
-// heals an empty model from a non-empty log, while raw List is kept for the boot sweep.
 func (w *workspace) List(
 	ctx context.Context,
 ) ([]domain.Workspace, error) {
@@ -346,8 +318,6 @@ func (w *workspace) List(
 	return rows, nil
 }
 
-// ListInRepo filters List's central read model in memory: each row carries project_id/repo_id,
-// so no separate location table is needed.
 func (w *workspace) ListInRepo(
 	ctx context.Context,
 	projectID string,
@@ -366,8 +336,6 @@ func (w *workspace) ListInRepo(
 	return rows, nil
 }
 
-// inRepo: the REPO row owns the project assignment, so a partially failed repo move never hides
-// rows whose denormalised ProjectID lags. A repo-less row (a project home) is scoped by project.
 func inRepo(
 	ws domain.Workspace,
 	projectID string,
@@ -379,9 +347,6 @@ func inRepo(
 	return ws.RepoID == "" && ws.ProjectID == projectID
 }
 
-// BackfillProvisioning records Provisioning on every row of the RAW read model
-// that lacks it. Best-effort per row: a row whose history cannot be replayed is
-// logged and left for the next boot, and never keeps the daemon from starting.
 func (w *workspace) BackfillProvisioning(
 	ctx context.Context,
 ) {
@@ -402,8 +367,6 @@ func (w *workspace) BackfillProvisioning(
 	}
 }
 
-// Sweep re-drives the Purger for every residual "deleted" row of the RAW read model (no replay at
-// boot, so an empty model reaps nothing). Best-effort: recovery never fails boot. Needs the Purger.
 func (w *workspace) Sweep(
 	ctx context.Context,
 	onPurged func(ctx context.Context, wsID string),
@@ -415,8 +378,6 @@ func (w *workspace) Sweep(
 	return nil
 }
 
-// RegisterDeleteReactor builds the one Purger, keeps it for the boot Sweep, and subscribes the
-// async delete reactor to run it over each persisted tombstone.
 func (w *workspace) RegisterDeleteReactor(
 	root context.Context,
 	forgetDependents func(ctx context.Context, wsID string) error,
@@ -428,8 +389,6 @@ func (w *workspace) RegisterDeleteReactor(
 	return reactors.RegisterDeleteReactor(root, w.ax, w.readModel, w.purger, gate, onGiveUp)
 }
 
-// GetHomeForProject scans all workspaces for the project and returns the one
-// whose Kind is WorkspaceKindHome. Returns problem.ErrNotFound when absent.
 func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error) {
 	all, err := w.List(ctx)
 	if err != nil {

@@ -11,12 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
-// TestOutline_NoTrailingNewlineInHunk pins the "\ No newline at end of file"
-// marker line git emits for a file lacking a final newline: it belongs to
-// neither side of the diff and must be consumed as a no-op (outline.go's
-// `case '\\':`) rather than decrementing the hunk's remaining line counters,
-// which would desynchronize the state machine from the header's declared
-// shape.
 func TestOutline_NoTrailingNewlineInHunk(t *testing.T) {
 	repo := initRepo(t)
 	writeFile(t, repo, "notrail.txt", "line1\nline2\nline3")
@@ -33,11 +27,6 @@ func TestOutline_NoTrailingNewlineInHunk(t *testing.T) {
 	}, files[0].Hunks)
 }
 
-// TestOutline_BinaryFileWithNonASCIINameAndNoPlusLine pins diffGitPath's
-// quoted-path branch: git C-quotes a "diff --git" line's paths whenever they
-// carry a non-ASCII byte, and a binary file's entry has no "+++" line for
-// newSidePath to prefer instead — diffGitPath is the ONLY source for its path,
-// and must unquote it rather than returning the raw octal-escaped literal.
 func TestOutline_BinaryFileWithNonASCIINameAndNoPlusLine(t *testing.T) {
 	repo := initRepo(t)
 	const name = "wärme.bin"

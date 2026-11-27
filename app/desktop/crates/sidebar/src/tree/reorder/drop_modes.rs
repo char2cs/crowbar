@@ -1,5 +1,3 @@
-//! The set of placements a drop policy allows.
-
 use crate::shell::DropMode;
 use crate::tree::reorder::folder_target::FolderTarget;
 
@@ -9,17 +7,13 @@ const INTO: u8 = 4;
 const FOLDER_BAND: f32 = 0.2;
 const OTHER_BAND: f32 = 0.3;
 
-/// A subset of before, after and into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DropModes(u8);
 
 impl DropModes {
-    /// Nothing is allowed; no indicator shows.
     pub const NONE: Self = Self(0);
     pub(crate) const REORDER: Self = Self(BEFORE | AFTER);
-    /// Only nesting.
     pub const INTO: Self = Self(INTO);
-    /// Everything.
     pub const ALL: Self = Self(BEFORE | AFTER | INTO);
 
     pub(crate) fn union<const N: usize>(parts: [Option<Self>; N]) -> Self {
@@ -35,7 +29,6 @@ impl DropModes {
         }
     }
 
-    /// Whether `mode` is allowed.
     pub fn contains(
         self,
         mode: DropMode,
@@ -43,9 +36,6 @@ impl DropModes {
         self.0 & Self::bit(mode) != 0
     }
 
-    /// The mode the pointer's height inside the target row selects. `ratio` is the pointer's
-    /// distance from the row top over the row height; `folder` widens the middle band. A mode
-    /// the policy refuses yields no drop.
     pub fn at(
         self,
         ratio: f32,

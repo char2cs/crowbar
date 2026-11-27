@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegression_RefusedCreateCarriesItsCode: a create the daemon refuses says why in a code
-// the client can branch on, not only in prose.
 func TestRegression_RefusedCreateCarriesItsCode(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

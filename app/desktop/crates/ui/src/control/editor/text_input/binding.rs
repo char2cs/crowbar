@@ -1,5 +1,3 @@
-//! Wires the keyboard actions of [`TextInput`] to its commands.
-
 pub(crate) mod actions;
 
 use gpui::{Context, Div, InteractiveElement, Stateful};

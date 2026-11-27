@@ -25,12 +25,6 @@ use crate::supervisor::supervisor_event::SupervisorEvent;
 
 const COMMAND_QUEUE: usize = 8;
 
-/// Handle to the running supervision task.
-///
-/// The shell must `await` [`Supervisor::stop`] before it exits: that is the only way the daemon
-/// gets SIGTERM and time to flush its state. Dropping the handle without it asks the task to stop
-/// the same way and returns at once, and when the runtime is already shutting down the daemon
-/// child is killed outright (it is spawned with `kill_on_drop`).
 #[derive(Debug)]
 pub struct Supervisor {
     commands: mpsc::Sender<Command>,
@@ -44,7 +38,6 @@ fn stopped(why: impl std::fmt::Display) -> Error {
 }
 
 impl Supervisor {
-    /// Starts the daemon and supervises it until [`Supervisor::stop`].
     #[must_use]
     pub fn start(config: Config) -> Self {
         let bus = Arc::new(Bus::default());
@@ -58,23 +51,16 @@ impl Supervisor {
         }
     }
 
-    /// Every event from now on, in order.
     #[must_use]
     pub fn events(&self) -> broadcast::Receiver<DaemonEvent> {
         self.bus.subscribe()
     }
 
-    /// The latest event, for a view that renders state rather than history.
     #[must_use]
     pub fn current(&self) -> watch::Receiver<DaemonEvent> {
         self.bus.current()
     }
 
-    /// Starts the daemon again after it halted or the supervisor gave up, with a fresh restart
-    /// budget.
-    ///
-    /// # Errors
-    /// [`Error::AlreadyRunning`] when the daemon is up, [`Error::Stopped`] after `stop`.
     pub async fn restart(&self) -> Result<(), Error> {
         let (reply, answer) = oneshot::channel();
         self.commands
@@ -84,16 +70,12 @@ impl Supervisor {
         answer.await.map_err(stopped)?
     }
 
-    /// Tells the supervisor this computer's daemon answered someone, such as the shell's stream,
-    /// so a launch that was slow to serve is checked now rather than at the next probe.
     pub fn heard_answer(&self) {
         if self.commands.try_send(Command::Answered).is_err() {
             tracing::debug!("the supervisor is busy or stopped; the answer goes unreported");
         }
     }
 
-    /// Stops the daemon gracefully (SIGTERM, then SIGKILL after the grace period) and ends
-    /// supervision.
     pub async fn stop(mut self) {
         self.ask_to_stop().await;
         self.join_task().await;

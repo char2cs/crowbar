@@ -2,14 +2,10 @@ import { act, render, screen } from '@testing-library/react'
 import { createElement, createRef } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The component wiring around the attachment: when a view may attach at all, and
-// where a session's end is routed. jsdom lays nothing out, so xterm itself is
-// never built here — attaching does not wait for it.
 const bridge = vi.hoisted(() => ({
   opened: [] as Array<{ sessionId: string; base: string }>,
   live: [] as string[],
   unreachable: false,
-  /** The host's terminal list never answers: an attach still under way. */
   hung: false,
   written: [] as string[],
 }))
@@ -141,7 +137,6 @@ describe('XtermTerminal', () => {
     expect(ref.current).toBeNull()
   })
 
-  // The phone's key bar types through the handle: Esc, Tab, Ctrl chords and arrows reach the PTY.
   it('hands its owner a handle that sends input to the session', async () => {
     recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
     const ref = createRef<TerminalFocusHandle>()
@@ -150,7 +145,6 @@ describe('XtermTerminal', () => {
     expect(bridge.written).toEqual(['\x1b[A'])
   })
 
-  // A detached terminal is a blank xterm: while its host is the reason, it says so.
   describe('while its host is not there', () => {
     function remoteWorkspace(status: 'up' | 'down' | 'needs-repair') {
       pairRemoteHost('h1', 'Build box')
@@ -197,7 +191,6 @@ describe('XtermTerminal', () => {
       )
     })
 
-    // Attaching says nothing about the host: no "Waiting for…" may flash over it.
     it('says nothing while a terminal on an up host is attaching', async () => {
       remoteWorkspace('up')
       bridge.unreachable = false
@@ -208,7 +201,6 @@ describe('XtermTerminal', () => {
       expect(screen.queryByRole('status')).toBeNull()
     })
 
-    // It answers its probes, but refuses this terminal's stream: no blank, unexplained xterm.
     it('says a host with no live stream cannot attach this terminal', async () => {
       remoteWorkspace('up')
       reportChannelState('crowbar://h1/v0/projects', false, 'h1')

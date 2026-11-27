@@ -1,6 +1,3 @@
-// Package handlers serves the workspace-scoped review-thread routes over the ReviewThread
-// aggregate. The owning project/repo come from the request path and are stamped onto each
-// ThreadDTO before it is broadcast.
 package handlers
 
 import (
@@ -12,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ThreadStore is the subset of reviewthread.ReviewThread the handlers consume; the concrete
-// repository satisfies it directly.
 type ThreadStore interface {
 	Open(
 		ctx context.Context,
@@ -58,17 +53,12 @@ type ThreadStore interface {
 	) ([]domain.ReviewThread, error)
 }
 
-// ThreadBroadcaster receives workspace-scoped thread DTOs so the v0
-// Broadcaster[ThreadDTO] can fan them out to subscribed clients. Threads are
-// sync-mutate → broadcast: open/reply/resolve push the updated DTO through it.
 type ThreadBroadcaster interface {
 	Push(
 		d dto.ThreadDTO,
 	)
 }
 
-// Handlers serves the /v0 workspace-scoped thread routes from the review-thread
-// aggregate, broadcasting every mutation through the thread broadcaster.
 type Handlers struct {
 	store     ThreadStore
 	broadcast ThreadBroadcaster
@@ -76,9 +66,6 @@ type Handlers struct {
 	newID     func() string
 }
 
-// New builds the thread Handlers over the review-thread store and the thread
-// broadcaster. The clock and id factory default to the wall clock and UUIDs and
-// are only overridden in tests.
 func New(
 	store ThreadStore,
 	broadcast ThreadBroadcaster,

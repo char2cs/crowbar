@@ -26,7 +26,6 @@ function DraftNameInput({ row }: { row: SidebarRowType }) {
     <InlineRenameInput
       defaultValue=""
       mono={row.kind === 'branch'}
-      // Only a fork is named; without a placeholder the input read as a chat box.
       placeholder={CREATE_ROW_PLACEHOLDER}
       onConfirm={(name) => confirmCreateDraft(name, navigate)}
       onCancel={cancelCreateDraft}
@@ -34,8 +33,6 @@ function DraftNameInput({ row }: { row: SidebarRowType }) {
   )
 }
 
-// A create drawn before its entity exists, where it will land: a draft's naming input, a spinner
-// while its operation runs, or the failure reason with a Dismiss.
 export function OperationSidebarRow({ row, depth }: { row: SidebarRowType; depth: number }) {
   const operation = row.operation
   const isFailed = operation?.state === 'failed'

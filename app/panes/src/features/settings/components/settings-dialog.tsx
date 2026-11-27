@@ -28,20 +28,17 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
 
   const clearSearch = useSettingsStore((state) => state.clearSearch)
-  // Sync active tab with settingsInitialTab whenever it changes (enables deep linking when dialog is already open)
   useEffect(() => {
     if (isOpen) {
       setActiveTab(settingsInitialTab)
     }
   }, [settingsInitialTab, isOpen])
 
-  // Remember the last active tab so it persists across open/close
   const handleTabChange = (tab: SettingsTab) => {
     setActiveTab(tab)
     setSettingsInitialTab(tab)
   }
 
-  // Clear search when the dialog closes or unmounts (the shell mounts it only while open)
   useEffect(() => {
     if (isOpen) return clearSearch
   }, [isOpen, clearSearch])
@@ -70,7 +67,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   )
 }
 
-/** The desktop tab `tab`. */
 function SettingsTabContent({ tab }: { tab: SettingsTab }) {
   switch (tab) {
     case 'appearance':

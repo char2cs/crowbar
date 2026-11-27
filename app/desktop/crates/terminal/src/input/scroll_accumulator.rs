@@ -1,15 +1,11 @@
-//! Turns fractional wheel and trackpad deltas into whole lines.
-
 use crate::input::geometry::floor_cells;
 
-/// Carries the remainder of a scroll delta between events so slow trackpad motion is not lost.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScrollAccumulator {
     remainder: f32,
 }
 
 impl ScrollAccumulator {
-    /// Adds `lines` (positive scrolls up) and returns the whole lines to move now.
     pub fn add(
         &mut self,
         lines: f32,
@@ -24,7 +20,6 @@ impl ScrollAccumulator {
         moved
     }
 
-    /// Forgets the remainder.
     pub fn reset(&mut self) {
         self.remainder = 0.0;
     }

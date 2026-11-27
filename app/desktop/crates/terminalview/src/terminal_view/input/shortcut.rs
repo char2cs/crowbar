@@ -1,5 +1,3 @@
-//! The terminal's own keyboard shortcuts.
-
 use terminal::{KeyInput, Modifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

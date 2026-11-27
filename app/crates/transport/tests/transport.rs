@@ -1,5 +1,3 @@
-//! Public-API tests of `transport` against real sockets and fake daemons.
-
 #[path = "support/http_daemon.rs"]
 mod http_daemon;
 

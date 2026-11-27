@@ -2,8 +2,6 @@ import { create } from 'zustand'
 import { failed, idle, loading, success, type Loadable } from '@/lib/loadable'
 import { getBlame, type BlameEntry } from '../api/git-blame-api'
 
-/** Per-file blame keyed by workspace + relative path (sibling worktrees share paths). Dropped on
- *  buffer close and invalidated on save, so it is bounded by the open files. */
 interface GitBlameState {
   blame: Record<string, Loadable<BlameEntry[]>>
 }
@@ -23,7 +21,6 @@ function setEntry(key: string, value: Loadable<BlameEntry[]> | undefined): void 
   })
 }
 
-/** Load blame once per (workspace, file) until it is invalidated. */
 export async function loadBlame(wsId: string, path: string): Promise<void> {
   const key = blameKey(wsId, path)
   const current = useGitBlameStore.getState().blame[key]
@@ -31,7 +28,6 @@ export async function loadBlame(wsId: string, path: string): Promise<void> {
   setEntry(key, loading(current ?? idle()))
   try {
     const entries = await getBlame(wsId, path)
-    // Invalidated (saved/closed) while in flight: drop the stale answer.
     if (useGitBlameStore.getState().blame[key]?.status !== 'loading') return
     setEntry(key, entries ? success(entries) : idle())
   } catch (error) {
@@ -40,7 +36,6 @@ export async function loadBlame(wsId: string, path: string): Promise<void> {
   }
 }
 
-/** Forget a file's blame (it was saved, or its buffer closed). */
 export function clearBlame(wsId: string, path: string): void {
   const key = blameKey(wsId, path)
   if (useGitBlameStore.getState().blame[key]) setEntry(key, undefined)

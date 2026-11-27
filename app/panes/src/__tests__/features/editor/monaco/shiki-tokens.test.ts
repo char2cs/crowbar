@@ -1,11 +1,3 @@
-/**
- * Tests for the Shiki-backed semantic token fallback.
- *
- * Two contracts matter here and are asserted directly:
- *   - the scope→category map (fed the scope stacks the real grammars emit), and
- *   - the per-row rule-stack cache that lets a stateful TextMate grammar answer
- *     a viewport synchronously without re-tokenizing the file above it.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StateStack } from 'shiki/textmate'
 import type { ShikiGrammar } from '@/features/editor/lib/shiki-grammars'
@@ -21,20 +13,12 @@ import type {
   TokenizerModel,
 } from '@/features/editor/monaco/shiki-tokens'
 
-// The tokenizer keeps module-level caches; a fresh module per test starts them empty.
 let shikiTokensInRange: typeof shikiTokensInRangeFn
-
-// ── A stateful stand-in for a TextMate grammar ────────────────────────────────
 
 interface FakeStack {
   inComment: boolean
 }
 
-/**
- * Splits a line into whitespace-padded tokens (real grammars do the same) and
- * threads a block-comment state across lines, so a viewport tokenized from the
- * wrong rule stack produces visibly wrong categories.
- */
 function fakeGrammar(): ShikiGrammar {
   return {
     tokenizeLine(line: string, prevState: StateStack | null) {
@@ -70,8 +54,6 @@ function scopeForWord(word: string): string {
   if (word.startsWith('K')) return 'keyword.control.fake'
   return 'variable.other.fake'
 }
-
-// ── A stand-in for Monaco's ITextModel ────────────────────────────────────────
 
 function fakeModel(uri: string, lines: string[]) {
   let changeListener: ((e: { changes: { range: { startLineNumber: number } }[] }) => void) | null =
@@ -110,7 +92,6 @@ function register(languageId: string): void {
   grammars.set(languageId, fakeGrammar())
 }
 
-/** The category the tokenizer gives one token carrying `scopes`; `plaintext` has no Monaco grammar. */
 async function categoryOf(scopes: readonly string[], languageId = 'fakelang') {
   grammars.set(languageId, {
     tokenizeLine: () => ({
@@ -156,14 +137,14 @@ describe('scope classification', () => {
   })
 
   it.each([
-    [['source.ts', 'meta.var.expr.ts', 'storage.type.ts']], // `const`
-    [['source.go', 'storage.type.string.go']], // `string`
-    [['source.sql', 'keyword.other.DML.sql']], // `SELECT`
+    [['source.ts', 'meta.var.expr.ts', 'storage.type.ts']],
+    [['source.go', 'storage.type.string.go']],
+    [['source.sql', 'keyword.other.DML.sql']],
     [['source.sql', 'string.quoted.single.sql']],
     [['source.go', 'constant.numeric.decimal.go']],
     [['source.ts', 'punctuation.definition.block.ts']],
     [['source.hcl', 'keyword.operator.accessor.hcl']],
-    [['source.python', 'variable.language.special.self.python']], // `self`
+    [['source.python', 'variable.language.special.self.python']],
     [['source.python', 'meta.function-call.python', 'meta.function-call.arguments.python']],
     [['text.html.erb', 'meta.embedded.line.erb', 'source.ruby']],
     [['source.dockerfile']],
@@ -194,7 +175,6 @@ describe('scope classification', () => {
   })
 
   it('takes the innermost scope over its container', async () => {
-    // The `(` inside a python call: the call's meta scope would say "function".
     expect(
       await categoryOf([
         'source.python',
@@ -205,7 +185,6 @@ describe('scope classification', () => {
   })
 })
 
-/** Run a language's first compile, which happens on a timer, so the next call is synchronous. */
 async function warm(model: TokenizerModel, languageId: string, endRow = 0): Promise<void> {
   const onReady = vi.fn()
   shikiTokensInRange(model, languageId, 0, endRow, onReady)
@@ -217,16 +196,13 @@ describe('shikiTokensInRange', () => {
     const onReady = vi.fn()
     const { model } = fakeModel('file:///a.fake', ['Tfoo fnBar'])
 
-    // 1. no grammar yet: Monarch stands; the provider re-asks once one lands
     expect(shikiTokensInRange(model, 'fakelang', 0, 0, onReady)).toBeNull()
 
-    // 2. ready, but its rules have never met real code — that pass runs on a timer
     register('fakelang')
     expect(shikiTokensInRange(model, 'fakelang', 0, 0, onReady)).toBeNull()
     expect(onReady).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(onReady).toHaveBeenCalledOnce())
 
-    // 3. synchronous from here on
     const tokens = shikiTokensInRange(model, 'fakelang', 0, 0, onReady)
     expect(tokens?.map((t) => t.category)).toEqual(['type', 'function'])
   })
@@ -249,9 +225,7 @@ describe('shikiTokensInRange', () => {
     const { model } = fakeModel('file:///block.fake', lines)
     await warm(model, 'fakelang')
 
-    // Row 1 sits inside the block comment opened on row 0 — nothing is re-colored.
     expect(shikiTokensInRange(model, 'fakelang', 1, 1, () => {})).toEqual([])
-    // Row 3 is past the close and gets its real category.
     expect(shikiTokensInRange(model, 'fakelang', 3, 3, () => {})?.[0]?.category).toBe('type')
   })
 
@@ -262,7 +236,6 @@ describe('shikiTokensInRange', () => {
     await warm(model, 'fakelang', 5)
     shikiTokensInRange(model, 'fakelang', 0, 5, () => {})
 
-    // Delete the comment opener, then re-ask for the rows that were inside it.
     lines[2] = 'Tnow'
     edit(3)
 
@@ -279,7 +252,6 @@ describe('shikiTokensInRange', () => {
 
     vi.useFakeTimers()
     const onReady = vi.fn()
-    // Row 2400 is more than MAX_ADVANCE_LINES past the last known rule stack.
     expect(shikiTokensInRange(model, 'fakelang', 2400, 2450, onReady)).toBeNull()
     expect(onReady).not.toHaveBeenCalled()
 

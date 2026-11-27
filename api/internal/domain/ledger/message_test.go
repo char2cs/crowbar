@@ -21,7 +21,6 @@ func complete(t *testing.T, turnID, messageID, s string) ledger.Row {
 	return text(t, turnID, messageID, ledger.IndexComplete, false, s)
 }
 
-// messages folds rows as the transcript does, one at a time.
 func messages(rows []ledger.Row) []ledger.MessageText {
 	var f ledger.MessageFold
 	for _, r := range rows {
@@ -139,8 +138,6 @@ func TestMessages_ChunksOutOfOrderFoldIntoOneMessage(t *testing.T) {
 	assert.Equal(t, "ONE TWO THREE", got[0].Text)
 }
 
-// A turn's end that beat its own final chunk: whichever lands first, the reply
-// is one message.
 func TestMessages_AReplyIsOneMessageWhicheverOfItsRowsLandsFirst(t *testing.T) {
 	for name, rows := range map[string][]ledger.Row{
 		"chunk first": {

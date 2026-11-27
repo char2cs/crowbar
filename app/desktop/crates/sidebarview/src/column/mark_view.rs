@@ -1,5 +1,3 @@
-//! Repository and space marks: letter tiles, emoji, images and the books glyph.
-
 use gpui::StyledImage as _;
 use gpui::{
     AnyElement, FontWeight, Hsla, IntoElement, ParentElement, Pixels, Styled, div, img, px, rgb,

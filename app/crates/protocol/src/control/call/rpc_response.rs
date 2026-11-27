@@ -5,8 +5,6 @@ use crate::control::call::rpc_outcome::RpcOutcome;
 use crate::control::call::rpc_response_wire::RpcResponseWire;
 use crate::error::Error;
 
-/// The answer to a `request`. On the wire exactly one of `result` and `error` is present, and a
-/// `result` of JSON `null` stays a result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "RpcResponseWire", into = "RpcResponseWire")]
 pub struct RpcResponse {
@@ -15,7 +13,6 @@ pub struct RpcResponse {
 }
 
 impl RpcResponse {
-    /// The answer to request `id`.
     #[must_use]
     pub fn new(
         id: RequestId,
@@ -24,13 +21,11 @@ impl RpcResponse {
         Self { id, outcome }
     }
 
-    /// The request being answered.
     #[must_use]
     pub fn id(&self) -> RequestId {
         self.id
     }
 
-    /// Result or failure.
     #[must_use]
     pub fn outcome(&self) -> &RpcOutcome {
         &self.outcome

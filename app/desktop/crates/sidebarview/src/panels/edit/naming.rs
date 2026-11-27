@@ -1,5 +1,3 @@
-//! Opening a row's name for editing, its text selected so typing replaces it.
-
 use gpui::{Context, Window};
 use sidebar::{Editing, RowId};
 use ui::TextInput;
@@ -24,7 +22,6 @@ impl Sidebar {
         self.select_field(cx);
     }
 
-    /// Opens `name` for editing on `row`, a row just made to be named; it may not be drawn yet.
     pub fn name_new_row(
         &mut self,
         (row, name): (RowId, &str),

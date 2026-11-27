@@ -1,5 +1,3 @@
-//! The daemon's captured log: its sinks, messages and the crash report.
-
 mod adapters;
 mod crash_report;
 mod daemon_log;

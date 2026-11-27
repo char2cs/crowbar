@@ -1,9 +1,6 @@
-/* Split from theme.css (file-size cap); Tailwind collects `@theme` anywhere in the import graph. */
 @theme inline {
   --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
 
-  /* Its own variable, NOT --app-font-family: that one is always set, so
-     chaining through it would always win and headings would use the UI font. */
   --font-heading: var(
     --app-heading-font-family,
     'Instrument Serif',

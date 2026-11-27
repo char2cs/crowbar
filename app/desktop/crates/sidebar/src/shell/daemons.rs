@@ -1,5 +1,3 @@
-//! The daemon hosts the header lists: ids, kinds, states and tones.
-
 mod host;
 mod host_choice;
 mod host_id;

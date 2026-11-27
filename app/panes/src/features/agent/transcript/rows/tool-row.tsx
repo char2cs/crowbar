@@ -42,7 +42,6 @@ const FAMILY_ICONS: Partial<Record<ToolItem['family'], typeof ToolIcon>> = {
   subagent: SubagentIcon,
 }
 
-/** A call's outcome when it is not simply "went well": each reads differently at a glance. */
 interface Outcome {
   kind: 'failed' | 'denied' | 'stopped' | 'unavailable' | 'awaiting'
   text: string
@@ -56,8 +55,6 @@ const OUTCOMES: Partial<Record<ToolItem['status'], Outcome>> = {
   abandoned: { kind: 'unavailable', text: 'Result unavailable', Glyph: CircleDashedIcon },
 }
 
-/** How an ask was decided, as the look its pill takes: a yes is quiet, a no is the
- *  warning tone, an answer that never came is dashed. */
 function noteKind(note: string): string {
   if (note.startsWith('Denied')) return 'denied'
   if (note === 'Timed out' || note === 'Not answered') return 'unavailable'
@@ -70,7 +67,6 @@ const AWAITING: Outcome = {
   Glyph: CircleDashedIcon,
 }
 
-/** Running spins, a call that went well is checked, every other outcome has its own glyph. */
 function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?: Outcome }) {
   if (outcome) {
     const { Glyph } = outcome
@@ -87,7 +83,6 @@ function StatusGlyph({ status, outcome }: { status: ToolItem['status']; outcome?
 }
 
 function Label({ item, waiting }: { item: ToolItem; waiting: boolean }) {
-  // A call waiting on the person reads with the live verb, as the boards draw it.
   const { verb, subject } = toolLabel(waiting ? { ...item, status: 'running' } : item)
   const live = item.status === 'running' && !waiting ? '' : undefined
   if (item.family === 'mcp') {
@@ -120,19 +115,16 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
   const { body, status, family } = item
   const liveDiff = useLiveText(chatId, item.toolId, 'diff')
   const patch = family === 'edit' ? body.diff || liveDiff || '' : ''
-  // A preview's counts are not the diff's: they wait for the whole of it.
   const stat = patch && item.fullSeq === undefined ? diffStat(patch) : null
   const expandable = Boolean(body.inputRef || body.resultRef || body.output || body.error || patch)
   const Icon = FAMILY_ICONS[family] ?? ToolIcon
   const outcome = item.askId !== undefined ? AWAITING : OUTCOMES[status]
-  // What a call cost is on hover, never on the line.
   const cost = [
     stat && `+${stat.added} −${stat.removed}`,
     body.durationMs !== undefined && formatDuration(body.durationMs),
   ]
     .filter(Boolean)
     .join(' · ')
-  // The call waiting on the person is brought into view while it waits.
   const awaiting = item.askId !== undefined
   const reveal = useCallback(
     (el: HTMLLIElement | null) => {
@@ -147,7 +139,6 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
         <Icon size={12} />
       </span>
       <Label item={item} waiting={awaiting} />
-      {/* How its ask was decided says why it did not run; the outcome would repeat it. */}
       {item.askNote ? (
         <span
           className="tool-call-note"
@@ -207,7 +198,6 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
             {open && !patch && body.output && (
               <ShowFull chatId={chatId} id={item.id} fullSeq={item.fullSeq} what="output" />
             )}
-            {/* The blobs are read only once someone asks for them. */}
             {open && (body.inputRef || body.resultRef) && (
               <ToolPayload chatId={chatId} inputRef={body.inputRef} resultRef={body.resultRef} />
             )}
@@ -220,8 +210,6 @@ function ToolRowBody({ chatId, item }: { chatId: string; item: ToolItem }) {
 
 export const ToolRow = memo(ToolRowBody)
 
-/** A resolved permission, question or elicitation: the record of what was
- *  decided. A pending one is the composer's, so nothing is drawn for it here. */
 function AskRowBody({ item }: { item: AskItem }) {
   if (item.choice.pending) return null
   return (

@@ -11,7 +11,6 @@ describe('offeredCompact', () => {
     expect(offeredCompact('w1', 'c1', false)).toBeUndefined()
   })
 
-  // A turn can still start between the offer and the click: the refusal says why.
   it('reports a refused compact instead of throwing it at the page', async () => {
     const busy = new ApiError('chat is busy', 409, 'conflict')
     const compact = vi.spyOn(commands, 'compactChat').mockRejectedValue(busy)

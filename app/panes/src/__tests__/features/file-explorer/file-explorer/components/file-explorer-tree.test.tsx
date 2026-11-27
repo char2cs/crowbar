@@ -104,7 +104,6 @@ describe('FileExplorerTree context menu', () => {
     onTestFinished(stubLayout())
     render(<Harness />)
     const tree = screen.getByRole('tree')
-    // The tree holds focus when the menu opens: that is where the menu returns it.
     tree.focus()
     fireEvent.contextMenu(tree)
     fireEvent.click(await screen.findByText('New File'))
@@ -114,7 +113,6 @@ describe('FileExplorerTree context menu', () => {
 })
 
 describe('FileExplorerTree virtualisation', () => {
-  // jsdom has no layout: give elements a sidebar-sized rect so the virtualiser has a window.
   const originalRect = HTMLElement.prototype.getBoundingClientRect
   beforeEach(() => {
     const rect = { top: 0, left: 0, right: 280, bottom: 400, width: 280, height: 400, x: 0, y: 0 }

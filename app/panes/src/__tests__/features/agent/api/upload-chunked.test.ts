@@ -9,7 +9,6 @@ function envelope(data: unknown, status = 200) {
   return new Response(JSON.stringify({ success: true, data }), { status })
 }
 
-/** An in-memory daemon speaking the chunked-upload routes, holding the bytes per upload id. */
 function fakeDaemon(fail?: (offset: number) => boolean) {
   const held = new Map<string, number>()
   const calls: string[] = []

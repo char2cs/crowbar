@@ -10,9 +10,6 @@ import (
 	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Claude reports its own tool names through generic hook fields. The descriptor,
-// not the runtime or UI, translates those names into Crowbar's semantic kinds so
-// both providers use the same rich activity rows.
 func TestRegression_ClaudeToolCallsCarrySemanticKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -57,8 +54,6 @@ func TestRegression_ClaudeToolCallsCarrySemanticKinds(t *testing.T) {
 	}
 }
 
-// A permission names the call it asks about, so the ask can find that call's row. The
-// payload is a claude 2.1.302 PermissionRequest for an MCP tool, trimmed.
 func TestClaudePermissionNamesItsCallAndMCPServer(t *testing.T) {
 	raw := []byte(`{"session_id":"s1","hook_event_name":"PermissionRequest","tool_name":"mcp__echo__shout",
 	  "tool_input":{"text":"hi"},"mcp_server":{"name":"echo","source":"dynamic"},

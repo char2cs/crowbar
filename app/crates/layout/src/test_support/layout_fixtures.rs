@@ -77,7 +77,6 @@ pub(crate) fn sample() -> Layout {
     ])
 }
 
-/// One tab (id 1) whose first group stacks `names` in order, the last one shown and focused.
 pub(crate) fn stacked(names: &[&str]) -> Layout {
     let mut layout = Layout::default();
     layout
@@ -106,7 +105,6 @@ fn stacked_in(
     }
 }
 
-/// The first group of tab 1 written as its members in order, the pinned ones in brackets.
 pub(crate) fn strip(layout: &Layout) -> String {
     let tab = layout.tab(TabId(1)).unwrap();
     let group = tab.group_of(&tab.pane_ids()[0]).unwrap();

@@ -9,9 +9,6 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
-// chromeBase is the shadow state whose CHANGES stream between keyframes (modes, title, cursor, default
-// colours); the screen diff covers the grid. Scroll region and DECOM are kept too: changing either forces
-// a keyframe, since the diff's absolute CUPs assume them fixed.
 type chromeBase struct {
 	modes           map[int]bool
 	title           string
@@ -30,15 +27,10 @@ type chromeBase struct {
 	origin          bool
 }
 
-// captureChrome snapshots the shadow fields writeChromeDelta diffs against on
-// the NEXT Emit, plus the scroll-region/origin-mode fields Emit's keyframe
-// guard compares against. It copies the mode map; Prime (no prior base) uses it.
 func captureChrome(sh *shadowState) chromeBase {
 	return captureChromeModes(sh, copyModes(sh.modes))
 }
 
-// captureChromeModes builds the chrome snapshot over a caller-owned modes map, so Emit can reuse the
-// previous map when modes are unchanged; the emitter never mutates it in place, so sharing is safe.
 func captureChromeModes(sh *shadowState, modes map[int]bool) chromeBase {
 	return chromeBase{
 		modes:           modes,
@@ -61,7 +53,6 @@ func captureChromeModes(sh *shadowState, modes map[int]bool) chromeBase {
 	}
 }
 
-// copyModes returns a fresh copy of a DEC-private-mode map.
 func copyModes(src map[int]bool) map[int]bool {
 	m := make(map[int]bool, len(src))
 	for k, v := range src {
@@ -70,8 +61,6 @@ func copyModes(src map[int]bool) map[int]bool {
 	return m
 }
 
-// recaptureChrome snapshots chrome for the NEXT Emit, reusing the mode map when unchanged; Prime, with no
-// prior base, uses captureChrome.
 func (e *DiffEmitter) recaptureChrome(sh *shadowState) chromeBase {
 	modes := e.chrome.modes
 	if !modesEqual(sh.modes, modes) {
@@ -80,9 +69,6 @@ func (e *DiffEmitter) recaptureChrome(sh *shadowState) chromeBase {
 	return captureChromeModes(sh, modes)
 }
 
-// colorsEqual reports whether two color.Color values represent the same RGBA
-// value. It is nil-safe: two nil colours are equal, and a nil next to a
-// non-nil colour is not.
 func colorsEqual(a, b color.Color) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -92,29 +78,20 @@ func colorsEqual(a, b color.Color) bool {
 	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
-// writeChromeDelta emits mode, title/icon and cursor-chrome changes since the base, modes in
-// serializedModeOrder then numerically so none is dropped. DECOM is excluded: its change already forced a
-// keyframe.
 func (e *DiffEmitter) writeChromeDelta(
 	b *bytes.Buffer,
 	sh *shadowState,
 ) {
 	e.writeModeDelta(b, sh)
-	// Title-only: OSC 2, never OSC 0, which would also overwrite the client's icon name with no icon delta to
-	// correct it. oscTitleSeq keeps diff and keyframe bytes identical.
 	if sh.title != e.chrome.title {
 		b.WriteString(oscTitleSeq(2, sanitizeOSCText(sh.title)))
 	}
-	// The icon name streams on its own (OSC 1 can set it alone); this is its sole carrier.
 	if sh.iconName != e.chrome.iconName {
 		b.WriteString(oscTitleSeq(1, sanitizeOSCText(sh.iconName)))
 	}
 	e.writeCursorChromeDelta(b, sh)
 }
 
-// writeModeDelta diffs the DEC private mode set (excluding mode 6, which is
-// handled by Emit's keyframe guard) and forwards each flip as SetMode or
-// ResetMode.
 func (e *DiffEmitter) writeModeDelta(
 	b *bytes.Buffer,
 	sh *shadowState,
@@ -161,10 +138,6 @@ func (e *DiffEmitter) writeModeDelta(
 	}
 }
 
-// writeCursorChromeDelta diffs cursor visibility/style and default colours. Unlike a keyframe (preceded
-// by DECSTR) there is no implicit reset between diffs, so each set->unset transition must emit its reset
-// (OSC 110/111/112, DECSCUSR 0) or the client stays stale.
-//
 //nolint:gocyclo // Four independent, symmetric set/unset emission blocks (visibility, shape, fg/bg/cursor colour); the count is width, not depth, and splitting the mirrored pairs apart would hide the symmetry the doc comment relies on.
 func (e *DiffEmitter) writeCursorChromeDelta(
 	b *bytes.Buffer,
@@ -183,7 +156,7 @@ func (e *DiffEmitter) writeCursorChromeDelta(
 		sh.cursorBlink != e.chrome.cursorBlink):
 		b.WriteString(ansi.SetCursorStyle(decscusr(sh.cursorShape, sh.cursorBlink)))
 	case !sh.cursorShapeSet && e.chrome.cursorShapeSet:
-		b.WriteString(ansi.SetCursorStyle(0)) // DECSCUSR default, undoing the app's explicit style
+		b.WriteString(ansi.SetCursorStyle(0))
 	}
 	switch {
 	case sh.fgSet && (!e.chrome.fgSet || !colorsEqual(sh.fg, e.chrome.fg)):
@@ -205,8 +178,6 @@ func (e *DiffEmitter) writeCursorChromeDelta(
 	}
 }
 
-// modesEqual reports whether two mode maps hold identical entries, so writeModeDelta skips allocating
-// on the common no-change Emit.
 func modesEqual(a, b map[int]bool) bool {
 	if len(a) != len(b) {
 		return false
@@ -219,16 +190,11 @@ func modesEqual(a, b map[int]bool) bool {
 	return true
 }
 
-// clientAutowrapOff reports DECAWM as the client last received it (absent is on): the rows are
-// written before the chrome delta that may change it, and a chain needs autowrap to flow.
 func (e *DiffEmitter) clientAutowrapOff() bool {
 	on, ok := e.chrome.modes[7]
 	return ok && !on
 }
 
-// regionEndsInside reports whether the client's scroll region ends above the last of rows y0..end:
-// autowrap off its bottom margin scrolls the region instead of moving down, so a chain's flow
-// lifts the region (DECSTBM homes the cursor, which the cursor delta re-addresses).
 func (e *DiffEmitter) regionEndsInside(
 	y0 int,
 	end int,

@@ -13,12 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
-// A language server publishes diagnostics against the absolute file URIs it was
-// given, but the editor addresses files by workspace-relative path (the same
-// format the files API takes). The manager knows the worktree a server was
-// spawned in, so it relativizes each diagnostic's FilePath on the way out,
-// exactly as the engine does for definition/references/rename results. A path
-// outside the worktree cannot be expressed relative to it and stays absolute.
 func diagnosticsFor(
 	t *testing.T,
 	worktreePath string,

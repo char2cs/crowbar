@@ -18,7 +18,6 @@ import { proxyMarkerError } from '@/lib/api/errors'
 import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registry'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
-/** What report() shows for a client bug. */
 const UNEXPLAINED = 'Something went wrong — details are in the log'
 
 const { copyFileNode, revealItemInFinder, workspaceRootPath } = vi.hoisted(() => ({
@@ -52,15 +51,12 @@ const hostFailure = () => (
 )
 
 describe('revealInFolder', () => {
-  // The tab menu passes workspace-relative buffer paths, the explorer absolute
-  // ones, and virtual buffers must never reach the OS.
   it('reveals absolute paths as-is and relative ones under the worktree root', () => {
     revealInFolder('ws-a', '/abs/path/file.ts')
     expect(revealItemInFinder).toHaveBeenCalledWith('/abs/path/file.ts')
 
     revealInFolder('ws-a', 'api/main.go')
     expect(revealItemInFinder).toHaveBeenCalledWith('/disk/worktree/api/main.go')
-    // ...resolved against the workspace the menu belongs to, not the one in view.
     expect(workspaceRootPath).toHaveBeenCalledExactlyOnceWith('ws-a')
   })
 
@@ -87,8 +83,6 @@ describe('revealInFolder', () => {
 })
 
 describe('createFileTreeHandlers', () => {
-  // Duplicate is ONE server-side copy (byte-faithful for binaries) to a
-  // collision-free destination derived from the workspace's own loaded tree.
   it('duplicates into the next free "<name> copy" using this workspace’s tree', async () => {
     const store = createWorkspaceStore('ws-test')
     store.getState().fileTreeActions.setFiles([
@@ -156,7 +150,6 @@ describe('refreshDirectory', () => {
     expect(store.getState().files).toEqual(files)
   })
 
-  // A merge deletes .git/refs/heads/feat: its change event names a folder the tree never listed.
   it('does not re-list a folder the tree never opened', async () => {
     const list = vi.spyOn(fileTreeApi, 'fetchFileTree')
     onTestFinished(() => list.mockRestore())
@@ -169,7 +162,6 @@ describe('refreshDirectory', () => {
     expect(toastAdd).not.toHaveBeenCalled()
   })
 
-  // The tree still holds the open folder, but disk lost it before the parent's re-list ran.
   it('an open folder deleted on disk leaves the expansion without a toast', async () => {
     const list = vi
       .spyOn(fileTreeApi, 'fetchFileTree')

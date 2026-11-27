@@ -16,15 +16,12 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// proceeded is what a hooks relay's expiry hands its CLI: nothing, so it asks itself.
 const proceeded = domain.ChoiceResolutionProceeded
 
 func fixture() (*answerdesk.Desk, *answerdesk.Slot) {
 	return fixtureRetaining(answerdesk.DefaultRetention)
 }
 
-// recordingLedger remembers each outcome written back, the first one per ask
-// alone, as the ledger keeps it.
 type recordingLedger struct {
 	mu       sync.Mutex
 	resolved []resolution
@@ -38,7 +35,6 @@ func (l *recordingLedger) ResolveAsk(_ context.Context, chatID, askID, verdict s
 	return l.err
 }
 
-// answer writes a person's answer to choice-1, and reports whether it was first.
 func (l *recordingLedger) answer() bool {
 	return l.close(resolution{"chat-1", "choice-1", ledgerrows.ResolutionAnswered})
 }
@@ -74,10 +70,8 @@ func withLedger(wait time.Duration, opts ...answerdesk.Option) (*answerdesk.Desk
 	return d, slot, ledger
 }
 
-// recorded is an answer's record that went through.
 func recorded(context.Context, func() bool) (bool, error) { return true, nil }
 
-// decide is a person's answer to slot, recorded and handed to its relay.
 func decide(d *answerdesk.Desk, slot *answerdesk.Slot, stdout string) error {
 	_, err := d.Answer(context.Background(), slot, []byte(stdout), recorded)
 	return err
@@ -144,8 +138,6 @@ func TestReleaseRunner_FreesOnlyThatRunnersRelays(t *testing.T) {
 	}
 }
 
-// A relay whose verdict already landed was answered, not abandoned: releasing its
-// dead runner must not reopen a question the user already decided.
 func TestReleaseRunner_DoesNotReportAnAlreadyDecidedRelay(t *testing.T) {
 	t.Parallel()
 
@@ -203,7 +195,6 @@ func TestLedger_AbandonClosesTheQuestionAsProceeded(t *testing.T) {
 		"an undecided prompt is being resolved by the provider's own UI")
 }
 
-// A dead runner's exit closes its questions; releasing its relays writes nothing.
 func TestLedger_ADeadRunnersReleaseWritesNothing(t *testing.T) {
 	t.Parallel()
 
@@ -215,7 +206,6 @@ func TestLedger_ADeadRunnersReleaseWritesNothing(t *testing.T) {
 	assert.Empty(t, ledger.all())
 }
 
-// A ledger that refuses must not strand the relay it already released.
 func TestLedger_AFailedWriteStillReleasesTheRelay(t *testing.T) {
 	t.Parallel()
 
@@ -230,7 +220,6 @@ func TestLedger_AFailedWriteStillReleasesTheRelay(t *testing.T) {
 	assert.False(t, waiting)
 }
 
-// A desk with no ledger records nothing and refuses nothing.
 func TestLedger_NilLedgerIsSilent(t *testing.T) {
 	t.Parallel()
 

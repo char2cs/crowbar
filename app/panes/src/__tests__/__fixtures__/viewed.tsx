@@ -7,7 +7,6 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-/** Marks `files` viewed in `store` through the public hook, as the UI does. */
 export async function markViewed(store: WorkspaceStore, files: readonly GitDiff[]): Promise<void> {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <WorkspaceStoreContext.Provider value={store}>{children}</WorkspaceStoreContext.Provider>
@@ -17,7 +16,6 @@ export async function markViewed(store: WorkspaceStore, files: readonly GitDiff[
     await store.getState().loadBranchReviewViewed()
     result.current.setFilesViewed(files, true)
   })
-  // The owner answers asynchronously; the mark is done once the store holds it.
   await waitFor(() =>
     expect(Object.keys(store.getState().viewedFiles)).toEqual(
       expect.arrayContaining(files.map((file) => file.file_path)),
@@ -26,7 +24,6 @@ export async function markViewed(store: WorkspaceStore, files: readonly GitDiff[
   unmount()
 }
 
-/** The persisted viewed map (path to signature) after viewing `files`. */
 export async function viewedMapOf(files: readonly GitDiff[]): Promise<Record<string, string>> {
   const store = createWorkspaceStore('viewed-map-fixture')
   await markViewed(store, files)

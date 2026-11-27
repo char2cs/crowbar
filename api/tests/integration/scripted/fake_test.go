@@ -24,38 +24,27 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// The scripted CLI. The test binary is linked in as `claude` and `codex`;
-// when the daemon launches it, TestMain sees FAKECLI_SCRIPT and runs it as
-// the CLI its name says, speaking that vendor's real wire — claude's hook
-// commands from --settings, codex's -c hooks and its app-server JSON-RPC — with
-// every behaviour, healthy or faulty, read from the script file at each turn,
-// so a test can change what the NEXT turn does by rewriting the file.
 const (
 	envScript = "FAKECLI_SCRIPT"
 	envLog    = "FAKECLI_LOG"
 )
 
-// script is one test's recorded CLI behaviour.
 type script struct {
-	// Turn is what every turn does after the prompt, in order.
-	Turn []step `yaml:"turn"`
-	// Resume is "refuse" to reject every resume, as a CLI whose session store
-	// was lost or whose flags changed does.
+	Turn   []step `yaml:"turn"`
 	Resume string `yaml:"resume"`
 }
 
-// step is one thing a CLI does mid-turn. Exactly one field is set.
 type step struct {
-	Tool       string `yaml:"tool"`       // a tool call, by name
-	Subagent   string `yaml:"subagent"`   // a subagent, by type
-	Permission string `yaml:"permission"` // an ask for this tool, waiting on the answer
-	Compact    bool   `yaml:"compact"`    // a context compaction
-	Delta      string `yaml:"delta"`      // streamed reply text
-	Say        string `yaml:"say"`        // the reply the turn closes with
-	Hang       bool   `yaml:"hang"`       // stop producing anything, forever
-	Crash      bool   `yaml:"crash"`      // die mid-turn
-	SlowMS     int    `yaml:"slow_ms"`    // stall before the next step
-	Drop       bool   `yaml:"drop"`       // hang up the api connection (codex app-server)
+	Tool       string `yaml:"tool"`
+	Subagent   string `yaml:"subagent"`
+	Permission string `yaml:"permission"`
+	Compact    bool   `yaml:"compact"`
+	Delta      string `yaml:"delta"`
+	Say        string `yaml:"say"`
+	Hang       bool   `yaml:"hang"`
+	Crash      bool   `yaml:"crash"`
+	SlowMS     int    `yaml:"slow_ms"`
+	Drop       bool   `yaml:"drop"`
 }
 
 func loadScript() script {
@@ -68,7 +57,6 @@ func loadScript() script {
 	return s
 }
 
-// reply is the text a turn closes with.
 func (s script) reply() string {
 	for _, st := range s.Turn {
 		if st.Say != "" {
@@ -80,7 +68,6 @@ func (s script) reply() string {
 
 var logMu sync.Mutex
 
-// record appends one fact about this process to the shared log the test reads.
 func record(cli, kind string, fields map[string]any) {
 	logMu.Lock()
 	defer logMu.Unlock()
@@ -97,7 +84,6 @@ func record(cli, kind string, fields map[string]any) {
 	_, _ = f.Write(append(line, '\n'))
 }
 
-// hook is one wired hook: a shell command, or an http post the CLI makes itself.
 type hook struct {
 	Type    string            `json:"type"`
 	Command string            `json:"command"`
@@ -105,8 +91,6 @@ type hook struct {
 	Headers map[string]string `json:"headers"`
 }
 
-// run fires h the way the CLIs do, waiting for it: a command gets the payload
-// on stdin, an http hook as its body; what it answers is the hook's verdict.
 func (h hook) run(payload map[string]any) string {
 	body, _ := json.Marshal(payload)
 	if h.Type == "http" {
@@ -144,8 +128,6 @@ func newID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// providerHome is the vendor home env names. The rig keeps it beside the
-// script, in the test's temp dir; a fake handed any other refuses to run.
 func providerHome(env string) string {
 	dir, err := kit.ProviderHomeIn(env, filepath.Dir(os.Getenv(envScript)))
 	if err != nil {
@@ -163,7 +145,6 @@ func writeSessionFile(path string) {
 
 func say(s string) { _, _ = os.Stdout.WriteString(s) }
 
-// hang parks the CLI the way a wedged one sits: until it is killed.
 func hang() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
@@ -191,8 +172,6 @@ func hasArg(args []string, want string) bool {
 	return false
 }
 
-// positionalsAfterDashes is the prompt a launch carries: every argument
-// after the first bare "--".
 func positionalsAfterDashes(args []string) string {
 	for i, a := range args {
 		if a == "--" {

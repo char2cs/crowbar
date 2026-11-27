@@ -13,8 +13,6 @@ import { TerminalKeyBar } from '@/features/terminal/components/terminal-key-bar'
 import { cn } from '@/lib/utils'
 import { IS_MOBILE } from '@/utils/platform'
 
-/** `pending` is not idle: offering Resume there would spawn a second CLI. A null
- *  sessionId is a live runner with no terminal (a provider with no terminal), not dormancy. */
 export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
@@ -23,45 +21,32 @@ export type TerminalAttachment =
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
-  /** The CLI session is owned by the chat, not the worktree sibling chats share. */
   chatId: string
-  /** The pane this chat lives in. */
   paneId: string
   attachment: TerminalAttachment
   presentation: ChatPresentation
   splitting: boolean
-  /** This half holds the keyboard. Only meaningful while splitting. */
   focused: boolean
-  /** Percentage of the split this half occupies. */
   basis: number
   isActivePane: boolean
   isVisible: boolean
-  /** Right inset so the strip ends on the character grid's last column. */
   gridSlack: number
   providers: AgentProvider[]
   activeProviderId: string
   switchDisabled: boolean
   splitEnabled: boolean
-  /** A turn is in flight — gates handover back to chat. */
   working?: boolean
   onSwitchProvider: (providerId: string) => void
   onSelectPresentation: (next: ChatPresentation) => void
   onTakeFocus: () => void
-  /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
-  /** The terminal's focus handle, for moving the keyboard onto the grid. */
   terminalRef: RefObject<TerminalFocusHandle | null>
-  /** Bring the chat's provider back without sending anything. */
   onStartSession: () => void
-  /** The chat's host does not answer: a session cannot be started now. */
   offline: boolean
-  /** The height of a floating header over this surface's top, which the grid starts below. */
   headerClearancePx: number
   ref?: Ref<HTMLDivElement>
 }
 
-/** A sibling of the chat surface, not a variant: they share only the surface
- *  switcher, the one fact that is the same on both. */
 export function AgentTerminalSurface({
   wsId,
   chatId,
@@ -91,8 +76,6 @@ export function AgentTerminalSurface({
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
   const headerSlot = useChatHeaderSlotElement()
-  // EXACTLY ONE view switcher exists on a pane. In split the chat's provider
-  // bar is on screen and carries it; on the terminal surface it is here.
   const controls = (
     <>
       {presentation === 'terminal' && provider?.hasTerminal !== false && (
@@ -115,14 +98,12 @@ export function AgentTerminalSurface({
   return (
     <div
       ref={ref}
-      // The mousedown only handles dead space around the grid, so this is not a control.
       role="presentation"
       data-testid="agent-terminal-surface"
       data-surface-focused={splitting ? String(focused) : undefined}
       onFocusCapture={splitting ? onTakeFocus : undefined}
       onMouseDown={splitting ? onDeadSpaceMouseDown : undefined}
       className={cn(
-        // A column, so the status strip never lays out over the terminal.
         'flex flex-col',
         splitting
           ? 'relative min-h-0 min-w-0 shrink grow-0'
@@ -136,9 +117,6 @@ export function AgentTerminalSurface({
       }
     >
       {attachment.state === 'attached' && attachment.sessionId && (
-        // No key={sessionId}: runner replacement swaps the PTY imperatively. isActive
-        // is focus (xterm grabs the caret), so in split it needs this half to hold
-        // the keyboard or composer typing would be stolen.
         <LazyXtermTerminal
           sessionId={attachment.sessionId}
           workspaceId={wsId}
@@ -154,7 +132,6 @@ export function AgentTerminalSurface({
         />
       )}
 
-      {/* The keys a phone keyboard lacks, under the grid. */}
       {IS_MOBILE &&
         presentation === 'terminal' &&
         attachment.state === 'attached' &&
@@ -163,7 +140,6 @@ export function AgentTerminalSurface({
         )}
 
       {presentation !== 'chat' && attachment.state === 'attached' && !attachment.sessionId && (
-        // A live runner with nothing attached (a provider with no terminal): no Resume, nothing to restart.
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
           <p className="max-w-sm text-center text-muted-foreground text-sm">
             This agent has no terminal view attached right now.
@@ -198,14 +174,11 @@ export function AgentTerminalSurface({
         </div>
       )}
 
-      {/* Not drawn on the chat surface, whose underbar already says this. In the
-          pane's header row when it has one, so the terminal keeps the height. */}
       {presentation !== 'chat' &&
         (headerSlot ? (
           createPortal(controls, headerSlot)
         ) : (
           <div
-            // The phone keeps the switcher above the grid, clear of the keyboard and key bar.
             className={cn('flex items-center justify-end gap-3 py-2', IS_MOBILE && 'order-first')}
             style={{ paddingRight: gridSlack }}
           >

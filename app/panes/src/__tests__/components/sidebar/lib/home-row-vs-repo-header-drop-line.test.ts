@@ -4,9 +4,6 @@ import { ALL_MODES, NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-c
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-// A project-home chat/folder must reorder past a repo header row as a live drag sees it: targets
-// are rebuilt from SIDEBAR_DRAG_ROW_SPEC's DOM attributes, which never include `repoIcon`, so
-// every target here is built the way drop-dom's `read()` builds one.
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
@@ -58,8 +55,6 @@ describe('a project-home row against a live DOM-reconstructed repo header target
     getHomeWorkspaceId.mockImplementation((projectId: string) =>
       projectId === 'proj-1' ? 'projhome-1' : projectId === 'proj-2' ? 'projhome-2' : null,
     )
-    // A repo header row is addressed by the chat that owns the repo's default
-    // workspace (`deriveRows`), so the live target id is that chat id.
     seedRepos([
       {
         id: 'repo-alpha',
@@ -116,7 +111,6 @@ describe('a project-home row against a live DOM-reconstructed repo header target
     })
   })
 
-  // A chat may land anywhere: beside the header is project home, inside it the repo checkout.
   it('offers every mode for an idle home chat past a repo header row', () => {
     const modes = SIDEBAR_DROP_POLICY.allowedModes(
       [homeChatSubject('homechat-1', 'projhome-1')],
@@ -138,7 +132,6 @@ describe('a project-home row against a live DOM-reconstructed repo header target
     ).toEqual(ALL_MODES)
   })
 
-  // Working, it may only leave project home: its move waits for the turn to end.
   it('lets a working home chat only into a repo header, never beside it', () => {
     const working = { ...homeChatSubject('homechat-1', 'projhome-1'), working: true }
     expect(

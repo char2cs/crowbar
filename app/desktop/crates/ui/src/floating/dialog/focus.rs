@@ -1,5 +1,3 @@
-//! Where the keyboard is inside an open dialog.
-
 use gpui::{App, FocusHandle, Window};
 
 #[derive(Clone)]

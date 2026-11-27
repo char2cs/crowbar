@@ -9,9 +9,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// FailTurnOnNotice ends what a notice on runner's screen ends and no hook
-// reports: its turn fails with the notice, or its prompts settle unconsumed.
-// The caller holds the chat's lock, so no hook ends that work meanwhile.
 func (r *Recorder) FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice) {
 	chat, err := r.chatForRunner(ctx, runner)
 	if err != nil {
@@ -36,8 +33,6 @@ func (r *Recorder) FailTurnOnNotice(ctx context.Context, runner engineagents.Run
 		"chat_id", chat.ID, "runner_id", runner.ID, "notice", notice.Kind)
 }
 
-// noticeEnds reports whether a notice on runnerID's screen ends anything: the
-// turn it runs, or with none running, a prompt it carries.
 func noticeEnds(st ledger.State, runnerID string) bool {
 	if turn, running := st.RunningTurn(); running {
 		return turn.RunnerID == runnerID
@@ -45,8 +40,6 @@ func noticeEnds(st ledger.State, runnerID string) bool {
 	return slices.ContainsFunc(st.PendingPrompts(), func(p ledger.Prompt) bool { return p.RunnerID == runnerID })
 }
 
-// MatchTerminalNotice asks providerID's descriptor whether screen shows one of
-// the notices it declares.
 func (r *Recorder) MatchTerminalNotice(
 	ctx context.Context, providerID, screen string,
 ) (engineagents.TerminalNotice, bool) {
@@ -61,9 +54,6 @@ func (r *Recorder) MatchTerminalNotice(
 	return matcher.MatchTerminalNotice(screen)
 }
 
-// MatchTerminalPrompt asks providerID's descriptor whether a rendered screen
-// is one of the modal prompts it declares. Every unresolvable input is a
-// silent no: the sweep must keep classifying the screens it can.
 func (r *Recorder) MatchTerminalPrompt(
 	ctx context.Context, providerID, screen string,
 ) (engineagents.TerminalPrompt, bool) {

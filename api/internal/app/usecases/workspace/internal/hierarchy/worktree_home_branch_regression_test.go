@@ -16,9 +16,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// homeBranchHarness wires the usecase against REAL git with a real read model,
-// handing back the workspace repository so a scenario can seed the repo home row
-// the way project import does.
 func homeBranchHarness(
 	t *testing.T,
 	repoPath string,
@@ -53,14 +50,6 @@ func homeBranchHarness(
 	return uc, workspaces, quiesce
 }
 
-// TestRegression_CreateChildDetachingTheHome_ClearsTheHomeRowBranch pins the
-// second way two workspaces came to claim one branch.
-//
-// git refuses a worktree on a branch that is already checked out, so a create for
-// the branch the repo folder itself holds detaches that folder and retries. The
-// retry succeeded, but the home ROW kept reporting the branch git had just taken
-// off it — so the sidebar drew the branch twice, once on the repo header the home
-// row backs and once on the new workspace, with only the second one real.
 func TestRegression_CreateChildDetachingTheHome_ClearsTheHomeRowBranch(t *testing.T) {
 	repoPath, _ := setupImportRepo(t)
 	uc, workspaces, quiesce := homeBranchHarness(t, repoPath)
@@ -104,9 +93,6 @@ func TestRegression_CreateChildDetachingTheHome_ClearsTheHomeRowBranch(t *testin
 	assert.Equal(t, 1, onMain, "exactly one workspace claims the branch")
 }
 
-// TestRegression_CreateChildOffADetachedHome_ForksFromItsCommit: a repo added on
-// a detached HEAD has a home row with no branch, and "New branch" on it failed
-// with "rev-parse : branch_not_found" instead of forking from the home's commit.
 func TestRegression_CreateChildOffADetachedHome_ForksFromItsCommit(t *testing.T) {
 	repoPath, _ := setupImportRepo(t)
 	gitRun(t, repoPath, "checkout", "--detach")

@@ -1,5 +1,3 @@
-//! The fonts a terminal draws with.
-
 use gpui::{Font, FontFallbacks, FontStyle, FontWeight, font};
 use terminal::StyleFlags;
 

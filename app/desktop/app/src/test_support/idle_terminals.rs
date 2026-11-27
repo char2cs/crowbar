@@ -13,8 +13,6 @@ use crate::shell::inbox::shell_request::ShellRequest;
 
 static UNDRIVEN: OnceLock<Runtime> = OnceLock::new();
 
-/// Terminal panes whose sessions never start: no thread drives their runtime, so nothing
-/// wakes or drops a gpui task off the test's thread.
 pub(crate) fn idle_terminals(ids: TerminalIds) -> TerminalPanes {
     TerminalPanes::new(
         ids,
@@ -23,7 +21,6 @@ pub(crate) fn idle_terminals(ids: TerminalIds) -> TerminalPanes {
     )
 }
 
-/// Idle terminal panes that tell the shell through `requests`.
 pub(crate) fn idle_terminals_into(
     ids: TerminalIds,
     requests: async_channel::Sender<ShellRequest>,
@@ -31,8 +28,6 @@ pub(crate) fn idle_terminals_into(
     TerminalPanes::new(ids, (idle_sessions(), no_chats()), requests)
 }
 
-/// Terminal panes telling `heard` each request their sessions make of the daemon. Their
-/// sessions run only while the test blocks on the returned runtime, on the test's own thread.
 pub(crate) fn heard_terminals(
     ids: TerminalIds,
     heard: async_channel::Sender<String>,

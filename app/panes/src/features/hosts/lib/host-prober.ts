@@ -8,16 +8,10 @@ import {
   subscribeHostStatus,
 } from '@/features/hosts/stores/host-runtime-registry'
 
-// A host that went down or came back shows within one interval, and N paired hosts cost
-// N small requests per interval.
 const HOST_PROBE_INTERVAL_MS = 15_000
 
-// A host just found down (by a probe, or a stream it refused) is looked at again this soon:
-// a restarting daemon is back in seconds. Doubling up to the interval, a dead one is not hammered.
 const DOWN_FIRST_RETRY_MS = 1_000
 
-/** Probes each configured host while it stays configured: the app's one source of its status.
- *  One probe at a time, the next an interval after the last answered: a hung host costs one. */
 export function startHostProber(): () => void {
   const loops = new Map<string, () => void>()
   const follow = () => {
@@ -58,10 +52,8 @@ function probeLoop(hostId: string): () => void {
   const tick = async () => {
     probing = true
     const runtime = getOrCreateHostRuntime(hostId).getState()
-    // Only a host never heard from is "checking": a known status stands until the answer.
     if (runtime.status === 'unknown') runtime.setStatus('probing')
     const probe = await probeHost(hostId)
-    // A host removed meanwhile is not written to: its runtime stays gone.
     if (stopped) return
     getOrCreateHostRuntime(hostId).getState().setStatus(probe.status)
     probing = false
@@ -72,7 +64,6 @@ function probeLoop(hostId: string): () => void {
     downRetry = DOWN_FIRST_RETRY_MS
     next(HOST_PROBE_INTERVAL_MS)
   }
-  // Between two probes, a stream may find the host down first: the next probe comes sooner.
   let last = getHostRuntime(hostId)?.getState().status
   const stopWatching = subscribeHostStatus(hostId, () => {
     const status = getHostRuntime(hostId)?.getState().status

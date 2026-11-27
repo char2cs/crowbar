@@ -1,5 +1,3 @@
-//! A set of setting values by key.
-
 mod backend;
 mod change;
 mod choice;
@@ -26,12 +24,10 @@ pub use write::Write;
 
 use std::collections::BTreeMap;
 
-/// The values the backend currently holds; a key that is absent has its default.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Values(BTreeMap<Key, Value>);
 
 impl Values {
-    /// The value of `key`, if one is stored.
     pub fn get(
         &self,
         key: &Key,
@@ -39,7 +35,6 @@ impl Values {
         self.0.get(key)
     }
 
-    /// Stores `value` under `key`.
     pub fn set(
         &mut self,
         key: Key,
@@ -48,7 +43,6 @@ impl Values {
         self.0.insert(key, value);
     }
 
-    /// `self` with `value` stored under `key`.
     #[must_use]
     pub fn with(
         mut self,
@@ -59,7 +53,6 @@ impl Values {
         self
     }
 
-    /// Forgets `key`, so it reads as its default again.
     pub fn remove(
         &mut self,
         key: &Key,

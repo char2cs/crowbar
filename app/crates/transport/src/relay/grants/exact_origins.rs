@@ -2,8 +2,6 @@ use protocol::{PaneOrigin, RelayScope};
 
 use crate::relay::grants::origin_policy::OriginPolicy;
 
-/// The shell's webview origins: one fixed list for core panes, and a template with an
-/// `{extension}` placeholder for each extension's own origin. Matching is exact, never a prefix.
 #[derive(Debug, Clone)]
 pub struct ExactOrigins {
     core: Vec<String>,
@@ -11,8 +9,6 @@ pub struct ExactOrigins {
 }
 
 impl ExactOrigins {
-    /// Core panes load from `core`; an extension pane from `extension_template` with its id
-    /// substituted, for example `crowbar-ext://{extension}`.
     #[must_use]
     pub fn new(
         core: Vec<String>,

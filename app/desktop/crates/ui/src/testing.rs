@@ -1,4 +1,3 @@
-//! The pop-up window, covers and native menus in tests of the crates that build on this one.
 #![cfg(any(test, feature = "test-support"))]
 
 use std::cell::RefCell;
@@ -32,16 +31,12 @@ impl FloatHost for () {
     }
 }
 
-/// Lets passive portals open their pop-up window as a plain test window, as the shell's placer
-/// does on the desktop.
 pub fn open_float_windows(cx: &mut App) {
     crate::install_float_host((), cx);
 }
 
-/// Every native menu asked for, in order.
 pub type Popped = Rc<RefCell<Vec<NativeRequest>>>;
 
-/// Installs a native menu that records each request and answers with the path `pick` finds.
 pub fn answer_menus(
     cx: &mut TestAppContext,
     pick: impl Fn(&[NativeEntry]) -> Option<MenuPath> + 'static,
@@ -57,7 +52,6 @@ pub fn answer_menus(
     popped
 }
 
-/// The path of the top-level entry labelled `label`.
 #[must_use]
 pub fn entry_labelled(
     entries: &[NativeEntry],
@@ -67,7 +61,6 @@ pub fn entry_labelled(
     entries.iter().position(is_it).map(|at| vec![at])
 }
 
-/// The window `owner` opened last; `owner` itself while it has none.
 pub fn newest_window(owner: &mut VisualTestContext) -> VisualTestContext {
     owner.run_until_parked();
     let own = owner.update(|window, _| window.window_handle());
@@ -79,7 +72,6 @@ pub fn newest_window(owner: &mut VisualTestContext) -> VisualTestContext {
     VisualTestContext::from_window(newest, owner)
 }
 
-/// What the overlays open in `window` cover: the whole window, or these cards.
 pub fn covered(window: &mut VisualTestContext) -> (bool, Vec<Bounds<Pixels>>) {
     window.run_until_parked();
     window.update(|window, cx| {

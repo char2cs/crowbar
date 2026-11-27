@@ -1,8 +1,3 @@
-//! A branch filed somewhere else: its fork parent moved when the new container's anchor differs,
-//! then its row placed.
-//!
-//! Spec: develop `web/src/components/sidebar/lib/drop-plan-tree.ts` (`planTreeRowDrop`).
-
 use daemonapi::{Call, Route};
 use serde_json::{Map, Value, json};
 

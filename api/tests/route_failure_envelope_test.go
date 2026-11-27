@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Every route answers a failure from one mapping: the status of its problem
-// code, the code itself, and its message without the wraps above the coded error.
 func TestRoute_AFailureCarriesItsCodeAndItsMessage(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)

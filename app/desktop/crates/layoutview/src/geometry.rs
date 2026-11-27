@@ -1,5 +1,3 @@
-//! Frame math of the split tree: pane frames, corners, insets, edge contact, surroundings.
-
 pub(crate) mod chrome_context;
 pub(crate) mod corners;
 mod edge_contact;

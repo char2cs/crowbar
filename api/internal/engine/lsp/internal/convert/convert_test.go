@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 )
 
-// --- SeverityFromLSP ---
-
 func TestSeverityFromLSP_Error(t *testing.T) {
 	assert.Equal(t, "error", convert.SeverityFromLSP(1))
 }
@@ -34,8 +32,6 @@ func TestSeverityFromLSP_Unknown(t *testing.T) {
 	assert.Equal(t, "error", convert.SeverityFromLSP(-1))
 }
 
-// --- PositionFromLSP ---
-
 func TestPositionFromLSP_ZeroBased(t *testing.T) {
 	pos := convert.PositionFromLSP(5, 12)
 	assert.Equal(t, lsp.Position{Line: 5, Character: 12}, pos)
@@ -45,8 +41,6 @@ func TestPositionFromLSP_Zero(t *testing.T) {
 	pos := convert.PositionFromLSP(0, 0)
 	assert.Equal(t, lsp.Position{Line: 0, Character: 0}, pos)
 }
-
-// --- URI helpers ---
 
 func TestPathFromURI_StripFileScheme(t *testing.T) {
 	path := convert.PathFromURI("file:///home/user/project/main.go")
@@ -69,8 +63,6 @@ func TestURIRoundTrip(t *testing.T) {
 	restored := convert.PathFromURI(uri)
 	assert.Equal(t, original, restored)
 }
-
-// --- DiagnosticFromLSP ---
 
 func TestDiagnosticFromLSP_Full(t *testing.T) {
 	d := convert.DiagnosticFromLSP(
@@ -112,8 +104,6 @@ func TestDiagnosticFromLSP_OptionalFields(t *testing.T) {
 	assert.Empty(t, d.Code)
 }
 
-// --- LocationsFromLSP ---
-
 func TestLocationsFromLSP_Multiple(t *testing.T) {
 	raw := []convert.LSPLocation{
 		{
@@ -143,8 +133,6 @@ func TestLocationsFromLSP_Empty(t *testing.T) {
 	locs := convert.LocationsFromLSP(nil)
 	assert.Empty(t, locs)
 }
-
-// --- WorkspaceEditFromLSP ---
 
 func TestWorkspaceEditFromLSP_Changes(t *testing.T) {
 	raw := convert.LSPWorkspaceEdit{

@@ -1,5 +1,3 @@
-//! Ending the agent running on a chat, and listing the ones that run.
-
 use daemonapi::Call;
 use sidebar::{RowId, RunningAgent};
 

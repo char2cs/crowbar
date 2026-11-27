@@ -1,4 +1,3 @@
-// Package handlers holds the gin handlers backing the projects endpoint.
 package handlers
 
 import (
@@ -18,9 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ListGetter is the read surface the projects handlers need — list every
-// project, fetch one by id — plus the one write that is not an import or a
-// delete: the sidebar reorder.
 type ListGetter interface {
 	List(
 		ctx context.Context,
@@ -34,8 +30,6 @@ type ListGetter interface {
 		projectID string,
 		order int,
 	) (domain.Project, error)
-	// Update applies a partial project update: the display name, and the icon
-	// fields the icon handlers below persist through.
 	Update(
 		ctx context.Context,
 		projectID string,
@@ -43,8 +37,6 @@ type ListGetter interface {
 	) (domain.Project, error)
 }
 
-// Importer is the import surface the projects handlers need: validate the path
-// and persist the Project record, under the caller's id, with its home workspace.
 type Importer interface {
 	Create(
 		ctx context.Context,
@@ -54,9 +46,6 @@ type Importer interface {
 	) (domain.Project, error)
 }
 
-// Deleter is the delete surface the projects handlers need: cascade-remove a
-// project's records (workspaces, repos, then the project itself), tearing only
-// crowbar-created worktree directories down on disk.
 type Deleter interface {
 	BeginDelete(
 		ctx context.Context,
@@ -70,7 +59,6 @@ type Deleter interface {
 	) error
 }
 
-// Operations runs the work a create or a delete hands off after answering 202.
 type Operations interface {
 	Start(
 		ctx context.Context,
@@ -80,22 +68,15 @@ type Operations interface {
 	libs.Replayer
 }
 
-// Handlers serves the /v0/projects routes from the project read, import, and
-// delete usecases. A create or a delete checks what it can, answers 202 with
-// its operation, and delivers the resulting ProjectDTO on the Projects stream.
 type Handlers struct {
-	reader   ListGetter
-	importer Importer
-	deleter  Deleter
-	ops      Operations
-	stat     func(string) (os.FileInfo, error)
-	// Where the project's icon bytes live, as the repo handlers' equivalent is.
+	reader      ListGetter
+	importer    Importer
+	deleter     Deleter
+	ops         Operations
+	stat        func(string) (os.FileInfo, error)
 	crowbarHome func() (string, error)
 }
 
-// New builds the projects Handlers from the project usecases, the operations
-// service and the crowbar-home resolver, which is required. The project store
-// publishes every row they write.
 func New(
 	reader ListGetter,
 	importer Importer,
@@ -116,8 +97,6 @@ func New(
 	}
 }
 
-// WithStat overrides the filesystem stat used to validate the import path
-// synchronously. Intended for tests; a nil arg leaves os.Stat in place.
 func (h *Handlers) WithStat(
 	stat func(string) (os.FileInfo, error),
 ) *Handlers {
@@ -127,14 +106,11 @@ func (h *Handlers) WithStat(
 	return h
 }
 
-// importRequest is the POST /v0/projects body: the display name and the
-// filesystem path to import.
 type importRequest struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 }
 
-// List handles GET /v0/projects, returning every project as ProjectDTO[].
 func (h *Handlers) List(
 	c *gin.Context,
 ) {
@@ -146,7 +122,6 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(c, dto.ProjectDTOList(projects))
 }
 
-// Detail handles GET /v0/projects/:projectId, returning a single ProjectDTO.
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {
@@ -158,18 +133,11 @@ func (h *Handlers) Detail(
 	libs.WriteQueryOK(c, dto.ProjectDTOFrom(project))
 }
 
-// patchRequest is the PATCH /v0/projects/:projectId body. Every field is
-// optional; the ones present are the ones applied.
 type patchRequest struct {
-	// Order is the project's new index in the sidebar.
-	Order *int `json:"order"`
-	// Name is the project's new display label — the sidebar's inline rename.
-	Name *string `json:"name"`
+	Order *int    `json:"order"`
+	Name  *string `json:"name"`
 }
 
-// Patch handles PATCH /v0/projects/:projectId: a sidebar reorder, a rename, or
-// both. Each is one store write, so it runs inline and answers 204; the updated
-// rows ride the Projects stream.
 func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
@@ -198,9 +166,6 @@ func (h *Handlers) Patch(
 	c.Status(http.StatusNoContent)
 }
 
-// Import handles POST /v0/projects. What it can check up front (body, name,
-// path on disk) is a 4xx; then it answers 202 with the project.create
-// operation, whose one item is the project, named by the request's key.
 func (h *Handlers) Import(
 	c *gin.Context,
 ) {
@@ -221,7 +186,6 @@ func (h *Handlers) Import(
 		libs.WriteErr(c, http.StatusBadRequest, "path does not exist")
 		return
 	}
-	// Named by the key, so a retry is the same subject and replays.
 	ref := domain.EntityRef{Kind: domain.EntityProject, ID: libs.IdempotencyKey(c)}
 	if ref.ID == "" {
 		ref.ID = uuid.NewString()
@@ -249,9 +213,6 @@ func (h *Handlers) Import(
 	libs.WriteOperation(c, op)
 }
 
-// Delete handles DELETE /v0/projects/:projectId. The intent is recorded before
-// the 202 so boot finishes an interrupted delete; work at risk without consent is
-// refused first. Repository directories are never deleted from disk.
 func (h *Handlers) Delete(
 	c *gin.Context,
 ) {
@@ -289,7 +250,6 @@ func (h *Handlers) Delete(
 	libs.WriteOperation(c, op)
 }
 
-// failItem records item as failed with err, and returns err for the operation.
 func failItem(
 	p operation.Progress,
 	item domain.OperationItem,
@@ -301,9 +261,6 @@ func failItem(
 	return err
 }
 
-// rename applies a project rename and reports whether the request may continue.
-// It writes the error response itself on failure, so a false return means the
-// handler is finished.
 func (h *Handlers) rename(
 	c *gin.Context,
 	ctx context.Context,

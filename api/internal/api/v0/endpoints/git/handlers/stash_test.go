@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// stashRecorder is stubGit that remembers what StashPush and StashDrop got.
 type stashRecorder struct {
 	stubGit
 	message, dropped string
@@ -27,8 +26,6 @@ func (s *stashRecorder) StashDrop(_ context.Context, _, stashID string, _ time.T
 	return nil
 }
 
-// The stash body is optional, so an empty one keeps the defaults; one that is
-// there but does not decode is the client's mistake, not an empty body.
 func TestStashPush_AMalformedBodyIs400AndAnEmptyOneKeepsTheDefaults(t *testing.T) {
 	git := &stashRecorder{}
 	r := newRouterWith(git)

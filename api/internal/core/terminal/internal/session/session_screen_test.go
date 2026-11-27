@@ -109,9 +109,6 @@ func TestSession_ScreenState_NonReaderModelDegradesGracefully(t *testing.T) {
 	assert.Equal(t, model.ScreenState{}, st)
 }
 
-// parkFrameClock defers every emit to a trailing timer that cannot fire during the test,
-// so a bare session (no serializer, possibly a fake model) exercises only the model write
-// and the screen read — never the emit path.
 func parkFrameClock(t *testing.T, s *Session) {
 	t.Helper()
 	s.lastEmitAt = time.Now().Add(time.Hour)

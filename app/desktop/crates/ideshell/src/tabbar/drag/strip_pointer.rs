@@ -1,8 +1,3 @@
-//! A tab drag follows the pointer anywhere in the window and ends wherever it is released, as
-//! develop's sortable bar lands a tab on its closest slot even when the release is outside the bar.
-//! The listeners are in place on every frame, so a drag that began after the last paint still
-//! lands when it is released before the next one.
-
 use gpui::{
     App, DispatchPhase, Entity, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels, Point, Styled,
     Window, canvas,

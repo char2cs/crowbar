@@ -1,5 +1,3 @@
-//! The daemon frames fed into the emulator and the client messages sent back.
-
 mod client_message;
 mod daemon_frame;
 mod feed;

@@ -1,5 +1,3 @@
-//! The target of every menu item: it remembers which one `AppKit` sent.
-
 use std::cell::Cell;
 
 use objc2::rc::Retained;

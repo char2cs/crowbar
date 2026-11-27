@@ -15,7 +15,6 @@ function setup() {
   const a = getOrCreateWorkspaceStore('ws-a')
   const b = getOrCreateWorkspaceStore('ws-b')
   setActiveWorkspaceId('ws-a')
-  // The ambient store never follows the active workspace.
   const wrapper = ({ children }: { children: ReactNode }) => (
     <WorkspaceStoreContext.Provider value={a}>{children}</WorkspaceStoreContext.Provider>
   )
@@ -50,7 +49,6 @@ describe('usePaneWorkspace', () => {
     expect(renders).toBe(before)
   })
 
-  // The chat owns where it runs: a move to another workspace takes its pane along.
   it('follows its chat to the workspace a move took it to', () => {
     const { b, wrapper } = setup()
     writeChat({ id: 'chat-1', workspaceId: 'ws-a' })

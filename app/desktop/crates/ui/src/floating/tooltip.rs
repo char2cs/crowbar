@@ -1,5 +1,3 @@
-//! Tooltips shown after a short hover delay.
-
 mod tooltip_claim;
 pub(super) mod tooltip_side;
 
@@ -36,7 +34,6 @@ const SIDE_OFFSET: f32 = 6.0;
 const SLIDE: f32 = 4.0;
 const BORDER_OPACITY: f32 = 0.7;
 
-/// Wraps a trigger and shows `text` (and an optional shortcut) after the pointer rests on it for 150ms.
 #[derive(IntoElement)]
 pub struct Tooltip {
     id: ElementId,
@@ -48,7 +45,6 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
-    /// A tooltip for `trigger`.
     pub fn new(
         id: impl Into<ElementId>,
         text: impl Into<SharedString>,
@@ -64,7 +60,6 @@ impl Tooltip {
         }
     }
 
-    /// Adds a shortcut hint.
     #[must_use]
     pub fn shortcut(
         mut self,
@@ -74,8 +69,6 @@ impl Tooltip {
         self
     }
 
-    /// Also shows the card while `focus` holds keyboard focus that the keyboard put there, as a
-    /// focused button's tooltip does in develop.
     #[must_use]
     pub fn focused_by(
         mut self,
@@ -85,7 +78,6 @@ impl Tooltip {
         self
     }
 
-    /// Chooses the side of the trigger.
     #[must_use]
     pub fn side(
         mut self,

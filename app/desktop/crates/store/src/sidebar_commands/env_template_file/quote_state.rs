@@ -1,5 +1,3 @@
-//! Where a scan of an env value stands relative to its quotes.
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum QuoteState {
     #[default]

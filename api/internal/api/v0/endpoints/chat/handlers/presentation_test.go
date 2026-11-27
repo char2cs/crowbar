@@ -31,7 +31,6 @@ func TestSubmitPrompt_ReturnsReplacementIdentity(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"runnerId":"runner-new"`)
 }
 
-// A retry names the refused prompt it sends again, for the ledger to link the two.
 func TestSubmitPrompt_ThreadsTheRetriedPromptOntoTheSameCall(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
 		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","retryOf":"refused-1"}`))
@@ -44,9 +43,6 @@ func TestSubmitPrompt_ThreadsTheRetriedPromptOntoTheSameCall(t *testing.T) {
 	assert.Equal(t, "refused-1", uc.promptCalls[0].retryOf)
 }
 
-// A staged model/effort travels on the SAME request as the text — the
-// composer never PATCHes .../selection on its own, only bundles the pick
-// with the next send. Regression for that becoming two separate calls again.
 func TestSubmitPrompt_ThreadsStagedModelAndEffortOntoTheSameCall(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
 		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","model":"opus","effort":"high"}`))
@@ -62,9 +58,6 @@ func TestSubmitPrompt_ThreadsStagedModelAndEffortOntoTheSameCall(t *testing.T) {
 	assert.Equal(t, &domain.ChatSelection{Model: "opus", Effort: "high"}, uc.promptCalls[0].selection)
 }
 
-// A staged provider travels on the SAME request as the text too — the
-// picker never calls a separate switch endpoint any more, only bundles the
-// pick with the next send, exactly like model/effort above.
 func TestSubmitPrompt_ThreadsStagedProviderOntoTheSameCall(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
 		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","provider":"codex"}`))
@@ -81,8 +74,6 @@ func TestSubmitPrompt_ThreadsStagedProviderOntoTheSameCall(t *testing.T) {
 	assert.Nil(t, uc.promptCalls[0].selection, "a provider-only body stages no model/effort")
 }
 
-// No model/effort in the request body means the composer had nothing staged
-// — the sticky selection must be left exactly as-is, not overwritten to "".
 func TestSubmitPrompt_OmittedModelAndEffortMeansNothingStaged(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
 		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341"}`))
@@ -98,13 +89,6 @@ func TestSubmitPrompt_OmittedModelAndEffortMeansNothingStaged(t *testing.T) {
 	assert.Nil(t, uc.promptCalls[0].selection)
 }
 
-// THE OTHER HALF of the test above, and the one "" alone could never express:
-// a body that CARRIES model/effort as "" staged the provider's own default —
-// a real pick the user made in the picker — and must reach the usecase as a
-// present, all-empty selection. Read as "absent, keep the old one" (which a
-// plain string body cannot tell apart) the chat silently keeps running the
-// model it was already on and nothing can ever clear it, since the picker no
-// longer PATCHes .../selection on its own.
 func TestRegression_SubmitPrompt_AnExplicitlyEmptySelectionIsStagedNotIgnored(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
 		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","model":"","effort":""}`))

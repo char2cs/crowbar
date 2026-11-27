@@ -81,14 +81,10 @@ export function emptyFeed(): ChatFeed {
   }
 }
 
-// Markers a reader sees as a pill; the rest change facts only.
 type FactRecord = {
   [K in keyof TurnFacts]: TurnFacts[K] extends Record<string, unknown> ? K : never
 }[keyof TurnFacts]
 
-/** Edits to a feed over one or many rows. Each part is copied on its first
- *  write, so what the rows leave alone keeps its identity, and a replay of
- *  n rows copies each part once instead of n times. */
 export class FeedFold {
   private items: ItemDraft | null = null
   private order: string[] | null = null
@@ -106,15 +102,12 @@ export class FeedFold {
     this.from = base.from
   }
 
-  /** An empty fold opens on a window: it holds the rows after `from` only. */
   startAt(from: number) {
     if (this.seq !== 0) return
     this.seq = from
     this.from = from
   }
 
-  /** Folds the row right after the folded seq. One at or below it is already
-   *  applied; one past the next is dropped, since only a replay fills a hole. */
   apply(row: LedgerRow) {
     if (row.seq !== this.seq + 1) return
     const apply = appliers[row.kind] as Apply<RowKind> | undefined
@@ -141,7 +134,6 @@ export class FeedFold {
     this.factsCopy[key] = value
   }
 
-  /** A per-turn fact record this fold may write in place. */
   record<K extends FactRecord>(key: K): TurnFacts[K] {
     if (!this.ownedFacts.has(key)) {
       this.ownedFacts.add(key)
@@ -150,8 +142,6 @@ export class FeedFold {
     return this.facts[key]
   }
 
-  /** Places a new item: main scope in the order, a subagent's under its scope.
-   *  Answers whether it went above `before`, which must already be placed. */
   place(id: string, scope: string, before?: string) {
     if (scope) {
       this.scoped ??= { ...this.base.scoped }
@@ -181,23 +171,16 @@ export class FeedFold {
     return above
   }
 
-  /** Whether `item` was said before the already placed `above`, though it landed after. */
   private readsBelow(item: TranscriptItem, above: string): boolean {
     const prev = this.item(above)
     if (!prev || prev.turnId === undefined) return false
     if (prev.turnId !== item.turnId) {
-      // A prompt not yet delivered follows everything its predecessor still says.
       const fact = prev.kind === 'user' && prev.requestId && this.facts.prompts[prev.requestId]
       return item.kind !== 'user' && !!fact && fact.state === 'pending'
     }
-    // What a provider flushes after its turn ended still reads above that end.
     return prev.kind === 'marker' && item.kind !== 'marker'
   }
 
-  /** Moves `turn`'s streamed text into the order, above the turn's end, holding
-   *  the words streamed so far: settled text no longer follows its stream. What
-   *  streamed is output the turn showed, so a retract keeps it and its prompt.
-   *  The row ending the turn dates a reply no row of its own ever did. */
   placeLive(turn: string, at = '') {
     for (const id of this.liveTail ?? this.base.liveTail) {
       const item = this.item(id)
@@ -209,7 +192,6 @@ export class FeedFold {
     }
   }
 
-  /** Places a main-scope item above the first output of `turn`. */
   placeAbove(id: string, turn: string) {
     this.order ??= [...this.base.order]
     const at = this.order.findIndex((other) => {
@@ -224,20 +206,17 @@ export class FeedFold {
     return (this.order ?? this.base.order).includes(id)
   }
 
-  /** The main-scope order as placed so far. */
   get placedOrder(): readonly string[] {
     return this.order ?? this.base.order
   }
 
   unplace(id: string) {
-    // From the end: what moves or goes is nearly always among the newest.
     const at = (this.order ?? this.base.order).lastIndexOf(id)
     if (at < 0) return
     this.order ??= [...this.base.order]
     this.order.splice(at, 1)
   }
 
-  /** Main-scope ids a turn end can still change, by turn ('' for none). */
   openIn(turn: string): string[] {
     return (this.open ?? this.base.unsettled)[turn] ?? []
   }
@@ -287,8 +266,6 @@ function marker(
   return id
 }
 
-/** Settles the texts of `turnId` (every turn when null) and ends its running
- *  tools as `ended`: a stopped turn's were interrupted, any other's abandoned. */
 function endTurn(fold: FeedFold, turnId: string | null, ended: ToolStatus = 'abandoned') {
   for (const turn of turnId === null ? fold.openTurns : [turnId]) {
     const still: string[] = []
@@ -313,7 +290,6 @@ const applyTurnStarted: Apply<'turn_started'> = (fold, row) => {
 }
 
 const applyRunnerStarted: Apply<'runner_started'> = (fold, row) => {
-  // A restart kills the old CLI without recording its exit: what it ran is not running.
   if (!row.scope) {
     interruptSubagents(fold, row)
     stopShells(fold, row)
@@ -328,7 +304,6 @@ function closeRunning(fold: FeedFold, turnId: string | undefined) {
 
 const applyTurnEnded: Apply<'turn_ended'> = (fold, row) => {
   if (row.scope || !row.turnId) return
-  // A provider may report an end Crowbar already recorded: one marker per turn.
   const ending = fold.facts.running?.turnId === row.turnId
   settleRound(fold, row.turnId)
   retractTurn(fold, row)
@@ -349,7 +324,6 @@ const applyTurnFailed: Apply<'turn_failed'> = (fold, row) => {
   endTurn(fold, row.turnId)
   endPlan(fold, row.turnId)
   endSubagents(fold, row)
-  // A turn that failed before it started was named by no turn_started: its CLI's provider.
   const providers = fold.record('providers')
   if (!providers[row.turnId] && fold.facts.provider) providers[row.turnId] = fold.facts.provider
   marker(fold, row, 'turn_failed', row.body.detail, row.body.reason, { failureKind: row.body.kind })
@@ -360,7 +334,6 @@ const applyRunnerExited: Apply<'runner_exited'> = (fold, row) => {
   endTurn(fold, null)
   interruptSubagents(fold, row)
   stopShells(fold, row)
-  // Only a CLI that never started needs a word; any other exit is continued by the next send.
   if (!row.scope && reason === 'spawn_failed')
     marker(fold, row, 'runner_exited', row.body.detail, reason)
 }
@@ -382,8 +355,6 @@ const applyMarker: Apply<'marker'> = (fold, row) => {
     divider(fold, kind, () => marker(fold, row, kind, detail, undefined, { chat: owner, records }))
 }
 
-/** The reply its turn closed on that `item` is shown as: the one its message named,
- *  on whichever chunk, once their texts agree. */
 function joinedReply(fold: FeedFold, turnId: string | undefined, item: TextItem) {
   if (!item.reply || item.reply === item.messageId) return undefined
   const target = fold.item<TextItem>(textItemId(turnId, item.reply))
@@ -420,7 +391,6 @@ const applyAssistantText: Apply<'assistant_text'> = (fold, row) => {
   const folded = textOf(item)
   item.text = folded.text
   item.settled = item.settled || folded.settled
-  // A delta made the item before any row; its first row dates it, as a replay would.
   if (known && known.seq === 0) {
     item.seq = row.seq
     item.at = row.at
@@ -475,7 +445,6 @@ const appliers: { [K in RowKind]: Apply<K> } = {
   shell: applyShell,
 }
 
-/** Folds the row right after the feed's seq; any other is not applied. */
 export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
   if (row.seq !== feed.seq + 1) return feed
   const fold = new FeedFold(feed)
@@ -483,7 +452,6 @@ export function applyRow(feed: ChatFeed, row: LedgerRow): ChatFeed {
   return fold.finish()
 }
 
-/** Folds one delta; one for a turn a retract hid brings that turn back. */
 export function applyLive(feed: ChatFeed, delta: FeedDelta): ChatFeed {
   const next = applyDelta(feed, delta)
   if (!next.facts.traceless[delta.turnId] || !next.liveTail.length) return next

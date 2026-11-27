@@ -12,13 +12,9 @@ import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 interface SortableProviderRowProps {
   provider: AgentProvider
   onToggle: (id: string, enabled: boolean) => void
-  /** Flip whether this provider's agent can use Crowbar's own tools. */
   onToggleTools: (id: string, enabled: boolean) => void
 }
 
-// Drag listeners sit on the handle alone so the switches stay clickable. Tools comes before the
-// provider switch (the narrower thing to take away), and neither says "MCP": the user decides
-// whether the agent can reach into Crowbar, not a transport.
 export function SortableProviderRow({
   provider,
   onToggle,
@@ -56,9 +52,6 @@ export function SortableProviderRow({
         {provider.displayName}
       </Label>
 
-      {/* THE THREE CONTROL COLUMNS. Each control sits in the shared
-          PROVIDER_COLUMN_CELL box that ProviderColumnHeader labels — same string,
-          so the label above a control cannot drift off it. */}
       <span className={PROVIDER_COLUMN_CELL}>
         <span
           data-testid={`provider-connected-${provider.id}`}
@@ -72,8 +65,6 @@ export function SortableProviderRow({
         />
       </span>
 
-      {/* Crowbar's own tools, not the provider: off, the agent still runs but cannot read the
-          workspace or comment through Crowbar. The column header and intro explain it. */}
       <span className={PROVIDER_COLUMN_CELL}>
         <Switch
           data-testid={`provider-tools-toggle-${provider.id}`}

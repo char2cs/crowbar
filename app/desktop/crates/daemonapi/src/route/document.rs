@@ -1,5 +1,3 @@
-//! The daemon route of a workspace document.
-
 use crate::route::query::encode;
 
 pub(crate) fn content(

@@ -16,24 +16,17 @@ import { markEnd, markStart } from '@/lib/perf/instrumentation'
 import { cn } from '@/lib/utils'
 
 interface MarkdownMessageProps {
-  /** The message's markdown. */
   children: string
-  /** The reply is over; a diagram fence it left open then renders as code. */
   settled?: boolean
   className?: string
 }
 
-/** A streaming message, on the composer's own Plate plugin set (one engine, one
- *  appearance). Interactive only so `applyStreamedValue` can patch the document
- *  in place as tokens arrive; a message settled at mount renders static. */
 export function MarkdownMessage({ children, settled = false, className }: MarkdownMessageProps) {
   const initialValueRef = useRef<Value | undefined>(undefined)
   const appliedChildrenRef = useRef(children)
   const cursorRef = useRef<StreamCursor>(FRESH_CURSOR)
   initialValueRef.current ??= chatMarkdownToValue(children)
 
-  // Created once for the bubble's life and patched as `children` grows:
-  // rebuilding it per token rebuilt the whole DOM subtree.
   const editor = usePlateEditor(
     { plugins: chatComposerPlugins, value: initialValueRef.current },
     [],
@@ -56,7 +49,6 @@ export function MarkdownMessage({ children, settled = false, className }: Markdo
     return () => cancelAnimationFrame(raf)
   }, [children, editor])
 
-  // The settled prefix is never inside a fence, so the scan starts at the cursor.
   const openFence = useMemo(() => {
     const cursor = cursorRef.current
     return openDiagramFence(children, children.startsWith(cursor.prefix) ? cursor.offset : 0)

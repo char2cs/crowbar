@@ -1,6 +1,3 @@
-// Current-line blame from the daemon's /blame, loaded once per file (cached, invalidated on save).
-// Hidden while the buffer is dirty, since blame's line numbers describe the file on disk; host
-// documents (no repository) and untitled buffers (no file) have none.
 import { useEffect } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { blameKey, loadBlame, useGitBlameStore } from '@/features/git/stores/git-blame-store'
@@ -36,7 +33,6 @@ export function useInlineBlame(
     useSettingsStore((s) => s.settings.inlineBlame) && !isUntitledRef({ path: filePath })
   const key = workspaceId === null ? '' : blameKey(workspaceId, filePath)
   const blame = useGitBlameStore((s) => s.blame[key])
-  // A load before the workspace's host is known is recorded as a failure and not retried.
   const hostResolved = useHostResolved({ wsId: workspaceId ?? '' })
 
   useEffect(() => {

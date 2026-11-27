@@ -1,5 +1,3 @@
-//! Summoning and dismissing the peek card.
-
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::{Panel, PeekZone, Presentation, Visibility};
 use ui::Motion;
@@ -8,8 +6,6 @@ use crate::sidebar::Sidebar;
 use crate::sidebar::{HEADER_HEIGHT, PEEK_INSET};
 
 impl Sidebar {
-    /// Slides the peek card in while the sidebar is closed. The shell calls this when the pointer
-    /// rests on its sidebar toggle.
     pub fn begin_peek(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -17,7 +13,6 @@ impl Sidebar {
         self.slide_peek(1.0, cx);
     }
 
-    /// Slides the peek card out again.
     pub fn end_peek(
         &mut self,
         cx: &mut Context<'_, Self>,

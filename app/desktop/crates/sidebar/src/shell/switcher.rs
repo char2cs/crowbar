@@ -1,5 +1,3 @@
-//! Spaces in the switcher: projects, the active space and space list ports, icons, focus and running agents.
-
 mod active_space;
 mod pane_focus;
 mod project;

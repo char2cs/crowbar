@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// DeleteReviewMessage removes a reply from a thread. The root comment
-// (Messages[0]) cannot be removed this way — a thread must keep its root, so
-// deleting the root is expressed by forgetting the whole thread instead.
 type DeleteReviewMessage struct {
 	ID        string
 	MessageID string

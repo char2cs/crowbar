@@ -1,5 +1,3 @@
-//! The desktop's own message dialog, which the shell installs at start: the only way it confirms.
-
 mod alert_button;
 mod alert_request;
 mod alert_role;
@@ -14,12 +12,8 @@ pub use alert_role::AlertRole;
 
 use crate::foundation::opaque_debug;
 
-/// Asks an [`AlertRequest`] over a window; its task ends with the pressed button's index, none
-/// when the dialog is dismissed.
 pub type AskAlert = Rc<dyn Fn(AlertRequest, &Window, &mut App) -> Task<Option<usize>>>;
 
-/// The installed native message dialog, a global; with none installed every question is answered
-/// as a cancel.
 #[derive(Clone)]
 pub struct NativeAlert(AskAlert);
 
@@ -28,14 +22,11 @@ opaque_debug!(NativeAlert);
 impl Global for NativeAlert {}
 
 impl NativeAlert {
-    /// A native message dialog asked with `ask`.
     #[must_use]
     pub fn new(ask: AskAlert) -> Self {
         Self(ask)
     }
 
-    /// Asks `request` over `window` with the installed dialog; the task ends with the pressed
-    /// button. With no dialog installed the question is logged and counts as cancelled.
     pub fn ask(
         request: AlertRequest,
         window: &Window,

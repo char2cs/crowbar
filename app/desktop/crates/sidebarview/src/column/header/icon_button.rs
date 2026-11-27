@@ -1,5 +1,3 @@
-//! The square ghost buttons of the sidebar header and switcher.
-
 use gpui::{
     AnyElement, App, ClickEvent, ElementId, FocusHandle, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement,

@@ -24,9 +24,6 @@ func pickProject(
 	return projectDTO{}, false
 }
 
-// ensureProject imports the seed project, or reuses the one a previous run left
-// behind. Re-importing would put two identically named rows in the sidebar with
-// nothing to tell them apart, and the seed is meant to be run repeatedly.
 func ensureProject(
 	ctx context.Context,
 	d *daemon,

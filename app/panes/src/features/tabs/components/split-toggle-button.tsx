@@ -3,13 +3,10 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/utils/cn'
 
 interface SplitToggleButtonProps {
-  /** `PaneGroup.editorOpen` — chat-only vs. chat+editor (spec §7.1/§7.2). */
   active: boolean
   onToggle: () => void
 }
 
-/** Leads the pane-top row, before the chat head and outside the editor-tab scroller (spec §7.1).
- *  Same toolbar-button recipe as its neighbours. */
 export function SplitToggleButton({ active, onToggle }: SplitToggleButtonProps) {
   return (
     <Button

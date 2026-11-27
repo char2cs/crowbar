@@ -1,5 +1,3 @@
-//! What a text field paints in one frame.
-
 use gpui::PaintQuad;
 
 use crate::display::TrackedLine;

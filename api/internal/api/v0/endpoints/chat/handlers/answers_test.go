@@ -78,7 +78,6 @@ func TestAnswerChoice_RejectsAnEmptyOrMalformedDecision(t *testing.T) {
 	}
 }
 
-// A held ask nobody decided in time answers with no body: the CLI asks it itself.
 func TestHTTPHook_AHeldAskNobodyDecidedAnswersEmpty(t *testing.T) {
 	uc := &fakeAgentUsecase{validToken: "tok", hookAsk: "c1", pendingAwait: true}
 	ctx, rec := newHTTPHookContext(t, "tok", []byte(`{}`))

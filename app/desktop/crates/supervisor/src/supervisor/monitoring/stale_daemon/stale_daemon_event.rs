@@ -1,5 +1,3 @@
-//! What refusing a daemon that is not the one the supervisor started logs.
-
 use std::fmt;
 
 use journal::{Event, Level};

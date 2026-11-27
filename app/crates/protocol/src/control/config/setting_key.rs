@@ -7,11 +7,7 @@ fn validate(value: &str) -> Result<()> {
     })
 }
 
-string_id!(
-    /// A key in a pane's settings namespace, for example `diff.contextLines`.
-    SettingKey,
-    validate
-);
+string_id!(SettingKey, validate);
 
 #[cfg(test)]
 mod tests {

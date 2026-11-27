@@ -5,23 +5,15 @@ use crate::geometry::corners::Corners;
 use crate::geometry::edge_contact::EdgeContact;
 use crate::geometry::insets::Insets;
 
-/// The box a pane is drawn in: margins, 1px border and corner radii, from where the pane's slot
-/// sits against the layout's bounds. The web view fills `hole`. Its edges sit on whole pixels, as
-/// the web view does, so a border is never painted under the web view beside it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PaneFrame {
-    /// The bordered box, after margins.
     pub outer: Rect,
-    /// Border widths per side.
     pub border: Insets,
-    /// Corner radii.
     pub radius: Corners,
-    /// The area inside the border where the pane's content shows.
     pub hole: Rect,
 }
 
 impl PaneFrame {
-    /// The frame of the pane in `slot`, one slot of a layout filling `content`.
     #[must_use]
     pub fn new(
         slot: Rect,
@@ -41,8 +33,6 @@ impl PaneFrame {
 }
 
 impl PaneFrame {
-    /// The radii content filling `rect` rounds: the frame's, less the border, at each corner of
-    /// `rect` that is a corner of the hole.
     #[must_use]
     pub fn inner_corners(
         &self,

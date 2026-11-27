@@ -1,5 +1,3 @@
-// Per document, not per pane: one didOpen/didClose whatever panes show it,
-// addressed to the document's own workspace, never the active one.
 import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type { DocumentRef } from '@/lib/api/documents'
@@ -13,7 +11,6 @@ import { pathsMatch, toMonacoMarker } from '../monaco/editor-conversions'
 import { getLanguageIdFromPath } from '../utils/language-id'
 import { documentRefOf, isUntitledRef, sameDocument } from './document-ref'
 
-/** The language the user picked for `ref`'s tab; undefined while no tab holds it. */
 function pickedLanguage(state: WindowPaneState, ref: DocumentRef): string | null | undefined {
   const buffer = state.buffers.find(
     (b) => isEditorContent(b) && sameDocument(documentRefOf(b), ref),
@@ -22,8 +19,6 @@ function pickedLanguage(state: WindowPaneState, ref: DocumentRef): string | null
   return buffer.languageOverride ?? null
 }
 
-/** Lives exactly as long as `model`: its dispose (every release and reopen does one) is the one
- *  teardown. The server gets the buffer's picked language, not Monaco's id (tsx and ts share). */
 export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextModel): void {
   if (ref.authority === 'host' || isUntitledRef(ref)) return
   const { workspaceId, path } = ref
@@ -37,7 +32,6 @@ export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextMo
     monacoEditor.setModelMarkers(model, LSP_MARKER_OWNER, diagnostics.map(toMonacoMarker))
   })
 
-  // The model owns the text: the client reads it whenever it sends it.
   const read = () => (model.isDisposed() ? null : model.getValue())
   let opened = false
   let pending: IdleTaskHandle | null = null
@@ -61,7 +55,6 @@ export function attachDocumentLsp(ref: DocumentRef, model: Monaco.editor.ITextMo
   })
   const stopFollowingLanguage = windowPaneStore.subscribe((state) => {
     const picked = pickedLanguage(state, ref)
-    // A closing tab leaves the document to its release.
     if (picked === undefined || (picked || byPath) === language) return
     language = picked || byPath
     close()

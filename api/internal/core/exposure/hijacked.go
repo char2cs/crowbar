@@ -9,15 +9,11 @@ import (
 	"syscall"
 )
 
-// hijacked holds the connections handlers took over (terminal and watcher
-// streams): http.Server.Close no longer owns them, so closing the listener
-// has to end them itself.
 type hijacked struct {
 	mu    sync.Mutex
 	conns []net.Conn
 }
 
-// watch records every connection srv hands to a handler.
 func (h *hijacked) watch(srv *http.Server) {
 	prev := srv.ConnState
 	srv.ConnState = func(c net.Conn, s http.ConnState) {
@@ -54,8 +50,6 @@ func (h *hijacked) closeAll() {
 	}
 }
 
-// ended reports a connection its owner already closed, without touching its
-// deadlines or data; one that cannot be probed counts as live.
 func ended(c net.Conn) bool {
 	if t, ok := c.(*tls.Conn); ok {
 		c = t.NetConn()

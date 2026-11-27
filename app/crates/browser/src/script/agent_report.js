@@ -1,5 +1,3 @@
-// Injected as `(<this file>)(id, work)`: runs `work` for the agent request `id` and posts its
-// return value, or its failure, to the shell, the only channel a page has.
 async function agentReport(id, work) {
   const post = (body) =>
     window.ipc.postMessage(JSON.stringify({ crowbarAgent: Object.assign({ id }, body) }))

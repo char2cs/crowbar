@@ -11,25 +11,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// MoveLedger is the move half of AgentChatPlacements: each chat's pending move, the
-// moves done, and which chats are mid-turn. Every chat is in project "p1" unless
-// Projects names another.
 type MoveLedger struct {
-	mu sync.Mutex
-	// exec runs one move at a time: the fake's rows, unlike the real stores, are not
-	// safe for concurrent writers.
-	exec         sync.Mutex
-	Pending      map[string]ledger.Move
-	Done         map[string][]ledger.Move
-	Busy         map[string]bool
-	Projects     map[string]string // workspace id -> project id
-	BranchOuts   []string
-	BranchOutErr error
-	// BranchNameErr refuses every name CheckBranchOutName is asked about.
+	mu            sync.Mutex
+	exec          sync.Mutex
+	Pending       map[string]ledger.Move
+	Done          map[string][]ledger.Move
+	Busy          map[string]bool
+	Projects      map[string]string
+	BranchOuts    []string
+	BranchOutErr  error
 	BranchNameErr error
 	Discarded     []string
-	// Finished is signalled with the chat id after each ExecuteMove that ran.
-	Finished chan string
+	Finished      chan string
 }
 
 func (s *AgentChatPlacements) moveLedger() *MoveLedger {
@@ -120,7 +113,6 @@ func (s *AgentChatPlacements) MovesWaiting(context.Context) ([]string, error) {
 	return out, nil
 }
 
-// SetBusy marks chatID mid-turn or idle.
 func (s *AgentChatPlacements) SetBusy(chatID string, busy bool) {
 	l := s.moveLedger()
 	l.mu.Lock()
@@ -131,8 +123,6 @@ func (s *AgentChatPlacements) SetBusy(chatID string, busy bool) {
 	l.Busy[chatID] = busy
 }
 
-// BranchOuts records each BranchOutWorkspace call's source workspace; BranchOutErr fails it,
-// and Discarded records what DiscardWorkspace removed.
 func (s *AgentChatPlacements) RequestBranchOut(ctx context.Context, chatID, workspaceID, branch, by string) (bool, error) {
 	dir, _, _, err := s.MoveSite(ctx, workspaceID)
 	if err != nil {

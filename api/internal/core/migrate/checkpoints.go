@@ -6,17 +6,13 @@ import (
 	"time"
 )
 
-// Checkpoints lets a step's Apply record each finished unit of work under a key,
-// so a run that stops part-way resumes without redoing it. It spans attempts:
-// keys marked in earlier runs read as done. It is not safe for concurrent use.
 type Checkpoints struct {
-	ledger *ledger
-	run    string
-	step   ID
-	now    func() time.Time
-	done   Marks
-	notes  map[string]Note
-	// settled are the keys marked before the step last completed.
+	ledger  *ledger
+	run     string
+	step    ID
+	now     func() time.Time
+	done    Marks
+	notes   map[string]Note
 	settled map[string]bool
 }
 
@@ -37,7 +33,6 @@ func newCheckpoints(
 	}
 }
 
-// Marked is the counts marked under key, when it is done.
 func (c *Checkpoints) Marked(
 	key string,
 ) (Counts, bool) {
@@ -45,16 +40,12 @@ func (c *Checkpoints) Marked(
 	return maps.Clone(n), ok
 }
 
-// Settled reports whether key was marked before the step last completed, so
-// that completion's Verify already checked it.
 func (c *Checkpoints) Settled(
 	key string,
 ) bool {
 	return c.settled[key]
 }
 
-// Note durably records n under key without marking key done; Noted reads
-// back the latest, in this attempt or an earlier one.
 func (c *Checkpoints) Note(
 	key string,
 	n Note,
@@ -76,7 +67,6 @@ func (c *Checkpoints) Note(
 	return nil
 }
 
-// Noted is the latest note under key.
 func (c *Checkpoints) Noted(
 	key string,
 ) (Note, bool) {
@@ -84,15 +74,12 @@ func (c *Checkpoints) Noted(
 	return n, ok
 }
 
-// Done reports whether key was marked by this attempt or an earlier one.
 func (c *Checkpoints) Done(
 	key string,
 ) bool {
 	return c.done.Done(key)
 }
 
-// Mark durably records that the unit of work under key is finished, with the
-// counts it contributed. The key reads as done only once the record is synced.
 func (c *Checkpoints) Mark(
 	key string,
 	n Counts,
@@ -124,16 +111,11 @@ func (c *Checkpoints) total() Counts {
 	return sum
 }
 
-// Impl is the online half of a Step, paired with it by number at run time.
 type Impl struct {
-	// Apply does the work and may be re-run after any interruption, so it must
-	// be idempotent. It returns ctx.Err() promptly once ctx is cancelled.
-	Apply func(ctx context.Context, env Env, cp *Checkpoints) (Counts, error)
-	// Verify checks the step's postconditions; an error halts the boot.
+	Apply  func(ctx context.Context, env Env, cp *Checkpoints) (Counts, error)
 	Verify func(ctx context.Context, env Env) error
 }
 
-// Impls maps a Step.Number to its Impl.
 type Impls map[int]Impl
 
 func (i Impls) implements(

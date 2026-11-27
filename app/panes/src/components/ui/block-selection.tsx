@@ -19,8 +19,6 @@ export const blockSelectionVariants = cva(
   },
 )
 
-// The overlay BlockSelectionKit renders below every selectable block, painted over it while the
-// block is in the drag/menu multi-selection (table cells use `blockSelectionVariants` instead).
 export function BlockSelection(props: PlateElementProps) {
   const isBlockSelected = useBlockSelected()
 

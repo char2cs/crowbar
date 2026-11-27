@@ -45,12 +45,8 @@ func (e *engine) SemanticTokens(
 	return out, nil
 }
 
-// errFullNeeded reports that a delta cannot answer: none was asked for, the
-// server offers none, or its edits cannot be remapped.
 var errFullNeeded = errors.New("lsp: full semantic tokens needed")
 
-// semanticTokensDelta asks for edits against previousResultID, or fails with
-// errFullNeeded when only a full result can answer.
 func semanticTokensDelta(
 	ctx context.Context,
 	srv server.Server,
@@ -64,8 +60,6 @@ func semanticTokensDelta(
 	raw, err := srv.Request(ctx, "textDocument/semanticTokens/full/delta",
 		convert.SemanticTokensDeltaParams(path, previousResultID))
 	if err != nil && ctx.Err() == nil {
-		// A server that no longer knows previousResultID (it restarted) may
-		// reject the delta; the editor would resend the same id forever.
 		return nil, errFullNeeded
 	}
 	if err != nil {

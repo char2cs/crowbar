@@ -1,6 +1,3 @@
-//! A tab-stop focus handle an element keeps across frames, so its focus ring can be decided
-//! from it.
-
 use gpui::{App, ElementId, FocusHandle, Window};
 
 pub(crate) fn kept_focus(

@@ -2,17 +2,13 @@ use protocol::PaneId;
 
 use crate::catalog::PaneKind;
 
-/// The shell's answer to who draws each pane. A page and a native view can take turns on one
-/// pane (an editor's rich and source views), so the answer is per pane, not per type.
 pub trait PaneKinds: std::fmt::Debug {
-    /// How `pane` is drawn now, or `None` to let its type decide.
     fn kind_of(
         &self,
         pane: &PaneId,
     ) -> Option<PaneKind>;
 }
 
-/// No answer for any pane: every pane's type decides.
 impl PaneKinds for () {
     fn kind_of(
         &self,

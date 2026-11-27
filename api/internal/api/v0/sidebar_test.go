@@ -24,8 +24,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// newAppAndEngine builds a real app over a real engine, both torn down at
-// cleanup, so no test leaks goroutines into the next.
 func newAppAndEngine(t *testing.T) (*app.Container, *engine.Container) {
 	t.Helper()
 	ctx := t.Context()
@@ -54,8 +52,6 @@ func sidebarIDs(t *testing.T, side appstream.Sidebar, kind stream.EntityKind) []
 	return ids
 }
 
-// One project's unreadable tree lists its repos at the root; every other
-// project's repos keep their place, as the REST list does.
 func TestSidebar_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
 	a, _ := newAppAndEngine(t)
 	ctx := context.Background()
@@ -76,7 +72,6 @@ func TestSidebar_AnUnreadableTreeOnlyUnplacesItsOwnProject(t *testing.T) {
 	assert.ElementsMatch(t, []string{"r1", "r3"}, sidebarIDs(t, side, stream.KindRepo))
 }
 
-// A deleted workspace's tombstone row is no sidebar entity: no reader draws one.
 func TestSidebar_ADeletedWorkspaceIsNoEntity(t *testing.T) {
 	rows := chathandlers.Rows{Workspaces: []dto.WorkspaceDTO{
 		{ID: "live", Status: domain.WorkspaceStatusNew},
@@ -89,8 +84,6 @@ func TestSidebar_ADeletedWorkspaceIsNoEntity(t *testing.T) {
 	assert.Equal(t, "live", got[0].ID)
 }
 
-// The REST repo list and the projects scope's snapshot read positions through
-// the app's one Placements, so a broken project is logged once per boot.
 func TestRepoLists_ShareOnePlacementsSoABrokenProjectLogsOnce(t *testing.T) {
 	a, eng := newAppAndEngine(t)
 	ctx := context.Background()
@@ -112,7 +105,6 @@ func TestRepoLists_ShareOnePlacementsSoABrokenProjectLogsOnce(t *testing.T) {
 	assert.Equal(t, 1, logged)
 }
 
-// failingRows is the list routes' reads with one repo's rows unreadable.
 type failingRows struct {
 	rowReader
 	repo string
@@ -125,8 +117,6 @@ func (f failingRows) RepoRows(ctx context.Context, projectID, repoID string) (ch
 	return f.rowReader.RepoRows(ctx, projectID, repoID)
 }
 
-// A repo whose rows will not read is unread, not absent: the client keeps the
-// rows it holds of it, while the repo itself and every other repo still read.
 func TestSidebar_ARepoWhoseRowsWillNotReadIsUnread(t *testing.T) {
 	a, _ := newAppAndEngine(t)
 	ctx := context.Background()

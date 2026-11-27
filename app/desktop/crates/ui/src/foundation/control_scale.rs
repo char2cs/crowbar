@@ -1,5 +1,3 @@
-//! Develop's selects and inputs are `text-base` below `sm` and `text-sm` above it, 4px taller below.
-
 use gpui::{Pixels, Window, px};
 
 use crate::foundation::breakpoint::Breakpoint;

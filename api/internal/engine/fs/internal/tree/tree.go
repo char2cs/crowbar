@@ -1,4 +1,3 @@
-// Package tree provides a lazy one-level file tree walker with git decorations.
 package tree
 
 import (
@@ -12,16 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// StatusProvider resolves git status for a repo path. Implemented by the git
-// engine's status package; injected to avoid a circular import.
 type StatusProvider interface {
 	GitStatus(
 		repoPath string,
 	) (gitdomain.GitStatus, error)
 }
 
-// List returns one level of the file tree rooted at dirPath, with git
-// decorations from provider. dirPath is relative to repoPath (empty = root).
 func List(
 	repoPath string,
 	dirPath string,

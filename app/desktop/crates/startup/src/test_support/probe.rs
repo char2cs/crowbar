@@ -1,5 +1,3 @@
-//! Renders a single element in a test window.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -29,7 +27,6 @@ impl Render for Probe {
     }
 }
 
-/// Bounds of the element built by `build`, laid out at its natural size in a test window.
 pub(crate) fn measure<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,

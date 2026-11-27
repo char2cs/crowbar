@@ -4,7 +4,6 @@ import { SidebarRowGlyph } from '@/components/sidebar/sidebar-row-glyph'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { streamOperation, resetOperations } from '@/__tests__/__fixtures__/operations'
 
-// A branch row's id is its chat's; the operation names the workspace.
 const row: SidebarRowType = {
   id: 'chat-1',
   kind: 'branch',

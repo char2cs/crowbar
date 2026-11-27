@@ -3,9 +3,6 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import type { Position, Range } from '@/features/editor/types/editor'
 import { createSelectors } from '@/utils/zustand-selectors'
 
-/** The active editor's cursor mirrored out of Monaco for outside readers (status-bar line:col,
- *  the jump-list recorder), plus a per-view cache of each buffer's cursor. Monaco owns the state;
- *  this is a read-only projection the editor surface writes. */
 export interface EditorViewState {
   cursor: Position
   selection?: Range
@@ -23,7 +20,6 @@ function cacheViewState(key: string, state: EditorViewState): void {
   viewStateCache.set(key, state)
 }
 
-/** An exact view key, else a `${paneId}:${bufferId}` entry for the bare buffer id. */
 function cachedViewState(key: string): EditorViewState | null {
   const exact = viewStateCache.get(key)
   if (exact) return exact
@@ -48,10 +44,8 @@ function rangesEqual(a?: Range, b?: Range): boolean {
 interface EditorState {
   cursorPosition: Position
   selection?: Range
-  /** `${paneId}:${bufferId}` of the active editor surface. */
   activeEditorViewKey: string | null
   actions: {
-    /** One batched write for a burst of cursor moves (rAF-coalesced by the caller). */
     setCursorAndSelection: (position: Position, selection?: Range) => void
     setActiveEditorViewKey: (viewKey: string | null) => void
     getCachedPosition: (viewKey: string) => Position | null

@@ -17,9 +17,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// heldSmudge is a smudge filter that, once git is checking its file out, reports
-// on ready and waits for a line on release. It drops stderr so a git that dies
-// under it is not kept waiting on the pipe.
 const heldSmudge = `#!/bin/sh
 exec 2>/dev/null 3<>'%RELEASE%'
 echo held > '%READY%'
@@ -27,8 +24,6 @@ read _ <&3
 exec cat
 `
 
-// mergeCtxRecorder is a real engine that records the context every fast-forward
-// runs under.
 type mergeCtxRecorder struct {
 	OriginFetcher
 	ctxs chan context.Context
@@ -67,8 +62,6 @@ func commitFile(
 	gitOut(t, repo, "commit", "-q", "-m", name)
 }
 
-// freeFIFO lets go whoever waits on either end of path: opened read-write it
-// never blocks, completes a waiting writer's open and hands a reader a line.
 func freeFIFO(
 	t *testing.T,
 	path string,
@@ -81,8 +74,6 @@ func freeFIFO(
 	assert.NoError(t, f.Close())
 }
 
-// heldLockedRoot clones origin into a locked root whose next fast-forward of
-// "held" blocks in the smudge filter, and returns the root and the two FIFOs.
 func heldLockedRoot(
 	t *testing.T,
 	origin string,
@@ -102,8 +93,6 @@ func heldLockedRoot(
 	return root, ready, release
 }
 
-// A cancel never interrupts a fast-forward in progress: killed mid-checkout, git
-// leaves the locked root half-advanced and refuses every later fast-forward.
 func TestOriginSync_CancelDuringTheFastForwardLetsItFinish(t *testing.T) {
 	origin := t.TempDir()
 	gitOut(t, origin, "init", "-q", "-b", "develop")

@@ -123,8 +123,6 @@ const providers: AgentProvider[] = [
   },
 ]
 
-/** An already-run conversation: it is dormant, and it remembers the provider
- *  its last conversation ran under. */
 function dormantChat(id: string, provider: string): AgentChat {
   return {
     id,
@@ -141,8 +139,6 @@ function dormantChat(id: string, provider: string): AgentChat {
   }
 }
 
-/** A workspace whose `WorkspaceView` never ran: the chat is known, and the
- *  provider list is whatever the machine-level store holds. */
 function unmountedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
   seedChats(chats)
@@ -223,8 +219,6 @@ beforeEach(() => {
 
 describe('reopening an already-run conversation', () => {
   it('names its provider when only the GLOBAL catalogue is loaded', async () => {
-    // The machine-level list IS known — Settings, ⌘N and every other global
-    // surface can see it. Only this workspace's own copy never seeded.
     useAgentProvidersStore.getState().setProviders(providers)
 
     const chat = dormantChat('c1', 'claude')
@@ -243,8 +237,6 @@ describe('reopening an already-run conversation', () => {
   })
 
   it('loads the catalogue itself when no copy is populated yet', async () => {
-    // Neither copy has it: the very first surface to need it must ask, rather
-    // than render a chat that can never name its own provider.
     const chat = dormantChat('c2', 'claude')
     const store = unmountedWorkspace([chat])
 
@@ -257,8 +249,6 @@ describe('reopening an already-run conversation', () => {
   })
 })
 
-// A chat imported while no agent was installed records none: its pane says so
-// and how to fix it, instead of sending into a 404.
 describe('a chat that records no agent', () => {
   async function openUnassigned(list: AgentProvider[]) {
     useAgentProvidersStore.getState().setProviders(list)
@@ -294,9 +284,6 @@ describe('a chat that records no agent', () => {
   })
 })
 
-// A provider list belongs to a daemon. A pane on a remote host must not be handed
-// the local daemon's: its chat could then name, and the user choose, a provider the
-// remote does not have.
 describe('a pane on a remote host', () => {
   const codex = providers.filter((p) => p.id === 'codex')
 
@@ -329,13 +316,10 @@ describe('a pane on a remote host', () => {
 
     const picker = screen.getByTestId('agent-selection-picker')
     expect(picker.getAttribute('aria-label')).toContain('Codex')
-    // ...and the local daemon's list is exactly what it was.
     expect(useAgentProvidersStore.getState().providers).toEqual(providers)
   })
 })
 
-// The chip says what the next message runs as: a switch can land the provider
-// before the pick the daemon moved with it, and the outgoing model is not it.
 it('names the incoming provider’s model after a switch, never the outgoing one’s', async () => {
   useAgentProvidersStore.getState().setProviders(providers)
   const on = (provider: string, model: string) => ({ ...dormantChat('c1', provider), model })

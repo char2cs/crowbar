@@ -35,7 +35,6 @@ describe('branch-review-slice', () => {
   })
 
   it('revealBranchReviewFile records the PATH and bumps the nonce', () => {
-    // A path: the review surface addresses every file by path.
     store.getState().revealBranchReviewFile('src/foo.ts')
     const state = store.getState().branchReview
     expect(state.revealFilePath).toBe('src/foo.ts')
@@ -43,8 +42,6 @@ describe('branch-review-slice', () => {
   })
 
   it('bumps the nonce again for the SAME path', () => {
-    // The nonce is what makes a repeat click re-reveal: the path compares equal
-    // to itself, so an effect keyed on it alone would never re-run.
     store.getState().revealBranchReviewFile('src/foo.ts')
     store.getState().revealBranchReviewFile('src/foo.ts')
     const state = store.getState().branchReview

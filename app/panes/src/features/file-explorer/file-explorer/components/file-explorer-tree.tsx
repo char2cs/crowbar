@@ -23,10 +23,8 @@ import { FileExplorerTreeRows, getFileTreeRowId } from './file-explorer-tree-row
 import '../styles/file-explorer-tree.css'
 
 interface FileExplorerTreeProps {
-  /** The workspace this tree shows; keys every file-tree-store and daemon call. */
   workspaceId: string | null
   files: FileEntry[]
-  /** True until the workspace's tree has loaded, so an empty list reads as loading. */
   isLoading: boolean
   activePath?: string
   updateActivePath?: (path: string) => void
@@ -55,7 +53,6 @@ const handleRootDrop = (e: React.DragEvent) => {
   e.stopPropagation()
 }
 
-/** Keep only changed files (and directories that contain one or are changed themselves). */
 function pruneToChanged(
   items: FileEntry[],
   decorationOf: (file: FileEntry) => unknown,
@@ -95,9 +92,6 @@ function FileExplorerTreeComponent({
   const containerRef = useRef<HTMLDivElement>(null)
   const documentRef = useRef<Document>(document)
 
-  // A locked (protected-branch) worktree refuses every daemon write (409), so the menu offers no
-  // mutations there. The check covers tree rows and the default workspace and returns a boolean,
-  // so the selector stays referentially stable.
   const isWorkspaceLocked = useSelect((s) =>
     isWorkspaceLockedInSidebar(selectRepos(s), workspaceId),
   )
@@ -190,8 +184,6 @@ function FileExplorerTreeComponent({
     useFileExplorerContextMenu({
       workspaceId,
       rootFolderPath,
-      // Locked worktrees refuse writes — hide every mutation item (New File/Folder,
-      // Upload, Duplicate, Rename, Delete, Cut, env-template).
       isLocked: isWorkspaceLocked,
       onFileSelect,
       onCreateNewFileInDirectory,
@@ -201,8 +193,6 @@ function FileExplorerTreeComponent({
       onRevealInFinder,
       onUploadFile,
       onDuplicatePath,
-      // Only the workspace root itself hides Rename/Delete. workspaceRootPaths lists every
-      // top-level folder (a multi-root notion), so testing it would hide them on all of those.
       isWorkspaceRootPath: (path) => path === rootFolderPath,
       canRemoveWorkspaceRootPath: (path) =>
         path !== rootFolderPath && workspaceRootPaths.includes(path),
@@ -254,9 +244,6 @@ function FileExplorerTreeComponent({
   return (
     <div
       className={cn(
-        // `px-1.5` matches the sidebar's own row gutter (`ROW_BASE`'s
-        // `mx-1.5`) — a tree row has no margin of its own to create it, so
-        // the container supplies the same 6px inset on both edges instead.
         'file-tree-container relative flex min-w-full flex-1 select-none flex-col overflow-auto px-1.5',
         dragState.dragOverPath === '__ROOT__' &&
           'border-2! border-dashed! border-secondary! bg-secondary! bg-opacity-10!',
@@ -309,9 +296,6 @@ function FileExplorerTreeComponent({
           />
         </div>
       ) : (
-        // Horizontal gutter comes from the container's own `px-1.5` alone
-        // (matching the sidebar row's `mx-1.5`) — a second `px-*` here would
-        // double it, so only vertical breathing room stays local.
         <div id="file-tree-results" className="file-tree-scroll-body py-1">
           <FileExplorerTreeRows
             visibleRows={visibleRows}
@@ -341,9 +325,6 @@ function FileExplorerTreeComponent({
   )
 }
 
-/** `useFileExplorerSync` as a childless leaf: it subscribes to the window's `activeEditorTabId`,
- *  which moves whenever focus crosses panes, and in the tree's body that re-rendered every visible
- *  row for identical output. It emits no DOM, so layout and the a11y tree are unchanged. */
 function FileExplorerSync(props: {
   activePath?: string
   updateActivePath?: (path: string) => void

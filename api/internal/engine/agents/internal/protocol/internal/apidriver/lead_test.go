@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// leadDescriptor opens sessions with no field for instructions: the document can only lead
-// a prompt's text.
 func leadDescriptor(t *testing.T) *spec.Descriptor {
 	t.Helper()
 	d, err := descriptor.ParseV0([]byte(`
@@ -51,8 +49,6 @@ func sentText(t *testing.T, params string) string {
 	return p.Text
 }
 
-// A new session's first prompt is led by the document its creating call had no field for,
-// and only that one.
 func TestDispatch_ANewSessionsFirstPromptCarriesTheContextLead(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "open", result: `{"id":"s1"}`},
@@ -74,8 +70,6 @@ func TestDispatch_ANewSessionsFirstPromptCarriesTheContextLead(t *testing.T) {
 	assert.Equal(t, "two", sentText(t, (*seen)[2]), "the document rides one prompt only")
 }
 
-// A resumed session has its own history; only a gap Crowbar owes it is handed over, with
-// no call of its own, on the next prompt.
 func TestInjectAt_APromptLeadMakesNoCallAndRidesTheNextPrompt(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "reopen", result: `{}`},
@@ -95,8 +89,6 @@ func TestInjectAt_APromptLeadMakesNoCallAndRidesTheNextPrompt(t *testing.T) {
 	assert.Equal(t, "<record>the gap</record>\n\nhello", sentText(t, (*seen)[1]))
 }
 
-// A resume with nothing owed leads nothing: the lead is queued by a fresh session or an
-// explicit inject, never by the resume itself.
 func TestDispatch_AResumedSessionCarriesNoLeadUnlessInjected(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "reopen", result: `{}`},
@@ -112,7 +104,6 @@ func TestDispatch_AResumedSessionCarriesNoLeadUnlessInjected(t *testing.T) {
 	assert.Equal(t, "hello", sentText(t, (*seen)[1]))
 }
 
-// A prompt the provider refuses has not been led: the document waits for the one it takes.
 func TestDispatch_ARefusedPromptKeepsTheLeadForTheNext(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "open", result: `{"id":"s1"}`},

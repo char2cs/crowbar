@@ -29,8 +29,6 @@ func TestVersion_AnUnstampedDocumentIsCurrent(t *testing.T) {
 	require.ErrorIs(t, err, descriptorschema.ErrUnsupported)
 }
 
-// The descriptor checks are generic: no provider a descriptor names appears in
-// their code, so a user's own descriptor is held to exactly the same rules.
 func TestVersion_TheDescriptorChecksNameNoProvider(t *testing.T) {
 	names := providerNames(t)
 	require.NotEmpty(t, names)
@@ -54,7 +52,6 @@ func TestVersion_TheDescriptorChecksNameNoProvider(t *testing.T) {
 	}
 }
 
-// providerNames are the id, command and display name of every shipped descriptor.
 func providerNames(t *testing.T) []string {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join(shippedDir, "*.yaml"))

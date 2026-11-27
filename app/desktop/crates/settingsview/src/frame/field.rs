@@ -1,5 +1,3 @@
-//! The editable text of one row: a one-line input, or a two-row area for a list.
-
 use gpui::{AnyElement, App, Entity, FocusHandle, Focusable as _, IntoElement as _, Window};
 use ui::{TextArea, TextInput};
 

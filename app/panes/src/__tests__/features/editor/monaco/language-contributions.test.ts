@@ -10,20 +10,14 @@ describe('language contributions', () => {
   it('colours a model opened before its language was ever asked for', async () => {
     const uri = documentUri(workspaceRef('ws-1', '/repo/script.lua'))
     const model = editor.createModel('local x = 1 -- c', langForUri(uri), Uri.parse(uri))
-    // Every span is the default `mtk1` until the language's grammar tokenizes the line.
     await vi.waitFor(() => expect(editor.colorizeModelLine(model, 1)).toMatch(/mtk(?!1\b)\d+/))
     model.dispose()
   })
 })
 
-// A monaco id the resolver hands a model that no contribution registers renders as plaintext
-// forever, so adding a value to `monaco/language.ts` fails here until a contribution covers it.
-// The resolver's own tables are typed by that map's keys, so tsc covers the other side.
 describe('registrations cover every monaco id the app resolver can produce', () => {
   const registered = new Set(languages.getLanguages().map((l) => l.id))
 
-  // Picking a language swaps the model's monaco id, so an option without a registered grammar
-  // would leave the file plain.
   it('every language the picker offers, but Plain Text, colours through a registered grammar', () => {
     const plain = getAllLanguages()
       .filter(({ id }) => id !== 'text')
@@ -32,7 +26,6 @@ describe('registrations cover every monaco id the app resolver can produce', () 
     expect(plain).toEqual([])
   })
 
-  // The two ids that once fell through to plaintext.
   it('.jsx and .erb resolve to loadable monaco grammars, not plaintext', () => {
     expect(toMonacoLanguageId('javascriptreact')).toBe('javascript')
     expect(toMonacoLanguageId('embedded_template')).toBe('html')

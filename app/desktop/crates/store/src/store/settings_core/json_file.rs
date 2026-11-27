@@ -1,5 +1,3 @@
-//! The shell's own settings, kept in one JSON file of the state directory.
-
 mod stored_value;
 
 use std::collections::BTreeMap;

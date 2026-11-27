@@ -13,7 +13,6 @@ function applyTokens(tokens: ThemeTokens): void {
   if (themeId) void updateSetting('theme', themeId)
 }
 
-/** Makes the shell's `theme-id` and `theme-type` tokens the pane's `theme` and `themeMode` settings, so the pane looks like the shell around it; returns the stop. The mode is written before the theme because setting the theme re-applies the stored mode, and `system` would briefly follow the webview's own appearance instead of the shell's. */
 export function followShellAppearance(client: Pick<PaneClient, 'onTheme'>): () => void {
   return client.onTheme(applyTokens)
 }

@@ -6,8 +6,6 @@ import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { selectEntityBusy, useOperations } from '@/core/entities/operations'
 
-// The glyph box: the flip-dot spinner while the row works (an agent turn or an operation on its
-// workspace), else its icon. A read-only header (the phone's list) shows the repo avatar.
 export function SidebarRowGlyph({
   row,
   isProjectHome,
@@ -62,7 +60,6 @@ export function RowGlyph({
   row: SidebarRowType
   large: boolean
   expanded: boolean
-  /** Forwarded to `WorkspaceBranchIcon`, the one glyph with ambient colours. */
   activeGround?: boolean
 }) {
   const size = large ? 'size-5' : 'size-4'
@@ -73,8 +70,6 @@ export function RowGlyph({
       <Folder aria-hidden="true" className={size} weight="duotone" />
     )
   }
-  // A branch row with its Workspace landed draws the switcher's status icon;
-  // `needsProvisioning`, not `isPlaceholder`, since a repo's own checkout is one too.
   if (row.kind === 'branch' && row.status) {
     return (
       <WorkspaceBranchIcon
@@ -86,7 +81,6 @@ export function RowGlyph({
       />
     )
   }
-  // A locked branch whose Workspace has not landed yet still reads as locked.
   if (row.kind === 'branch' && row.locked) {
     return <Lock aria-hidden="true" className={size} weight="fill" />
   }

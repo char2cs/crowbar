@@ -19,9 +19,6 @@ import (
 	"time"
 )
 
-// recorder stands in for the daemon's hook intake: a loopback server the CLI posts
-// its hooks to, itself or through curl. Each hook's event name and payload go to a
-// file of their own (hooks run concurrently, so one shared log would interleave).
 type recorder struct {
 	path   string
 	dir    string
@@ -29,7 +26,6 @@ type recorder struct {
 	server *http.Server
 }
 
-// hookRecord is one hook the CLI fired.
 type hookRecord struct {
 	event   string
 	payload []byte
@@ -40,8 +36,6 @@ func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	if err := os.MkdirAll(r.dir, 0o750); err != nil {
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
-	// path stands in for the crowbar binary: the MCP server a descriptor points
-	// at it must exit at once rather than read a stdin that never closes.
 	if err := os.WriteFile(r.path, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { //nolint:gosec // the stand-in must be executable
 		return recorder{}, fmt.Errorf("hook recorder: %w", err)
 	}
@@ -60,8 +54,6 @@ func newRecorder(ctx context.Context, dir string) (recorder, error) {
 	return r, nil
 }
 
-// record keeps one posted hook: the event is the last path segment, as the
-// daemon's runner-keyed hook route names it.
 func (r recorder) record(
 	w http.ResponseWriter,
 	req *http.Request,
@@ -88,8 +80,6 @@ func (r recorder) record(
 	w.WriteHeader(http.StatusOK)
 }
 
-// close stops the loopback server, waiting up to a second even when ctx is already
-// cancelled. A recorder that never started one is a no-op.
 func (r recorder) close(ctx context.Context) {
 	if r.server == nil {
 		return
@@ -101,7 +91,6 @@ func (r recorder) close(ctx context.Context) {
 	}
 }
 
-// records is every completed hook, oldest first.
 func (r recorder) records() []hookRecord {
 	entries, err := os.ReadDir(r.dir)
 	if err != nil {

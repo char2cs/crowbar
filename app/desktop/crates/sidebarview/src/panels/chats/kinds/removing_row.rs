@@ -1,5 +1,3 @@
-//! A row counting down to its deletion, with the keep button and the drain bar.
-
 use std::sync::Arc;
 use std::time::Instant;
 

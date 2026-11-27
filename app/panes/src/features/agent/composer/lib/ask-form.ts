@@ -1,4 +1,3 @@
-/** One input of an elicitation form, read off the provider's JSON schema. */
 export interface FormField {
   key: string
   label: string
@@ -58,8 +57,6 @@ function parseField(key: string, prop: unknown, required: boolean): FormField | 
   }
 }
 
-/** The form a schema describes, or null when any property is one Crowbar cannot draw: a
- *  half-built form would ask for the wrong things, so the terminal answers those. */
 export function parseForm(schema: string | undefined): FormField[] | null {
   if (!schema) return null
   let root: unknown
@@ -95,8 +92,6 @@ function numberError(field: FormField, text: string): string {
   return ''
 }
 
-/** Why a value is not acceptable yet, or '' when it is. Under its own field a blank required
- *  value says just "Required"; `short` is that line. */
 export function fieldError(field: FormField, value: string | boolean, short = false): string {
   if (typeof value === 'boolean') return ''
   const text = value.trim()
@@ -109,7 +104,6 @@ export function fieldError(field: FormField, value: string | boolean, short = fa
   return ''
 }
 
-/** The answer's `content`: typed values, optional blanks left out. */
 export function formContent(fields: FormField[], values: FormValues): Record<string, unknown> {
   const content: Record<string, unknown> = {}
   for (const field of fields) {

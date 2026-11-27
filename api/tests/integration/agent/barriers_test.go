@@ -18,23 +18,8 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// This file holds the harness's synchronisation seams. A test driving a real CLI
-// waits for two things, never an amount of time: the CLI telling the daemon
-// something (a hook POST, which hookBarrier turns into awaitHook), and the CLI
-// showing something on screen (kit.PTYTap, behind settleCLI and drive).
-
-// backstop bounds a wait so a failure is diagnosed rather than hung; no barrier
-// waits for it on the happy path. It clears the slowest real wait, a resumed
-// codex booting its MCP servers before a turn, with room to spare.
 const backstop = 5 * time.Minute
 
-// hookBarrier observes COMPLETED agent-hook requests: gin middleware fires it
-// after the handler chain for POST .../chats/runners/:segid/hooks/... has returned.
-//
-// "After" is the whole point, and it is why this is middleware rather than a hub
-// subscription. When the handler returns, the hook ingress has committed what
-// the hook recorded, or refused it, so a test woken by this edge can READ it at
-// once. A hub frame can be broadcast before the write it announces.
 type hookBarrier struct {
 	sig *kit.Signal
 }
@@ -43,7 +28,6 @@ func newHookBarrier() *hookBarrier {
 	return &hookBarrier{sig: kit.NewSignal()}
 }
 
-// middleware fires the barrier once the hook handler chain has fully returned.
 func (b *hookBarrier) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
@@ -53,20 +37,6 @@ func (b *hookBarrier) middleware() gin.HandlerFunc {
 	}
 }
 
-// awaitHook blocks until pred holds, re-evaluating it every time a vendor CLI's
-// hook lands. It is the replacement for nudgeUntil, and it needs no nudging: every
-// modal is acknowledged up front, deterministically, by settleCLI, so the CLI is
-// never sitting behind one that a stray Enter has to clear.
-//
-// Every predicate the suite uses is advanced by a hook and nothing else, so the
-// hook edge is a complete wakeup source: SessionStart binds a conversation and
-// moves a runner; UserPromptSubmit and Stop append ledger turns.
-//
-// Each edge is followed by a Quiesce so the async read-model projections a hook's
-// commands kick off have folded before pred looks at them. The commands
-// themselves are SendWait, so the aggregate is already durable when the handler
-// returns; Quiesce closes the gap for the independent store/list projections that
-// trail it.
 func awaitHook[T any](
 	t *testing.T,
 	h *harness,
@@ -82,75 +52,18 @@ func awaitHook[T any](
 	}, h.hooks.sig)
 }
 
-// trustNeedle is the string each vendor CLI paints when it is BLOCKING on its
-// first-run "do you trust this folder?" dialog — captured from the real CLIs
-// (claude 2.1.207, codex 0.139.0) rather than guessed:
-//
-//	claude: "❯ 1. Yes, I trust this folder" / "Enter to confirm · Esc to cancel"
-//	codex:  "› 1. Yes, continue"            / "Press enter to continue"
-//
-// Both vendor CLIs have since moved out from under this text, confirmed live
-// 2026-09-01 against claude 2.1.257 / codex 0.149.1:
-//
-//   - claude STILL shows this dialog (2.1.273 too), but its DEFAULT-SELECTED row
-//     flipped from "Yes, I trust this folder" to "No, exit" — the needle (the
-//     footer hint) still matches, but the blind Enter that used to accept trust
-//     now DECLINES it, and the dialog's first keystroke is not reliably taken
-//     once. See acknowledgeClaudeTrust.
-//   - codex no longer shows this dialog AT ALL under
-//     --dangerously-bypass-hook-trust (the flag this harness always passes) —
-//     it now goes straight to its composer. See codexReadyNeedle below.
 var trustNeedle = map[string]string{
 	"claude": "Enter to confirm",
 	"codex":  "Press enter to continue",
 }
 
-// claudeTrustYesMarker is the label of the row that ACCEPTS trust. The dialog's
-// other row is "No, exit", and claude 2.1.257+ highlights THAT one by default —
-// so which row is selected, not which rows exist, is the only thing worth reading
-// off this screen.
-//
-// It can NEVER be checked with tap.Contains: Contains matches on squeeze()'d bare
-// alphanumerics, which throws away the "❯" glyph — the ONE character that tells the
-// selected row from the unselected one. "Yes, I trust this folder" is on screen,
-// unselected, from the dialog's very first paint, so tap.Contains of it is true
-// before any key is ever sent — confirmed live 2026-09-01: it short-circuited the
-// arrow-key branch entirely, sent a blind Enter onto the untouched default
-// ("No, exit"), and produced exactly the trust-declined exit this mechanism exists
-// to prevent. kit.Readable strips ANSI but keeps the glyph; read the selection off
-// that instead (see claudeSelectedYes).
-//
-// The gap between "❯" and the label is NOT a stable single space either: claude's
-// FULL initial paint prints it as a literal space (kit.Readable keeps it), but its
-// INCREMENTAL repaint on the arrow key moves the cursor there with a column jump
-// instead of a printed space — kit.Readable has nothing to keep, so the same
-// selected row can read "❯Yes, I trust this folder" with no gap at all. Confirmed
-// against both real captures; claudeTrustSelectionRe tolerates either.
 const claudeTrustYesMarker = "Yes, I trust this folder"
 
-// claudeTrustNoMarker is the label of the row that DECLINES trust and quits. It is
-// matched — rather than merely "is Yes selected?" being asked — because the answer
-// has to come from the LAST row claude painted, and only a pattern that matches
-// BOTH rows can tell "the selection moved to No" from "nothing has repainted".
 const claudeTrustNoMarker = "No, exit"
 
-// claudeTrustSelectionRe matches whichever trust-dialog row currently carries the
-// "❯" selection glyph, capturing its label.
 var claudeTrustSelectionRe = regexp.MustCompile(
 	`❯\s*(` + regexp.QuoteMeta(claudeTrustNoMarker) + `|` + regexp.QuoteMeta(claudeTrustYesMarker) + `)`)
 
-// claudeSelectedYes reports whether the LAST trust-dialog row claude painted with
-// the selection glyph is the one that accepts trust.
-//
-// The LAST one, for exactly the reason codexReady takes the last model row: the
-// tap's buffer is a cumulative SCROLLBACK, so once "❯ Yes, I trust this folder" has
-// been painted it is in the buffer forever and a plain MatchString keeps answering
-// true long after the selection has moved off it. That is not hypothetical — it is
-// half of the bug this function replaced. claude 2.1.273 processes the FIRST
-// keystroke written to its trust dialog TWICE (see acknowledgeClaudeTrust), so one
-// arrow-down paints "❯ Yes" and then, 130ms later, "❯ No, exit" again; a scrollback
-// match saw the first paint, declared the selection correct, and sent the
-// confirming Enter into a dialog sitting back on "No, exit".
 func claudeSelectedYes(
 	tap *kit.PTYTap,
 ) bool {
@@ -158,45 +71,8 @@ func claudeSelectedYes(
 	return len(rows) > 0 && rows[len(rows)-1][1] == claudeTrustYesMarker
 }
 
-// codexModelRowRe matches the `model:` row of codex's own startup box:
-//
-//	│ model:     loading       /model to change │   <- still starting up
-//	│ model:     gpt-6-astra   /model to change │   <- up, and ACCEPTING INPUT
-//
-// The resolved row is codex's ONLY honest ready signal, and finding that out
-// cost this suite a five-minute hang per codex test. What used to stand here
-// was codexReadyNeedle — codex's composer placeholder, "Ask Codex to do
-// anything" — on the belief (true of 0.139.0/0.149.1) that a codex painting
-// its composer had already decided not to ask about trust. Measured against
-// 0.154.0 on a bare pty, that is FALSE and dangerously so:
-//
-//	0.25s  the startup box paints, model: loading, composer placeholder shown
-//	0.5s   *then* the trust dialog opens over it ("Press enter to continue")
-//
-// So the placeholder matched, settleCLI declared the CLI settled, drive()
-// typed its prompt — which codex echoes into the composer quite happily from
-// behind the modal — and the submitting Enter was eaten by the TRUST DIALOG
-// instead. The prompt then sits in the composer forever, codex never takes a
-// turn, never fires a hook, and awaitHook (whose only wakeup source is a
-// completed hook POST) parks until the backstop.
-//
-// Measured, in a bare pty, all three ways round:
-//   - placeholder -> type -> Enter:                 never submits (Enter answers the dialog)
-//   - dialog -> Enter -> type -> Enter immediately: never submits (codex drops input while booting)
-//   - dialog -> Enter -> resolved model row -> type -> Enter: submits in ~1.6s, every time
-//
-// It is a real signal and not a guess for the same reason claude's footer is:
-// codex itself paints the model name, and it cannot know the model before it
-// has finished starting.
 var codexModelRowRe = regexp.MustCompile(`model:\s+(\S+)\s+/model to change`)
 
-// codexReady reports whether the LAST model row codex painted names a real
-// model rather than "loading".
-//
-// The LAST one, and read out of kit.Readable rather than tap.Contains, because
-// the tap's buffer is a cumulative scrollback: "model: loading" is in it
-// forever once painted, so neither its presence nor its absence says anything.
-// The most recent repaint of the row is what describes codex NOW.
 func codexReady(
 	tap *kit.PTYTap,
 ) bool {
@@ -204,34 +80,6 @@ func codexReady(
 	return len(rows) > 0 && rows[len(rows)-1][1] != "loading"
 }
 
-// firstOfProvider reports whether this is the FIRST CLI of the given provider in
-// this harness — i.e. the one that will be shown a trust dialog — and records it.
-//
-// A vendor CLI asks about trust ONCE per place, and remembers the answer in ITS OWN
-// home, keyed by a path: claude by the CWD, codex by the REPOSITORY ROOT. Those homes
-// are the user's real ones in production and throwaway ones here — newHarness calls
-// kit.IsolateProviderHomes, so the answers this suite produces are written to a temp
-// directory and thrown away with it, instead of accumulating one dead stanza per test
-// run in the user's own ~/.codex/config.toml and ~/.claude.json forever.
-//
-// What matters HERE is only that isolation does not change the SHAPE of the first run:
-// a throwaway home trusts nothing, exactly like a never-before-seen repo path in a real
-// home, so the dialog still appears exactly once per provider per test. Every test here
-// builds ONE fresh temp repo with ONE worktree, so within a single test:
-//
-//   - the first claude/codex spawned sees a brand-new path → it ALWAYS shows the
-//     dialog, and blocking on it is safe;
-//   - every later CLI of that same provider — the incoming half of a provider
-//     switch, a switch-back — is in a place its provider already trusts → it shows
-//     NOTHING, and blocking on a dialog would hang until the backstop.
-//
-// Both halves are verified live, not assumed: a second codex switched back into the
-// same repo paints its composer with no dialog at all, and a second claude resumed
-// into the same worktree likewise.
-//
-// This is knowledge the HARNESS has and the screen does not, which is why it is
-// tracked here rather than scraped: "no dialog has appeared yet" and "no dialog is
-// ever coming" look identical on a PTY, and only one of them is safe to type into.
 func (h *harness) firstOfProvider(
 	provider string,
 ) bool {
@@ -242,70 +90,10 @@ func (h *harness) firstOfProvider(
 	return true
 }
 
-// resumeNeedle is what a RESUMED codex paints, and it is a modal state in all but
-// name: SwitchProvider terminates the outgoing CLI, so the codex that comes back
-// re-opens a conversation that was cut off mid-flight and greets the user with
-//
-//	"■ Conversation interrupted - tell the model what to do differently."
-//
-// Until that is acknowledged with a keypress, codex ACCEPTS TYPED TEXT BUT WILL NOT
-// SUBMIT IT: the prompt lands in the composer, echoes back, and then Enter does
-// nothing at all — verified live, with the PTY emitting not one further byte across
-// 45s and fifteen further Enters. It is the same shape of trap as the trust dialog,
-// and it is invisible unless you look for it.
-//
-// (This is exactly what the old 30-second "settle" of blind Enters was really for.
-// It cleared this banner by accident, before any text was typed, and nobody had to
-// know it existed. Sending the Enter when the banner is actually ON SCREEN does the
-// same job deliberately, in milliseconds, and says why.)
 const resumeNeedle = "Conversation interrupted"
 
-// claudeReadyNeedle is claude's interactive FOOTER, and waiting for it is what stops a
-// resumed claude from silently eating the first thing typed into it.
-//
-// A resumed claude paints no modal, and this harness used to conclude from that that it
-// needed no barrier at all: spawn it, type. That is wrong, and it is wrong in the one way
-// a PTY cannot show you. The prompt is not merely typed EARLY — it is DISCARDED. Ink
-// drains whatever is already sitting in the tty at the moment it takes the keyboard, so
-// anything written into the gap between spawn and mount is swallowed whole. What is left
-// on screen is a fully booted claude with an EMPTY composer, which is indistinguishable
-// from one that is simply thinking; drive() then waits out its whole backstop for an echo
-// that can never come. (Every switch-back test failed exactly this way, at 306 seconds.)
-//
-// BINDING IS NOT THE SIGNAL, and that is the trap. claude's SessionStart hook fires at
-// BOOT — before the composer exists — so the runner is bound, the conversation id is
-// right, every assertion about the model passes, and the CLI still is not listening. The
-// switch-back tests proved this the expensive way: they all bound, and all lost the prompt.
-//
-// The footer is a signal and not a guess because it is part of the interactive UI itself:
-// it cannot be on screen unless that UI has mounted, and the UI does not mount without
-// taking the keyboard. "(shift+tab to cycle)" is the stable part — the mode NAME beside it
-// changes with the user's config ("auto mode on", "accept edits on"), the hint does not.
-// Re-confirmed live against 2.1.273, which paints:
-//
-//	⏵⏵ auto mode on (shift+tab to cycle) · ← for agents         ● high · /effort
-//
-// The FRESH-claude path needs it just as much, and a note here once said otherwise —
-// that a claude on its trust dialog has already mounted, so its keyboard is live. The
-// UI has mounted; its INPUT HANDLING has not settled, and that is a different claim.
-// See acknowledgeClaudeTrust for what the difference costs.
 const claudeReadyNeedle = "shift+tab to cycle"
 
-// settleCLI brings a freshly started vendor CLI to a state where a typed prompt will
-// actually be SUBMITTED, blocking on what the CLI itself paints rather than on a clock.
-//
-// Which modal it must clear depends on whether this is the provider's first CLI in
-// this test (see firstOfProvider):
-//
-//   - FIRST: the folder is new to the provider, so it asks for trust and — for claude —
-//     fires no hook whatsoever until answered.
-//   - LATER: the folder is already trusted, so no trust dialog is coming. A codex here
-//     is by definition a RESUMED codex, and shows the "Conversation interrupted" banner
-//     that silently swallows submits until acknowledged. A resumed claude shows neither,
-//     and needs nothing.
-//
-// Every arm fails FAST if the PTY dies, printing the screen the CLI died on — which is
-// how a broken `--resume` surfaces as a diagnosis instead of an unexplained timeout.
 func settleCLI(
 	t *testing.T,
 	h *harness,
@@ -323,12 +111,6 @@ func settleCLI(
 	case provider == "codex":
 		needle = resumeNeedle
 	default:
-		// A resumed claude. No modal is coming — but it is NOT ready to be typed into the
-		// instant it is spawned, and the input it drops on the way up is gone for good.
-		// Wait for its composer, and do it HERE rather than folding it into the modal
-		// machinery below: that arm may finish on "the runner is already bound", which is
-		// a sound proof of being past a MODAL and no proof at all of being ready for a
-		// KEYSTROKE (claude binds at boot, before the UI exists). See claudeReadyNeedle.
 		awaitComposer(t, h, tap, termSessID, provider, "while coming back up on --resume")
 		return
 	}
@@ -349,19 +131,9 @@ func settleCLI(
 			if tap.Contains(needle) {
 				return sawNeedle, true
 			}
-			// A codex that has RESOLVED ITS MODEL is past every modal — it cannot
-			// finish starting while a dialog is blocking. This is the arm that
-			// covers a build which genuinely asks nothing (0.149.1 did not ask at
-			// all), and it deliberately does NOT match codex's composer
-			// placeholder, which 0.154.0 paints BEFORE it opens its trust dialog.
-			// See codexModelRowRe.
 			if provider == "codex" && codexReady(tap) {
 				return sawReady, true
 			}
-			// Already announced == already past every modal — but ONLY for a
-			// provider whose PTY *is* its conversation. Not codex: under the api
-			// transport its app-server announces within a second, while the PTY
-			// this tap watches is still sitting on its trust dialog.
 			if provider == "claude" {
 				if r, ok := runnerByID(h, runnerID); ok &&
 					announcedSession(h, r) != "" {
@@ -374,63 +146,21 @@ func settleCLI(
 
 	switch {
 	case outcome != sawNeedle:
-		// No modal was ever painted — the CLI reached a ready state on its own
-		// (sawReady) or had already bound (sawBound). Nothing to acknowledge.
 	case provider == "codex":
 		acknowledgeCodexDialog(t, h, tap, termSessID, needle)
 	default:
 		acknowledgeClaudeTrust(t, h, tap, termSessID)
 	}
 	if provider == "codex" {
-		// ANSWERING codex's dialog is not the same as being ready for a keystroke:
-		// measured on 0.154.0, a prompt typed straight after the acknowledging Enter
-		// echoes into the composer and is then never submitted, because codex is
-		// still starting up and drops the submit. Wait for the model row instead —
-		// see codexModelRowRe for the full set of measurements.
 		awaitCodexReady(t, h, tap, termSessID)
 		return
 	}
 	if provider != "claude" {
 		return
 	}
-	// ANSWERING claude's trust dialog is not the same as being ready for a keystroke,
-	// and this is the second place the claudeReadyNeedle trap bites. Acknowledging the
-	// dialog makes claude REMOUNT — it tears down the dialog and brings up the REPL —
-	// and Ink drains whatever is already in the tty when the new UI takes the keyboard.
-	// A prompt written into that gap is DISCARDED, leaving a fully booted claude with an
-	// EMPTY composer, which looks exactly like one that is thinking; drive() then waits
-	// out its whole backstop for an echo that can never come.
-	//
-	// Verified against 2.1.220 on a bare pty, both ways round: typing straight after the
-	// acknowledging Enter never echoes (claude does not even repaint), while waiting for
-	// the footer first echoes the full prompt. Only claude is affected — a fresh codex
-	// answered the same way echoes in 0.02s, which is why this is provider-scoped rather
-	// than applied to every CLI.
-	//
-	// No test hit this before because every existing claude driver crosses
-	// awaitSessionBound first, and that wait happens to outlast the remount.
-	//
-	// This wait carried a long "KNOWN BROKEN as of 2026-09-01" note describing a
-	// claude that bound nothing, painted nothing for 30+ seconds and sat idle in
-	// kevent64 with live HTTPS connections. All of that was ONE symptom with one
-	// cause, found 2026-09-16 and fixed in acknowledgeClaudeTrust: the trust dialog
-	// had never actually been answered, so claude was idle waiting for a keypress —
-	// and a claude that has not been trusted fires no SessionStart at all (see
-	// trustNeedle), which is exactly "the daemon never learns claude bound". With
-	// the dialog genuinely answered, claude paints its whole REPL within 1.4s.
 	awaitComposer(t, h, tap, termSessID, provider, "while mounting its composer")
 }
 
-// awaitComposer blocks until claude has painted its interactive FOOTER — the proof
-// that its REPL has mounted and therefore has the keyboard. See claudeReadyNeedle
-// for why nothing weaker will do, and settleCLI for the two states that need it.
-//
-// It is CLAUDE-ONLY, and it says so out loud rather than trusting its caller. The
-// needle it waits for is claude's footer and nothing else, so handing it any other
-// provider would wait for text that CLI never paints — a hang until the backstop,
-// reported as "the CLI never became ready", which is the most misleading failure this
-// suite can produce. A future codex caller needs codex's own ready needle, not this
-// function, and this is where that has to be noticed.
 func awaitComposer(
 	t *testing.T,
 	h *harness,
@@ -457,57 +187,10 @@ func awaitComposer(
 		}, tap.Signal())
 }
 
-// codexKeystrokeRetry bounds how long ONE acknowledging Enter is given to draw a
-// visible reaction out of codex before it is sent again. It is a RECOVERY bound
-// on a keystroke that was demonstrably thrown away, never a synchronisation
-// device: acknowledgeCodexDialog returns the instant codex paints anything, so on
-// the ordinary path (the first Enter lands) nothing here is ever waited for.
 const codexKeystrokeRetry = 2 * time.Second
 
-// claudeTrustSettle bounds how long the screen must stay UNPAINTED before a
-// keystroke sent to claude's trust dialog is treated as fully processed.
-//
-// It is a bound on a measured duplicate, not a guess about machine speed, and it
-// is generously clear of both numbers it has to cover (traced live against
-// 2.1.273, per keystroke):
-//
-//	+0.020s  the arrow's first repaint  ("❯ Yes, I trust this folder")
-//	+0.150s  the DUPLICATE repaint      ("❯ No, exit" again)
-//	+1.403s  the last frame of the whole REPL burst the confirming Enter starts,
-//	         whose largest internal gap is ~0.7s
-//
-// Nothing waits it out on the happy path once claude is past the dialog:
-// settleClaudeTrustKey returns the instant the composer footer appears.
 const claudeTrustSettle = 2 * time.Second
 
-// acknowledgeClaudeTrust answers claude's trust dialog: it moves the selection onto
-// "Yes, I trust this folder" and confirms it, RE-READING the screen after every
-// keystroke and pressing again only while claude is demonstrably still on the dialog.
-//
-// The loop is not a nudge, and neither of the two blind writes it replaced could be
-// made correct. claude 2.1.273 processes the FIRST keystroke written to its freshly
-// painted dialog TWICE — measured on a real PTY, one "\x1b[B" paints "❯ Yes" at
-// +0.020s and then "❯ No, exit" again at +0.150s, the selection wrapping 0 -> 1 -> 0.
-// A second arrow, sent once claude has settled, moves exactly one row; sending the
-// first one 20s later also moves exactly one row. So it is claude's mount-time input
-// handling, not a duplicated write: verified against Crowbar's terminal engine by
-// driving claude's theme list on a BARE pty, where one arrow always moves one row.
-//
-// That duplicate is what made both of the old halves wrong:
-//
-//   - The selection check matched the scrollback rather than the last paint, so it
-//     saw the +0.020s "❯ Yes" and declared the dialog correctly selected while it
-//     had already snapped back to "No, exit" (fixed in claudeSelectedYes).
-//   - The Enter was then sent blind, milliseconds after the arrow. Measured both
-//     ways round: sent into that window it is DISCARDED and claude sits on the
-//     dialog forever, painting nothing, binding nothing, until the backstop
-//     (this is the five-test, 300s-each failure mode); sent a few seconds later,
-//     it confirms the row actually highlighted — "No, exit" — and claude EXITS.
-//
-// Waiting for the screen to go quiet before reading the selection covers all three
-// behaviours (duplicated, dropped, taken) without caring which one happened, and
-// the Enter is only ever sent at a moment when the row under the cursor has been
-// read after claude stopped repainting it.
 func acknowledgeClaudeTrust(
 	t *testing.T,
 	h *harness,
@@ -517,8 +200,6 @@ func acknowledgeClaudeTrust(
 	t.Helper()
 	deadline := time.Now().Add(backstop)
 	for {
-		// The composer footer is proof the dialog is GONE — claude only mounts its
-		// REPL once the folder is trusted. See claudeReadyNeedle.
 		if tap.Contains(claudeReadyNeedle) {
 			return
 		}
@@ -541,18 +222,6 @@ func acknowledgeClaudeTrust(
 	}
 }
 
-// settleClaudeTrustKey blocks until a keystroke sent to claude's trust dialog has
-// finished having its effect: either claude has painted its composer footer (the
-// dialog is gone and there is nothing left to settle), or the screen has stopped
-// changing, so the LAST selection row on it is the one claude is really sitting on.
-//
-// Bounded by deadline (the same one acknowledgeClaudeTrust already computes): a
-// claude that keeps repainting SOMETHING within every claudeTrustSettle window —
-// observed live, a persistent status/telemetry animation on some builds — never
-// goes quiet, and paintedSince alone would then loop here forever, past the
-// caller's own deadline check on line below it, which never gets a turn to run.
-// Returning once the deadline passes hands control back to that check instead of
-// silently absorbing it.
 func settleClaudeTrustKey(
 	tap *kit.PTYTap,
 	deadline time.Time,
@@ -570,23 +239,6 @@ func settleClaudeTrustKey(
 	}
 }
 
-// acknowledgeCodexDialog answers codex's on-screen dialog and MAKES SURE IT WAS
-// HEARD, re-pressing Enter until codex reacts.
-//
-// The re-press is not a nudge, and this is the one place in this suite where
-// anything is sent twice. Measured against 0.154.0, in the harness, with the
-// dialog fully painted and its "Press enter to continue" footer on screen: the
-// first Enter is SILENTLY DISCARDED, and the PTY then emits ZERO further bytes
-// for a full 60 seconds — codex's dialog is painted before its input loop takes
-// the keyboard, so a keystroke written into that window is dropped exactly the
-// way Ink drops one into claude's (see claudeReadyNeedle). A second Enter, a few
-// seconds later, is taken and codex starts up normally.
-//
-// There is nothing on screen to key that window's end on: the dialog paint is
-// the last byte codex emits until it reads input, so "the keyboard is live" has
-// no observable. Pressing again and watching for a reaction is the only honest
-// test of it — and this stops at the FIRST reaction, so a codex that heard the
-// first Enter is never typed at twice.
 func acknowledgeCodexDialog(
 	t *testing.T,
 	h *harness,
@@ -612,8 +264,6 @@ func acknowledgeCodexDialog(
 	}
 }
 
-// paintedSince reports whether the PTY painted ANYTHING after mark, parking on
-// the tap's own output edge and giving up after within.
 func paintedSince(
 	tap *kit.PTYTap,
 	mark int,
@@ -621,8 +271,6 @@ func paintedSince(
 ) bool {
 	expiry := time.After(within)
 	for {
-		// Arm before checking, for the same reason kit.Await does: output landing
-		// between the check and the park must not be lost.
 		edge := tap.Signal().Wait()
 		if tap.Mark() > mark {
 			return true
@@ -635,11 +283,6 @@ func paintedSince(
 	}
 }
 
-// awaitCodexReady blocks until codex has finished starting up — its startup box
-// naming a real model rather than "loading" — which is the point its composer
-// starts SUBMITTING what is typed into it rather than silently swallowing it.
-// It is codex's counterpart to awaitComposer, and needed for exactly the same
-// reason; see codexModelRowRe for the bare-pty measurements behind it.
 func awaitCodexReady(
 	t *testing.T,
 	h *harness,
@@ -659,9 +302,6 @@ func awaitCodexReady(
 		}, tap.Signal())
 }
 
-// requireCLIAlive fails the test — immediately, and with the screen the CLI died on —
-// if its PTY is gone. A dead CLI can never satisfy any barrier, so every wait checks
-// this rather than letting the backstop turn a hard failure into a mystery timeout.
 func requireCLIAlive(
 	t *testing.T,
 	h *harness,
@@ -679,17 +319,6 @@ func requireCLIAlive(
 		provider, when, kit.Readable(tap.Screen()))
 }
 
-// spawnReady spawns a provider on wsID, taps its PTY, dismisses its trust dialog,
-// and returns the chat, the runner, the PTY session and the tap. It is the
-// entry-point every test in this suite shares: a CLI that is past its modal and
-// able to talk to the daemon.
-//
-// It deliberately does NOT wait for the CLI to bind a conversation. claude binds
-// at boot (its SessionStart fires the moment the folder is trusted), but CODEX
-// CREATES ITS ROLLOUT LAZILY, on its first real turn — an idle codex fires no
-// SessionStart no matter how long it is watched. So "ready" here means "ready to
-// be driven", and a caller that needs a conversation id must drive a turn first
-// and await the bind after.
 func spawnReady(
 	t *testing.T,
 	h *harness,
@@ -711,10 +340,6 @@ func spawnReady(
 	return chatID, runnerID, termSessID, tap
 }
 
-// attachReady is spawnReady's other half, for a CLI the DAEMON spawned rather
-// than the test — the incoming process of a provider switch. It taps the new PTY
-// and settles its trust dialog, so the switched-to CLI is drivable on the same
-// terms as a directly spawned one.
 func attachReady(
 	t *testing.T,
 	h *harness,
@@ -728,23 +353,6 @@ func attachReady(
 	return tap
 }
 
-// drive types a prompt into a live CLI's composer and submits it, blocking on the
-// app's OWN ECHO in between — never on a clock.
-//
-// The two writes cannot be one. A trailing \r sent in the same write as the text is
-// read by an Ink-style TUI as a literal newline INSIDE the input box, not as a
-// submit, so the prompt is never sent; the text has to land first. What the old code
-// did was sleep 300ms and hope the CLI had drained its stdin by then — a guess that
-// is wrong exactly when the machine is loaded.
-//
-// The real signal is that the app has PAINTED the text back into its composer: that
-// is the app telling us, on its own initiative, that it consumed the input. Matching
-// is restricted to output painted after the write began (Mark), so a prompt typed
-// twice in one session cannot match its own earlier echo. Only then is the
-// submitting Enter sent.
-//
-// The caller must have run settleCLI first: a CLI sitting behind a modal will echo
-// text into its composer and then silently refuse to submit it.
 func drive(
 	t *testing.T,
 	h *harness,
@@ -771,15 +379,6 @@ func drive(
 	require.NoError(t, h.eng.Terminal.Write(ctx, termSessID, []byte("\r")), "drive: submit")
 }
 
-// awaitSessionBound blocks until runnerID's CLI has announced the session its
-// chat is bound to, and returns it with the runner row it read. A dead runner
-// reads as ErrNotFound, so a CLI that died on startup surfaces as "never bound".
-// A dead CLI can never bind, so awaitSessionBound watches the PTY as well as the
-// hook feed and fails the moment the process is gone — printing the screen it died
-// on. Without that, a CLI that exits on startup (a `--resume` against a session the
-// vendor no longer has, say) is indistinguishable from a slow one: the old code
-// simply waited out its 30s timeout and reported "never bound", which reads like a
-// flake and hides the actual error message the CLI printed.
 func awaitSessionBound(
 	t *testing.T,
 	h *harness,
@@ -800,10 +399,6 @@ func awaitSessionBound(
 				return sid, true
 			}
 		}
-		// The PTY id is passed in rather than read off the runner row, because the row
-		// is exactly what disappears when the CLI dies: its exit callback deletes it. A
-		// liveness check keyed on the row could therefore never fire in the one case it
-		// exists for.
 		if !h.eng.Terminal.SessionLive(context.Background(), termSessID) {
 			t.Fatalf("awaitSessionBound: the CLI on runner %s EXITED without ever binding a conversation. "+
 				"It did not run slowly — it DIED. Its screen was:\n%s",
@@ -814,9 +409,6 @@ func awaitSessionBound(
 	return sid, last
 }
 
-// announcedSession is the session r's CLI has announced on its chat, "" until it
-// has. Claude is bound at launch, so its announcement shows as the model its
-// SessionStart reported; codex is bound by its announcement alone.
 func announcedSession(h *harness, r agents.Runner) string {
 	snap, err := h.app.Usecases.AgentChat.ChatSnapshot(context.Background(), r.CurrentChatID)
 	if err != nil {
@@ -832,11 +424,6 @@ func announcedSession(h *harness, r agents.Runner) string {
 	return c.SessionID
 }
 
-// awaitAssistantReply blocks until the ledger holds an assistant turn from
-// provider whose text contains want, and returns every assistant turn seen.
-//
-// The signal is the CLI's own Stop hook: by the time its request returns, the
-// ingress has committed the reply, so the predicate re-run on it reads it.
 func awaitAssistantReply(
 	t *testing.T,
 	h *harness,
@@ -859,13 +446,6 @@ func awaitAssistantReply(
 	return texts
 }
 
-// awaitHandoffContains blocks until the chat's assembled handoff blob carries want.
-//
-// NOTE this is a weak barrier ON ITS OWN and must not be used to decide that a TURN
-// has finished: the blob is rendered from every ledger entry, and the CLI's
-// UserPromptSubmit hook records the prompt we typed the instant it is submitted — so
-// a blob check for a codeword we ourselves typed is satisfied while the model is
-// still thinking. Use awaitTurnComplete to wait for a turn.
 func awaitHandoffContains(
 	t *testing.T,
 	h *harness,
@@ -882,27 +462,6 @@ func awaitHandoffContains(
 	})
 }
 
-// awaitTurnComplete blocks until provider has appended an ASSISTANT turn to the
-// chat's ledger — its own turn_stop hook having fired, on disk. That is the ONLY
-// signal that a driven turn is actually over, and it is the barrier every provider
-// SWITCH must cross first.
-//
-// Switching on anything weaker terminates the outgoing CLI mid-answer. That is not
-// hypothetical: waiting instead on "the ledger mentions the codeword" — which the
-// UserPromptSubmit hook satisfies the moment the prompt is submitted — killed codex
-// while it was still composing its reply, so the reply never reached the ledger, its
-// rollout never recorded it, and the codex resumed later had nothing to recall. The
-// test that failed was the one asserting the resumed codex remembers; the bug was
-// four steps earlier, in what "the turn is done" was taken to mean.
-//
-// AN ASSISTANT ENTRY IS NO LONGER SUFFICIENT ON ITS OWN. Crowbar now records
-// every message of a turn rather than only the last, so the first thing a CLI
-// says lands in the record while the turn is still running — and a barrier that
-// stopped there would release mid-answer, which is precisely what the paragraph
-// above says must never happen. The chat's own Working flag is what closes the
-// gap: it is folded from turn_started/turn_stopped plus whatever asynchronous
-// work the CLI says it left running, so it goes false only when the turn is
-// genuinely over.
 func awaitTurnComplete(
 	t *testing.T,
 	h *harness,

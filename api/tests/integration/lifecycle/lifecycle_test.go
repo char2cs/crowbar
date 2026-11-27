@@ -13,17 +13,14 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// TestMain is the integration test entry point; delegates to kit.Main.
 func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// LifecycleSuite verifies end-to-end lifecycle flows through the full HTTP+WS+SQLite stack.
 type LifecycleSuite struct {
 	kit.IntegrationSuite
 }
 
-// TestLifecycleSuite runs the LifecycleSuite via testify.
 func TestLifecycleSuite(t *testing.T) {
 	suite.Run(
 		t,
@@ -31,11 +28,6 @@ func TestLifecycleSuite(t *testing.T) {
 	)
 }
 
-// TestLifecycle_WorkspaceCreateBroadcastsOnWS proves the projection → stream
-// chain: a worktree's state reaches a projects-scope holder as its workspace
-// row, carrying its branch and repo. It creates through the usecase
-// (kit.Env.CreateWorkspaceWithChat) because no headless HTTP create names a
-// branch, and keys on the worktree's own sync, a write made after the dial.
 func (s *LifecycleSuite) TestLifecycle_WorkspaceCreateBroadcastsOnWS() {
 	t := s.T()
 
@@ -54,9 +46,6 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceCreateBroadcastsOnWS() {
 	s.Assert().Equal(imported.RepoID, created["repoId"])
 }
 
-// TestLifecycle_SyncSucceedsAfterACommit proves a workspace edit → stage →
-// commit → sync flow round-trips: the sync operation succeeds and the workspace
-// stays status "new" (per D4 — status is not cleared by HasCommits).
 func (s *LifecycleSuite) TestLifecycle_SyncSucceedsAfterACommit() {
 	t := s.T()
 
@@ -92,9 +81,6 @@ func (s *LifecycleSuite) TestLifecycle_SyncSucceedsAfterACommit() {
 	kit.WaitForWorkspaceState(t, watcher, wsID, "new", 5*time.Second)
 }
 
-// TestLifecycle_MergeEligibilityTrueWhenParentIdle proves that a child whose
-// parent is idle (not locked/deleted) carries canMergeLocally:true and the
-// parent's branch in its workspace row (spec §10), read back over REST.
 func (s *LifecycleSuite) TestLifecycle_MergeEligibilityTrueWhenParentIdle() {
 	t := s.T()
 
@@ -114,7 +100,6 @@ func (s *LifecycleSuite) TestLifecycle_MergeEligibilityTrueWhenParentIdle() {
 	s.Assert().Equal(parentID, msg["parentId"])
 }
 
-// TestLifecycle_HealthEndpoint verifies the health route responds 200.
 func (s *LifecycleSuite) TestLifecycle_HealthEndpoint() {
 	t := s.T()
 
@@ -123,15 +108,6 @@ func (s *LifecycleSuite) TestLifecycle_HealthEndpoint() {
 	s.Require().Equal(http.StatusOK, resp.StatusCode)
 }
 
-// TestLifecycle_WorkspaceList verifies create then list round-trips over the
-// repo-scoped chat list — the read-model replacement for the deleted workspace
-// list (spec §8 step 6; kit.Env.WorktreeChats).
-//
-// It creates with CreateWorkspaceWithChat, not the bare CreateWorkspace: the
-// chat list is keyed by OWNING CHAT (each worktree-owning row's own id), and a
-// bare create mints no chat at all — it is owed one only by the next boot's
-// backfill (kit.Env.OwningChatID's own doc) — so an un-chatted workspace would
-// never appear in this list no matter how long Quiesce waits.
 func (s *LifecycleSuite) TestLifecycle_WorkspaceList() {
 	t := s.T()
 
@@ -142,11 +118,6 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceList() {
 		ids[i], _ = s.Env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, branch, "")
 	}
 
-	// CreateWorkspaceWithChat returns once its writes are observed on the hub
-	// broadcast (WS), but the list route reads the store projection — an
-	// independent async read model that can trail the WS frame. Drain asynx so
-	// both projections are settled, then assert the snapshot deterministically
-	// (no polling, no timeout).
 	s.Env.Quiesce()
 
 	chats := s.Env.WorktreeChats(t, imported.ProjectID, imported.RepoID)
@@ -155,9 +126,6 @@ func (s *LifecycleSuite) TestLifecycle_WorkspaceList() {
 	}
 }
 
-// TestLifecycle_GitStageCommitChangesStatus proves file edit → stage → commit
-// makes the working tree clean again (git status-driven via HTTP) on a writable
-// child workspace.
 func (s *LifecycleSuite) TestLifecycle_GitStageCommitChangesStatus() {
 	t := s.T()
 

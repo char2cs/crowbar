@@ -1,5 +1,3 @@
-//! What the event bus logs as it hands each daemon event on.
-
 use std::fmt;
 
 use journal::{Event, Level};

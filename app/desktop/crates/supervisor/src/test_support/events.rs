@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use journal::{Event, Level};
 
-/// Asserts each event's name, level and message.
 pub(crate) fn assert_events<M: Display>(
     cases: impl IntoIterator<Item = (impl Event, &'static str, Level, M)>
 ) {

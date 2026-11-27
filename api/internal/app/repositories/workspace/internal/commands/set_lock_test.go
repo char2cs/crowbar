@@ -11,14 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// The user's lock override, and the one thing that makes it worth having: it has
-// to survive the provider poll that runs a minute later.
-//
-// Before it existed, `locked` was the provider's word alone — nextProviderStatus
-// re-derived it from the protected flag on every sync. A user who unlocked main
-// would find it locked again on the next tick, so the tests below are written
-// around a SYNC following the toggle, not around the toggle by itself.
-
 func ptr(b bool) *bool { return &b }
 
 func TestSetLockUnlocksAProtectedBranch(t *testing.T) {
@@ -35,7 +27,6 @@ func TestSetLockUnlocksAProtectedBranch(t *testing.T) {
 }
 
 func TestSetLockLocksAnOrdinaryBranch(t *testing.T) {
-	// Any branch, including a fork child the provider has no opinion about.
 	ws := &domain.Workspace{ID: "w1", WorktreePath: "/w", ParentID: "w0", Status: domain.WorkspaceStatusNew, Provisioning: domain.WorkspaceProvisioned}
 
 	got := SetLock{ID: "w1", Locked: ptr(true), Protected: false}.EmitEvent(ws)
@@ -59,7 +50,6 @@ func TestSetLockClearedHandsTheQuestionBackToTheProvider(t *testing.T) {
 }
 
 func TestUnlockSurvivesTheNextProviderPoll(t *testing.T) {
-	// The regression this whole feature turns on.
 	unlocked := ptr(false)
 
 	got := nextProviderStatus(domain.WorkspaceStatusNew, unlocked, true, false, "")
@@ -70,8 +60,6 @@ func TestUnlockSurvivesTheNextProviderPoll(t *testing.T) {
 }
 
 func TestLockSurvivesAnIncomingPRStatus(t *testing.T) {
-	// The other direction: a branch the user locked must not be quietly unlocked
-	// by a PR opening on it.
 	locked := ptr(true)
 
 	got := nextProviderStatus(domain.WorkspaceStatusLocked, locked, false, true, "open")
@@ -82,8 +70,6 @@ func TestLockSurvivesAnIncomingPRStatus(t *testing.T) {
 }
 
 func TestProviderStillLocksWithoutAnOverride(t *testing.T) {
-	// Automatic locking is untouched: no opinion means the provider decides,
-	// exactly as it always has.
 	got := nextProviderStatus(domain.WorkspaceStatusNew, nil, true, false, "")
 
 	if got != domain.WorkspaceStatusLocked {
@@ -91,7 +77,6 @@ func TestProviderStillLocksWithoutAnOverride(t *testing.T) {
 	}
 }
 
-// The refusal reaches the user as the toast's words, so it says why.
 func TestSetLockRefusesWhatCannotBeLocked(t *testing.T) {
 	cases := map[string]struct {
 		ws  *domain.Workspace
@@ -130,11 +115,6 @@ func TestSetLockNeverResurrectsADeletedRow(t *testing.T) {
 	}
 }
 
-// The command's contract with the event store. These four are never called by
-// the tests above — they are called by asynx, on replay, which is exactly why a
-// silent change to one is expensive: the event NAME is what an aggregate
-// replays from, and a command that reports the wrong aggregate id writes its
-// event onto someone else's stream.
 func TestSetLockEventContract(t *testing.T) {
 	c := SetLock{ID: "w1"}
 
@@ -144,8 +124,6 @@ func TestSetLockEventContract(t *testing.T) {
 	if got := c.EventName(); got != "workspace.lock_set.w1" {
 		t.Errorf("EventName() = %q", got)
 	}
-	// A lock changes what every later command is allowed to do, so the aggregate
-	// should not have to replay the whole stream to learn it.
 	if !c.ShouldSnapshot() {
 		t.Error("ShouldSnapshot() = false, want true")
 	}

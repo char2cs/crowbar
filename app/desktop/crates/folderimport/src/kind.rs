@@ -1,11 +1,6 @@
-//! Which of develop's two add dialogs a view is.
-
-/// Which of develop's two add dialogs a view is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// "Add a space" (develop's `ImportProjectModal`): the folder becomes a new space.
     Space,
-    /// "Add repository" (develop's `AddRepositoryModal`): the folder joins the open space.
     Repo,
 }
 

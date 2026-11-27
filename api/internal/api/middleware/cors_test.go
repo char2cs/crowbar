@@ -48,12 +48,6 @@ func TestCORS_ActualRequestReflectsOrigin(t *testing.T) {
 	assert.Equal(t, "Origin", w.Header().Get("Vary"))
 }
 
-// The webview reaches the daemon cross-origin (a page on tauri://localhost
-// fetching crowbar://localhost), so CORS governs which RESPONSE headers its
-// JavaScript may read. Only the safelisted handful are readable by default:
-// without an explicit Access-Control-Expose-Headers, GET /review/patch's
-// X-Crowbar-Diff-Truncated reads back as null and every truncated patch is
-// silently mistaken for a complete one.
 func TestCORS_ExposesDiffTruncatedHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -104,8 +98,6 @@ func TestCORS_PreflightWithoutRequestHeadersFallsBack(t *testing.T) {
 	assert.Equal(t, "Content-Type", w.Header().Get("Access-Control-Allow-Headers"))
 }
 
-// A handler outside the router gets the router's CORS: the boot gate answers
-// the webview before the API exists.
 func TestCORSHandler_GrantsWhatTheRouterGrants(t *testing.T) {
 	gate := CORSHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

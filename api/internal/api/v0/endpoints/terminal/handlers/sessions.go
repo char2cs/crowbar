@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// CreateSession handles POST /v0/chats/:chatId/terminals, answering 201 {sessionId} synchronously
-// so the client can open the PTY WebSocket. The session is owned by :chatId and runs in its
-// worktree; sibling chats on one worktree get disjoint sessions.
 func (h *Handlers) CreateSession(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
@@ -27,7 +24,6 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 
 	chatID := ctx.Param("chatId")
 
-	// A miss means the route is mounted outside resolveChatWorktree: a wiring bug.
 	ws, ok := reqscope.Workspace(ctx)
 	if !ok {
 		libs.WriteErr(ctx, http.StatusInternalServerError, "chat worktree not resolved")
@@ -58,8 +54,6 @@ func (h *Handlers) CreateSession(ctx *gin.Context) {
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, gin.H{"sessionId": sid})
 }
 
-// ListSessions handles GET /v0/chats/:chatId/terminals: the sessions owned by this chat (not its
-// worktree siblings) from the in-memory registry, with lifecycle state. Terminals are not persisted.
 func (h *Handlers) ListSessions(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
@@ -74,7 +68,7 @@ func (h *Handlers) ListSessions(ctx *gin.Context) {
 	for _, id := range ids {
 		state, ok := eng.StateOf(id)
 		if !ok {
-			continue // session vanished between List and StateOf
+			continue
 		}
 		sessions = append(sessions, dto.TerminalSessionDTOFrom(id, chatID, "", state, now))
 	}
@@ -82,8 +76,6 @@ func (h *Handlers) ListSessions(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, sessions)
 }
 
-// KillSession handles DELETE /v0/chats/:chatId/terminals/:sessionId.
-// It answers 200 with the killed session's id.
 func (h *Handlers) KillSession(ctx *gin.Context) {
 	eng := h.requireTerminalEngine(ctx)
 	if eng == nil {
@@ -100,7 +92,6 @@ func (h *Handlers) KillSession(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusOK, sid)
 }
 
-// requireTerminalEngine returns the engine or writes a 503 and returns nil.
 func (h *Handlers) requireTerminalEngine(ctx *gin.Context) TerminalEngine {
 	if h.termEng == nil {
 		libs.WriteErr(ctx, http.StatusServiceUnavailable, "terminal engine not available")
@@ -109,7 +100,6 @@ func (h *Handlers) requireTerminalEngine(ctx *gin.Context) TerminalEngine {
 	return h.termEng
 }
 
-// resolveProfile fetches a profile by ID or returns nil if empty/missing.
 func (h *Handlers) resolveProfile(ctx context.Context, profileID string) *domain.TerminalProfile {
 	if profileID == "" || h.profileStore == nil {
 		return nil

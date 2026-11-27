@@ -7,14 +7,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// syncOK is the data shape returned by the document-sync notifications: a fixed
-// acknowledgement that the engine accepted the notification.
 type syncOK struct {
 	OK bool `json:"ok"`
 }
 
-// DidOpen handles POST /v0/chats/:chatId/lsp/didOpen, forwarding a
-// textDocument/didOpen notification with the full buffer text.
 func (h *Handlers) DidOpen(
 	c *gin.Context,
 ) {
@@ -37,8 +33,6 @@ func (h *Handlers) DidOpen(
 	libs.WriteQueryOK(c, syncOK{OK: true})
 }
 
-// DidChange handles POST /v0/chats/:chatId/lsp/didChange, forwarding a
-// textDocument/didChange notification with the full replacement buffer text.
 func (h *Handlers) DidChange(
 	c *gin.Context,
 ) {
@@ -60,8 +54,6 @@ func (h *Handlers) DidChange(
 	libs.WriteQueryOK(c, syncOK{OK: true})
 }
 
-// DidClose handles POST /v0/chats/:chatId/lsp/didClose, forwarding a
-// textDocument/didClose notification.
 func (h *Handlers) DidClose(
 	c *gin.Context,
 ) {

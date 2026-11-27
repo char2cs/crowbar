@@ -1,5 +1,3 @@
-//! Public-API tests: every frame survives encoding, and wire shapes stay stable.
-
 use protocol::{
     CommandId, DisplayText, DocumentPath, EventName, ExtensionId, ExtensionStatus, KeyBinding,
     KeyChord, Lifecycle, MethodName, OpenMode, PaneFrame, PaneId, PaneOpen, PaneState, PaneTitle,

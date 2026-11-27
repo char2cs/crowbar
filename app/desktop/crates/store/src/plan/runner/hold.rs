@@ -1,5 +1,3 @@
-//! What the state holds while a plan runs: the commit, the icon and the folder being added.
-
 use crate::live::State;
 use crate::live::{Outcome, OutcomeSink};
 use crate::plan::Plan;

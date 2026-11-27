@@ -31,9 +31,6 @@ func (rs *Runners) SubmitPrompt(
 	return rs.submitPromptLocked(ctx, h, chatID, text, clientRequestID, nil)
 }
 
-// submitPromptLocked is SubmitPrompt's body under h. admit, if set, runs once the
-// request is known to be new (a resend answers from the ledger and changes
-// nothing); handled says admit delivered the prompt itself.
 func (rs *Runners) submitPromptLocked(
 	ctx context.Context,
 	h *hold,
@@ -48,8 +45,6 @@ func (rs *Runners) submitPromptLocked(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chat: %w", err)
 	}
-	// Never decided against a runner whose end is under way: that end's owner
-	// may be about to put its own prompt on the chat.
 	if _, _, err := rs.settledRunner(h); err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: %w", err)
 	}
@@ -96,9 +91,6 @@ func (rs *Runners) submitPromptLocked(
 	return rs.launchCarrying(ctx, h, chat, clientRequestID, text, delivery)
 }
 
-// spawnFailure is what a failed replacement spawn tells the client: a CLI that
-// is not installed, or was refused its session, provably never took the prompt;
-// any other failure may follow a fork.
 func spawnFailure(ctx context.Context, err error) error {
 	switch {
 	case errors.Is(err, engineterminal.ErrCommandNotFound):
@@ -109,8 +101,6 @@ func spawnFailure(ctx context.Context, err error) error {
 	return uncertainPromptOutcome(ctx, "replacement spawn", err)
 }
 
-// pushFailure is what a failed api push tells the client: a session the
-// provider no longer has cannot have taken the prompt.
 func pushFailure(ctx context.Context, err error) error {
 	if errors.Is(err, engineagents.ErrAPISessionLost) {
 		return ErrPromptSessionLost
@@ -141,8 +131,6 @@ func normalisePromptRequest(
 	return requestUUID.String(), nil
 }
 
-// replayPriorPrompt answers a request the ledger already holds, and refuses a
-// new one while another prompt is pending. done=false: the request is new.
 func (rs *Runners) replayPriorPrompt(
 	ctx context.Context,
 	chatID, requestID, text string,
@@ -162,7 +150,6 @@ func (rs *Runners) replayPriorPrompt(
 	return domain.AgentPromptSubmission{RunnerID: prior.RunnerID, TerminalSessionID: carrier.TerminalSession}, true, nil
 }
 
-// settleOrphanedPrompts settles pending prompts no live or launching carrier can deliver, then returns the State.
 func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (ledger.State, error) {
 	live, _ := rs.live.byChat(chatID)
 	_, st, err := rs.ledger.Do(ctx, chatID, func(st ledger.State) ([]ledger.Row, error) {
@@ -177,10 +164,6 @@ func (rs *Runners) settleOrphanedPrompts(ctx context.Context, chatID string) (le
 	return st, nil
 }
 
-// priorPrompt is the ledger's verdict on requestID. The same text is a resend
-// (replay); other text, or a prompt already settled, is a conflict; a new
-// request waits behind any prompt still pending, unless it may queue behind
-// steered prompts: the running turn's end hands them on one at a time.
 func priorPrompt(st ledger.State, requestID, text string, queues bool) (ledger.Prompt, bool, error) {
 	p, ok := st.Receipt(requestID)
 	switch {
@@ -198,10 +181,6 @@ func onlySteered(pending []ledger.Prompt) bool {
 	return !slices.ContainsFunc(pending, func(p ledger.Prompt) bool { return p.Delivery != ledger.DeliverySteer })
 }
 
-// recordPrompt appends requestID's user_message before any CLI is touched: from this
-// commit the prompt is owed an outcome. dispatch is what the CLI is handed if not
-// text; carrier is the delivering runner; admit, when set, may refuse the record.
-// It returns the move note the CLI must be handed ahead of the prompt.
 func (rs *Runners) recordPrompt(
 	ctx context.Context, chatID, requestID, text, dispatch, delivery, carrier string, admit func(ledger.State) error,
 ) (note string, _ error) {
@@ -236,7 +215,6 @@ func (rs *Runners) recordPrompt(
 	return note, nil
 }
 
-// refusedRetry is retryOf when the ledger holds it as a prompt settled without running.
 func refusedRetry(st ledger.State, retryOf string) string {
 	p, ok := st.Receipt(retryOf)
 	if retryOf == "" || !ok || p.Status != ledger.PromptStatusSettled || p.Consumed {
@@ -245,8 +223,6 @@ func refusedRetry(st ledger.State, retryOf string) string {
 	return retryOf
 }
 
-// failPrompt settles requestID as undelivered, as lost when cause says its
-// session was and as stopped when a Stop was, and returns cause.
 func (rs *Runners) failPrompt(ctx context.Context, chatID, requestID string, cause error) error {
 	reason := ledger.ReasonDeliveryFailed
 	switch {
@@ -261,8 +237,6 @@ func (rs *Runners) failPrompt(ctx context.Context, chatID, requestID string, cau
 	return cause
 }
 
-// settlePrompts commits decide's settles on chatID. It outlives ctx: a prompt
-// left pending would hold the chat busy.
 func (rs *Runners) settlePrompts(ctx context.Context, chatID string, decide func(ledger.State) ([]ledger.Row, error)) {
 	ctx = context.WithoutCancel(ctx)
 	if _, _, err := rs.ledger.Do(ctx, chatID, decide); err != nil {
@@ -270,9 +244,6 @@ func (rs *Runners) settlePrompts(ctx context.Context, chatID string, decide func
 	}
 }
 
-// submitPromptOverAPI delivers text over live's api connection with no restart, unless
-// the selection changed in a restart_tui field (the connection would keep the OLD
-// model). handled=false — no connection, or such a change — falls back to a restart.
 func (rs *Runners) submitPromptOverAPI(
 	ctx context.Context,
 	chat domain.Chat,
@@ -294,7 +265,6 @@ func (rs *Runners) submitPromptOverAPI(
 		return domain.AgentPromptSubmission{}, false, nil
 	}
 
-	// A COPY of text for dispatch — the durable ledger text is never mutated.
 	dispatchText, err := rs.rewritePromptTextForDispatch(chat.ID, text)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf("agent: submit prompt: materialize attachments: %w", err)
@@ -321,9 +291,6 @@ func (rs *Runners) submitPromptOverAPI(
 	return submission, true, err
 }
 
-// displaceForPrompt quits the chat's idle runner outside the chat's lock, then
-// refuses the replacement unless requestID is still the chat's to deliver and
-// nothing took the chat meanwhile.
 func (rs *Runners) displaceForPrompt(
 	ctx context.Context,
 	h *hold,
@@ -346,8 +313,6 @@ func (rs *Runners) displaceForPrompt(
 	return nil
 }
 
-// endIdleForPrompt refuses a busy chat and marks its idle runner ending, in
-// its turn order: no turn opens on it before the quit.
 func (rs *Runners) endIdleForPrompt(ctx context.Context, chatID, liveRunnerID string) (err error) {
 	rs.live.inTurnOrder(chatID, func() {
 		if err = rs.requirePromptIdle(ctx, chatID, liveRunnerID); err == nil {
@@ -357,16 +322,12 @@ func (rs *Runners) endIdleForPrompt(ctx context.Context, chatID, liveRunnerID st
 	return err
 }
 
-// commitPromptSpawn answers with the runner the prompt went to. What must exist
-// is a DELIVERY TARGET, not a PTY: an api-driven runner forks none
-// (apirunner.go), and its connection is that target.
 func (rs *Runners) commitPromptSpawn(
 	ctx context.Context,
 	chatID, clientRequestID, runnerID string,
 ) (domain.AgentPromptSubmission, error) {
 	spawned, ok := rs.live.byRunner(runnerID)
 	if !ok {
-		// The carrier existed and may have acknowledged it; its exit settled it.
 		return domain.AgentPromptSubmission{}, uncertainPromptOutcome(ctx, "read replacement runner", ErrNoLiveRunner)
 	}
 	result := domain.AgentPromptSubmission{
@@ -400,8 +361,6 @@ func (rs *Runners) requirePromptIdle(ctx context.Context, chatID, runnerID strin
 	return rs.requireNotBusy(ctx, chatID)
 }
 
-// requireChatAcceptingPrompt is the busy verdict a send would otherwise reach
-// only after its staged selection was committed.
 func (rs *Runners) requireChatAcceptingPrompt(ctx context.Context, chatID string) error {
 	if err := rs.requireNotBusy(ctx, chatID); err != nil {
 		return err
@@ -409,7 +368,6 @@ func (rs *Runners) requireChatAcceptingPrompt(ctx context.Context, chatID string
 	return rs.requireNoPendingPrompt(ctx, chatID)
 }
 
-// requireNotBusy refuses while the chat's ledger folds it working.
 func (rs *Runners) requireNotBusy(ctx context.Context, chatID string) error {
 	busy, err := rs.ChatBusy(ctx, chatID)
 	if err != nil {
@@ -421,14 +379,11 @@ func (rs *Runners) requireNotBusy(ctx context.Context, chatID string) error {
 	return nil
 }
 
-// ChatBusy reports whether chatID's ledger folds it working.
 func (rs *Runners) ChatBusy(ctx context.Context, chatID string) (bool, error) {
 	busy, _, err := rs.ChatWork(ctx, chatID)
 	return busy, err
 }
 
-// ChatWork reports whether chatID's ledger folds it working, and whether a
-// prompt still awaits its provider.
 func (rs *Runners) ChatWork(ctx context.Context, chatID string) (busy, awaiting bool, err error) {
 	st, err := rs.ledger.State(ctx, chatID)
 	if err != nil {
@@ -437,8 +392,6 @@ func (rs *Runners) ChatWork(ctx context.Context, chatID string) (busy, awaiting 
 	return st.Busy(), len(st.PendingPrompts()) > 0, nil
 }
 
-// requireNoPendingPrompt refuses while a prompt awaits the provider, once those
-// whose carrier has left the chat are settled.
 func (rs *Runners) requireNoPendingPrompt(ctx context.Context, chatID string) error {
 	st, err := rs.settleOrphanedPrompts(ctx, chatID)
 	if err != nil {
@@ -450,8 +403,6 @@ func (rs *Runners) requireNoPendingPrompt(ctx context.Context, chatID string) er
 	return nil
 }
 
-// reconcilePendingPromptsOnBoot settles every prompt a restart left pending: no
-// carrier from before it can acknowledge one now.
 func (rs *Runners) reconcilePendingPromptsOnBoot(ctx context.Context) error {
 	chats, err := rs.ledger.OpenChats(ctx)
 	if err != nil {

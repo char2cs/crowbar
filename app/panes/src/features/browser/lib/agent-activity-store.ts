@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 
 interface BrowserAgentState {
-  /** Tab id → agent commands in flight on it. */
   active: Record<string, number>
   begin: (tabId: string) => void
   end: (tabId: string) => void

@@ -1,5 +1,3 @@
-//! The desktop's file chooser the shell's buttons open; the shell installs it at start.
-
 mod choice_kind;
 mod file_choice;
 mod file_filter;
@@ -13,11 +11,8 @@ pub use choice_kind::ChoiceKind;
 pub use file_choice::FileChoice;
 pub use file_filter::FileFilter;
 
-/// Opens a chooser for a [`FileChoice`] over a window; its task ends with the chosen paths,
-/// none when cancelled.
 pub type ChooseFiles = Rc<dyn Fn(FileChoice, &Window, &mut App) -> Task<Vec<PathBuf>>>;
 
-/// The installed file chooser, a global; gpui's own path prompt until one is installed.
 #[derive(Clone)]
 pub struct FileChooser(ChooseFiles);
 
@@ -26,13 +21,11 @@ crate::opaque_debug!(FileChooser);
 impl Global for FileChooser {}
 
 impl FileChooser {
-    /// A chooser that answers with `choose`.
     #[must_use]
     pub fn new(choose: ChooseFiles) -> Self {
         Self(choose)
     }
 
-    /// Asks for `choice` over `window`; the task ends with the chosen paths.
     pub fn choose(
         choice: FileChoice,
         window: &Window,

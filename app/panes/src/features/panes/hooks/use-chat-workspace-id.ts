@@ -3,10 +3,8 @@ import { entityStore } from '@/core/entities/entity-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 
-// Ids never contain NUL, so it is a safe join delimiter for the stable keys below.
 const ID_DELIM = '\x00'
 
-// A pane's chat workspace moves with either store: the pane (focus, open) or the chat (move).
 function subscribePanesAndChats(onChange: () => void): () => void {
   const panes = windowPaneStore.subscribe(onChange)
   const chats = entityStore.subscribe(onChange)
@@ -21,8 +19,6 @@ function activePaneWorkspaceId(): string | null {
   return paneChatWorkspaceId(panes[activePaneId])
 }
 
-/** The active pane's chat workspace, where the chat runs now: switching between two chats of
- *  one workspace re-renders nothing. */
 export function useActivePaneWorkspaceId(): string | null {
   return useSyncExternalStore(subscribePanesAndChats, activePaneWorkspaceId, activePaneWorkspaceId)
 }
@@ -36,8 +32,6 @@ function viewWorkspaceIdsKey(): string {
   return [...ids].sort().join(ID_DELIM)
 }
 
-/** Every workspace some pane's editor tabs reference. A chatless pane can still hold tabs, which
- *  useViewWorkspaceIds misses; naming them keeps their workspace store retained while shown. */
 export function usePaneEditorWorkspaceIds(): string[] {
   const subscribe = useCallback((onChange: () => void) => windowPaneStore.subscribe(onChange), [])
   const snapshot = useCallback(() => {
@@ -56,8 +50,6 @@ export function usePaneEditorWorkspaceIds(): string[] {
   return useMemo(() => (key ? key.split(ID_DELIM) : []), [key])
 }
 
-/** Every workspace with a chat in some view ("in a view" for keep-alive-policy.ts). The string
- *  key means a pane write that moves no workspace (every streaming frame) re-renders nothing. */
 export function useViewWorkspaceIds(): string[] {
   const key = useSyncExternalStore(subscribePanesAndChats, viewWorkspaceIdsKey, viewWorkspaceIdsKey)
   return useMemo(() => (key ? key.split(ID_DELIM) : []), [key])

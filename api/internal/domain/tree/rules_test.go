@@ -10,8 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// pinTree is T1's pinned hierarchy with explicit containers, plus a second
-// branch (ws-b) to file things across.
 func pinTree() (tree.Tree, tree.Facts) {
 	t := tree.Empty("p1")
 	for _, n := range []tree.Node{

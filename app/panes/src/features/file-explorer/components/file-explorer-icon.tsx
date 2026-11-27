@@ -65,7 +65,6 @@ function ThemedIcon({
       />
     )
   }
-  // No theme, or the theme has nothing for this file (e.g. its icon set is still loading).
   const Fallback = isDir ? (isExpanded ? FolderOpen : Folder) : File
   return <Fallback size={size} className={className} weight="duotone" />
 }
@@ -79,7 +78,6 @@ export function FileExplorerIcon({
   className,
 }: FileExplorerIconProps) {
   const iconThemeId = useSettingsStore((s) => s.settings.iconTheme)
-  // Re-render when a theme changes or its lazily loaded icons arrive.
   useIconThemeRegistryVersion()
   const icon = (
     <ThemedIcon

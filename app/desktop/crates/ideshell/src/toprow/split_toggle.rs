@@ -6,15 +6,10 @@ use crate::tabbar::tab_actions::TabAction;
 use crate::toprow::row_button::RowButton;
 use crate::toprow::row_ink::RowInk;
 
-/// The toggle leading a pane's top row, outside the tab scroller: it opens the editor view beside
-/// the chat, or closes it.
 #[derive(IntoElement)]
 pub struct SplitToggle {
-    /// The name its element ids are keyed by.
     pub key: SharedString,
-    /// Whether the group's editor view is open; an open one draws the toggle pressed.
     pub view: EditorView,
-    /// What a click does.
     pub on_toggle: TabAction,
 }
 

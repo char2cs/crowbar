@@ -9,12 +9,10 @@ interface TextAttachmentPillProps {
   text: string
 }
 
-/** Empty text is 0 lines, not the 1 an unconditional `split('\n')` would give. */
 function countLines(text: string): number {
   return text.length === 0 ? 0 : text.split('\n').length
 }
 
-/** The modal shows the raw text verbatim, with no markdown rendering. */
 export function TextAttachmentPill({ text }: TextAttachmentPillProps) {
   const [open, setOpen] = useState(false)
   const lineCount = countLines(text)

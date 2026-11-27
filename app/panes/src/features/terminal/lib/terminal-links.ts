@@ -1,6 +1,3 @@
-// Links in terminal output: URLs offer the link menu, path-like tokens (as printed
-// by compilers, test runners, git, ...) open in Crowbar's editor. One tokenizer
-// reads the logical line, so a soft-wrapped link is one link on every row.
 import type { IBuffer, IBufferCell, IBufferLine, IDisposable, ILink, Terminal } from '@xterm/xterm'
 import { revealInEditor } from '@/features/editor/lib/reveal'
 import { LOCAL_HOST } from '@/features/hosts/types'
@@ -12,29 +9,19 @@ import { IS_MAC } from '@/utils/platform'
 import { useTerminalStore } from '../stores/terminal-store'
 import { showTerminalUrlMenu, type TerminalView } from './terminal-url-menu'
 
-/** `start`/`end` index the logical line's text; `end` is exclusive. */
 type LinkToken =
   | { kind: 'url'; text: string; start: number; end: number }
   | { kind: 'file'; text: string; path: string; line?: number; start: number; end: number }
 
-// Ported from xterm.js's web-links addon 0.12.0 (strictUrlRegex): a URL never ends
-// on punctuation or a bracket, so "(https://x.dev/a)." links only the URL.
 const URL_RE = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g
 
-// A path is rooted or has an inner slash, plus an optional :line[:col]. Bare
-// filenames are skipped: with no filesystem check, most are domains or packages.
 const FILE_LINK_RE =
   /(?:^|[\s"'`([<])((?:~\/|\.{1,2}\/|\/)?[\w.@+~-]+(?:\/[\w.@+~-]+)+\/?|\/[\w.@+~-]+)((?::\d+){1,2})?/g
 
-// "." is a path character, so a sentence ending on a path ("see design.md.")
-// would link its period; a real path never ends in a dot.
 const TRAILING_DOTS_RE = /\.+$/
 
-// How far the logical line is read above and below the hovered row.
 const MAX_WALK_CELLS = 2048
 
-// The web-links addon's isUrl: the match must parse as a URL and start with its
-// own origin, so a mangled authority never becomes a link.
 function isUrl(text: string): boolean {
   try {
     const url = new URL(text)
@@ -45,8 +32,6 @@ function isUrl(text: string): boolean {
   }
 }
 
-// A non-space run from a scheme or a free-standing "www." on is address text: a path
-// that starts in it ("?q=(web/a.ts)", "ftp://h/a/b") is no file link; "bin/www.js" is.
 const ADDRESS_RUN_RE = /(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/|(?<=^|[\s"'`([<])www\.)\S*/g
 
 function tokenizeLinks(text: string): LinkToken[] {
@@ -73,9 +58,6 @@ function tokenizeLinks(text: string): LinkToken[] {
   return [...urls, ...files]
 }
 
-// Resolves a matched path against the terminal's working root. "~" cannot be
-// expanded client-side, so those candidates resolve only if the root is home
-// — skip them instead of opening a wrong file.
 function resolveFileLinkPath(path: string, root: string | undefined): string | null {
   if (path.startsWith('~')) return null
   if (path.startsWith('/')) return path
@@ -92,7 +74,6 @@ function resolveFileLinkPath(path: string, root: string | undefined): string | n
   return parts.join('/')
 }
 
-/** The cell a UTF-16 unit of the logical line came from; `x`/`y` are 0-based. */
 interface CellRef {
   x: number
   y: number
@@ -104,7 +85,6 @@ interface LogicalLine {
   cells: CellRef[]
 }
 
-/** Row `y`'s logical line: xterm flags each soft-wrapped continuation `isWrapped`. */
 function logicalRows(buffer: IBuffer, y: number): { top: number; rows: IBufferLine[] } | undefined {
   const hovered = buffer.getLine(y)
   if (!hovered) return undefined
@@ -126,8 +106,6 @@ function logicalRows(buffer: IBuffer, y: number): { top: number; rows: IBufferLi
   return { top, rows }
 }
 
-// Unwritten cells read back as ''. They count as spaces only between content, so
-// trailing blanks and the gap a wide glyph leaves at a wrap never split a token.
 function appendRow(line: LogicalLine, row: IBufferLine, y: number, cell: IBufferCell): void {
   let blanks: CellRef[] = []
   for (let x = 0; x < row.length; x++) {
@@ -158,7 +136,6 @@ function readLogicalLine(buffer: IBuffer, y: number): LogicalLine | undefined {
   return line
 }
 
-// xterm ranges are 1-based and inclusive; a wide glyph's range ends on its last cell.
 function rangeOf(cells: CellRef[], token: LinkToken): ILink['range'] {
   const first = cells[token.start]
   const last = cells[token.end - 1]
@@ -169,17 +146,12 @@ function rangeOf(cells: CellRef[], token: LinkToken): ILink['range'] {
 }
 
 export interface TerminalLinksOptions {
-  /** The directory relative paths resolve against (terminal cwd / worktree). */
   getRoot: () => string | undefined
-  /** Opens the resolved absolute path in Crowbar's editor. */
   openFile: (absolutePath: string, line?: number) => void
-  /** Called when a URL link is activated, with the pointer position. */
   onUrl: (url: string, position: { x: number; y: number }) => void
-  /** Called when a clicked candidate cannot be resolved to an absolute path. */
   onUnresolved?: (candidateText: string) => void
 }
 
-/** Cmd on macOS, Ctrl elsewhere: a plain click selects text, it never opens a link. */
 function isPrimaryModifier(event: { metaKey: boolean; ctrlKey: boolean }): boolean {
   return IS_MAC ? event.metaKey : event.ctrlKey
 }
@@ -195,7 +167,6 @@ function activate(token: LinkToken, event: MouseEvent, options: TerminalLinksOpt
   else options.onUnresolved?.(token.text)
 }
 
-/** The hovered link's underline and pointer follow the modifier, wherever the pointer is. */
 function trackModifier(element: HTMLElement | undefined) {
   let held = false
   let hovered: ILink | null = null
@@ -226,14 +197,11 @@ function trackModifier(element: HTMLElement | undefined) {
   }
 }
 
-// Registers the terminal's one link provider, and the handler for OSC 8 hyperlinks (which xterm
-// detects itself and always decorates). Both activate only with the primary modifier held.
 export function registerTerminalLinks(
   terminal: Pick<Terminal, 'buffer' | 'registerLinkProvider' | 'element' | 'options'>,
   options: TerminalLinksOptions,
 ): IDisposable {
   const modifier = trackModifier(terminal.element)
-  // Without a handler xterm activates OSC 8 links on a plain click.
   terminal.options.linkHandler = {
     activate: (event, url) => {
       if (isPrimaryModifier(event)) options.onUrl(url, { x: event.clientX, y: event.clientY })
@@ -272,15 +240,12 @@ export function registerTerminalLinks(
   }
 }
 
-/** `absolutePath` relative to `root`, or null when it lies outside it. */
 function relativeTo(absolutePath: string, root: string | undefined): string | null {
   if (!root) return null
   const prefix = root.endsWith('/') ? root : `${root}/`
   return absolutePath.startsWith(prefix) ? absolutePath.slice(prefix.length) || null : null
 }
 
-// A path inside the terminal's worktree opens as that workspace's document, so on its
-// host; any other path is a file of this machine, which a remote terminal never names.
 function documentFor(absolutePath: string, workspaceId: string | undefined): DocumentTarget | null {
   if (!workspaceId) return { absolutePath }
   const rel = relativeTo(absolutePath, workspaceRootPath(workspaceId))
@@ -288,8 +253,6 @@ function documentFor(absolutePath: string, workspaceId: string | undefined): Doc
   return resolvedHostOf({ wsId: workspaceId }) === LOCAL_HOST.id ? { absolutePath } : null
 }
 
-/** Links open in the terminal's own view, never the active one. Relative paths resolve against the
- *  session cwd, else the workspace root; a terminal of no workspace opens absolute paths only. */
 export function terminalLinksFor(
   getSessionId: () => string,
   getView: () => Partial<TerminalView>,

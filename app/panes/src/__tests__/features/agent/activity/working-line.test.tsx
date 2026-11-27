@@ -34,7 +34,6 @@ describe('WorkingLine', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
-  // The label under the input box says it, so the line stays out of the transcript.
   it('draws nothing while compacting, with or without a turn', () => {
     const { container, rerender } = render(<WorkingLine working compacting />)
     expect(container).toBeEmptyDOMElement()
@@ -73,7 +72,6 @@ describe('WorkingLine', () => {
     expect(verb()).toHaveTextContent(/…$/)
   })
 
-  // Each of these is already on screen as a card, a row, the plan or the streaming text.
   it.each([
     ['a pending request', { asking: true }],
     ['a running tool', { toolLabel: 'Running npm test' }],

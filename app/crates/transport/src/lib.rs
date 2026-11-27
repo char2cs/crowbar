@@ -1,12 +1,3 @@
-//! Daemon transport for Crowbar clients, with no window system and no Tauri.
-//!
-//! Panes reach a daemon only through this crate. HTTP goes through [`Transport::handle`], a pure
-//! async function from a `crowbar://<hostId>/v0/...` request to its response, over the local
-//! daemon's unix socket or a paired remote host's pinned TLS. WebSocket streams go through the
-//! loopback [`Relay`], which a webview dials with its native `WebSocket` so binary frames stay
-//! binary. [`ShellTransport`] implements `protocol::DaemonTransport` over both. Replacing the
-//! relay with daemon-issued tokens changes only the [`StreamAccess`] implementor.
-
 mod blocking;
 mod error;
 mod hosts;

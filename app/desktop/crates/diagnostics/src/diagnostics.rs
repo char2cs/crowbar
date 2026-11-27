@@ -17,12 +17,6 @@ const MAX_LOG_BYTES: u64 = 5 * 1_048_576;
 const KEPT_GENERATIONS: u32 = 3;
 const DEFAULT_FILTER: &str = "info";
 
-/// Installs logging and the crash hook; the log goes to `paths` and to stderr, filtered by
-/// `RUST_LOG` (default `info`). A panic anywhere writes `crash-<time>.txt` beside the log and
-/// then runs the previous hook.
-///
-/// # Errors
-/// [`Error::LogFile`] when the log cannot be opened, [`Error::AlreadyInstalled`] on a second call.
 pub fn start(
     paths: &LogPaths,
     version: &str,

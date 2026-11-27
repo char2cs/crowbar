@@ -7,8 +7,6 @@ import { ProviderIcon } from '@/components/ui/provider-icon'
 
 afterEach(cleanup)
 
-// The icon is a raw descriptor string a remote daemon serves verbatim (any
-// paired client can upload one), so it is attacker-controlled markup.
 function renderIcon(svg: string): HTMLElement {
   const { container } = render(<ProviderIcon svg={svg} />)
   const host = container.querySelector<HTMLElement>('[data-provider-icon]')
@@ -121,8 +119,6 @@ describe('ProviderIcon', () => {
     expect(host.querySelector('[class]')).toBeNull()
   })
 
-  // A real overflow needs a ~5000-deep document: seconds of jsdom parsing, and the depth that
-  // overflows shifts with JIT warmth. So the serialiser's RangeError is injected on a tiny icon.
   it('renders an empty host instead of throwing when the icon nests too deep to serialise', () => {
     const serialise = vi.spyOn(Element.prototype, 'outerHTML', 'get').mockImplementation(() => {
       throw new RangeError('Maximum call stack size exceeded')
@@ -152,8 +148,6 @@ describe('ProviderIcon', () => {
   })
 })
 
-// The descriptors the daemon ships, read from the repo so a changed icon is
-// checked as it is, not as a stale copy.
 const DESCRIPTORS = join(
   dirname(fileURLToPath(import.meta.url)),
   '../../../../../../api/internal/engine/agents/internal/protocol/internal/descriptor/descriptors-v3',

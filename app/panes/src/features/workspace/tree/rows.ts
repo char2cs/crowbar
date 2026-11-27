@@ -5,20 +5,16 @@ import { attachRemovalState } from '@/components/layout/removal-plan'
 import type { TreeIndex, TreeNode } from './tree-index'
 import type { RowViews } from './views'
 
-/** Everything one project's rows are drawn from. */
 export interface TreeInput {
   projectId: string
-  /** The project home workspace: the root level runs in it (it has no node of its own). */
   homeWorkspaceId: string | null
   index: TreeIndex
   views: RowViews
   operations: readonly Operation[]
-  /** Whether an operation item's entity has arrived, so its own row draws instead. */
   isPresent: (ref: EntityRef) => boolean
   ui: { removals: readonly RemovalEntry[]; draft: CreateDraft | null }
 }
 
-/** What a level inherits: whether it sits in a repo (so can branch) and the workspace it runs in. */
 interface Context {
   inRepo: boolean
   workspaceId: string | null
@@ -26,7 +22,6 @@ interface Context {
 
 const reported = new Set<string>()
 
-/** A node with no view would be a ghost row; it is left out and said once. */
 function reportMissing(node: TreeNode): void {
   if (reported.has(node.id)) return
   reported.add(node.id)
@@ -43,7 +38,6 @@ function folderRow(node: TreeNode, parentId: string | null, ctx: Context): Sideb
     order: node.order,
     createdAt: node.createdAt,
     label: node.name ?? '',
-    // A home folder has no worktree for its "+" to fork.
     ownsWorktree: ctx.inRepo,
     workspaceId: ctx.workspaceId,
     working: false,
@@ -69,8 +63,6 @@ function drawNode(
     const repo = views.repo(node.id)
     if (!repo) return reportMissing(node)
     const inner = { inRepo: true, workspaceId: repo.workspaceId }
-    // No home checkout, so no header row: its members draw where the header would, so a repo
-    // filed in a home folder draws inside that folder (they drew at the root before).
     if (repo.rowId === null) return walk(node.id, parentId, inner)
     const { rowId, workspaceId, ...fields } = repo
     rows.push({
@@ -117,7 +109,6 @@ function drawNode(
     hasView: false,
   }
   if (chat.ownedWorkspaceId !== undefined) {
-    // Its workspace's record is late (a fresh fork, a held delete): still that workspace's row.
     rows.push({ ...base, kind: 'branch', ownsWorktree: true, workspaceId: chat.ownedWorkspaceId })
     walk(node.id, node.id, { ...ctx, workspaceId: chat.ownedWorkspaceId })
     return
@@ -142,7 +133,6 @@ function treeRows(input: TreeInput): SidebarRow[] {
   return rows
 }
 
-/** The operations whose items are rows the sidebar draws until they arrive. */
 const CREATE_KINDS: Readonly<Record<string, SidebarRow['kind']>> = {
   'branch.import': 'branch',
   'branch.create': 'branch',
@@ -150,29 +140,24 @@ const CREATE_KINDS: Readonly<Record<string, SidebarRow['kind']>> = {
   'repo.create': 'branch',
 }
 
-/** Drawn after every real sibling: the daemon appends a create at the end of its level. */
 const LAST = Number.MAX_SAFE_INTEGER
 
 function failed(op: Operation, item: OperationItem): boolean {
   if (item.state === 'failed' || item.error) return true
-  // A refused request, or a restart that interrupted the work, fails every unfinished item.
   return op.state === 'failed' && item.state !== 'succeeded'
 }
 
-/** A branch create names its chat and its workspace; a repo add's rows are its protected branches. */
 function drawnItems(op: Operation): OperationItem[] {
   if (op.kind === 'repo.create') return op.items.filter((item) => item.ref.kind === 'workspace')
   const chats = op.items.filter((item) => item.ref.kind === 'chat')
   return chats.length > 0 ? chats : op.items
 }
 
-/** What the rows sit under: a repo add's branches go under the repo it added. */
 function drawnUnder(op: Operation): EntityRef {
   if (op.kind !== 'repo.create') return op.subject
   return op.items.find((item) => item.ref.kind === 'repo')?.ref ?? op.subject
 }
 
-/** The refs whose arrival retires a create's row. */
 export function createItemRefs(ops: readonly Operation[]): EntityRef[] {
   const refs: EntityRef[] = []
   for (const op of ops) {
@@ -181,14 +166,10 @@ export function createItemRefs(ops: readonly Operation[]): EntityRef[] {
   return refs
 }
 
-/** The daemon streams an item's success after the entities it wrote, so a streamed succeeded item
- *  whose entity is absent was deleted since (a merge, a removal), not in flight. A local one may
- *  have settled on its reply before the stream delivered them. */
 function deletedSince(op: Operation, item: OperationItem): boolean {
   return !op.local && (item.state === 'succeeded' || op.state === 'succeeded')
 }
 
-/** One row per create item whose entity has not arrived: a spinner while it runs, its reason once it failed. */
 function operationRows(input: TreeInput): SidebarRow[] {
   const rows: SidebarRow[] = []
   for (const op of input.operations) {
@@ -202,7 +183,6 @@ function operationRows(input: TreeInput): SidebarRow[] {
       rows.push({
         id: item.ref.id,
         kind,
-        // A repo is drawn as its home row, id'd by the chat that owns it.
         parentId: (parentId !== null && input.views.repo(parentId)?.rowId) || parentId,
         order: LAST,
         createdAt: op.createdAt,
@@ -222,7 +202,6 @@ function operationRows(input: TreeInput): SidebarRow[] {
   return rows
 }
 
-/** The naming input's row, at the slot the create will land in. */
 function draftRow(draft: CreateDraft): SidebarRow {
   return {
     id: 'create-draft',
@@ -238,7 +217,6 @@ function draftRow(draft: CreateDraft): SidebarRow {
   }
 }
 
-/** The one row-derivation function: every row one project's panel draws. */
 export function deriveRows(input: TreeInput): SidebarRow[] {
   const { draft, removals } = input.ui
   return [

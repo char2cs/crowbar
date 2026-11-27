@@ -1,5 +1,3 @@
-//! What a key does to the rows of the Files panel.
-
 pub(super) mod file_key;
 
 use crate::explorer::file_steps::file_key::FileKey;
@@ -99,9 +97,6 @@ fn act_on(
 }
 
 impl FileKey {
-    /// What this key does to `rows` with the `selected` path, or the first row when none is.
-    /// Moves the selection, folds or opens a directory, or acts on the selected row;
-    /// `None` when the key does nothing there or there are no rows.
     pub fn step(
         self,
         rows: &[FileRow],

@@ -1,5 +1,3 @@
-//! The ordered entries and separators of a file row's menu.
-
 use sidebar::{Command, CopyNote, FileAction, Intent, ShellAnswers};
 
 pub(crate) type FileEntry = (&'static str, FileAction);

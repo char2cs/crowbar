@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// A revived chat resumes the session it is bound to, and loses it only on a refusal.
-
-// A revive resumes the chat's own session by its id, and the chat says which one.
 func TestResumeBySessionID_ARevivedChatResumesItsBoundSession(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -38,8 +35,6 @@ func TestResumeBySessionID_ARevivedChatResumesItsBoundSession(t *testing.T) {
 	assert.Equal(t, "sid-kept", c.SessionID)
 }
 
-// A session the chat never turned on was never written by its CLI: every launch
-// until it turns is assigned a new id, never its old one and never resumed.
 func TestResumeBySessionID_ASessionThatNeverTurnedIsReplacedNotResumed(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -75,9 +70,6 @@ func TestResumeBySessionID_ASessionThatNeverTurnedIsReplacedNotResumed(t *testin
 	assert.NotContains(t, argv, "--session-id")
 }
 
-// A provider that takes no id at launch starts fresh on a session that never
-// turned; its announcement rebinds the chat with no change, so the prompt the
-// launch carries stays owed and is delivered.
 func TestResumeBySessionID_AnUnturnedSessionOfAProviderThatTakesNoIDLaunchesFresh(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -103,8 +95,6 @@ func TestResumeBySessionID_AnUnturnedSessionOfAProviderThatTakesNoIDLaunchesFres
 	assert.Equal(t, ledger.PromptStatusDelivered, receipt(t, f, chatID, requestID).Status)
 }
 
-// A resume the CLI itself refuses loses the session: the chat says why its runner
-// ended, and the next launch starts a fresh session handed Crowbar's record.
 func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -146,8 +136,6 @@ func TestResumeBySessionID_ARefusedResumeLosesTheSession(t *testing.T) {
 	assert.Equal(t, []string{ledger.MarkerFromRecord + ":"}, f.markers(t, chatID), "the transcript says so once, for the loss")
 }
 
-// The prompt that launched a resume the CLI refuses is lost with the session,
-// and nothing launches again to redeliver it.
 func TestResumeBySessionID_APromptCarriedIntoARefusedResumeIsLostWithIt(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -174,8 +162,6 @@ func TestResumeBySessionID_APromptCarriedIntoARefusedResumeIsLostWithIt(t *testi
 	assert.Equal(t, calls, f.term.callCount(), "the lost prompt is not redelivered")
 }
 
-// A resumed CLI Crowbar stops did not refuse its session: the chat says it was
-// stopped, and the next revive resumes it.
 func TestResumeBySessionID_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -187,7 +173,7 @@ func TestResumeBySessionID_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.
 	require.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
 
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
-	f.term.exit(t, result.TerminalSessionID) // the stopped CLI goes
+	f.term.exit(t, result.TerminalSessionID)
 	f.wait()
 	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatExitReason(f.usecase.RunnerUsecase, chatID))
 

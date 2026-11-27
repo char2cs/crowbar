@@ -4,8 +4,6 @@ import { toast } from '@/features/window/stores/toast-store'
 import { isDesktopApp, showNativeContextMenu } from '@/lib/crowbar-bridge'
 import { openWorkspaceLink, refuseRemoteLoopback } from '@/lib/workspace-link'
 
-/** The view the terminal itself lives in; a browser tab opens there, never in "the active" one.
- *  Its workspace's host decides whether a loopback link can open on this computer. */
 export interface TerminalView {
   workspaceId: string
   paneId?: string
@@ -22,7 +20,6 @@ export async function showTerminalUrlMenu(
       console.error('Failed to open link:', error)
     })
   }
-  // No OS menu (nor a Crowbar browser) outside the desktop app: the link just opens.
   if (!isDesktopApp()) {
     openInDefaultBrowser()
     return

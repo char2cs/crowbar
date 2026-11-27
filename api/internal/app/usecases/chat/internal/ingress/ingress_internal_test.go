@@ -19,9 +19,8 @@ import (
 )
 
 type fakeRunners struct {
-	mu   sync.Mutex
-	byID map[string]engineagents.Runner
-	// recorded are the runners only their chats' ledgers still know.
+	mu       sync.Mutex
+	byID     map[string]engineagents.Runner
 	recorded map[string]engineagents.Runner
 }
 
@@ -43,7 +42,6 @@ func (r *fakeRunners) remove(id string) {
 	delete(r.byID, id)
 }
 
-// fakeAgent is a descriptor whose parse answers what the test set.
 type fakeAgent struct {
 	engineagents.Agent
 	parsed engineagents.CanonicalEvent
@@ -55,9 +53,8 @@ func (a fakeAgent) ParseHook(string, []byte, engineagents.Channel) (engineagents
 }
 
 type fakeDescriptors struct {
-	agent fakeAgent
-	err   error
-	// resolved, when set, is told each time a hook's runner has been resolved.
+	agent    fakeAgent
+	err      error
 	resolved chan struct{}
 }
 
@@ -81,8 +78,7 @@ type fakeTurns struct {
 	reply      []byte
 	ask        string
 	err        error
-	// during runs inside Dispatch, while the chat's lock is held.
-	during func()
+	during     func()
 }
 
 func (t *fakeTurns) RecordTelemetry(
@@ -151,7 +147,6 @@ func newFixture() fixture {
 	return f
 }
 
-// hold takes chat-1's lock as a user-initiated path would.
 func (f fixture) hold(t *testing.T) func() {
 	t.Helper()
 	unlock, err := f.locks.Lock(t.Context(), "chat-1")
@@ -167,8 +162,6 @@ func (f fixture) reasons() []string {
 	return out
 }
 
-// The door admits only runners this daemon minted, so one nothing knows had its
-// chat erased: its last hooks (a session end on delete) are expected, not lost.
 func TestHook_ARunnerWhoseChatWasErasedIsNotFoundAndNotDeadLettered(t *testing.T) {
 	f := newFixture()
 
@@ -231,7 +224,7 @@ func TestHook_AnAskIsHeldOnItsAskID(t *testing.T) {
 	assert.Equal(t, Reply{Ask: "choice-1"}, reply)
 	require.Len(t, f.turns.dispatched, 1)
 	assert.Equal(t, engineagents.ChannelAPI, f.turns.dispatched[0].channel)
-	f.hold(t)() // the hold is the sender's, never under the chat's lock
+	f.hold(t)()
 }
 
 func TestHook_DispatchRunsUnderTheChatsLock(t *testing.T) {
@@ -261,8 +254,6 @@ func TestHook_DispatchRunsUnderTheChatsLock(t *testing.T) {
 	})
 }
 
-// A sender that gives up while the chat is held is not recorded later: its
-// hook is dead-lettered.
 func TestHook_ASenderThatGivesUpWaitingForTheChatIsDeadLettered(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		f := newFixture()
@@ -284,8 +275,6 @@ func TestHook_ASenderThatGivesUpWaitingForTheChatIsDeadLettered(t *testing.T) {
 	})
 }
 
-// A runner that exited while its hook waited for the chat still takes it: the
-// hook is its, on its chat.
 func TestHook_ARunnerThatExitedWhileItsHookWaitedStillTakesIt(t *testing.T) {
 	f := newFixture()
 	f.descriptors.resolved = make(chan struct{})
@@ -296,7 +285,7 @@ func TestHook_ARunnerThatExitedWhileItsHookWaitedStillTakesIt(t *testing.T) {
 		done <- err
 	}()
 	<-f.descriptors.resolved
-	f.runners.remove("runner-1") // its exit takes it off the table under the chat's lock
+	f.runners.remove("runner-1")
 	unlock()
 
 	require.NoError(t, <-done)
@@ -329,7 +318,6 @@ func TestHook_DeclaredFiltersAreAcknowledgedWithNoRecord(t *testing.T) {
 	assert.Empty(t, f.turns.dispatched)
 }
 
-// A sender that hung up is why whatever failed after failed.
 func TestHook_ASenderThatGaveUpBeforeItsDescriptorResolvedIsSenderGone(t *testing.T) {
 	f := newFixture()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -392,8 +380,6 @@ func TestHook_TelemetryIsRecordedUnderTheChatsLockWithoutParsing(t *testing.T) {
 	assert.Empty(t, f.ledger.letters)
 }
 
-// A hook acknowledged without rows is answered as placed only once its dead
-// letter is kept.
 func TestHook_AnAcknowledgedHookIsDeadLetteredOrRefused(t *testing.T) {
 	for name, tc := range map[string]struct {
 		set    func(f fixture)
@@ -422,7 +408,6 @@ func TestHook_AnAcknowledgedHookIsDeadLetteredOrRefused(t *testing.T) {
 	}
 }
 
-// An unmappable hook of a runner whose chat was purged marks nothing.
 func TestHook_AnUnmappableHookOfAChatGoneMarksNothing(t *testing.T) {
 	f := newFixture()
 	f.descriptors.agent.err = fmt.Errorf("message: %w", engineagents.ErrRequiredFieldMissing)

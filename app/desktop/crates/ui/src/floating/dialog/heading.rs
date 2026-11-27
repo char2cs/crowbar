@@ -1,11 +1,8 @@
-//! Builder methods that choose the heading, the style and the width of a dialog.
-
 use gpui::{IntoElement, SharedString};
 
 use super::{Dialog, DialogSize, DialogStyle, HeaderFlow, IconName};
 
 impl Dialog {
-    /// Sets the heading.
     #[must_use]
     pub fn title(
         mut self,
@@ -15,7 +12,6 @@ impl Dialog {
         self
     }
 
-    /// Sets an element as the heading, in place of a title.
     #[must_use]
     pub fn heading(
         mut self,
@@ -25,7 +21,6 @@ impl Dialog {
         self
     }
 
-    /// Chooses how the header lays out its heading, actions and close button.
     #[must_use]
     pub fn header_flow(
         mut self,
@@ -35,7 +30,6 @@ impl Dialog {
         self
     }
 
-    /// Shows an icon before the title.
     #[must_use]
     pub fn icon(
         mut self,
@@ -45,7 +39,6 @@ impl Dialog {
         self
     }
 
-    /// Picks the React dialog to reproduce: `AppDialog` (default) or the plain `Dialog`.
     #[must_use]
     pub fn style(
         mut self,
@@ -56,7 +49,6 @@ impl Dialog {
         self
     }
 
-    /// Sets the maximum width.
     #[must_use]
     pub fn size(
         mut self,

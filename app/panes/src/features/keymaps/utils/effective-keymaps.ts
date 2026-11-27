@@ -1,5 +1,3 @@
-// A command's effective chord: registry default < active preset < user override. Every chord is
-// normalized so conflict detection compares canonical forms.
 import { COMMANDS } from '@/features/keymaps/registry'
 import { getPreset } from '@/features/keymaps/defaults/keybinding-presets'
 import { normalizeChord } from '@/features/keymaps/utils/chord'
@@ -16,7 +14,6 @@ export interface ResolveOptions {
   commands?: Command[]
 }
 
-/** Resolve the effective binding for a single command. */
 function resolveBinding(command: Command, opts: ResolveOptions): EffectiveBinding {
   const userChord = opts.overrides[command.id]
   if (userChord != null) {
@@ -29,13 +26,11 @@ function resolveBinding(command: Command, opts: ResolveOptions): EffectiveBindin
   return { commandId: command.id, chord: normalizeChord(command.defaultChord), source: 'default' }
 }
 
-/** Resolve every command into an effective binding. */
 export function getEffectiveBindings(opts: ResolveOptions): EffectiveBinding[] {
   const commands = opts.commands ?? COMMANDS
   return commands.map((command) => resolveBinding(command, opts))
 }
 
-/** Map of commandId -> effective chord. */
 export function getEffectiveChordMap(opts: ResolveOptions): Record<string, string> {
   const map: Record<string, string> = {}
   for (const binding of getEffectiveBindings(opts)) {
@@ -44,7 +39,6 @@ export function getEffectiveChordMap(opts: ResolveOptions): Record<string, strin
   return map
 }
 
-/** Other commands already bound to `chord` under these options (excluding `commandId`). */
 export function findConflictingCommands(
   commandId: string,
   chord: string,

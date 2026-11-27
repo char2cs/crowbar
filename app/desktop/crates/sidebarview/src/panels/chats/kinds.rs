@@ -1,5 +1,3 @@
-//! The kinds of row the chats tree draws: tree rows, the foot, operations, removals, notices and skeletons.
-
 pub(crate) mod notice_row;
 mod operation_row;
 mod removing_row;

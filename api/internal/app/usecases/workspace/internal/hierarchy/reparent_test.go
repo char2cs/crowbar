@@ -19,12 +19,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestReparent_ConflictAbortsAndSettlesAtMergeBase proves replayAndReparent's
-// conflict path: a conflicting RebaseOnto is ABORTED (never left mid-rebase),
-// yet the move still lands — the child is persisted under the new parent with
-// its fork point set to merge-base(newParentTip, childBranch), not the new
-// parent's tip, so diffs read against the true shared history until a later
-// clean rebase finalizes it.
 func TestReparent_ConflictAbortsAndSettlesAtMergeBase(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -47,9 +41,6 @@ func TestReparent_ConflictAbortsAndSettlesAtMergeBase(t *testing.T) {
 	assert.Equal(t, "mergebase-sha", rSha, "the move lands at the MERGE-BASE, not the new parent's raw tip")
 }
 
-// TestReparent_ConflictAbortFails proves that when the post-conflict abort
-// itself fails, Reparent surfaces the error and never persists the move — a
-// stuck mid-rebase worktree must not be silently reported as reparented.
 func TestReparent_ConflictAbortFails(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -69,8 +60,6 @@ func TestReparent_ConflictAbortFails(t *testing.T) {
 		"no merge-base attempt after a failed abort")
 }
 
-// TestReparent_ConflictMergeBaseFails proves a merge-base resolution failure
-// surfaces cleanly and never persists the move.
 func TestReparent_ConflictMergeBaseFails(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -88,9 +77,6 @@ func TestReparent_ConflictMergeBaseFails(t *testing.T) {
 	assert.False(t, persisted, "no move is persisted when the merge-base cannot be resolved")
 }
 
-// TestReparent_PersistError proves a clean rebase whose PERSIST step fails
-// (the aggregate write) surfaces the error, even though the git-side rebase
-// already succeeded.
 func TestReparent_PersistError(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -105,11 +91,6 @@ func TestReparent_PersistError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestReparent_ResyncSummaryError_IsBestEffort proves that when the persist
-// succeeds but the follow-up working-tree-summary SYNC write fails (distinct
-// from a WorkingTreeSummary READ failure, which a separate test already
-// covers), Reparent still reports success — the resync is best-effort and the
-// read model self-corrects on the next watcher event.
 func TestReparent_ResyncSummaryError_IsBestEffort(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "fork", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -128,9 +109,6 @@ func TestReparent_ResyncSummaryError_IsBestEffort(t *testing.T) {
 	assert.Equal(t, "c", out.ID)
 }
 
-// TestRegression_ConflictingReparentMarksTheChildConflicting: the aborted
-// rebase leaves git clean, so only the flag tells the user the move is not
-// integrated; a flag that cannot be written fails the move instead.
 func TestRegression_ConflictingReparentMarksTheChildConflicting(t *testing.T) {
 	child := domain.Workspace{ID: "c", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -160,9 +138,6 @@ func TestRegression_ConflictingReparentMarksTheChildConflicting(t *testing.T) {
 	assert.ErrorContains(t, err, "moved under np", "the move already landed; the failure must say so")
 }
 
-// TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop: an imported
-// branch recorded its own tip as its fork point, so the rebase replayed nothing
-// and reset the branch onto its new parent. Homes already hold such rows.
 func TestRegression_ReparentKeepsCommitsAStaleForkPointWouldDrop(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
@@ -196,9 +171,6 @@ func TestReparent_RebasesOntoNewTipAndUpdatesAggregate(t *testing.T) {
 
 	_, err := uc.Reparent(context.Background(), "c", "np")
 	require.NoError(t, err)
-	// A clean rebase settles the move and resyncs the child's working-tree summary
-	// against the new base, so a prior predicted-conflict status clears and the
-	// diff stats reflect the new parent.
 	assert.Equal(t, []string{"RevParse", "MergeBase", "RebaseOnto", "WorkingTreeSummary"}, g.ops())
 	assert.Equal(t, []string{"/np", "HEAD"}, g.calls[0].args)
 	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[1].args,
@@ -221,7 +193,6 @@ func TestReparent_RebaseOntoError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// stacked is P under the base with one commit, and C under P with its own.
 func stacked(t *testing.T, h *realHarness) (domain.Workspace, domain.Workspace) {
 	t.Helper()
 	p := h.createChild(t, "feature/p", h.parentID, h.baseBranch)
@@ -231,15 +202,12 @@ func stacked(t *testing.T, h *realHarness) (domain.Workspace, domain.Workspace) 
 	return p, c
 }
 
-// amend rewrites P's commit with a different patch, as an amend or squash does.
 func amend(t *testing.T, p domain.Workspace) {
 	t.Helper()
 	writeFile(t, filepath.Join(p.WorktreePath, "p.txt"), "p rewritten\n")
 	gitRun(t, p.WorktreePath, "commit", "-a", "--amend", "-m", "p work, amended")
 }
 
-// movedOnto reparents c under a fresh sibling q of the base and returns c's
-// commit subjects on top of q.
 func movedOnto(t *testing.T, h *realHarness, c domain.Workspace) string {
 	t.Helper()
 	q := h.createChild(t, "feature/q", h.parentID, h.baseBranch)
@@ -249,17 +217,12 @@ func movedOnto(t *testing.T, h *realHarness, c domain.Workspace) string {
 	return trimNewline(gitRun(t, c.WorktreePath, "log", "--format=%s", "feature/q..HEAD"))
 }
 
-// TestRegression_ReparentReplaysOnlyCommitsTheOldParentLacks: the replay starts
-// from the old parent, never the new tip, so P's commit stays behind.
 func TestRegression_ReparentReplaysOnlyCommitsTheOldParentLacks(t *testing.T) {
 	h := newRealUsecase(t)
 	_, c := stacked(t, h)
 	assert.Equal(t, "c work", movedOnto(t, h, c))
 }
 
-// TestRegression_ReparentOffAnAmendedParentCarriesItsOldCommit: the replay
-// starts at the merge-base, so P's pre-amend commit moves with C. More than C's
-// own work, never less; the daemon keeps no fork point that could tell them apart.
 func TestRegression_ReparentOffAnAmendedParentCarriesItsOldCommit(t *testing.T) {
 	h := newRealUsecase(t)
 	p, c := stacked(t, h)
@@ -267,8 +230,6 @@ func TestRegression_ReparentOffAnAmendedParentCarriesItsOldCommit(t *testing.T) 
 	assert.Equal(t, "c work\np work", movedOnto(t, h, c))
 }
 
-// TestRegression_ReparentMovesAChildWhoseParentRowIsGone: a dangling parent id
-// is a root, so the replay falls back to the new tip instead of refusing.
 func TestRegression_ReparentMovesAChildWhoseParentRowIsGone(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "gone", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
 	newParent := domain.Workspace{ID: "np", WorktreePath: "/np", Provisioning: domain.WorkspaceProvisioned}
@@ -291,8 +252,6 @@ func TestRegression_ReparentMovesAChildWhoseParentRowIsGone(t *testing.T) {
 	assert.Equal(t, []string{"/cw", "ntip", "feat"}, g.calls[1].args, "replays from the new tip")
 }
 
-// absorbedThenDropped has P fast-forward over C's two commits and reset back,
-// then C commit again: P's reflog now names C's own commits as a fork point.
 func absorbedThenDropped(t *testing.T, h *realHarness) domain.Workspace {
 	t.Helper()
 	p, c := stacked(t, h)
@@ -303,8 +262,6 @@ func absorbedThenDropped(t *testing.T, h *realHarness) domain.Workspace {
 	return c
 }
 
-// importedThenPruned imports C from origin (its reflog starts at its own tip),
-// lets P absorb and drop it, then deletes origin's copy, as a merged PR does.
 func importedThenPruned(t *testing.T, h *realHarness) domain.Workspace {
 	t.Helper()
 	gitRun(t, h.repoPath, "checkout", "-b", "feature/c")
@@ -323,8 +280,6 @@ func importedThenPruned(t *testing.T, h *realHarness) domain.Workspace {
 	return c
 }
 
-// reflogTruncated is absorbedThenDropped after the oldest two entries of C's
-// reflog expired, so the reflog no longer starts where C did.
 func reflogTruncated(t *testing.T, h *realHarness) domain.Workspace {
 	t.Helper()
 	c := absorbedThenDropped(t, h)
@@ -335,9 +290,6 @@ func reflogTruncated(t *testing.T, h *realHarness) domain.Workspace {
 	return c
 }
 
-// TestRegression_RestackNeverLosesAChildCommit: whatever the parent did to its
-// history, every commit C held beyond P is still on C after either verb. A
-// reflog fork point lost them in the first three histories.
 func TestRegression_RestackNeverLosesAChildCommit(t *testing.T) {
 	histories := map[string]func(*testing.T, *realHarness) domain.Workspace{
 		"P absorbed C's commits and dropped them": absorbedThenDropped,
@@ -434,8 +386,6 @@ func TestReparent_RevParseError(t *testing.T) {
 	require.ErrorIs(t, err, errBoom)
 }
 
-// TestRebaseOntoParent_RejectsUnprovisionedParent: finishing the move against a
-// placeholder parent is rejected before RevParse.
 func TestRebaseOntoParent_RejectsUnprovisionedParent(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", ForkPointSha: "f", Provisioning: domain.WorkspaceProvisioned}
 	parent := domain.Workspace{ID: "p", Status: domain.WorkspaceStatusLocked, Provisioning: domain.WorkspacePlaceholder}

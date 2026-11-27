@@ -1,4 +1,3 @@
-//! Windows and fakes shared by the unit tests.
 #![cfg(test)]
 
 pub(crate) mod blank;

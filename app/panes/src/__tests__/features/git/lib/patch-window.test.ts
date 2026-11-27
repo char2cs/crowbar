@@ -2,13 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { planWindow } from '@/features/git/lib/patch-window'
 import type { WindowInput } from '@/features/git/lib/patch-window'
 
-// The shipped file budget.
 const MAX_MATERIALIZED_FILES = 40
-
-// planWindow is the one part of the windowed renderer that decides, on every
-// scroll frame, which file patches exist in memory. It is deliberately pure —
-// no React, no fetch, no timers — so these tests are the exhaustive proof that
-// it converges instead of thrashing.
 
 function makePaths(n: number, prefix = 'f'): string[] {
   return Array.from({ length: n }, (_, i) => `${prefix}${i}`)
@@ -18,7 +12,6 @@ function uniformCounts(paths: readonly string[], lines: number): Record<string, 
   return Object.fromEntries(paths.map((p) => [p, lines]))
 }
 
-/** Build a WindowInput with sane defaults so each test states only what it exercises. */
 function input(overrides: Partial<WindowInput> & { paths: readonly string[] }): WindowInput {
   const paths = overrides.paths
   return {
@@ -30,7 +23,6 @@ function input(overrides: Partial<WindowInput> & { paths: readonly string[] }): 
   }
 }
 
-/** The set of paths still materialised once a plan is applied. */
 function applyPlan(materialized: readonly string[], plan: { fetch: string[]; evict: string[] }) {
   const next = new Set(materialized)
   for (const p of plan.evict) next.delete(p)
@@ -69,7 +61,6 @@ describe('planWindow — the fetch band', () => {
     const paths = makePaths(100)
     const plan = planWindow(input({ paths, visible: { first: 20, last: 24 } }))
 
-    // 20-6 .. 24+6 inclusive
     expect(new Set(plan.fetch)).toEqual(new Set(paths.slice(14, 31)))
     expect(plan.fetch).toHaveLength(17)
     expect(plan.evict).toEqual([])
@@ -105,7 +96,6 @@ describe('planWindow — the fetch band', () => {
     const plan = planWindow(input({ paths, visible: { first: 20, last: 20 } }))
 
     expect(plan.fetch[0]).toBe('f20')
-    // f19/f21 are distance 1, f18/f22 distance 2, ... — never a far file before a near one.
     expect(plan.fetch.slice(0, 3)).toEqual(['f20', 'f19', 'f21'])
     expect(plan.fetch.at(-1)).toBe('f26')
   })
@@ -128,7 +118,6 @@ describe('planWindow — the fetch band', () => {
 describe('planWindow — eviction band', () => {
   it('evicts materialised files further than EVICT_BEYOND_FILES from the viewport', () => {
     const paths = makePaths(100)
-    // distances from a viewport of exactly f50: f0=50, f29=21, f30=20, f70=20, f71=21, f99=49
     const materialized = ['f0', 'f29', 'f30', 'f70', 'f71', 'f99']
 
     const plan = planWindow(input({ paths, visible: { first: 50, last: 50 }, materialized }))
@@ -145,24 +134,17 @@ describe('planWindow — eviction band', () => {
     expect(plan.evict).toEqual(['gone.ts'])
   })
 
-  // The property the whole hysteresis design exists for: a single-row scroll
-  // that pushes a file out of the lookahead band must NOT evict it, or the very
-  // next frame would refetch it — a network request per frame, forever.
   it('does not evict-then-refetch a file oscillating at the lookahead boundary', () => {
     const paths = makePaths(100)
 
-    // Frame 1: viewport at rows 30..35 — the band reaches back to f24.
     const first = planWindow(input({ paths, visible: { first: 30, last: 35 } }))
     expect(first.fetch).toContain('f24')
     const materialized = applyPlan([], first)
 
-    // Frame 2: one row down. f24 is now distance 7 — outside the lookahead band
-    // but well inside the eviction band, so it stays.
     const second = planWindow(input({ paths, visible: { first: 31, last: 36 }, materialized }))
     expect(second.evict).toEqual([])
-    expect(second.fetch).toEqual(['f42']) // only the newly-revealed lookahead row
+    expect(second.fetch).toEqual(['f42'])
 
-    // Frame 3: back where we started. Nothing is refetched, because nothing was dropped.
     const third = planWindow(
       input({
         paths,
@@ -183,15 +165,13 @@ describe('planWindow — MAX_MATERIALIZED_FILES', () => {
         paths,
         visible: { first: 30, last: 31 },
         materialized: paths,
-        lineCounts: uniformCounts(paths, 100), // 6,000 lines total — the LINE budget is not what bites
+        lineCounts: uniformCounts(paths, 100),
       }),
     )
 
     const survivors = applyPlan(paths, plan)
     expect(survivors).toHaveLength(MAX_MATERIALIZED_FILES)
-    // The 40 survivors are the 40 nearest the viewport: f11..f50.
     expect(new Set(survivors)).toEqual(new Set(paths.slice(11, 51)))
-    // Furthest goes first.
     expect(plan.evict[0]).toBe('f0')
   })
 })
@@ -204,9 +184,6 @@ describe('planWindow — MAX_MATERIALIZED_LINES', () => {
       total: 4,
       materialized: paths,
       paths,
-      // 4 x 20k = 80k, over the 60k budget, on only four files. Each sits AT
-      // the patch cap, so these are true held costs rather than +/- counts the
-      // fetch would never actually pull.
       lineCounts: uniformCounts(paths, 20_000),
     })
 
@@ -214,14 +191,10 @@ describe('planWindow — MAX_MATERIALIZED_LINES', () => {
     expect(plan.evict).toEqual(['d.ts'])
   })
 
-  // Evicting under the line budget is only correct if the very next plan does
-  // not immediately propose fetching the same file back.
   it('does not re-propose a file the line budget cannot afford', () => {
     const paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts']
     const lineCounts = uniformCounts(paths, 20_000)
 
-    // Everything already held and the budget already full: the next frame must
-    // converge, proposing nothing new rather than trading files back and forth.
     const plan = planWindow({
       visible: { first: 0, last: 0 },
       total: paths.length,
@@ -240,13 +213,9 @@ describe('planWindow — MAX_MATERIALIZED_LINES', () => {
       total: paths.length,
       materialized: [],
       paths,
-      // Each at the patch cap, so five would be 100k against a 60k budget:
-      // the not-yet-fetched lookahead files must be counted BEFORE fetching,
-      // or the budget is only ever discovered after it has been blown.
       lineCounts: uniformCounts(paths, 20_000),
     })
 
-    // The visible file is always fetched; the lookahead is trimmed to fit.
     expect(plan.fetch[0]).toBe('a.ts')
     expect(plan.fetch.length).toBeLessThan(paths.length)
     expect(plan.evict).toEqual([])
@@ -319,11 +288,6 @@ describe('planWindow — purity', () => {
 })
 
 describe('planWindow — a file larger than the entire budget', () => {
-  // Found live, not in a test. The fixture's 420,000-line monster measured as
-  // seven times MAX_MATERIALIZED_LINES, so every plan dropped it and the reader
-  // scrolling onto it saw blank space: no content, no notice, no way to ask for
-  // the rest. The budget must count what a file COSTS once fetched — the patch
-  // request is capped — not what its diff contains.
   it('still fetches a visible file whose ± count dwarfs MAX_MATERIALIZED_LINES', () => {
     const paths = ['monster.ts', 'next.ts']
     const plan = planWindow({
@@ -351,8 +315,6 @@ describe('planWindow — a file larger than the entire budget', () => {
   })
 
   it('budgets it at the capped cost, so it does not starve its neighbours', () => {
-    // Two monsters plus small files: if each counted as 420k, nothing else
-    // would ever be fetched alongside them.
     const paths = ['m1.ts', 'm2.ts', 's1.ts', 's2.ts']
     const plan = planWindow({
       visible: { first: 0, last: 1 },

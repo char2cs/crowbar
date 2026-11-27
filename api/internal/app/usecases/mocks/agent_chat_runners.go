@@ -8,16 +8,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// StartCall is one recorded OpenChat call. ParentAtStart, read at call time, is what
-// tells place-then-start from start-then-place: the spawn reads it to decide inheritance.
 type StartCall struct {
 	ChatID        string
 	ProviderID    string
 	ParentAtStart string
 }
 
-// LineageNote is one recorded call to NoteThreadLineage: which chat was told,
-// and what it was told it now reads.
 type LineageNote struct {
 	ChatID    string
 	Ancestors []string
@@ -102,8 +98,6 @@ func (s *AgentChatPlacements) OpenChat(
 	return "runner-" + chatID, nil
 }
 
-// SpawnChatWithOwnWorktree records the call and, on success, fills the row's WorkspaceID
-// as the real one does, so a test can assert the row owns a workspace.
 func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
@@ -127,8 +121,6 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 	return "ws-child-" + chatID, "runner-" + chatID, nil
 }
 
-// SpawnChatWithImportedWorktree mirrors SpawnChatWithOwnWorktree for an existing branch;
-// an empty providerID starts no runner, as in production.
 func (s *AgentChatPlacements) SpawnChatWithImportedWorktree(
 	_ context.Context,
 	chatID string,
@@ -159,7 +151,6 @@ func (s *AgentChatPlacements) SpawnChatWithImportedWorktree(
 	return ws, "runner-" + chatID, nil
 }
 
-// AttachWorkspace records the slot write and applies it to the held row.
 func (s *AgentChatPlacements) AttachWorkspace(
 	_ context.Context,
 	chatID string,

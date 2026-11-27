@@ -1,4 +1,3 @@
-/** A branch row is addressed by its owning chat, and every verb treats it as its workspace. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const { createChat, createChatWithOwnWorktree, deleteChat } = vi.hoisted(() => ({
@@ -47,8 +46,6 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 })
 
 afterEach(() => {
-  // A GLOBAL store — a leaked 'terminal' default would silently arm every
-  // later create in this file with a surface its own assertions never named.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
   }))
@@ -68,8 +65,6 @@ function confirmArmedBranchName(name = 'typed-branch'): void {
   confirmCreateDraft(name, vi.fn())
 }
 
-// A branch row's id is its owning CHAT's id (`deriveRows`), yet the row is a workspace. Each
-// dispatcher must tell the two apart, or a locked branch's "+" goes inert.
 describe('a branch row is addressed by its owning chat, and is still a workspace', () => {
   const branchRow = (id: string, workspaceId: string): Chat => ({
     id,
@@ -155,11 +150,6 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   it('its trash takes the WORKSPACE path — refused as locked, never deleteChat', () => {
     seedRepos([lockedRepo()])
 
-    // A branch row can only ever be a locked branch or a repo home, and
-    // `planRemoval`'s `draftFor` refuses both — so the tray staying empty is
-    // the REFUSAL, and on its own it is indistinguishable from doing nothing.
-    // The ordinary workspace below is what tells those two apart: the same
-    // call, in the same repo, does reach the tray.
     expect(handleTrash('develop-row')).toBe(false)
     expect(deleteChat).not.toHaveBeenCalled()
     expect(treeUiStore.getState().removals).toEqual([])
@@ -170,8 +160,6 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   })
 })
 
-// A provider list belongs to a daemon: forking a remote workspace starts its first
-// chat with a provider THAT host offers, never one only the local daemon has.
 describe('forking on an install that has paired a remote host', () => {
   it('starts the fork with a provider its own host offers', async () => {
     resetHostWorld()

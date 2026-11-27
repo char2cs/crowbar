@@ -1,5 +1,3 @@
-//! One entity an operation creates or changes.
-
 use daemonapi::Problem;
 use serde::Deserialize;
 

@@ -1,5 +1,3 @@
-//! Where a button's menu opens: under its left edge, as develop anchors its "…" menus.
-
 use std::cell::Cell;
 use std::rc::Rc;
 

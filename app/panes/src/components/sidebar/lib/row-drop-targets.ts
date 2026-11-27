@@ -3,7 +3,6 @@ import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-polic
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { NativeRowDrop } from '@/lib/native-chrome'
 
-/** A target as the desktop drag reads it off the DOM: folded or open, with or without children. */
 export function dropTargetRow(
   rows: readonly SidebarRow[],
   collapsed: ReadonlySet<string>,
@@ -15,8 +14,6 @@ export function dropTargetRow(
   return { ...row, hasChildren, expanded: hasChildren && !collapsed.has(id) }
 }
 
-// Where the desktop's drop rules let `subjectId` land, for every row: its policy plus the hit
-// test's guard against dropping a row into its own subtree.
 export function rowDropTargets(
   rows: readonly SidebarRow[],
   collapsed: ReadonlySet<string>,

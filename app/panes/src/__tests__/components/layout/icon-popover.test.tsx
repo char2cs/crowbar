@@ -2,11 +2,6 @@ import type React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// @base-ui/react ships pure ESM and gets its own React copy in the
-// vitest/jsdom process. Popover/Avatar are mocked to plain, always-"open"
-// markup so this file can exercise IconPopover's own logic — which button
-// calls the network — without fighting Base UI's real
-// open/close mechanics.
 vi.mock('@/components/ui/popover', () => ({
   Popover: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   PopoverTrigger: ({ children, ...props }: React.ComponentProps<'button'>) => (
@@ -97,13 +92,6 @@ describe('IconPopover — editing an icon', () => {
     await waitFor(() => expectMigratingShown(toasts))
   })
 
-  // A caller may wrap this trigger in a bare, unstyled `<span>` — that span is
-  // an inline formatting context, so the trigger's own `inline-flex` box is
-  // subject to `vertical-align: baseline` there unless it opts out. Caught
-  // live: an uploaded project/repo icon sitting a few px above its name.
-  // `align-middle` is meaningless (and harmless) once a caller's wrapper is
-  // itself flex/grid, so asserting its presence here can't regress a caller
-  // that never needed it.
   it('the trigger opts out of inline baseline alignment for bare-span callers', () => {
     render(<IconPopover {...baseProps} base="/v0/projects/p1" />)
     expect(screen.getByRole('button', { name: 'Edit my-project icon' }).className).toContain(
@@ -112,8 +100,6 @@ describe('IconPopover — editing an icon', () => {
   })
 })
 
-// An icon upload sends a file from this machine, whichever daemon the entity lives on — it
-// is never a path picked on the entity's own host.
 describe('IconPopover — an upload is a file on this machine', () => {
   it("a remote entity's upload still picks an image with the OS dialog", async () => {
     isTauri.mockReturnValue(true)
@@ -132,15 +118,12 @@ describe('IconPopover — an upload is a file on this machine', () => {
   })
 })
 
-// A remote daemon cannot read this computer's disk: it is sent the picked image's bytes, while
-// the local daemon keeps reading the path itself.
 describe('IconPopover — an upload to a remote entity sends the image, never its path', () => {
   const REMOTE = 'crowbar://h1/v0/projects/p1'
   const reads: string[] = []
   const sentTo = (prefix: string) =>
     vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith(prefix))
 
-  /** The webview's asset protocol serving the picked image (`size` is what its HEAD reports). */
   function serveImage(bytes: string, size = bytes.length) {
     reads.length = 0
     vi.stubGlobal(
@@ -214,7 +197,6 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  // The popover may close while the OS dialog is up: the pick is still the user's.
   it('lands an image picked after the popover was closed', async () => {
     let pick!: (path: string) => void
     openDialog.mockReturnValue(new Promise((resolve) => (pick = resolve)))
@@ -253,9 +235,6 @@ describe('IconPopover — an upload to a remote entity sends the image, never it
 })
 
 describe('IconPopover — a stored icon', () => {
-  // Regression: the big preview used to render ONLY AvatarImage when `src` was set, with no
-  // AvatarFallback sibling. Base UI's Fallback must be mounted alongside Image to catch a failed
-  // load, or a bad `src` renders a blank square instead of the default glyph.
   it('mounts AvatarFallback alongside AvatarImage, so a failed load has somewhere to fall back to', () => {
     render(
       <IconPopover

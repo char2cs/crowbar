@@ -1,5 +1,3 @@
-//! Which face a new chat opens on, from the `chatIsDefaultPresentation` setting.
-
 use settings::Value;
 use sidebar::Command;
 

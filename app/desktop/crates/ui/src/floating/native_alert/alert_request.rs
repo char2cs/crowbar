@@ -3,22 +3,16 @@ use gpui::SharedString;
 use crate::floating::native_alert::alert_button::AlertButton;
 use crate::floating::native_alert::alert_role::AlertRole;
 
-/// A native message dialog to ask over a window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlertRequest {
-    /// Its heading, set above the message; none for a message alone.
     pub title: Option<SharedString>,
-    /// What it asks.
     pub message: SharedString,
-    /// Its buttons, left to right.
     pub buttons: Vec<AlertButton>,
 }
 
 impl AlertRequest {
-    /// The index [`AlertRequest::confirm`] gives its go-ahead button.
     pub const GO: usize = 1;
 
-    /// A titled question with a cancel button labelled `cancel`, then `go`, which goes ahead.
     pub fn confirm(
         title: impl Into<SharedString>,
         message: impl Into<SharedString>,

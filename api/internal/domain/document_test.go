@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Only a request over the unix socket is local: TCP, even loopback, and a
-// context with no listener address are remote.
 func TestTransportOf_OnlyTheUnixSocketIsLocal(t *testing.T) {
 	at := func(addr net.Addr) context.Context {
 		return context.WithValue(context.Background(), http.LocalAddrContextKey, addr)

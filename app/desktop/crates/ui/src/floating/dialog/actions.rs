@@ -1,5 +1,3 @@
-//! The keys of a dialog: `Escape` closes it, `Tab` and `Shift-Tab` move focus inside it.
-
 use gpui::{KeyBinding, actions};
 
 actions!(ui_dialog, [CloseDialog, FocusNext, FocusPrevious]);

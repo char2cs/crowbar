@@ -1,5 +1,3 @@
-//! One tab: its view, members, member kinds, look and shell, and the shell's close button and fade.
-
 mod member_glyph;
 mod member_kind;
 mod member_view;

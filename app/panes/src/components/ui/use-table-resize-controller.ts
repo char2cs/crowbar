@@ -46,7 +46,6 @@ export function useTableResizeContext() {
   return context
 }
 
-/** Column, row and left-margin drags on one table: previews while the pointer moves, commits on release. */
 export function useTableResizeController({
   deferColumnResize,
   dragIndicatorRef,

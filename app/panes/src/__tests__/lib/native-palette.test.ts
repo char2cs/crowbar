@@ -12,8 +12,6 @@ const PAGE =
   ':root { --background: #fcfcfa; --muted: #f1f0ea; --foreground: #1b1b19; --muted-foreground: #666666; --brand-light: #606c38; --brand-dark: #98a86a; }'
 const CHROME_SURFACE =
   '.chrome-surface { --foreground: #f2f0ea; --primary: #98a86a; --primary-foreground: #1b1b19; }'
-// Every theme.css theme defines the raised controls (Frosted: `var(--background)`), so they
-// cannot tell a dark sidebar from a plain one.
 const CONTROLS = ':root, .chrome-surface { --control-surface: var(--background); }'
 
 afterEach(() => {

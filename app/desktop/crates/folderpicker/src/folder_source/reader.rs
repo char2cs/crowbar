@@ -1,5 +1,3 @@
-//! What the picker reads of the data behind it.
-
 use store::FolderListing;
 
 pub(crate) trait Reader {

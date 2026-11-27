@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// processTransport adapts a child's stdout/stdin to an io.ReadWriteCloser. One reaper
-// goroutine owns cmd.Wait and fires onExit on a natural exit so the manager evicts the
-// corpse; Close kills the process and waits for the reaper rather than double-Waiting.
 type processTransport struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
@@ -65,9 +62,6 @@ func (t *processTransport) Write(
 	return t.stdin.Write(p)
 }
 
-// reap is the single cmd.Wait() owner. It blocks until the process exits, reaps
-// it, and signals via the reaped channel. When the exit was NOT initiated by
-// Close (a genuine self-exit), it fires onExit so the dead server is evicted.
 func (t *processTransport) reap() {
 	waitErr := t.cmd.Wait()
 	close(t.reaped)
@@ -83,8 +77,6 @@ func (t *processTransport) reap() {
 	}
 }
 
-// unexpectedExit is what a Wait failure means: a server Close killed exits
-// non-zero by design, anything else (a crash, a failed Wait) is worth a line.
 func unexpectedExit(waitErr error, deliberate bool) error {
 	var exitErr *exec.ExitError
 	if deliberate && errors.As(waitErr, &exitErr) {
@@ -93,9 +85,6 @@ func unexpectedExit(waitErr error, deliberate bool) error {
 	return waitErr
 }
 
-// Close kills the process and the pipes, then blocks until the reaper has
-// finished cmd.Wait(). It is idempotent, suppresses onExit (the teardown is
-// deliberate, not a crash), and only its first call reports a close failure.
 func (t *processTransport) Close() error {
 	var err error
 	t.closeOnce.Do(func() {
@@ -112,8 +101,6 @@ func (t *processTransport) Close() error {
 	return err
 }
 
-// gone wraps a teardown failure, except that closing what the reaper already
-// closed or killing what already exited is the teardown having been done.
 func gone(op string, err error) error {
 	if err == nil || errors.Is(err, os.ErrClosed) || errors.Is(err, os.ErrProcessDone) {
 		return nil
@@ -121,7 +108,6 @@ func gone(op string, err error) error {
 	return fmt.Errorf("process: %s: %w", op, err)
 }
 
-// closeLogged closes a transport nobody can return the failure to.
 func closeLogged(what string, c io.Closer) {
 	if err := c.Close(); err != nil {
 		slog.Warn("lsp: "+what, "err", err)

@@ -1,5 +1,3 @@
-//! What the Files panel remembers about a row drag between pointer events.
-
 use gpui::Task;
 use sidebar::{DragArm, DropSpot, FileDrop, FileMove};
 

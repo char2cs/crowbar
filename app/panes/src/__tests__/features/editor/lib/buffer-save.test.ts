@@ -1,13 +1,10 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// apiFetch is the HTTP boundary every write ends at; its body names the workspace.
 vi.mock('@/lib/api/fetch', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api/fetch')>('@/lib/api/fetch')
   return { ...actual, apiFetch: vi.fn() }
 })
 
-// The active workspace is 'ws-active', never the buffers' own 'ws-owner': a save
-// resolving its workspace through the active one would visibly write there.
 vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/workspace/stores/workspace-store-registry')>()
@@ -46,13 +43,11 @@ import { useFileWatcherStore } from '@/features/file-system/controllers/file-wat
 
 const mockFetch = apiFetch as ReturnType<typeof vi.fn>
 
-/** The daemon answers a write with the ref it wrote. */
 function written(_url: string, init?: RequestInit) {
   const { workspaceId, path } = JSON.parse(String(init?.body ?? '{}')) as Record<string, string>
   return workspaceId ? { authority: 'workspace', workspaceId, path } : { authority: 'host', path }
 }
 
-/** A buffer of `workspaceId` holding `content` disk does not have. */
 function openDirtyBuffer(workspaceId: string | DocumentRef, path: string, content: string) {
   const doc = typeof workspaceId === 'string' ? workspaceRef(workspaceId, path) : workspaceId
   return openTestDocument(doc, content, { saved: 'on disk', name: path })
@@ -72,7 +67,6 @@ beforeEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-// A dirty buffer of ws-owner while ws-active is on screen: the write must land in ws-owner.
 describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, not the active one", () => {
   it("handleSave writes to the dirty buffer's own workspace", async () => {
     await openDirtyBuffer('ws-owner', 'a.ts', 'edited content')
@@ -121,7 +115,6 @@ describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, n
       ([, init]) =>
         JSON.parse((init as RequestInit).body as string) as { path: string; workspaceId: string },
     )
-    // Not cross-wired: both writes once went to whichever workspace was active.
     expect(calls.find((c) => c.path === 'a.ts')?.workspaceId).toBe('ws-owner')
     expect(calls.find((c) => c.path === 'b.ts')?.workspaceId).toBe('ws-active')
   })
@@ -166,7 +159,6 @@ const openCleanBuffer = (workspaceId: string, path: string, content: string) =>
 
 describe('buffer-save — autosave is per buffer and never mislabels edits', () => {
   beforeEach(() => {
-    // IndexedDB (the drafts) runs on setImmediate, which stays real.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     useSettingsStore.setState((s) => ({ settings: { ...s.settings, autoSave: true } }))
   })
@@ -205,7 +197,6 @@ describe('buffer-save — autosave is per buffer and never mislabels edits', () 
 
     expect(textOf(A)).toEqual({ text: 'v2', saved: 'v1' })
     expect(bufferById(id).isDirty).toBe(true)
-    // ...and autosave catches the late edit up.
     await vi.advanceTimersByTimeAsync(QUIET_PERIOD_MS)
     expect(writesFor('a.ts')).toEqual(['v1', 'v2'])
     expect(bufferById(id).isDirty).toBe(false)
@@ -233,7 +224,6 @@ describe('buffer-save — autosave is per buffer and never mislabels edits', () 
     replaceDocumentText(A, 'v2')
     const second = saveBuffer(id)
     await vi.advanceTimersByTimeAsync(0)
-    // Only the first write is in flight until it settles.
     expect(resolvers).toHaveLength(1)
     resolvers[0]?.()
     await first
@@ -299,7 +289,6 @@ describe('buffer-save — Save As onto a document that is already open', () => {
   const openIn = (paneId: string, doc: DocumentRef, text: string, flags: Flags = {}) =>
     openTestDocument(doc, text, { paneId, ...flags })
 
-  /** Save As whose write stays in flight while `during` runs. */
   async function saveAsDuring(during: () => unknown): Promise<boolean> {
     let started = () => {}
     let finish = () => {}

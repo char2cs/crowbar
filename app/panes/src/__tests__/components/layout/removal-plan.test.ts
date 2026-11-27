@@ -1,12 +1,3 @@
-/**
- * What a removal decides before anything is hidden.
- *
- * The rule under test throughout is that a hold is not a delete: everything
- * here computes what to HIDE, and every one of those hidings is undone by
- * dropping an id. The three kinds hide different amounts because the daemon
- * removes different amounts — a workspace cascades, a folder reparents its
- * children, and a repo takes every worktree under it.
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
@@ -58,9 +49,6 @@ describe('what a removal takes with it', () => {
     expect(draft.extra).toBe(2)
   })
 
-  // A folder holds no worktree, and the daemon reparents its children to the
-  // folder's own parent. Hiding them would promise a deletion that is not
-  // going to happen.
   it('takes a folder alone, and says so with no count', () => {
     const [draft] = planRemoval([{ kind: 'folder', id: 'f1', repoId: 'r1' }], [repo()])
 
@@ -85,7 +73,6 @@ describe('what a removal takes with it', () => {
     expect(planRemoval([{ kind: 'project', id: 'p1' }], [repo()])).toEqual([])
   })
 
-  // Two rows of one subtree are one disappearance, so they are one tray row.
   it('drops a row that is already inside another row it is taking', () => {
     const drafts = planRemoval([WS('a'), WS('kid')], [repo()])
 
@@ -116,8 +103,6 @@ describe('the sidebar as it reads with rows held', () => {
     expect(applyPendingRemovals([repo()], new Set(['r1']))).toEqual([])
   })
 
-  // The commit reparents; the preview has to show the same thing, or the tray
-  // is showing one outcome and delivering another.
   it("moves a held folder's children up to the folder's own parent", () => {
     const withFolders = repo({
       folders: [
@@ -149,8 +134,6 @@ describe('the sidebar as it reads with rows held', () => {
   })
 })
 
-// A project-home chat or folder rides no repo, so `draftFor` resolves it via
-// `resolveHomeRowScope` before the repo lookup.
 describe('a project-home chat or folder', () => {
   it('drafts a chat removal scoped to the home workspace, taking its threads with it', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
@@ -195,12 +178,9 @@ describe('a project-home chat or folder', () => {
 
     const [draft] = planRemoval([{ kind: 'folder', id: 'home-folder-1' }], [bled])
 
-    // '' (home), never 'r1' — the repo-scoped branch below would have
-    // resolved this against the bled-into repo instead.
     expect(draft.repoId).toBe('')
   })
 
-  // Corrupt input: a parentId cycle must not overflow the stack while the subtree is walked.
   it('takes each thread once when chats name each other as parents', () => {
     const chats = [
       { id: 'c1', repoId: 'r1', title: 'a', order: 0, parentId: 'c3' },

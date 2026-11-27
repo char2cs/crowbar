@@ -15,7 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// pipeConn is a stream client: requests go in, frames come out.
 type pipeConn struct {
 	in  chan stream.Request
 	out chan stream.Frame
@@ -93,7 +92,6 @@ func TestRefcount_TheWatcherIsSharedByGitAndFiles(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(calls))
 }
 
-// polled records every workspace a forge poll asks about.
 type polled chan string
 
 func (p polled) PollWorkspace(_ context.Context, wsID string) error {
@@ -101,8 +99,6 @@ func (p polled) PollWorkspace(_ context.Context, wsID string) error {
 	return nil
 }
 
-// Only the workspace a client marks active (forge:) polls its forge; holding
-// ws: for a retained workspace costs no subprocess.
 func TestSet_OnlyAForgeHoldPollsTheForge(t *testing.T) {
 	polls := make(polled, 16)
 	set := NewSet(context.Background(), nil, Deps{Forge: polls})
@@ -125,7 +121,7 @@ func TestSet_OnlyAForgeHoldPollsTheForge(t *testing.T) {
 	}
 	close(conn.in)
 	<-done
-	set.Close() // joins every poll still running
+	set.Close()
 
 	close(polls)
 	for ws := range polls {

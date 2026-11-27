@@ -9,20 +9,6 @@ import type { Repo, Workspace } from '@/core/entities/repo-types'
 import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-/**
- * Live report: "creating a new branch out of develop while a project-home chat
- * is open deletes that RECENT row and then opens the branch."
- *
- * This drives the create path's own tail — `navigateThenOpenChat` ->
- * `openChatInOwnPane` -> `openChat` — against the REAL window pane store,
- * with a project-home chat and a repo chat each already open in a view of
- * their own, and asserts both rows survive the new branch's own row.
- *
- * The repo chat and the home chat are asserted TOGETHER on purpose: the live
- * report's whole shape is that the repo one survives and the home one does
- * not, so a test that only watched the home chat could pass for the wrong
- * reason (both gone).
- */
 const { activeIds, homeIds, activeWsId } = vi.hoisted(() => ({
   activeIds: { current: [] as string[] },
   homeIds: { current: new Map<string, string>() },
@@ -42,8 +28,6 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeOwningChatId: () => null,
 }))
 
-// pane-slice imports this for closePane's teardown; nothing here closes a
-// pane, and the real module reaches the network.
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
 }))
@@ -64,7 +48,6 @@ function click(chatId: string, workspaceId: string): void {
   } as SidebarRow)
 }
 
-/** Every chat on a row of p1's band, row by row. */
 function bandChats(): string[] {
   const state = windowPaneStore.getState()
   return selectProjectViewIds(state, 'p1').flatMap((id) => viewChatIds(state, id))
@@ -116,15 +99,11 @@ describe('creating a branch while a project-home chat is open', () => {
     )
 
     windowPaneStore.getState().paneActions.setActiveProject('p1')
-    // A tree click on each: `openChatIdInOwnView` is the one shared core every
-    // "open this chat the way a click does" caller runs.
     seedRepos(repos)
     click('chat-repo', 'ws-1')
     click('chat-home', HOME_WS)
     expect(bandChats().sort()).toEqual(['chat-home', 'chat-repo'])
 
-    // The fork lands: its workspace + owning chat join the tree, the route
-    // moves to that workspace, and the new chat is opened in its own view.
     const reposAfter = reposWith(
       [
         makeTestWorkspace({ id: 'ws-1', branch: 'main' }),
@@ -143,8 +122,6 @@ describe('creating a branch while a project-home chat is open', () => {
     click('chat-new', 'ws-new')
 
     expect(bandChats().sort()).toEqual(['chat-home', 'chat-new', 'chat-repo'])
-    // The new chat took a pane of its own — it never displaced the home
-    // chat's, and no chat lost its pane.
     expect(
       Object.values(windowPaneStore.getState().panes)
         .map((p) => p.chatId)

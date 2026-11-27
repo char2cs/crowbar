@@ -10,11 +10,6 @@ const shapeOf = (text: string): ComposerShape => ({
   mentionQuery: /(?:^|\s)@([^\s@]*)$/.exec(text)?.[1] ?? null,
 })
 
-/**
- * The composer editor's contract over a textarea, for suites about the queue and
- * the pane rather than the editor: text in through the handle or typing, the
- * shape out on every change, keys through with the box's own text.
- */
 export function TextareaComposerEditor({
   ariaLabel,
   placeholder,

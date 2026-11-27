@@ -1,5 +1,3 @@
-//! One terminal row together with what shaping it needs.
-
 use terminal::Row;
 
 use crate::terminal_view::paint::shaping::Shaping;

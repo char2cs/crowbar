@@ -15,14 +15,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage pins
-// the wiring this task adds: a prompt referencing a durable attachment must
-// have its dispatched argv carry the file's REAL, ABSOLUTE path in the
-// durable store — never the logical chats/<id>/attachments/<file> reference a
-// client-side markdown link encodes. Both Claude and Codex, at every
-// permission level Crowbar offers, read an arbitrary absolute path outside
-// their own worktree with no escalation and no prompt (confirmed live), so no
-// copy step is needed to make that path readable.
 func TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -44,9 +36,6 @@ func TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage(t *
 	assert.NotEqual(t, -1, slices.Index(last.argv, wantText))
 }
 
-// TestSubmitPrompt_NoAttachmentReference_DispatchesTheTextUnchanged guards the
-// zero-attachment fast path this wiring must not disturb: a plain prompt's
-// argv must carry the exact text submitted, byte for byte.
 func TestSubmitPrompt_NoAttachmentReference_DispatchesTheTextUnchanged(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -59,9 +48,6 @@ func TestSubmitPrompt_NoAttachmentReference_DispatchesTheTextUnchanged(t *testin
 	assert.NotEqual(t, -1, slices.Index(last.argv, text))
 }
 
-// A steered prompt reaches the CLI as its row records it for dispatch, whichever
-// turn end hands it over: one whose commit failed leaves the next one the same
-// text, and the user's own text stays theirs.
 func TestSteer_TheTurnEndAfterAFailedOneHandsTheCLITheDispatchedText(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -91,8 +77,6 @@ func TestSteer_TheTurnEndAfterAFailedOneHandsTheCLITheDispatchedText(t *testing.
 	assert.Equal(t, text, receipt(t, f, chatID, requestID).Text, "the user's text is never the dispatched one")
 }
 
-// A chat's attachments are its own: stored under the home by chat id, read back
-// whatever its workspace now resolves to, and gone with the chat.
 func TestUploadAttachment_LivesWithTheChatNotItsWorkspace(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")

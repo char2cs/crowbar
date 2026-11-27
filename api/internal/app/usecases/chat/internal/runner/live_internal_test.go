@@ -11,7 +11,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// liveWith is a live table holding runners, each started on its chat.
 func liveWith(t *testing.T, runners ...engineagents.Runner) *liveTable {
 	t.Helper()
 	live := newLiveTable()
@@ -22,7 +21,6 @@ func liveWith(t *testing.T, runners ...engineagents.Runner) *liveTable {
 	return live
 }
 
-// exitCause is the cause noted for runnerID's exit; "" when none was.
 func exitCause(t *testing.T, live *liveTable, runnerID string) string {
 	t.Helper()
 	exit, ok := live.claimExit(runnerID)
@@ -107,8 +105,6 @@ func TestAwaitDormant_WaitsOutAnExitingRunnerOnly(t *testing.T) {
 	assert.False(t, live, "the chat is dormant once the exiting runner is gone")
 }
 
-// Once a runner's end is under way no turn opens on it, though its hooks still
-// resolve it: nothing would close that turn.
 func TestTurnRunner_AnEndingRunnerOpensNoTurn(t *testing.T) {
 	rs := &Runners{live: liveWith(t, engineagents.Runner{ID: "r1", CurrentChatID: "chat-1"})}
 	opened := 0
@@ -129,8 +125,6 @@ func TestTurnRunner_AnEndingRunnerOpensNoTurn(t *testing.T) {
 	assert.True(t, resolves, "its hooks still find it")
 }
 
-// A runner the table no longer holds is still its chat's, as the ledger
-// started it, until that chat is gone.
 func TestRecordedRunner_IsTheRunnerAsItsChatsLedgerStartedIt(t *testing.T) {
 	l := newTestLedger(t)
 	rs := &Runners{ledger: l, chats: purgedChats{

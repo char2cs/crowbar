@@ -79,7 +79,6 @@ beforeEach(() => {
   placeWorkspace.mockClear()
   resetWindowPaneStoreForTests()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
-  // Also clears every entity: the seeds below come after it.
   resetHostWorld()
   resetOperations()
   seedProjects(projects)
@@ -130,7 +129,6 @@ describe('useNativeSidebar', () => {
     expect(last().readout).toBeNull()
   })
 
-  // The page draws the desktop row's own "has a view" ground on the chat on screen.
   it('marks the focused chat as the one with a view', () => {
     mount()
     act(() =>
@@ -189,7 +187,6 @@ describe('useNativeSidebar', () => {
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
 
-  // The phone folds only from a row's disclosure: a tap on a container's body leaves it open.
   it('leaves a container open when its body is picked', () => {
     mount()
     send({ type: 'selectRow', id: 'c-home' })
@@ -268,7 +265,6 @@ describe('useNativeSidebar', () => {
     expect(useUIState.getState().isSettingsOpen).toBe(false)
     expect(navigate).toHaveBeenCalledWith({ to: '/add-host' })
   })
-  // The long-press menu holds every desktop verb, the row menu's and its hover buttons'.
   it('gives each row every desktop verb but terminal threads, Remove last and asked first', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
@@ -294,7 +290,6 @@ describe('useNativeSidebar', () => {
     })
   })
 
-  // A chat waiting to move after its turn can be kept where it is from the phone too.
   it('offers Cancel move on a chat waiting to move, and withdraws it', () => {
     const cancel = vi.spyOn(chatCommands, 'cancelChatMove').mockResolvedValue(undefined)
     mount()
@@ -313,7 +308,6 @@ describe('useNativeSidebar', () => {
     expect(setWorkspaceLock).toHaveBeenCalledWith('ws-a', true)
   })
 
-  // The draft it opens is the chat behind the list, so the list must go or nothing seems to happen.
   it('puts the list away when a row menu starts a new thread', () => {
     mount()
     act(() => useMobileScreenStore.getState().setChatListOpen(true))
@@ -322,7 +316,6 @@ describe('useNativeSidebar', () => {
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
 
-  // The phone has no terminal threads: a preferred Terminal must not create a chat there.
   it('asks for a new name natively, starting from the current one', async () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
@@ -339,7 +332,6 @@ describe('useNativeSidebar', () => {
     expect(treeUiStore.getState().removals.map((e) => e.label)).toContain('alpha')
   })
 
-  // The native confirm already asked, so there is no countdown, no Keep and no pending row.
   it('drops a confirmed removal from the list at once, due immediately', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
@@ -350,7 +342,6 @@ describe('useNativeSidebar', () => {
     expect(entry.deadlineAt).toBeLessThanOrEqual(Date.now())
   })
 
-  // Focus leaves the doomed chat at once, so nothing slides into it when the delete lands.
   it('moves the window off a chat the moment it is held for removal', () => {
     mount()
     act(() =>
@@ -374,7 +365,6 @@ describe('useNativeSidebar', () => {
   })
 
   describe('running agents', () => {
-    // The daemon's frames: the chat's runner starts, and two connections view it.
     const run = () =>
       act(() => {
         const held = entityStore.getState().byKind.chat['c-a']!
@@ -425,7 +415,6 @@ describe('useNativeSidebar', () => {
     })
   })
 
-  // The page draws the drag; where a row may land is the desktop's rule, answered here.
   it('says where a dragged row may land, by the desktop’s drop rules', () => {
     mount()
     const alpha = last().rows.find((r) => r.label === 'Alpha')!
@@ -458,7 +447,6 @@ describe('useNativeSidebar', () => {
     expect(placeWorkspace).not.toHaveBeenCalled()
   })
 
-  // The list page has no route to a daemon, so it is handed each icon as data, not as a URL.
   it('hands the page each repo and project icon as data', async () => {
     const png = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
     vi.stubGlobal(

@@ -2,8 +2,6 @@ import { pairRemoteHost } from '@/lib/crowbar-bridge'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import type { Host } from '@/features/hosts/types'
 
-/** Pairs `hostId` with the fingerprint the user confirmed: exactly what they saw, never one
- *  re-probed or re-derived here. */
 export async function redeemPairingCode(
   hostId: string,
   endpoint: string,
@@ -21,9 +19,6 @@ export async function redeemPairingCode(
   })
 }
 
-/** Why a host at `endpoint` presenting `fingerprint` can't be paired: this computer's own daemon
- *  (`localFingerprint`, '' when it has none) is Local already, and so is a configured host. Null
- *  when none is. `endpoint` is canonical (`normalizeEndpoint`), as saved ones are. */
 export function alreadyPairedReason(
   hosts: readonly Host[],
   endpoint: string,
@@ -44,17 +39,13 @@ const REFUSED = /^the host refused pairing \((\d{3})[^)]*\): (.*)$/s
 const UNRESOLVED = /^cannot resolve ([^\s:]+)/
 const UNREACHABLE = /^cannot reach |did not answer within|did not finish pairing|^pairing with /
 const NOT_CROWBAR = /^TLS handshake with |presented no certificate/
-// The desktop shell revokes a token the keychain would not keep; its error says whether that worked.
 const KEYCHAIN = /^the keychain could not keep the token/
 const STILL_LISTED = /revoking it on the host failed/
 
-/** What a failed probe or pairing of the host `name` at `address` means for the user, in plain
- *  words: the desktop shell's own text names transport and OS errors, which are never shown. */
 export function pairingFailureText(err: unknown, address: string, name: string): string {
   const text = err instanceof Error ? err.message : String(err)
   if (KEYCHAIN.test(text)) return keychainFailureText(text, address)
   const refused = REFUSED.exec(text)
-  // A wrong code and an expired one get the same 401: the host does not say which.
   if (refused?.[1] === '401') {
     return 'That code didn’t work. It may be mistyped or expired — the host doesn’t say which. Check it, or get a new one in Settings → Devices on the host (or run crowbar pair on a headless host).'
   }
@@ -78,7 +69,6 @@ export function pairingFailureText(err: unknown, address: string, name: string):
   return `Couldn’t pair with ${name}. Try again with a new code from Settings → Devices on the host (or run crowbar pair on a headless host).`
 }
 
-/** The code was spent and the key never saved: the keychain, not the code, is what to fix. */
 function keychainFailureText(text: string, address: string): string {
   const remedy = 'Unlock your keychain or allow Crowbar to use it, then pair again with a new code.'
   if (STILL_LISTED.test(text)) {

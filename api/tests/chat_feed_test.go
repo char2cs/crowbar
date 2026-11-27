@@ -24,8 +24,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// unnumberedStubProviderDescriptorYAML streams answers with no index: its
-// deltas are shown while they happen and no row holds them.
 const unnumberedStubProviderDescriptorYAML = `id: unnumberedstub
 events:
   message_delta:
@@ -47,7 +45,6 @@ runtime:
     format: json
 `
 
-// inputStubProviderDescriptorYAML records what a tool call was given.
 const inputStubProviderDescriptorYAML = `id: inputstub
 events:
   session_start:
@@ -71,7 +68,6 @@ runtime:
     format: json
 `
 
-// feedConn is one chat:<id> hold on its own /v0/stream connection.
 type feedConn struct {
 	client *streamClient
 	scope  string
@@ -87,13 +83,11 @@ func dialFeed(t *testing.T, h *harness, chatID string, since int64) *feedConn {
 	return fc
 }
 
-// nextFeedFrame reads the hold's next frame; a frame that never comes fails the test.
 func nextFeedFrame(t *testing.T, fc *feedConn) stream.Frame {
 	t.Helper()
 	return fc.client.Next(t, func(f stream.Frame) bool { return f.Scope == fc.scope })
 }
 
-// untilReady reads the replay and returns its row seqs and the synced frame.
 func untilReady(t *testing.T, fc *feedConn) ([]int64, stream.Frame) {
 	t.Helper()
 	var seqs []int64
@@ -162,10 +156,6 @@ func TestChatFeed_ResumeSendsOnlyNewerRows(t *testing.T) {
 	assert.Equal(t, first.epoch, again.epoch, "one daemon, one epoch")
 }
 
-// An attach landing after a row that holds a stream committed, but before the
-// ingress let the stream go, replays the row once and never shows that stream
-// again as a live answer. The row is appended past the ingress to hold that
-// window open.
 func TestChatFeed_AnAttachInsideACommitWindowShowsNoGhostAnswer(t *testing.T) {
 	h := newHarness(t)
 	_, chatID, post := newFeedChat(t, h, "unnumberedstub", unnumberedStubProviderDescriptorYAML)
@@ -318,13 +308,8 @@ var updateRowsFixture = flag.Bool("update-rows-fixture", false,
 
 const recordedRowsFixture = "../../app/panes/src/__tests__/__fixtures__/claude-subagent-session.rows.json"
 
-// runIDs is what the daemon mints per run (chat, turn, runner, session ids)
-// and the blob digests, some of whose content names the run's session.
 var runIDs = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64}`)
 
-// stableRows is the chat scope's replay with what differs between runs replaced,
-// in order of appearance, by fixed placeholders; ids the recording carries stay.
-// It reads the socket raw so each row keeps the bytes the daemon wrote.
 func stableRows(t *testing.T, fc *feedConn, recorded string) []byte {
 	t.Helper()
 	var rows []json.RawMessage
@@ -370,8 +355,6 @@ func stableRows(t *testing.T, fc *feedConn, recorded string) []byte {
 	return append([]byte(text), '\n')
 }
 
-// The web transcript's tests render this session's real rows; the file is
-// written only from here, so it never drifts from the ingress.
 func TestFeedRows_RecordedSubagentSessionFixture(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.replayRange(t, 0, 1000)

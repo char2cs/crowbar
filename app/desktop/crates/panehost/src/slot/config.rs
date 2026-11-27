@@ -1,16 +1,11 @@
 use protocol::HostId;
 use webview::PageHandler;
 
-/// Static settings of a [`PaneHost`](crate::PaneHost).
 #[derive(Clone)]
 pub struct Config {
-    /// The custom scheme, without `://`.
     pub scheme: String,
-    /// The daemon host panes talk to.
     pub host: HostId,
-    /// Free core web views kept for reuse; more are destroyed.
     pub max_idle_slots: usize,
-    /// Told about navigations in core and extension web views, e.g. to open links in the system browser.
     pub page_handler: Option<PageHandler>,
 }
 

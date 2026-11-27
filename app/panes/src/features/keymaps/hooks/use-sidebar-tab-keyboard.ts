@@ -21,7 +21,6 @@ export function useSidebarTabKeyboard(): void {
       for (const [commandId, tab] of SIDEBAR_TAB_COMMANDS) {
         const chord = chordMap[commandId]
         if (chord && eventMatchesChord(e, chord)) {
-          // A mode the focused workspace does not offer leaves the key alone.
           const offered = SIDEBAR_PANEL_TABS.find((t) => t.tab === tab)?.available(
             getFocusedWorkspaceContext(),
           )

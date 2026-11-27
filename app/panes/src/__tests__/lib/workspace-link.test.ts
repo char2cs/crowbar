@@ -32,7 +32,6 @@ afterEach(() => {
   resetHostWorld()
 })
 
-// Every spelling a URL parser turns into this computer's own address.
 const LOOPBACK = [
   'http://localhost:3000/',
   'http://LOCALHOST.:3000/',
@@ -84,7 +83,6 @@ describe('a link from this computer’s own content', () => {
     expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('http://localhost:3000/')
   })
 
-  // Nothing in the app has a page scheme for `//host` to inherit: it is a web link.
   it('opens a protocol-relative link as https', async () => {
     await openWorkspaceLink('//cdn.example.com/logo.png', 'w-local')
     await openWorkspaceLink('//localhost:3000/', null)

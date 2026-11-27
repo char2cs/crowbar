@@ -1,5 +1,3 @@
-//! The contract of a painted text field: text, selection, focus and editing, and how a field paints its caret and selection.
-
 mod blink;
 mod blinking;
 mod chrome;

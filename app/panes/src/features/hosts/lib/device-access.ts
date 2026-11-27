@@ -2,13 +2,9 @@ import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { apiFetch, type RetryConfig } from '@/lib/api/fetch'
 
-/** Whether an instance accepts connections from other devices, and the identity they confirm.
- *  The fingerprint is known while it is off: it is how a client tells its own daemon apart. */
 export interface DeviceAccess {
   enabled: boolean
-  /** The configured `host:port` bind, kept while closed. */
   address: string
-  /** Where another device dials while it is on. */
   reachable: string[]
   fingerprint: string
   error?: string
@@ -21,7 +17,6 @@ export interface PairedDevice {
   lastSeen: string
 }
 
-/** A one-time code and what the device needs beside it. */
 export interface PairingOffer {
   code: string
   serverFingerprint: string
@@ -66,7 +61,6 @@ interface ClientRow extends PairedDevice {
   revokedAt?: string
 }
 
-/** The devices still paired to the instance, newest first: a revoked row stays in its registry. */
 export async function listPairedDevices(hostId: string): Promise<PairedDevice[]> {
   const rows = await apiFetch<ClientRow[]>('/v0/clients', undefined, undefined, hostId)
   return rows
@@ -74,8 +68,6 @@ export async function listPairedDevices(hostId: string): Promise<PairedDevice[]>
     .sort((a, b) => Date.parse(b.pairedAt) - Date.parse(a.pairedAt))
 }
 
-/** The TLS identity of this computer's own daemon, which a host reached by address is told apart
- *  from; '' where there is no daemon or it cannot be asked (nothing is then taken for Local). */
 export async function localDaemonFingerprint(): Promise<string> {
   if (!hasLocalDaemon()) return ''
   try {

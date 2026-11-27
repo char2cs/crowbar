@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
-// The tree drew a tied level in arrival order while the drop
-// planner counted it in another, and the daemon in a third — so the first
-// drag out of an all-zero level landed slots off. One comparator now serves
-// the tree (`SidebarTree`) and the planner (`renderedSiblings`), and it is
-// the daemon's own (tree/node.go compareNodes): order, kind, createdAt, id.
 function row(over: Partial<SidebarRow> & { id: string; kind: SidebarRow['kind'] }): SidebarRow {
   return {
     parentId: null,
@@ -50,11 +45,6 @@ describe('compareSidebarRows', () => {
     expect([...rows].sort(compareSidebarRows).map((r) => r.id)).toEqual(['c-m', 'c-a', 'c-z'])
   })
 
-  // REGRESSION (K3, tied repos): a repo header row's `id` is its checkout's
-  // OWNING CHAT id, but both daemon writers tie a repo on the repo id (the
-  // Node id). Two tied repos whose two id spaces invert were drawn in one
-  // sequence and densified in the other, so a chat dropped "before repo-X"
-  // landed beside the other repo and the repos swapped after the reseed.
   it('breaks a tie between two repo headers on the REPO id, not the owning-chat row id', () => {
     const header = (id: string, repoId: string) =>
       row({
@@ -75,11 +65,6 @@ describe('compareSidebarRows', () => {
     ).toEqual(['0a-alpha', 'f9-beta'])
   })
 
-  // REGRESSION: `createdAt` was compared as a string. Go trims trailing
-  // fraction zeros and emits 'Z' in a zero-offset locale, so '…46.5Z' sorted
-  // AFTER '…46.53Z'; and two rows stamped across a DST change carry different
-  // offsets, where wall-clock order is not instant order. The daemon compares
-  // instants (time.Compare), so the client must too.
   it('breaks a creation-time tie on the instant, not the ISO string', () => {
     const shorterFraction = row({ id: 'z', kind: 'chat', createdAt: '2026-09-17T20:36:46.5Z' })
     const longerFraction = row({ id: 'a', kind: 'chat', createdAt: '2026-09-17T20:36:46.53Z' })

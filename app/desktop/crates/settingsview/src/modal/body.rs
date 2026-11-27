@@ -1,5 +1,3 @@
-//! The body of the modal: the rail and the page.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, Div, FocusHandle, InteractiveElement, IntoElement, MouseButton, ParentElement,

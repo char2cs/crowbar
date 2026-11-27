@@ -1,5 +1,3 @@
-//! The on/off phase of a field's caret and the one timer that flips it at its next edge.
-
 use std::time::{Duration, Instant};
 
 use gpui::{App, Context, Task};

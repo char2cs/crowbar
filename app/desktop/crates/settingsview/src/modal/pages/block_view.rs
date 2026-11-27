@@ -1,5 +1,3 @@
-//! Draws one block of a page, or nothing when the search hides it.
-
 use gpui::{AnyElement, App, IntoElement, Window};
 use settings::Block;
 

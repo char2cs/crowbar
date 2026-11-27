@@ -26,10 +26,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// The one-off boot upgrades of what the pre-audit daemon left behind.
-
-// A chat minted before Type existed replays with "", which base read as a
-// conversation; nothing reads it that way now, so boot writes it down.
 func TestRegression_Upgrade_AnUntypedLegacyChatIsAChatAfterBoot(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -54,9 +50,6 @@ func TestRegression_Upgrade_AnUntypedLegacyChatIsAChatAfterBoot(t *testing.T) {
 	assert.True(t, got.IsChat())
 }
 
-// Base minted a project's home on the first GET of /home. A project it saved
-// before homes existed, never opened since, has none; reads no longer write,
-// so boot creates it under the deterministic id.
 func TestRegression_Upgrade_AProjectWithoutAHomeGetsOneAtBoot(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -77,9 +70,6 @@ func TestRegression_Upgrade_AProjectWithoutAHomeGetsOneAtBoot(t *testing.T) {
 	assert.Equal(t, "home", homeWS.Kind)
 }
 
-// The exactly-once hook journal lived in <chatsDir>/.hook-deliveries; it is
-// retired. Boot deletes exactly that directory from Crowbar-managed chats
-// directories — and a directory of that name anywhere else is not its to take.
 func TestRegression_Upgrade_BootDeletesTheRetiredHookJournal(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -98,7 +88,6 @@ func TestRegression_Upgrade_BootDeletesTheRetiredHookJournal(t *testing.T) {
 		require.NoError(t, os.WriteFile(f, []byte("{}"), 0o644))
 	}
 	h.crash()
-	// A fresh ledger: the harness boot above already ran every step.
 	forgetMigrations(t, home)
 
 	h2 := newHarnessAt(t, home)
@@ -110,7 +99,6 @@ func TestRegression_Upgrade_BootDeletesTheRetiredHookJournal(t *testing.T) {
 	}
 }
 
-// view.db's workspace_paths table (the retired id→path index) is dropped.
 func TestRegression_Upgrade_BootDropsTheRetiredWorkspacePathsTable(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -131,10 +119,6 @@ func TestRegression_Upgrade_BootDropsTheRetiredWorkspacePathsTable(t *testing.T)
 	assert.False(t, after.GlobalView().Migrator().HasTable("workspace_paths"))
 }
 
-// A home an older daemon upgraded carries its markers and no ledger. Each step
-// is adopted from its marker, never re-run (re-running the provider restate
-// can change which vendor a chat resumes on); placement-tree, which no older
-// daemon ran, copies the chats' placements and is the one backup taken.
 func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -174,9 +158,6 @@ func TestRegression_Upgrade_AdoptsTheMarkersAnOlderDaemonLeft(t *testing.T) {
 	assert.Len(t, backups, 1)
 }
 
-// A backup restored as the upgrade notes say (quit, then `rm -rf state && tar -xzf`
-// the backup in the home) rewinds the ledger with the data: the next boot runs the
-// steps again on what was restored, instead of serving it as migrated.
 func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -213,9 +194,6 @@ func TestRegression_Upgrade_RestoringABackupAsDocumentedRerunsItsSteps(t *testin
 	assert.Len(t, migratetest.Applied(t, homeAt(t, home))[3], 1)
 }
 
-// A chat the pre-ledger daemon recorded keeps its history: the upgrade boot
-// restates it as ledger rows, bound to the session its newest turn ran on,
-// and a second boot converts nothing.
 func TestRegression_Upgrade_LegacyChatsBecomeLedgerRowsAtBoot(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -255,9 +233,6 @@ func TestRegression_Upgrade_LegacyChatsBecomeLedgerRowsAtBoot(t *testing.T) {
 	assert.Positive(t, runs[0]["rows"])
 }
 
-// writeLegacyChat writes two exchanges in the pre-ledger daemon's shape, the
-// first a prompt its journal delivered: hand-built through the legacy DDL,
-// not a recording.
 func writeLegacyChat(t *testing.T, h crowbarhome.Home, chatID string, at time.Time) {
 	t.Helper()
 	runner := openSQLite(t, filepath.Join(h.Store(), chatledger.RunnerDB))
@@ -296,8 +271,6 @@ func messageTexts(t *testing.T, h *harness, imported importedRepo, chatID string
 	return texts
 }
 
-// movedAttachment is where the upgrade boot puts a file an older build kept as
-// <chats>/<chat-id>/attachments/<name>: under the chat's own directory.
 func movedAttachment(
 	home string,
 	path string,
@@ -309,7 +282,6 @@ func movedAttachment(
 	return filepath.Join(worktreepath.AttachmentsDir(home, filepath.Base(filepath.Dir(dir))), filepath.Base(path))
 }
 
-// forgetMigrations leaves dir as a home no migration ever ran in, as base did.
 func forgetMigrations(
 	t *testing.T,
 	dir string,

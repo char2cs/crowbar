@@ -7,8 +7,6 @@ import {
   type TranscriptScrollPosition,
 } from '@/features/agent/hooks/use-transcript-anchor'
 
-/** jsdom has no layout: the scroller's metrics are test-held and its scrollTop
- *  clamps the way a browser's does, so a target past the ceiling is visible. */
 let scrollHeight = 1000
 let clientHeight = 400
 let boxed = true
@@ -24,7 +22,6 @@ interface HostProps {
   onPositionChange?: (position: TranscriptScrollPosition) => void
 }
 
-// Mostly a reply streaming in: the case where growth eases.
 function Host({ rev: _rev, measuring = false, arriving = true, ...options }: HostProps) {
   anchor = useTranscriptAnchor({ ...options, arriving })
   const { afterCommit } = anchor
@@ -70,13 +67,11 @@ function mount(props: HostProps = {}) {
   return { ...view, scroller, commit, grow }
 }
 
-/** A scroll nobody announced: the reader's gesture (or the browser's clamp). */
 function readerScrollsTo(scroller: HTMLElement, top: number) {
   scroller.scrollTop = top
   fireEvent.scroll(scroller)
 }
 
-// A tool's payload: a box inside the transcript, scrolled to `top`.
 function nestedBox(el: HTMLElement, top: number, overflowY = 'auto') {
   el.style.overflowY = overflowY
   Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => 500 })
@@ -172,7 +167,7 @@ describe('useTranscriptAnchor', () => {
     grow(1300)
     frames(1500)
     expect(scroller.scrollTop).toBe(570)
-    readerScrollsTo(scroller, 900 - 50) // back down within a row: rejoins the live end
+    readerScrollsTo(scroller, 900 - 50)
     grow(1400)
     frames(1500)
     expect(scroller.scrollTop).toBe(1000)
@@ -242,7 +237,6 @@ describe('useTranscriptAnchor', () => {
   it('keeps the reader position when a row above the viewport grows', () => {
     const { scroller, grow } = mount()
     readerScrollsTo(scroller, 200)
-    // The virtualizer moves the view by the row's growth and announces it.
     scrollHeight = 1060
     scroller.scrollTop = 260
     act(() => anchor.noteScrollWrite())
@@ -280,7 +274,6 @@ describe('useTranscriptAnchor', () => {
     const { scroller, grow } = mount()
     grow(1300)
     frames(50)
-    // Each step is under a viewport from where the glide is; together they are not.
     grow(1450)
     expect(scroller.scrollTop).toBe(1050)
   })
@@ -327,7 +320,6 @@ describe('useTranscriptAnchor', () => {
     readerScrollsTo(scroller, 500)
     boxed = false
     act(() => anchor.notifyReflow())
-    // The pane grew while away: the held distance asks past the new ceiling.
     clientHeight = 600
     boxed = true
     act(() => anchor.notifyReflow())
@@ -401,7 +393,6 @@ describe('useTranscriptAnchor', () => {
     expect(second.scroller.scrollTop).toBe(750)
   })
 
-  // Rows at their estimates are too short for the distance: the clamp to 0 is not the reader's.
   it('holds a saved position until its rows measure into it', () => {
     const saved: TranscriptScrollPosition[] = []
     const held = { stuck: false, distanceFromBottom: 5000 }

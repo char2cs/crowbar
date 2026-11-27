@@ -1,6 +1,5 @@
 const dateFormatterUS = new Intl.DateTimeFormat('en-US')
 
-/** "just now", "5m ago", "2h ago", "yesterday", "3d ago", else the locale date. */
 export const formatRelativeDate = (dateString: string | Date): string => {
   const date = new Date(dateString)
   if (Number.isNaN(date.getTime())) {

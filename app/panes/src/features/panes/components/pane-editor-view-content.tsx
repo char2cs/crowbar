@@ -12,7 +12,6 @@ import { renderPaneContent } from './pane-content-registry'
 import { sidebarSurfaceOf, sidebarSurfaceRoot } from '../lib/sidebar-surface'
 import { TerminalPane } from './terminal-pane'
 
-// Lazy: the page and pointer agents it injects load with the first browser tab, not at boot.
 const BrowserPane = lazy(() =>
   import('@/features/browser/components/browser-pane').then((m) => ({ default: m.BrowserPane })),
 )
@@ -22,20 +21,15 @@ type PaneRenderBuffer = Exclude<PaneContent, EditorContent> | EditorBufferShell
 
 interface PaneEditorViewContentProps {
   paneId: string
-  /** The pane's own workspace; null until it resolves. */
   wsId: string | null
   editorTabIds: string[]
   activeEditorTabId: string | null | undefined
-  /** The editor view is hidden (the chat fills the pane, or a tabs-mode chat tab is up). */
   editorViewHidden: boolean
   isActivePane: boolean
-  /** Whether this pane's view is on screen at all. */
   showing: boolean
-  /** A drag is over this pane and its drop overlay is drawn above the editor view. */
   dropTargeted?: boolean
 }
 
-/** Everything `editorTabIds` holds, the same whether or not the pane also holds a chat. */
 export function PaneEditorViewContent({
   paneId,
   wsId,
@@ -66,8 +60,6 @@ export function PaneEditorViewContent({
     return paneBuffers.find((b) => b.id === activeEditorTabId) || null
   }, [paneBuffers, activeEditorTabId])
 
-  // The editor widget lives in EditorHostRegistry, outside this component;
-  // this pane only publishes WHERE to portal it and what it should show.
   const editorPortalTargetRef = useRef<HTMLDivElement>(null)
   const hasOpenEditorBuffer = paneBuffers.some((b) => b.type === 'editor')
   const isEditorTabActive = activeBuffer?.type === 'editor' && !editorViewHidden
@@ -90,9 +82,6 @@ export function PaneEditorViewContent({
     <>
       {!activeBuffer && <NewTabView paneId={paneId} wsId={wsId} />}
 
-      {/* Terminals stay mounted to keep their PTYs, outside the Suspense
-          boundary so a cold chunk load never unmounts them. Visible only as
-          the active tab of an editor view that is not hidden. */}
       {paneBuffers
         .filter((b): b is TerminalContent => b.type === 'terminal')
         .map((b) => {
@@ -112,17 +101,12 @@ export function PaneEditorViewContent({
                 initialCommand={b.initialCommand}
                 workingDirectory={b.workingDirectory}
                 isActive={isActive && isActivePane}
-                // xterm gates its render loop on this: a parked view's
-                // terminal must stop drawing, not merely be covered.
                 isVisible={isActive && showing}
               />
             </div>
           )
         })}
 
-      {/* Editor-portal target (editor-host-registry.tsx): the live widget is
-          reparented into whichever target node is registered, so a tab
-          switch, split or fullscreen never remounts it. */}
       {hasOpenEditorBuffer && (
         <div
           ref={editorPortalTargetRef}
@@ -132,8 +116,6 @@ export function PaneEditorViewContent({
         />
       )}
 
-      {/* Browsers stay mounted for the same reason: a tab switch must not
-          rebuild the page. Hidden, the native webview is told to hide too. */}
       {paneBuffers
         .filter((b): b is BrowserContent => b.type === 'browser')
         .map((b) => {

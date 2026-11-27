@@ -1,6 +1,3 @@
-//! The owner of each window that has a pop-up window, made on first use and dropped with the
-//! window.
-
 use std::collections::HashMap;
 
 use gpui::{

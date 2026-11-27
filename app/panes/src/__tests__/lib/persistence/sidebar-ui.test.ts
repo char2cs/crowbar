@@ -49,9 +49,6 @@ describe('sidebar-ui persistence', () => {
     expect(result?.collapsedWorkspaces).toEqual(['ws1'])
   })
 
-  // A record written before the Chats panel was collapsible has no such key.
-  // Pre-production the fallback IS the migration: it must read as "nothing
-  // folded" rather than crash the hydrate that overlays it.
   it('loads a record that predates collapsedChatRows', async () => {
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     const result = await loadSidebarUI()

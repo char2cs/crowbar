@@ -1,6 +1,3 @@
-//! A shaped line with letter spacing: where each glyph sits once the spacing is added after every
-//! glyph before it, and how it paints.
-
 mod caret;
 
 use gpui::{FontId, Hsla, Pixels, Point, ShapedGlyph, ShapedLine, SharedString, TextStyle, Window};

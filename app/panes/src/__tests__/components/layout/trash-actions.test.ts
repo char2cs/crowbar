@@ -1,4 +1,3 @@
-/** Trashing a sidebar row routes every kind through the removal tray. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const { postWorkspace, deleteChat, getHomeWorkspaceId } = vi.hoisted(() => ({
@@ -15,7 +14,6 @@ vi.mock('@/features/agent/api/agent-chat-commands', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/agent/api/agent-chat-commands')>()),
   deleteChat,
 }))
-// The real home resolver needs a fetch+cache round trip these tests don't exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -46,8 +44,6 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 })
 
 afterEach(() => {
-  // A GLOBAL store — a leaked 'terminal' default would silently arm every
-  // later create in this file with a surface its own assertions never named.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
   }))
@@ -59,8 +55,6 @@ beforeEach(() => {
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   windowPaneStore.setState(windowPaneStore.getInitialState(), true)
   resetEntities()
-  // Creating a workspace starts a CLI, so it needs a provider from the global store (there is no
-  // workspace yet to scope a per-workspace read through).
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
@@ -82,8 +76,6 @@ describe('handleTrash', () => {
     expect(treeUiStore.getState().removals).toEqual([])
   })
 
-  // A locked non-home workspace still shows a trash button, but `draftFor` refuses it; the caller
-  // must hear so, to tell the user rather than swallow a confirmed click.
   it('is a no-op for a locked (non-home) workspace, and reports it', () => {
     seedRepos([
       repo({
@@ -98,17 +90,12 @@ describe('handleTrash', () => {
     expect(treeUiStore.getState().removals).toEqual([])
   })
 
-  // Addendum §2: a chat's delete now holds in the SAME removal tray every
-  // other kind uses — `resolveChatRow` is still consulted before `resolveRow`
-  // ever sees the id, but the outcome is a held `RemovalEntry`, not an
-  // immediate `deleteChat` call.
   describe('a chat row', () => {
     it('holds a bubble chat in the removal tray, scoped through any workspace of its own repo', () => {
       seedRepos([
         repo({
           defaultWorkspaceId: undefined,
           workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
-          // No `workspaceId` — a bubble, not a worktree chat.
           chats: [{ id: 'c1', repoId: 'r1', title: 'a chat', order: 0 }],
         }),
       ])
@@ -121,7 +108,6 @@ describe('handleTrash', () => {
       expect(entries[0]).toMatchObject({ kind: 'chat', id: 'c1', wsId: 'ws-a' })
     })
 
-    // The chat's pane closes with it; a file edited beside it is the only copy of those edits.
     it('keeps an unsaved file open beside the chat when its pane closes', () => {
       seedRepos([
         repo({

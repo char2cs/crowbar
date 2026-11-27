@@ -12,7 +12,6 @@ interface UseFileExplorerSyncOptions {
 const EMPTY_BUFFERS: PaneContent[] = []
 
 export function useFileExplorerSync({ activePath, updateActivePath }: UseFileExplorerSyncOptions) {
-  // Buffers and panes are window-level and never destroyed: a plain selector on the singleton.
   const buffers = useStore(windowPaneStore, (s) => s.buffers) ?? EMPTY_BUFFERS
   const activeBufferId = useStore(
     windowPaneStore,

@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
-// newTimingRouter mounts a parameterised route so a test can prove the sample
-// name collapses per-workspace URLs into their shared template.
 func newTimingRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -26,10 +24,6 @@ func newTimingRouter() *gin.Engine {
 	return r
 }
 
-// TestTiming_RecordsRouteTemplateNotConcretePath pins the bucketing rule: two
-// different workspaces hitting the same handler must land in ONE sample name.
-// Recording the concrete path would shatter a hot endpoint into hundreds of
-// single-sample buckets that no aggregation could reassemble.
 func TestTiming_RecordsRouteTemplateNotConcretePath(
 	t *testing.T,
 ) {
@@ -53,9 +47,6 @@ func TestTiming_RecordsRouteTemplateNotConcretePath(
 	}
 }
 
-// TestTiming_ConnectionControlsReachThroughTheWrapper proves a handler behind
-// the timing wrapper can still set its connection's read deadline — what the
-// bearer guard does to lift the pre-auth bound once a client is verified.
 func TestTiming_ConnectionControlsReachThroughTheWrapper(
 	t *testing.T,
 ) {
@@ -88,9 +79,6 @@ func TestTiming_ConnectionControlsReachThroughTheWrapper(
 	assert.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 }
 
-// TestTiming_RecordsNothingWhenDisabled proves the permanently-installed
-// middleware costs one atomic load while disarmed, which is what lets it wrap
-// every v0 route in production.
 func TestTiming_RecordsNothingWhenDisabled(
 	t *testing.T,
 ) {
@@ -104,9 +92,6 @@ func TestTiming_RecordsNothingWhenDisabled(
 	assert.Empty(t, perf.Snapshot())
 }
 
-// TestTiming_RecordsUnmatchedRoutesUnderOneBucket proves a 404 — which has no
-// route template — does not record an empty name, and does not fan out one
-// bucket per bogus URL a scanner might probe.
 func TestTiming_RecordsUnmatchedRoutesUnderOneBucket(
 	t *testing.T,
 ) {
@@ -129,11 +114,6 @@ func TestTiming_RecordsUnmatchedRoutesUnderOneBucket(
 	}
 }
 
-// TestTiming_EmitsServerTimingHeaderOnTheWire asserts against rec.Result(),
-// NOT rec.Header(). The recorder's live header map keeps accepting writes long
-// after the response has been flushed, so asserting on it would pass for a
-// header no client could ever receive; Result() carries the snapshot taken at
-// WriteHeader, which is what actually goes out.
 func TestTiming_EmitsServerTimingHeaderOnTheWire(
 	t *testing.T,
 ) {
@@ -152,9 +132,6 @@ func TestTiming_EmitsServerTimingHeaderOnTheWire(
 	assert.Contains(t, rec.Result().Header.Get("Server-Timing"), "total;dur=")
 }
 
-// TestTiming_OmitsServerTimingHeaderWhenDisabled proves the disarmed path adds
-// no header, so an instrumented build is indistinguishable from an
-// uninstrumented one until a capture run arms it.
 func TestTiming_OmitsServerTimingHeaderWhenDisabled(
 	t *testing.T,
 ) {

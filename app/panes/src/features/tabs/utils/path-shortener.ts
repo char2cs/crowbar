@@ -1,27 +1,18 @@
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { isVirtualContent } from '@/features/panes/types/pane-content'
 
-/**
- * Get path segments (directories) from a file path
- */
 function getPathSegments(filePath: string): string[] {
-  // Normalize path separators to forward slash
   const normalized = filePath.replace(/\\/g, '/')
   const parts = normalized.split('/')
-  // Return all parts except the last one (filename)
   return parts.slice(0, -1)
 }
 
-/**
- * Get the filename from a path
- */
 function getFileName(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/')
   const parts = normalized.split('/')
   return parts[parts.length - 1] || ''
 }
 
-/** The shortest `../dir/name` tail of each distinct path that tells it from the others. */
 function distinctPathLabels(paths: string[], fileName: string): Map<string, string> {
   const segmentsOf = new Map(paths.map((path) => [path, getPathSegments(path)]))
   const label = (segments: string[]) =>
@@ -38,24 +29,18 @@ function distinctPathLabels(paths: string[], fileName: string): Map<string, stri
   return new Map(paths.map((path) => [path, label(segmentsOf.get(path)!)]))
 }
 
-/** Buffer id → shortest distinguishing name: same-named files by the shortest differing
- *  directory tail, one path open from two workspaces by the workspace's name. */
 export function calculateDisplayNames(
   buffers: PaneContent[],
   workspaceNames: ReadonlyMap<string, string>,
 ): Map<string, string> {
   const displayNames = new Map<string, string>()
 
-  // Skip virtual or special buffers
   const regularBuffers = buffers.filter(
     (b) => !isVirtualContent(b) && b.path !== 'extensions://marketplace',
   )
 
-  // Group buffers by filename
   const fileNameGroups = new Map<string, PaneContent[]>()
   for (const buffer of regularBuffers) {
-    // Non-virtual, non-marketplace buffers always carry a real path (see
-    // OpenEditorTabSpec) — the `?? ''` only guards the type.
     const fileName = getFileName(buffer.path ?? '')
     if (!fileNameGroups.has(fileName)) {
       fileNameGroups.set(fileName, [])
@@ -78,7 +63,6 @@ export function calculateDisplayNames(
     }
   }
 
-  // Set display names for special/virtual buffers
   for (const buffer of buffers) {
     if (!displayNames.has(buffer.id)) {
       displayNames.set(buffer.id, buffer.name)

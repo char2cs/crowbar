@@ -94,7 +94,6 @@ describe('ViewTabsRow', () => {
     expect(windowPaneStore.getState().activeViewId).toBe(viewOf('chat-1'))
   })
 
-  // A strip of views is a tablist: a treeitem outside any tree reads as nothing to a screen reader.
   it('names each view as a tab of one tablist, the showing one selected', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     actions().openChat('chat-2', { workspaceId: 'ws-1' })
@@ -156,7 +155,6 @@ describe('ViewTabsRow', () => {
     expect(screen.getByTestId('recents-row-chat-1').closest('[data-pinned]')).toBeNull()
   })
 
-  // The sidebar's foot shows the build readout while it is open.
   it('carries the build readout only while the sidebar is hidden', () => {
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { unmount } = render(<ViewTabsRow />)
@@ -174,7 +172,6 @@ describe('ViewTabsRow', () => {
       state.settings.sidebarPosition = 'right'
     })
     actions().openChat('chat-1', { workspaceId: 'ws-1' })
-    // jsdom has no layout: report a row flush against the window's right edge.
     const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
     const measure = vi
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')

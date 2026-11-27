@@ -1,12 +1,10 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 
-// The terminal transport is covered by crowbar-bridge-terminal.test.ts.
 const IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 const MAC =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'
 
-// The platform is read once at module load, so each case loads the bridge afresh.
 async function loadInTauri(userAgent: string) {
   const invoke = vi.fn(async () => undefined)
   vi.stubGlobal('navigator', { userAgent, maxTouchPoints: 0 })
@@ -29,7 +27,6 @@ describe('the desktop window commands', () => {
     expect(invoke).toHaveBeenCalledWith('set_vibrancy_appearance', { dark: true })
   })
 
-  // The phone app is Tauri too, but has no desktop window: those commands do not exist there.
   it('are never invoked in the phone app', async () => {
     const { invoke, bridge } = await loadInTauri(IPHONE)
     expect(bridge.isTauri()).toBe(true)

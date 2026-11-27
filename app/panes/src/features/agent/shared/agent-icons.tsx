@@ -1,9 +1,6 @@
 import type { SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 
-// The chat surface's own icons (24-unit grid, stroke 1.6, round caps): phosphor's heavier weight
-// reads as another family beside them, so do not mix. Sizes are the canvas's three steps:
-// 12 for a chip's affordance, 14 default, 16 for a control the hand aims at.
 type AgentIconSize = 12 | 14 | 16
 
 interface AgentIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
@@ -52,7 +49,6 @@ export const UpIcon = icon(
   'UpIcon',
 )
 
-/** Stacked lines with a plus: a message joining the queue behind the running turn. */
 export const QueueIcon = icon(
   <>
     <path d="M5 7h11" />
@@ -81,8 +77,6 @@ export const PencilIcon = icon(
   'PencilIcon',
 )
 
-/* Filled, unlike every other glyph here: a stop is the one control whose meaning
-   is "solid", and the canvas draws it as a rounded square rather than an outline. */
 export const StopIcon = icon(
   <rect x="7" y="7" width="10" height="10" rx="1.6" fill="currentColor" stroke="none" />,
   'StopIcon',
@@ -109,8 +103,6 @@ export const CopyIcon = icon(
 
 export const PlusIcon = icon(<path d="M12 5.5v13M5.5 12h13" />, 'PlusIcon')
 
-/* The classic dog-eared page: the fold at top-right is what reads as "a
-   file", distinguishing it from ChatIcon's speech-bubble outline. */
 export const FileIcon = icon(
   <>
     <path d="M7 3.5h7l4.5 4.5v12.5H7z" />

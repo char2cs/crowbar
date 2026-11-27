@@ -13,11 +13,6 @@ use crate::error::Error;
 use crate::linux::float::card::Card;
 use crate::linux::float::region::rectangles;
 
-/// Places and shapes the pop-up window that floats above a shell window, over a connection of
-/// its own, given the raw handles of stock GPUI windows.
-///
-/// The pop-up window covers its owner's content area exactly, so what it paints lines up with
-/// the owner. Without a compositor X shows no translucency, so it then shows only its cards.
 #[derive(Debug)]
 pub struct FloatPlacer {
     connection: RustConnection,
@@ -26,11 +21,6 @@ pub struct FloatPlacer {
 }
 
 impl FloatPlacer {
-    /// Connects to the X server named by `DISPLAY`.
-    ///
-    /// # Errors
-    /// [`Error::X11Connect`] when no X server answers, [`Error::Float`] when it will not name
-    /// the compositor's selection.
     pub fn connect() -> Result<Self, Error> {
         let (connection, screen) = RustConnection::connect(None)?;
         let root = connection
@@ -47,11 +37,6 @@ impl FloatPlacer {
         })
     }
 
-    /// Moves and sizes `float` over the content area of `owner` and raises it.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when
-    /// either window is gone or the connection broke.
     pub fn cover(
         &self,
         float: RawWindowHandle,
@@ -75,12 +60,6 @@ impl FloatPlacer {
         self.flush()
     }
 
-    /// Shows only `seen` of `float` when no compositor runs, all of it otherwise, and lets
-    /// the pointer reach it only on `hit`; elsewhere the pointer goes to the window below.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when the
-    /// connection broke.
     pub fn shape(
         &self,
         float: RawWindowHandle,
@@ -93,12 +72,6 @@ impl FloatPlacer {
         self.flush()
     }
 
-    /// Has `float` drawn again. X reports a window whose cards are all cut away as fully
-    /// obscured, and GPUI draws no frame for such a window until it is exposed.
-    ///
-    /// # Errors
-    /// [`Error::ForeignWindow`] for a handle that is not an X window, [`Error::Float`] when the
-    /// connection broke.
     pub fn wake(
         &self,
         float: RawWindowHandle,

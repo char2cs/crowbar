@@ -1,5 +1,3 @@
-//! The visible rows of the Files panel.
-
 use sidebar::{Expansion, FileKind, FileRow, GitStatus};
 
 use crate::live::FileEntry;

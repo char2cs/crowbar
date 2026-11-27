@@ -11,9 +11,6 @@ import {
 import type { DialogHostProps, DialogRequest } from './primitive-dialog-host'
 import { hasNativeChrome, nativeConfirm } from '@/lib/native-chrome'
 
-// Promise-based confirm/prompt in the app's own Dialog, shown one at a time. Closing one
-// by any route (Cancel, Escape, the backdrop) settles its promise: none is left pending.
-
 interface DialogLabels {
   title?: string
   confirmLabel?: string
@@ -21,7 +18,6 @@ interface DialogLabels {
 }
 
 interface ConfirmOptions extends DialogLabels {
-  /** The confirm button reads as destructive. Focus starts on cancel whatever this says. */
   destructive?: boolean
 }
 
@@ -30,7 +26,6 @@ interface PromptOptions extends DialogLabels {
   placeholder?: string
 }
 
-// The dialog UI is not needed for first paint, so it loads with the first request.
 const DialogHost = lazy<ComponentType<DialogHostProps>>(() =>
   import('./primitive-dialog-host').then(
     (module) => ({ default: module.DialogHost }),
@@ -38,8 +33,6 @@ const DialogHost = lazy<ComponentType<DialogHostProps>>(() =>
   ),
 )
 
-// The host failed to load: this provider sits above every error boundary, so settle the
-// request as dismissed rather than throw or leave it pending.
 function DismissOnMount({ request, onSettled }: DialogHostProps) {
   const settled = useRef(false)
   useEffect(() => {
@@ -53,7 +46,6 @@ function DismissOnMount({ request, onSettled }: DialogHostProps) {
 
 let nextId = 1
 let deliver: ((request: DialogRequest) => void) | null = null
-// Requests raised before the provider mounts wait here rather than being dropped.
 const backlog: DialogRequest[] = []
 
 function enqueue(request: DialogRequest) {
@@ -69,7 +61,6 @@ export function primitiveConfirm(
   message: ReactNode,
   options: ConfirmOptions = {},
 ): Promise<boolean> {
-  // The phone's sheets cover this webview; a native alert shows over them.
   if (hasNativeChrome() && typeof message === 'string') {
     return nativeConfirm({
       title: options.title ?? 'Confirm',

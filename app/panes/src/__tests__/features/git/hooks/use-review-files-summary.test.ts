@@ -131,8 +131,6 @@ describe('useReviewFilesSummary', () => {
       expect(result.current).toEqual({ files: [], loaded: false })
     })
 
-    // The chat-scoped route throws without an owning chat id, which the sidebar
-    // records after the route does.
     it('waits for the owning chat id, then fetches', async () => {
       setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
       mocks.getReviewFiles.mockResolvedValue([summaryFile('src/a.ts')])
@@ -172,7 +170,6 @@ describe('useReviewFilesSummary on an install that has paired a remote host', ()
   })
   afterEach(() => resetHostWorld())
 
-  // A commit scope fetches on its own; the workspace scope's files come from the git feed.
   it('asks nothing for a commit until the project list names the host, then fetches', async () => {
     const { result } = renderHook(() => useReviewFilesSummary('ws-remote', 'abc'))
     await act(async () => {})

@@ -11,7 +11,6 @@ import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-con
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-// The chat surface has its own suite; this one is about WHICH chat the phone shows.
 vi.mock('@/features/panes/components/pane-chat-view', () => ({
   PaneChatView: (props: { chatId: string; alongsideEditor: boolean; chatFillsPane: boolean }) =>
     createElement('div', {
@@ -23,7 +22,6 @@ vi.mock('@/features/panes/components/pane-chat-view', () => ({
 
 const { MobileChatStage } = await import('@/features/panes/components/mobile-chat-stage')
 
-// The window's ambient workspace, as WorkspaceHost provides it.
 const ambient = createWorkspaceStore('ws-1')
 const renderStage = () =>
   render(
@@ -50,7 +48,6 @@ describe('MobileChatStage', () => {
     expect(views[0]).toHaveAttribute('data-header', 'false')
   })
 
-  // A split restored from an earlier session still has one focused chat.
   it('collapses a split to its focused pane', () => {
     open('c1')
     const c1Pane = chatPaneIndex(windowPaneStore.getState().panes).get('c1')!

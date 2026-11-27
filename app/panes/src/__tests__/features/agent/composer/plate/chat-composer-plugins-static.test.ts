@@ -6,7 +6,6 @@ import {
   chatComposerPluginsStatic,
 } from '@/features/agent/composer/plate/chat-composer-plugins'
 
-// See chat-composer-plugins.ts's `STATIC_EXCLUDED_KEYS`.
 const DROPPED_KEYS = new Set(['mark-floating-toolbar'])
 
 describe('chatComposerPluginsStatic', () => {
@@ -16,9 +15,6 @@ describe('chatComposerPluginsStatic', () => {
     )
   })
 
-  // `code_block`, `p` and `img` swap to static components like link/callout. `p` appears TWICE
-  // because chatComposerPlugins registers the paragraph plugin twice (BasicNodesKit plus its
-  // override), and the static derivation swaps both positions.
   it('swaps only link, callout, code_block, code_syntax, paragraph and img; drops the floating toolbar and dnd rather than swapping them', () => {
     expect(chatComposerPluginsStatic.some((p) => DROPPED_KEYS.has(p.key))).toBe(false)
     const shared = chatComposerPluginsStatic.filter((p) => !DROPPED_KEYS.has(p.key))
@@ -35,8 +31,6 @@ const line = (text: string) => ({ type: 'p', children: [{ text }] })
 afterEach(() => vi.restoreAllMocks())
 
 describe('chatComposerPlugins', () => {
-  // Slate's lookup throws with the whole document serialised into its message, and the list
-  // plugin probes the path after every inserted node: a streamed answer paid that per line.
   it('appends a block without serialising the document', () => {
     const editor = createPlateEditor({ plugins: chatComposerPlugins, value: [line('a')] })
     const stringify = vi.spyOn(JSON, 'stringify')

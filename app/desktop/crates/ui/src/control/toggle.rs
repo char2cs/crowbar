@@ -1,5 +1,3 @@
-//! Switches and checkboxes.
-
 mod checkbox;
 mod handler;
 mod switch;

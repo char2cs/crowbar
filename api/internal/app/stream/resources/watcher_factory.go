@@ -10,8 +10,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// newWatcherFactory builds the production watcherFactory: per wsID it resolves the
-// workspace's worktree and diff base and builds an unstarted *watch.Watcher.
 func newWatcherFactory(
 	fsEngine enginefs.Engine,
 	gitProvider enginefs.GitStatusProvider,
@@ -39,9 +37,6 @@ func newWatcherFactory(
 	}
 }
 
-// watcherDiffBase returns the base branch name (parent's for a child, own for a root)
-// so the summary re-derives the merge-base with the live tip on each recompute. It falls
-// back to ForkPointSha like workspace.summaryBase, so both summaries always agree.
 func watcherDiffBase(
 	ctx context.Context,
 	workspace workspacerepo.Workspace,

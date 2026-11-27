@@ -1,6 +1,3 @@
-//! Replacing an editor's whole text as one undo step that keeps its carets and scroll, as
-//! Monaco's `pushEditOperations` does for develop's reloads and its other views' edits.
-
 use std::ops::Range;
 
 use gpui::{Context, Window};

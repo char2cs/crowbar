@@ -8,10 +8,6 @@ const MAX_HEADERS: usize = 128;
 
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 
-/// An HTTP request forwarded to a daemon host.
-///
-/// Every field is validated at construction, so the target cannot change the host the request
-/// is addressed to and an extension origin always names its extension.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonRequest {
     host: HostId,
@@ -23,7 +19,6 @@ pub struct DaemonRequest {
 }
 
 impl DaemonRequest {
-    /// A request without headers or body from `origin` to `host`.
     #[must_use]
     pub fn new(
         host: HostId,
@@ -41,11 +36,6 @@ impl DaemonRequest {
         }
     }
 
-    /// Sets the request headers.
-    ///
-    /// # Errors
-    /// [`Error::InvalidRequest`] when there are more than 128 headers or their text
-    /// passes 64 KiB.
     pub fn with_headers(
         mut self,
         headers: Vec<(String, String)>,
@@ -63,7 +53,6 @@ impl DaemonRequest {
         Ok(self)
     }
 
-    /// Sets the request body.
     #[must_use]
     pub fn with_body(
         mut self,
@@ -73,43 +62,36 @@ impl DaemonRequest {
         self
     }
 
-    /// The host the request is addressed to.
     #[must_use]
     pub fn host(&self) -> &HostId {
         &self.host
     }
 
-    /// The pane origin that issued it; extension origins are limited to their own routes.
     #[must_use]
     pub fn origin(&self) -> &PaneOrigin {
         &self.origin
     }
 
-    /// The HTTP method.
     #[must_use]
     pub fn method(&self) -> &HttpMethod {
         &self.method
     }
 
-    /// The path and query, for example `/v0/threads?limit=5`.
     #[must_use]
     pub fn target(&self) -> &RequestTarget {
         &self.target
     }
 
-    /// The request headers.
     #[must_use]
     pub fn headers(&self) -> &[(String, String)] {
         &self.headers
     }
 
-    /// The request body.
     #[must_use]
     pub fn body(&self) -> &[u8] {
         &self.body
     }
 
-    /// Takes the body out, so a forwarder can move it instead of copying it.
     #[must_use]
     pub fn into_body(self) -> Vec<u8> {
         self.body

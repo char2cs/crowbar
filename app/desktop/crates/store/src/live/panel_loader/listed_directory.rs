@@ -1,5 +1,3 @@
-//! A directory of a chat's workspace as the daemon just listed it.
-
 use crate::live::held::FileEntry;
 
 #[derive(Debug, Clone, Copy)]

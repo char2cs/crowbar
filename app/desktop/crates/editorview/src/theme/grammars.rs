@@ -1,6 +1,3 @@
-//! gpui-kit's highlight queries rewritten to the classes develop's Monaco grammars give (see
-//! `editor::grammar`), in its process-wide language registry.
-
 use editor::grammar::QueryPatch;
 use gpui_kit::component::highlighter::LanguageRegistry;
 

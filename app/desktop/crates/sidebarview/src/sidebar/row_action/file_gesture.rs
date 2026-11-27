@@ -1,5 +1,3 @@
-//! What the Files panel reports while one of its rows is pressed and dragged.
-
 use gpui::{Pixels, Point};
 use sidebar::{DropSpot, FileMove};
 

@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeCmd returns an ExecFn producing a command that prints output and exits
-// with code, ignoring the requested binary entirely.
 func fakeCmd(output string, code int) ExecFn {
 	return func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
 		script := "printf '%s' " + shellQuote(output) + "; exit " + strconv.Itoa(code)
@@ -62,7 +60,6 @@ func TestLoginShellPath_EmptyOutputIsError(t *testing.T) {
 }
 
 func TestResolveShell_FallsBackToDsclOnDarwin(t *testing.T) {
-	// No SHELL in env; the injected exec answers the dscl query.
 	shell := resolveShell(
 		context.Background(),
 		fakeCmd("UserShell: /bin/zsh\n", 0),
@@ -100,7 +97,7 @@ func TestApplyLoginShellPath_MergesIntoProcessEnv(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("login shells are POSIX only")
 	}
-	t.Setenv("SHELL", "/bin/sh") // real /bin/sh -l prints a real PATH
+	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("PATH", "/only-current-entry")
 
 	got := ApplyLoginShellPath(context.Background())

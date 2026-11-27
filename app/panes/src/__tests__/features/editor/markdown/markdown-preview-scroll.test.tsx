@@ -41,11 +41,8 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// jsdom lays nothing out, so no offset is ever clamped: the document's length plays no part, and
-// each extra block is only Plate render time under StrictMode's double render.
 const MARKDOWN = Array.from({ length: 10 }, (_, i) => `# Heading ${i}\n\nBody ${i}\n`).join('\n')
 
-/** The open source document's tab; `doc`'s text is `text`. */
 function makeSource(doc: DocumentRef, text: string): EditorContent {
   getEditorHost()!.documents.open(doc, 'markdown', text)
   return {
@@ -79,8 +76,6 @@ function makePreview(
   }
 }
 
-/** A markdown source plus its preview buffer, the preview active in the pane: the state
- *  PaneContainer renders MarkdownPreview in. The workspace store only provides the context. */
 function setupStore(paths: string[]) {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
@@ -100,8 +95,6 @@ function setupStore(paths: string[]) {
   return store
 }
 
-// Rendered under StrictMode, like the real app root: its double-invoked effects
-// are what broke the first cut of the retained scroll.
 function renderPreview(store: ReturnType<typeof createWorkspaceStore>, bufferId: string) {
   return render(
     createElement(
@@ -122,15 +115,11 @@ const scrollerOf = (view: ReturnType<typeof render>) =>
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 describe('MarkdownPreview scroll retention', () => {
-  // The first Plate render pays its module and plugin setup; keep it out of
-  // the timed cases.
   beforeAll(() => {
     const store = setupStore(['/repo/WARMUP.md'])
     renderPreview(store, 'preview-/repo/WARMUP.md').unmount()
   }, 30_000)
 
-  // Switching tabs unmounts the preview (only the active buffer renders); the scroll offset must
-  // survive the way back.
   it('restores the scroll offset when the tab is switched away and back', () => {
     const store = setupStore(['/repo/README.md'])
 
@@ -139,7 +128,6 @@ describe('MarkdownPreview scroll retention', () => {
     scroller.scrollTop = 640
     fireEvent.scroll(scroller)
 
-    // Tab switch: PaneContainer stops rendering the preview entirely.
     first.unmount()
 
     const second = renderPreview(store, 'preview-/repo/README.md')
@@ -163,8 +151,6 @@ describe('MarkdownPreview scroll retention', () => {
     const store = setupStore(['/repo/README.md', '/repo/CHANGELOG.md'])
     replaceDocumentText(workspaceRef('w1', '/repo/CHANGELOG.md'), '# Changelog only heading')
 
-    // The pane's active tab is the README preview; this instance is asked for
-    // the CHANGELOG preview (the split-pane case).
     const view = renderPreview(store, 'preview-/repo/CHANGELOG.md')
     expect(view.container.innerHTML).toContain('Changelog only heading')
   })
@@ -245,7 +231,6 @@ describe('MarkdownPreview links', () => {
 })
 
 describe('MarkdownPreview text', () => {
-  // A file is a document: a hard-wrapped paragraph reads as one, per CommonMark.
   it('joins a hard-wrapped paragraph instead of keeping its line breaks', () => {
     const store = setupStore(['/repo/WRAPPED.md'])
     replaceDocumentText(workspaceRef('w1', '/repo/WRAPPED.md'), 'one line\nwrapped here')
@@ -256,7 +241,6 @@ describe('MarkdownPreview text', () => {
   })
 })
 
-// A README on a remote host that says "open http://localhost:3000" means that host's port.
 describe('MarkdownPreview links to a loopback address', () => {
   beforeEach(() => {
     vi.clearAllMocks()

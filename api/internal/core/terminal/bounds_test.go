@@ -13,10 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
-// TestStats_CountsSuspendedPlaceholders verifies that suspended placeholders are
-// counted in both the suspended tally and the total model-byte estimate, using
-// their lazily-sized placeholder blobs (not a phantom 256 KB each). Previously placeholders
-// were uncounted, letting them grow without bound.
 func TestStats_CountsSuspendedPlaceholders(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -49,10 +45,6 @@ func TestStats_CountsSuspendedPlaceholders(t *testing.T) {
 		"model bytes must equal the sum of stored blob lengths, not 3×256 KB")
 }
 
-// TestMaintenance_EvictsOldestPlaceholdersOverCeiling verifies that when the
-// global session-count ceiling counts placeholders and is exceeded, the
-// maintenance sweep evicts the least-recently-active placeholder(s): registry
-// entry removed, .buf deleted, meta row deleted.
 func TestMaintenance_EvictsOldestPlaceholdersOverCeiling(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -64,7 +56,7 @@ func TestMaintenance_EvictsOldestPlaceholdersOverCeiling(t *testing.T) {
 
 	restoreN := terminal.SetMaxTotalSessionsForTest(eng, 2)
 	defer restoreN()
-	restoreB := terminal.SetMaxTotalModelBytesForTest(eng, 1<<30) // keep byte ceiling out of the way
+	restoreB := terminal.SetMaxTotalModelBytesForTest(eng, 1<<30)
 	defer restoreB()
 
 	ids := []string{"ph-old", "ph-mid", "ph-new"}
@@ -83,7 +75,6 @@ func TestMaintenance_EvictsOldestPlaceholdersOverCeiling(t *testing.T) {
 
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 
-	// Cap of 2 with 3 placeholders → the single oldest (ph-old) is evicted.
 	assert.False(t, eng.SessionExists(ctx, "ph-old"), "oldest placeholder must be evicted")
 	assert.True(t, eng.SessionExists(ctx, "ph-mid"), "newer placeholders survive")
 	assert.True(t, eng.SessionExists(ctx, "ph-new"), "newer placeholders survive")

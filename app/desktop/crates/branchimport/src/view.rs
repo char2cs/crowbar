@@ -1,5 +1,3 @@
-//! The dialog: a search field over the remote branches of one repository, and the import button.
-
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -14,7 +12,6 @@ use crate::import_event::ImportEvent;
 use crate::look::{PLACEHOLDER, TITLE};
 use crate::selection::Selection;
 
-/// The branch import dialog over a source of branches; it emits [`ImportEvent::Close`] when done.
 pub struct View {
     source: Rc<dyn BranchSource>,
     input: Entity<TextInput>,
@@ -37,7 +34,6 @@ mod rows;
 impl EventEmitter<ImportEvent> for View {}
 
 impl View {
-    /// A dialog over `import` with the search field focused.
     pub fn new(
         import: Arc<BranchImport>,
         window: &mut Window,

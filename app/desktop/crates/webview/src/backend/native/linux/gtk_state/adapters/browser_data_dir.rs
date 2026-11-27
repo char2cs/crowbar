@@ -1,5 +1,3 @@
-//! Deleting the browser views' data directory.
-
 use std::io::ErrorKind;
 use std::path::Path;
 

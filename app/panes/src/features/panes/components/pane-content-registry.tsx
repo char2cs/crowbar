@@ -8,8 +8,6 @@ import type {
 import { NewTabView } from './new-tab-view'
 import { windowPaneStore } from '../stores/window-pane-store'
 
-// Lazy so each surface's heavy dependencies (git diff, markdown parser, CSV
-// grid) stay out of the main chunk until a tab of that type is opened.
 const BranchReviewPane = lazy(() =>
   import('@/features/git/components/branch-review-pane').then((m) => ({
     default: m.BranchReviewPane,
@@ -26,8 +24,6 @@ const HtmlPreview = lazy(() =>
   })),
 )
 
-/** A tab a pane renders on demand. Editors (portaled), terminals (PTY) and browsers (webview)
- *  are kept mounted by the pane itself and never reach this registry. */
 export type RegisteredContent = Exclude<
   PaneContent,
   EditorContent | TerminalContent | BrowserContent
@@ -36,7 +32,6 @@ export type RegisteredContent = Exclude<
 interface SurfaceContext {
   isActivePane: boolean
   paneId: string
-  /** The pane's own chat workspace; null until it resolves. */
   wsId: string | null
 }
 
@@ -47,8 +42,6 @@ type Renderers = {
   ) => ReactNode
 }
 
-// One entry per tab type a pane can show; the mapped type makes a missing one a type error.
-// A review's `wsId` is the buffer's own workspace, never the ambient one.
 const RENDERERS: Renderers = {
   branchReview: (c, { isActivePane }) => (
     <BranchReviewPane

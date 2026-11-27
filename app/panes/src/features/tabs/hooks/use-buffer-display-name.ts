@@ -10,8 +10,6 @@ interface UseBufferDisplayNameOptions {
   buffers: PaneContent[]
 }
 
-// Joins each tuple's fields. A control character, not a space: titles and paths contain spaces,
-// so two different session states could join to the same string and fool the shallow compare.
 const FIELD_SEP = ''
 
 interface TerminalSessionFields {
@@ -21,11 +19,7 @@ interface TerminalSessionFields {
   currentDirectory: string
 }
 
-/** A stable `getBufferDisplayName(buffer)` deriving each tab's label from buffer metadata,
- *  terminal session state and path-shortener disambiguation. */
 export function useBufferDisplayName({ buffers }: UseBufferDisplayNameOptions) {
-  // Project only the session fields a label reads into flat strings: the `sessions` Map is
-  // reallocated on every prompt redraw or `cd`, and useShallow ignores unrelated changes.
   const sessionFieldTuples = useTerminalStore(
     useShallow((state) =>
       buffers

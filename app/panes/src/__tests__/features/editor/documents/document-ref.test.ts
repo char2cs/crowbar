@@ -35,8 +35,6 @@ describe('documentUri / refFromUri', () => {
     expect(documentUri(host('/tmp/a.md'))).toBe('crowbar://host/%2Ftmp%2Fa.md')
   })
 
-  // Monaco models are one global table: the same relative path in two
-  // worktrees, or the same path on two authorities, must never share one.
   it('gives every document its own uri', () => {
     const uris = [
       documentUri(workspaceRef('workspace-a', 'src/inventory.ts')),

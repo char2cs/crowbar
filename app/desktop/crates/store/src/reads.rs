@@ -1,5 +1,3 @@
-//! What the sidebar reads, derived from the shared state.
-
 pub(crate) mod branch_review;
 pub(crate) mod chat_glyph;
 mod file_rows;

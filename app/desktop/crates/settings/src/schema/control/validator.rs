@@ -1,12 +1,8 @@
-//! Checks applied to typed text before it counts as valid.
-
 use crate::schema::control::issue::Issue;
 
-/// A named check for a text field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Validator {
-    /// An http(s) address with a `%s` where the query goes.
     SearchTemplate,
 }
 

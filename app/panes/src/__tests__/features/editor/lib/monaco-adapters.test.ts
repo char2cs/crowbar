@@ -2,9 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { workspaceRef } from '@/lib/api/documents'
 
-// DOM-free: mock the light `editor.api.js` entry `monaco-adapters.ts` imports,
-// so no real editor/DOM is constructed. The languages it registers at import
-// need a minimal `languages` fake.
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => {
   class FakeUri {
     constructor(public value: string) {}
@@ -78,9 +75,6 @@ describe('monaco-adapters', () => {
     expect(EDITOR_CREATE_OPTIONS.automaticLayout).toBe(false)
   })
 
-  // On Safari/WKWebView Monaco adds `enable-user-select`, leaving the view lines natively
-  // selectable, so a drag from an unrelated blank hit area can sweep a WebKit selection across the
-  // editor. Requesting `no-user-select` ourselves wins for those elements.
   it('EDITOR_CREATE_OPTIONS requests no-user-select to close the WKWebView native-selection gap', () => {
     expect(EDITOR_CREATE_OPTIONS.extraEditorClassName).toBe('no-user-select')
   })

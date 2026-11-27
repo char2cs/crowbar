@@ -1,5 +1,3 @@
-//! Builders the tab bar's tests share.
-
 use gpui::{Bounds, point, px, size};
 use protocol::PaneId;
 

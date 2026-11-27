@@ -10,8 +10,6 @@ import { noteDaemonChange } from '@/lib/transport/daemon-changes'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
-// A retry config that runs instantly (no real backoff sleeps) so the suite stays
-// fast while still exercising the real attempt-counting logic.
 const fastRetry = (attempts: number) => ({
   attempts,
   baseDelayMs: 0,
@@ -28,8 +26,6 @@ afterEach(() => {
   install.localDaemon = true
 })
 
-// The phone app: a request for the local daemon has nothing to reach, so it fails at
-// once as the daemon being unavailable instead of retrying a socket that never exists.
 describe('apiFetch with no local daemon', () => {
   it('fails a local request at once, without fetching', async () => {
     install.localDaemon = false
@@ -44,11 +40,6 @@ describe('apiFetch with no local daemon', () => {
 })
 
 describe('apiFetch transient-transport retry', () => {
-  // Root cause of the cold-start landing bug: at app launch the daemon sidecar's
-  // unix socket may not be accepting yet, so the very first GETs (fetchProjects /
-  // fetchRepos) reject at the transport layer ("Load failed"). Those reads are
-  // idempotent and must be retried until the daemon answers — otherwise the route
-  // crashes (uncaught fetchProjects) or silently shows "No repositories yet".
   it('retries an idempotent GET on transport rejection, then resolves', async () => {
     const fetchMock = vi
       .fn()
@@ -63,9 +54,6 @@ describe('apiFetch transient-transport retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
-  // An HTTP error status is a real daemon response, not a transport failure — it
-  // must surface immediately (a 404 is terminal; a 500 is a real server error).
-  // Retrying it would mask genuine errors behind the startup window.
   it('does NOT retry on an HTTP error status', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
@@ -106,9 +94,6 @@ describe('apiFetch transient-transport retry', () => {
     })
   })
 
-  // Mutations are NOT idempotent: a transport failure on a POST/DELETE must not be
-  // blindly retried (the daemon's async 202 model + subscribe-before-POST handles
-  // mutation resilience explicitly). Only safe reads auto-retry.
   it('does NOT retry a non-GET method on transport rejection', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Load failed'))
     vi.stubGlobal('fetch', fetchMock)
@@ -118,15 +103,12 @@ describe('apiFetch transient-transport retry', () => {
     )
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    // The daemon may have applied it before the connection dropped: never invite a blind retry.
     expect(userWords(err)).toBe(
       'The connection dropped, so the change may or may not have been applied. Check before trying again.',
     )
     expect((err as Error).cause).toBeInstanceOf(TypeError)
   })
 
-  // Bounded: if the daemon never comes up, retries give up and say so rather
-  // than hanging forever.
   it('gives up after the configured attempts and says the daemon was not reached', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     vi.stubGlobal('fetch', fetchMock)
@@ -159,7 +141,6 @@ describe('apiFetch transient-transport retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  // ApiError stays exported & shaped for status-specific callers (isNotFoundError).
   it('throws ApiError carrying the status for empty-body error responses', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
@@ -177,12 +158,6 @@ describe('apiFetch transient-transport retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  // The desktop proxy answers a connect-refused with its OWN 503 once its
-  // connect retries are spent (api_proxy.rs, header x-crowbar-proxy:
-  // daemon-unavailable). That is the daemon being absent, not a daemon
-  // answer: named as such so UI copy can say "starting" — and NOT retried
-  // here, since the proxy already spent the idempotent-read budget and a
-  // second layer would compound to ~36s per GET against a dead daemon.
   it('names a proxy-marked 503 as daemon_unavailable, without retrying it', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
@@ -222,9 +197,6 @@ describe('apiFetch transient-transport retry', () => {
   })
 })
 
-// Boot asks for one list from two owners a few ms apart (a workspace's chat
-// seed and the sidebar tree). Nothing the client can know of has changed in
-// between, so the second ask is served by the first request.
 describe('apiFetch shared reads', () => {
   function parkedFetch() {
     const answers: Array<() => void> = []
@@ -335,8 +307,6 @@ describe('apiFetch refusals', () => {
     useConnectionStore.setState(useConnectionStore.getInitialState())
   })
 
-  // A daemon that halts before the page loads announces it to nobody: the
-  // first request it refuses is how the browser learns of the halt.
   it('a daemon_halted refusal halts the daemon before it throws', async () => {
     useDaemonHaltStore.getState().clear()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(refusal('daemon_halted', 'layout 9 is newer')))

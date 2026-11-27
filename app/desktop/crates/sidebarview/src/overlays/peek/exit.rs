@@ -1,5 +1,3 @@
-//! Dismisses the peek card when the pointer leaves the window.
-
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, IntoElement, MouseExitEvent, Pixels, Point, Styled,
     Window, canvas,

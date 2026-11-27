@@ -11,7 +11,6 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 
-// The desktop webview reads a picked path through Tauri's asset protocol.
 vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/crowbar-bridge')>()),
   convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
@@ -25,10 +24,6 @@ function jsonResponse(body: unknown, status = 201) {
   return new Response(JSON.stringify(body), { status })
 }
 
-/** Decodes the hand-rolled multipart body `uploadChatAttachment` now sends
- *  (see upload-chat-attachment.ts's own note on why it isn't `FormData`) back
- *  into a `Map<name, {value, filename?}>`, using the boundary off the
- *  matching request header — the same thing a real multipart parser reads. */
 function parseMultipart(
   body: unknown,
   headers: unknown,
@@ -74,15 +69,8 @@ describe('uploadChatAttachment', () => {
       contentType: 'image/png',
     })
     const [url, init] = fetchMock.mock.calls[0]
-    // Repo-scoped, NOT workspace-scoped: chat lifecycle is the one surface that
-    // kept its project/repo nesting (see repoChatsBaseForWorkspace), and the
-    // daemon mounts this POST on its repoScoped group (chat/routes.go).
     expect(url).toBe('/v0/projects/p1/repos/r1/chats/c1/attachments')
     expect(init.method).toBe('POST')
-    // Not a FormData: a WKWebView/Tauri custom-protocol body-loss bug drops any
-    // Blob-backed fetch body (a FormData holding a File, or a bare Blob) before
-    // it reaches the daemon — see upload-chat-attachment.ts's own note. The
-    // body must be a plain Uint8Array so it always survives that proxy.
     expect(init.body).toBeInstanceOf(Uint8Array)
     const fields = parseMultipart(init.body, init.headers)
     expect(fields.get('id')?.value).toBe('x')
@@ -111,8 +99,6 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
-  // A CR/LF in the filename would split the hand-built Content-Disposition line and inject an
-  // extra header into the client's own multipart body.
   it('strips CR/LF from the filename instead of letting it inject an extra header line', async () => {
     const fetchMock = vi
       .fn()
@@ -128,9 +114,6 @@ describe('uploadChatAttachment', () => {
     const contentType = (init.headers as Record<string, string>)['Content-Type']
     const boundary = contentType.split('boundary=')[1]
     const text = new TextDecoder().decode(init.body as Uint8Array)
-    // The file part's own header block (Content-Disposition, Content-Type) —
-    // an unstripped CR/LF in the filename would split Content-Disposition
-    // into two lines, so this would be 3 lines instead of 2.
     const filePart = text.split(`--${boundary}\r\n`)[2]
     const headerBlock = filePart.split('\r\n\r\n')[0]
     expect(headerBlock.split('\r\n')).toHaveLength(2)
@@ -238,7 +221,6 @@ describe('uploadChatAttachment', () => {
     vi.unstubAllGlobals()
   })
 
-  // The local daemon's failures read as every other request's, the proxy's own answers included.
   it('says a local daemon that is not up yet in the words every request uses', async () => {
     const notReady = new Response('crowbar daemon socket not ready', {
       status: 503,
@@ -255,7 +237,6 @@ describe('uploadChatAttachment', () => {
   })
 })
 
-// A remote chat's base arrives host-qualified from the URL builders.
 describe('uploadChatAttachment on a remote host', () => {
   const remoteBase = 'crowbar://h1/v0/projects/p1/repos/r1/chats'
 
@@ -288,7 +269,6 @@ describe('uploadChatAttachment on a remote host', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`${remoteBase}/c1/attachments`)
   })
 
-  // Named the way apiFetch names them, so an upload's failure reads as its host's own trouble.
   it.each([
     ['could not reach it', { 'x-crowbar-proxy': 'host-unreachable' }, 503, 'host_unreachable'],
     [
@@ -312,8 +292,6 @@ describe('uploadChatAttachment on a remote host', () => {
     expect(err).toMatchObject({ status, problem: { code }, hostId: 'h1' })
   })
 
-  // Read as apiFetch reads an answer: the daemon's own words, or only the status for the proxy's
-  // plain text, which can name the host by its id.
   it.each([
     [
       'the daemon’s own words',
@@ -346,8 +324,6 @@ describe('uploadChatAttachment on a remote host', () => {
   })
 })
 
-// A remote daemon cannot read the desktop's disk: a path that means something
-// here means nothing there, so the bytes travel instead and the path never does.
 describe('uploadChatAttachment from a disk path', () => {
   const UPLOADED = { data: { ref: 'r', fileName: 'pic.png', size: 6, contentType: 'image/png' } }
 
@@ -366,8 +342,6 @@ describe('uploadChatAttachment from a disk path', () => {
 
   const assetMethods: string[] = []
 
-  /** Serves the asset URL with `fileResponse` (a HEAD gets its headers, no body unless
-   *  `head` says otherwise) and records every other request. */
   function stubFetch(fileResponse: Response, head?: () => Promise<Response>) {
     const uploads: [string, RequestInit][] = []
     assetMethods.length = 0
@@ -390,7 +364,6 @@ describe('uploadChatAttachment from a disk path', () => {
     return uploads
   }
 
-  /** The asset protocol's answer: jsdom's own Blob stands in for the body, as in the webview. */
   const assetResponse = (bytes: string, headers: Record<string, string> = {}) =>
     Object.assign(new Response(null, { headers }), {
       blob: vi.fn(async () => new Blob([bytes], { type: 'image/png' })),
@@ -429,8 +402,6 @@ describe('uploadChatAttachment from a disk path', () => {
     expect(JSON.parse(init.body as string)).toEqual({ path: '/tmp/dropped.png', id: 'x' })
   })
 
-  // The daemon refuses an attachment over 25 MiB (attachments.MaxBytes). A HEAD on the
-  // asset URL reports the size without a body; a GET would read the whole file first.
   it('refuses an oversized file for a remote chat on its HEAD, never fetching its bytes', async () => {
     const answer = assetResponse('x', { 'content-length': String(25 * 1024 * 1024 + 1) })
     const uploads = stubFetch(answer)
@@ -443,7 +414,6 @@ describe('uploadChatAttachment from a disk path', () => {
     expect(uploads).toEqual([])
   })
 
-  // The HEAD is only a size probe: a protocol that cannot answer it must not cost the upload.
   it.each([
     ['answers HEAD with an error', () => Promise.resolve(new Response(null, { status: 405 }))],
     ['rejects HEAD', () => Promise.reject(new Error('unsupported'))],

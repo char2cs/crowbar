@@ -1,12 +1,7 @@
-//! The two values of a toggled property.
-
-/// Off or on; stands in for a `bool` where a function must not take one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Pose {
-    /// Hovered-out, unchecked.
     #[default]
     Off,
-    /// Hovered, checked.
     On,
 }
 

@@ -1,5 +1,3 @@
-//! A chat as the projects scope carries it.
-
 use daemonapi::Switch;
 use serde::Deserialize;
 

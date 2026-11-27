@@ -45,8 +45,6 @@ pub(super) fn tell(
     opened.window.run_until_parked();
 }
 
-/// The keystrokes of `command`'s default chord, with `mod` as gpui's `secondary` so each platform
-/// presses its own primary modifier.
 pub(super) fn keys_of(command: ShellCommand) -> String {
     let chord = command.default_chord();
     let (modifiers, key) = chord.rsplit_once('+').unwrap_or(("", chord));

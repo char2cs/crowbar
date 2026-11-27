@@ -1,5 +1,3 @@
-//! The shell's simple confirmations: an `NSAlert` sheet over the shell window.
-
 use std::cell::Cell;
 
 use block2::RcBlock;

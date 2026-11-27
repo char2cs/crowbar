@@ -1,5 +1,3 @@
-//! What the projects scope of one host currently says.
-
 mod chat_record;
 mod departures;
 mod folder_record;
@@ -83,7 +81,6 @@ impl Entities {
     ) {
         match frame {
             Frame::Ready { epoch } => self.new_epoch(epoch),
-            // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/core/entities/entity-store.ts (heardEntity)
             Frame::Entity { ref scope, .. } if scope == PROJECTS_SCOPE && self.fresh.is_some() => {
                 self.snapshot_rows.push(frame);
             },

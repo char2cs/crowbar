@@ -1,5 +1,3 @@
-//! The area that keeps the peek card open while the pointer is over it or the card.
-
 use gpui::StatefulInteractiveElement;
 use gpui::prelude::FluentBuilder;
 use gpui::{

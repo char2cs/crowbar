@@ -1,6 +1,3 @@
-//! What the shell needs of GPUI that only a real X11 window shows (CI's Xvfb), pinned so that a
-//! gpui upgrade which breaks one fails here by name.
-
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -19,7 +16,6 @@ const SAMPLE: &str = "Crowbar";
 const SAMPLE_SIZE: f32 = 32.0;
 const FRAME_WAIT: Duration = Duration::from_secs(20);
 const RED: u32 = 0x00ff_0000;
-/// A pixel counts as red when its red channel is at least this and the others at most `DARK`.
 const BRIGHT: u8 = 200;
 const DARK: u8 = 60;
 const MIN_RED_PIXELS: usize = 100;
@@ -56,11 +52,6 @@ struct Seen {
     italic: FontId,
 }
 
-/// One real window under X11 (CI's Xvfb):
-/// - `0001-x11-window-handle`: the window hands out its XCB handle, which web views parent to;
-/// - `0004-svg-inherit-color`: an icon with no colour paints in the text colour around it;
-/// - font weights: the UI family shapes wider at a heavier weight, and an italic asked of it
-///   gets its oblique face.
 #[test]
 #[ignore = "needs display"]
 fn a_real_window_parents_paints_inherited_icon_colour_and_each_weight() {

@@ -1,12 +1,9 @@
-//! CSS `cubic-bezier()` timing functions.
-
 const NEWTON_STEPS: usize = 8;
 const BISECTION_STEPS: usize = 40;
 const EPSILON: f32 = 1e-6;
 const BERNSTEIN_3: f32 = 3.0;
 const BERNSTEIN_6: f32 = 6.0;
 
-/// A CSS cubic-bezier easing curve through (0,0) and (1,1) with two control points.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CubicBezier {
     x1: f32,
@@ -16,18 +13,12 @@ pub struct CubicBezier {
 }
 
 impl CubicBezier {
-    /// Tailwind's default transition curve, `cubic-bezier(0.4, 0, 0.2, 1)`.
     pub const DEFAULT: Self = Self::new(0.4, 0.0, 0.2, 1.0);
-    /// CSS `ease`, `cubic-bezier(0.25, 0.1, 0.25, 1)`.
     pub const EASE: Self = Self::new(0.25, 0.1, 0.25, 1.0);
-    /// CSS `ease-out` as Tailwind defines it, `cubic-bezier(0, 0, 0.2, 1)`.
     pub const EASE_OUT: Self = Self::new(0.0, 0.0, 0.2, 1.0);
-    /// The toast keyframe curve, `cubic-bezier(0.5, 1, 0.89, 1)`.
     pub const TOAST: Self = Self::new(0.5, 1.0, 0.89, 1.0);
-    /// The identity curve.
     pub const LINEAR: Self = Self::new(0.0, 0.0, 1.0, 1.0);
 
-    /// Builds the curve from the control points of CSS `cubic-bezier(x1, y1, x2, y2)`.
     pub const fn new(
         x1: f32,
         y1: f32,
@@ -37,7 +28,6 @@ impl CubicBezier {
         Self { x1, y1, x2, y2 }
     }
 
-    /// Output progress for input progress `t` in 0 to 1; values outside are clamped.
     pub fn ease(
         &self,
         t: f32,
@@ -130,7 +120,6 @@ mod tests {
 
     const SAMPLES: [f32; 5] = [0.1, 0.25, 0.5, 0.75, 0.9];
 
-    /// Reference values from an independent 80-step bisection of the CSS definition.
     const CASES: &[(CubicBezier, [f32; 5])] = &[
         (
             CubicBezier::DEFAULT,

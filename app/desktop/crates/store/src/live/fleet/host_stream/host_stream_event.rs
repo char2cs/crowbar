@@ -1,5 +1,3 @@
-//! What following a host's stream logs when the dial fails or the daemon ends or refuses a request.
-
 use std::fmt;
 
 use daemonapi::Problem;

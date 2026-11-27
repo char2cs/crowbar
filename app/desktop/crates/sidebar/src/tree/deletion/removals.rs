@@ -1,5 +1,3 @@
-//! The rows being deleted: the undo countdown and the confirmation that may precede it.
-
 use std::time::Instant;
 
 use crate::shell::Lock;
@@ -13,7 +11,6 @@ use crate::tree::deletion::removal_target::RemovalTarget;
 use crate::tree::deletion::removal_tray::RemovalTray;
 use crate::tree::deletion::work_at_risk::WorkAtRisk;
 
-/// The rows held behind an undo countdown and the confirmation being asked, if any.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Removals {
     tray: RemovalTray,
@@ -21,12 +18,10 @@ pub struct Removals {
 }
 
 impl Removals {
-    /// The rows hidden behind a removal countdown.
     pub fn tray(&self) -> &RemovalTray {
         &self.tray
     }
 
-    /// The confirmation waiting for an answer, if any.
     pub fn confirmation(&self) -> Option<&Confirmation> {
         self.confirmation.as_ref()
     }

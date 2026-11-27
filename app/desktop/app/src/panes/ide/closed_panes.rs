@@ -4,7 +4,6 @@ use crate::panes::ide::tab_looks;
 use crate::panes::kinds::pane_spec::PaneSpec;
 use crate::panes::tracking::close_guard::closing_panes;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/editor/config/constants.ts
 const REMEMBERED: usize = 10;
 const PATH: &str = "path";
 const PREVIEW: &str = "preview";

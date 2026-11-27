@@ -12,26 +12,14 @@ const mermaid = vi.hoisted(() => ({
 }))
 vi.mock('mermaid', () => ({ default: mermaid }))
 
-/**
- * What an agent sends back, rendered.
- *
- * This is the only place the real editor mounts under test — the ledger and
- * queue suites mock it, because 199 messages of real Plate starved them of
- * their 5s budget and neither one is about markdown.
- */
 describe('MarkdownMessage', () => {
   it('renders an answer that is only prose', () => {
     render(<MarkdownMessage>Here is what I found.</MarkdownMessage>)
     expect(screen.getByText('Here is what I found.')).toBeInTheDocument()
   })
 
-  // The plugin set decides what SURVIVES: @platejs/markdown drops any node whose
-  // plugin is unregistered, so a read set narrower than what an agent can answer
-  // with is not a missing affordance — it is a table that disappears.
   it('keeps a table an agent answered with', () => {
     render(<MarkdownMessage>{'| a | b |\n| --- | --- |\n| 1 | 2 |'}</MarkdownMessage>)
-    // `closest('td')` is the whole assertion: an unregistered table plugin does
-    // not error, it renders the cells as loose paragraphs.
     expect(screen.getByText('1').closest('td')).not.toBeNull()
     expect(screen.getByText('a').closest('table')).not.toBeNull()
   })
@@ -51,7 +39,6 @@ describe('MarkdownMessage', () => {
     )
   }, 30_000)
 
-  // react-markdown v9 has no `inline` prop; inline code must not become a <pre> block.
   it('renders an inline code span inline, not as a block', () => {
     render(<MarkdownMessage>{'run `make dev` first'}</MarkdownMessage>)
     const code = screen.getByText('make dev')
@@ -67,10 +54,6 @@ describe('MarkdownMessage', () => {
   })
 })
 
-// A streaming bubble is one long-lived MarkdownMessage instance whose `children`
-// grows on every token — see streaming-value-patch.ts. These pin down the
-// property that exists to fix: growth PATCHES the existing document instead of
-// rebuilding it, so nothing already on screen is torn down and recreated.
 describe('MarkdownMessage streaming growth', () => {
   it('does not recreate the editor element across a streaming update', () => {
     const { rerender } = render(<MarkdownMessage>Building a</MarkdownMessage>)
@@ -87,12 +70,6 @@ describe('MarkdownMessage streaming growth', () => {
 
     rerender(<MarkdownMessage>Building a CLI</MarkdownMessage>)
 
-    // Slate/Plate flush the patch's onChange on the next microtask, not
-    // synchronously with the transform call — same reason the perf-span tests
-    // below await a settle rather than asserting right after rerender.
-    // `container.textContent`, not `getByText`: the appended run lands in its
-    // own fade-in span (see the fade-in describe block below), so the two
-    // halves are separate elements even though they read as one sentence.
     await waitFor(() => expect(container.textContent).toBe('Building a CLI'))
     expect(document.querySelector('[data-slate-node="element"]')).toBe(paragraph)
   })
@@ -108,9 +85,6 @@ describe('MarkdownMessage streaming growth', () => {
   })
 
   it('still renders correctly when growth is not a pure append (e.g. list markers resolve differently)', async () => {
-    // Not the fast path — the parse of "- a" alone and "- a\n- b" differ by more
-    // than a trailing append (a list wraps the item). The patch must still land
-    // on the right document, just via the block-replace fallback.
     const { rerender } = render(<MarkdownMessage>{'- a'}</MarkdownMessage>)
     rerender(<MarkdownMessage>{'- a\n- b'}</MarkdownMessage>)
 
@@ -119,14 +93,6 @@ describe('MarkdownMessage streaming growth', () => {
   })
 })
 
-// The visual this whole file exists to fix: new text fades in instead of
-// popping onto the screen at full brightness, cascading word by word rather
-// than however large a chunk the transport happened to deliver — see the
-// 2026-08-28 chunking investigation for why that transport granularity is
-// fixed and staggering the REVEAL is the lever left to pull. Both paths mark
-// what they just inserted (streaming-value-patch.ts); this pins down that
-// the mark actually reaches the DOM as `.chat-fresh-text` spans, one per
-// word, with increasing delay, and only around the new text.
 describe('MarkdownMessage streaming fade-in', () => {
   it('splits a plain appended run into one fade-in span per word, and nothing else', async () => {
     const { rerender, container } = render(<MarkdownMessage>Building</MarkdownMessage>)
@@ -138,8 +104,6 @@ describe('MarkdownMessage streaming fade-in', () => {
     expect(screen.getByText('Building').closest('.chat-fresh-text')).toBeNull()
   })
 
-  // A held clock: a word mounting a frame later under load would resume its
-  // fade that much shorter, and the delays are what this pins.
   it('stages each word with increasing animation-delay', async () => {
     const clock = vi.spyOn(performance, 'now').mockReturnValue(1000)
     onTestFinished(() => clock.mockRestore())
@@ -150,8 +114,6 @@ describe('MarkdownMessage streaming fade-in', () => {
     const delays = Array.from(container.querySelectorAll('.chat-fresh-text')).map(
       (el) => (el as HTMLElement).style.animationDelay,
     )
-    // 150ms base (SCROLL_LEAD_MS — lets scroll-follow get underway before any
-    // word in the chunk starts revealing) plus the usual 30ms/word stagger.
     expect(delays).toEqual(['150ms', '180ms', '210ms'])
   })
 
@@ -177,18 +139,11 @@ describe('MarkdownMessage streaming fade-in', () => {
   })
 
   it('does not wrap text that was already there before streaming began', () => {
-    // The very first render has nothing to fade — only growth after mount
-    // (streaming-value-patch.ts's fast/fallback paths) ever sets the mark.
     render(<MarkdownMessage>Already here.</MarkdownMessage>)
     expect(document.querySelector('.chat-fresh-text')).toBeNull()
   })
 
   it('a later chunk gets its own independent fade spans, not a merge into the still-fading ones', async () => {
-    // Consecutive chunks land as separate leaves until each settles — see
-    // chat-fresh-text-plugin.test.ts. Rendered, that is separate
-    // `.chat-fresh-text` spans, not one growing span, which is what lets
-    // several trailing words fade at different stages at once, matching the
-    // source video.
     const { rerender, container } = render(<MarkdownMessage>Hello</MarkdownMessage>)
     rerender(<MarkdownMessage>{'Hello there'}</MarkdownMessage>)
     await waitFor(() => expect(container.textContent).toBe('Hello there'))
@@ -232,22 +187,11 @@ describe('chat.stream.token perf span', () => {
     })
 
     rerender(<MarkdownMessage>steady</MarkdownMessage>)
-    // Give any errant effect a chance to run, then assert no growth.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     expect(performance.getEntriesByName('chat.stream.token', 'measure')).toHaveLength(1)
   })
 })
 
-/**
- * The fade itself, through a real mounted editor — the one thing the
- * decoration rewrite could break silently.
- *
- * `freshDecorations`' own unit tests prove the RANGES are right; only
- * mounting proves Plate actually applies them, splits the leaf along them and
- * renders the animated span per word. If the plugin's `decorate` were not
- * wired at all, every one of those unit tests would still pass and the
- * transcript would simply stop animating.
- */
 describe('MarkdownMessage fade-in', () => {
   it('wraps each newly-streamed word in its own animated span, staggered', async () => {
     const { rerender } = render(<MarkdownMessage>Building</MarkdownMessage>)
@@ -257,9 +201,7 @@ describe('MarkdownMessage fade-in', () => {
       expect(document.querySelectorAll('.chat-fresh-text').length).toBeGreaterThan(0)
     })
     const spans = [...document.querySelectorAll<HTMLElement>('.chat-fresh-text')]
-    // Only the arrival is animated — text already on screen is not.
     expect(spans.map((s) => s.textContent).join('')).toBe(' a CLI now')
-    // Each word on its own delay: that stagger IS the cascade.
     const delays = spans.map((s) => s.style.animationDelay)
     expect(delays.length).toBe(3)
     expect(new Set(delays).size).toBe(3)
@@ -279,7 +221,6 @@ describe('MarkdownMessage fade-in', () => {
   })
 })
 
-// A diagram fence split across deltas, mid-line too, through the real Plate path.
 describe('MarkdownMessage diagram fences', () => {
   beforeEach(() => mermaid.render.mockClear())
   const state = () => document.querySelector<HTMLElement>('.chat-diagram-block')?.dataset.state

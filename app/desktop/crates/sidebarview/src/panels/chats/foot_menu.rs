@@ -1,5 +1,3 @@
-//! The menu behind "More…" at the foot of a space.
-
 use sidebar::{Command, Intent, ProjectId};
 
 use crate::overlays::MenuEntry;

@@ -58,33 +58,22 @@ interface AgentTranscriptProps {
   providers: AgentProvider[]
   status?: ChatFeed['status']
   working: boolean
-  /** Drawn after the rows: the chat's working line. */
   tail?: ReactNode
   onOpenTerminal: () => void
-  /** Stable for the view's life: every prompt row holds it. */
   promptActions: RowActions
-  /** The dock overlays the transcript by padding, so its height changes reach
-   *  the anchor only through this. */
   dockHeight?: number
-  /** The dock's top edge above the viewport's bottom, measured: what Jump to latest sits above. */
   dockTop?: number
-  /** A background tab stays mounted behind visibility:hidden. */
   visible?: boolean
   initialScrollPosition?: TranscriptScrollPosition | null
   onScrollPositionChange?: (position: TranscriptScrollPosition) => void
-  /** The overlay header's full dissolve reach, for the anchor's pin math. */
   headerClearancePx?: number
 }
 
 const OVERSCAN = 12
-/** Notice cards read as a stack, closer than prose rows. */
 const NOTICE_GAP = 10
 
-/** `.dock-spacer`'s height past the dock's own (transcript-layout.css). */
 const DOCK_ROOM = IS_MOBILE ? 14 : 32
 
-/** Whole pixels (`resizeItem` reads float drift as a resize). A `display:none` workspace reports 0
- *  for every row: the cached height is the honest answer, else the total collapses. */
 function measureRow(
   el: HTMLDivElement,
   _entry: ResizeObserverEntry | undefined,
@@ -97,16 +86,12 @@ function measureRow(
         height)
 }
 
-/** Tool, ask and marker rows of one run sit flush; prose gets the gap. */
 const compact = (id: string, item: TranscriptItem | undefined) =>
   id.startsWith('g:') ||
   item?.kind === 'tool' ||
   item?.kind === 'ask' ||
   (item?.kind === 'marker' && !isNotice(item))
 
-/** tanstack's `observeElementRect`, held back while a pane is dragged and never
- *  reporting a parked (0×0) view, which would unmount every row. The anchor hears
- *  every report, parked ones too: it lands the view when the box comes back. */
 const observeScrollRectFor =
   (onReport: () => void) =>
   (
@@ -132,8 +117,6 @@ const observeScrollRectFor =
         return
       }
       pending = null
-      // Between layout and paint: the window for the new box renders before it shows.
-      // WebKit may log 'ResizeObserver loop completed with undelivered notifications': benign.
       flushSync(() => report(rect))
     })
     observer.observe(element, { box: 'border-box' })
@@ -152,9 +135,6 @@ const observeScrollRectFor =
 
 type OffsetReport = (offset: number) => void
 
-/** At a held bottom the anchor answers a resize (the virtualizer's shift paints first).
- *  Elsewhere: virtual-core 3.17.11's default, which setting this predicate replaces;
- *  pinned by the test 'leaves a reader be while the row they are reading grows below the top'. */
 const keepsRowsStill =
   (holdsBottom: () => boolean) =>
   (item: VirtualItem, _delta: number, instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
@@ -164,9 +144,6 @@ const keepsRowsStill =
     return item.end <= offset && instance.scrollDirection !== 'backward'
   }
 
-/** tanstack's `observeElementOffset`, also handed every offset the anchor writes
- *  (through `hear`): its scroll event alone arrives a frame late, after the old
- *  window is painted at the new offset. */
 const observeScrollOffsetFor =
   (hear: (report: OffsetReport | null) => void) =>
   (
@@ -182,17 +159,12 @@ const observeScrollOffsetFor =
     }
   }
 
-/** The pinned prompt sits at the top when `.stream` reaches one viewport, less
- *  the overlay header, below the row's start; the floor counts everything under
- *  the rows (the working line, the dock's room) without measuring it. */
 const pinFloor = (start: number, viewport: number, header: number) =>
   Math.max(0, start + viewport - header)
 
 const samePlace = (a: RowPlace | undefined, b: RowPlace) =>
   !!a && a.firstTurn === b.firstTurn && a.firstReply === b.firstReply && a.turnbar === b.turnbar
 
-/** Each row's place: the first turn and reply keep the document hand, and only the reply that hands control back (none after it before the next prompt) gets
- *  a turnbar; the newest run hands it back only once nothing runs. */
 function placesOf(
   ids: string[],
   itemOf: (id: string) => TranscriptItem | undefined,
@@ -200,7 +172,6 @@ function placesOf(
   fromStart: boolean,
 ): Map<string, RowPlace> {
   const places = new Map<string, RowPlace>()
-  // A window of a longer chat starts mid-way: its first prompt is not the chat's.
   const first = fromStart ? itemOf(ids[0] ?? '') : undefined
   const firstTurn = first?.kind === 'user' ? first.id : undefined
   let firstReply: string | undefined
@@ -221,7 +192,6 @@ function placesOf(
       lastText = id
       places.set(id, { firstReply: id === firstReply, turnbar: false })
     } else if (item?.kind !== 'marker') {
-      // A call (or run of them) after the words: those words did not hand back.
       lastText = undefined
     }
   }
@@ -231,7 +201,6 @@ function placesOf(
 
 const NO_OUTBOX: OutboxItem[] = []
 
-/** An outbox prompt as the row layout reads it: a user turn with no row yet. */
 const asUser = (item: OutboxItem): UserItem => ({
   kind: 'user',
   id: `p:${item.requestId}`,
@@ -242,8 +211,6 @@ const asUser = (item: OutboxItem): UserItem => ({
   requestId: item.requestId,
 })
 
-/** The conversation, bottom-anchored. Rows come from the chat's feed by id;
- *  prompts with no row yet follow them, in the order they will be sent. */
 // react-doctor-disable-next-line no-giant-component -- the virtualizer, anchor and pin share the row offsets
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { chatId } = props
@@ -253,13 +220,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const items = useChatItems(chatId)
   const outbox = useChatStore((s) => s.outbox[chatId] ?? NO_OUTBOX)
   const [pinnedId, setPinnedId] = useState<string | null>(null)
-  // The pin's turn is over once its prompt left `pending` and nothing runs.
   const pinnedState = useChatStore((s) =>
     pinnedId ? s.feeds[chatId]?.facts.prompts[pinnedId.slice(2)]?.state : undefined,
   )
   const turnOver = !props.working && pinnedState !== undefined && pinnedState !== 'pending'
-  // Released once, for a reader at the bottom: one reading up the page keeps the
-  // room (and their place) until they come back down.
   const [releasedId, setReleasedId] = useState<string | null>(null)
   const reportOffset = useRef<OffsetReport | null>(null)
   const anchor = useTranscriptAnchor({
@@ -283,11 +247,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     }),
   )
 
-  // A sending prompt whose row landed is the rows' from then on, under the same key.
   const unsent = useMemo(() => {
     const byId = new Map<string, UserItem>()
     for (const item of outbox) {
-      // Queued and failed prompts are the top tray's until they are really sent.
       if (item.state !== 'sending') continue
       const id = `p:${item.requestId}`
       if (!items?.has(id)) byId.set(id, asUser(item))
@@ -305,7 +267,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const itemOf = useCallback((id: string) => items?.get(id) ?? unsent.get(id), [items, unsent])
   const fromStart = useChatStore((s) => !s.feeds[chatId]?.from)
 
-  // Place objects keep their identity while unchanged, so memoized rows skip.
   const placeCache = useRef(new Map<string, RowPlace>())
   const places = useMemo(() => {
     const next = placesOf(rows, itemOf, props.working, fromStart)
@@ -317,16 +278,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     return next
   }, [rows, itemOf, props.working, fromStart])
 
-  // A send lifts its prompt to the top, so its reply has the viewport to grow
-  // into. A prompt still queued (behind a turn, or held) starts nothing, and one
-  // already waiting on reopen is a restore, not a send.
   const newestUnsent = outbox.at(-1)?.requestId ?? null
   const newestSending = outbox.at(-1)?.state === 'sending'
   const pinnedRequestId = useRef<string | null>(null)
   const pendingPin = useRef<string | null>(null)
   const sawFirstOutbox = useRef(false)
   const pin = (id: string) => {
-    // The phone has no room to spare for a reply that has not arrived yet.
     if (IS_MOBILE || id === pinnedId) return
     stick()
     setPinnedId(id)
@@ -338,8 +295,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       pinnedRequestId.current = newestUnsent
       if (inherited) return
       if (!newestUnsent) {
-        // The outbox drained: pin the prompt that was waiting once its row is in. One
-        // taken back has no row, so its pin has no offset and reserves nothing.
         const waiting = pendingPin.current
         pendingPin.current = null
         if (waiting && items?.has(waiting)) pin(waiting)
@@ -372,12 +327,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getItemKey,
     observeElementRect,
     observeElementOffset: observeOffset,
-    // Its writes keep a reader's rows still as rows above them change size.
     scrollToFn: (offset, options, instance) => {
       elementScroll(offset, options, instance)
       noteScrollWrite()
     },
-    // `measureElement` runs in React's commit; flushSync from there throws.
     useFlushSync: false,
   })
   useLayoutEffect(() => {
@@ -390,8 +343,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
 
   const pinIndex = pinnedId ? rows.indexOf(pinnedId) : -1
   const pinStart = pinIndex < 0 ? undefined : rowVirtualizer.measurementsCache[pinIndex]?.start
-  // A released pin's room slides (transcript-layout.css) down to the rows' own height,
-  // which the floor must reach exactly, else the slide spends itself above or below it.
   const floor =
     pinStart === undefined
       ? 0

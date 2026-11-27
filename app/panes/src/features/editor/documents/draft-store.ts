@@ -2,7 +2,6 @@ import { getEditorHost } from '@/features/editor/host/editor-host'
 import { report } from '@/lib/errors/report'
 import { commit, getDB } from '@/lib/persistence/idb'
 
-/** The unsaved text of a dirty document, kept so a reload or a crash loses nothing. */
 export interface EditorDraft {
   uri: string
   text: string
@@ -10,10 +9,8 @@ export interface EditorDraft {
   updatedAt: number
 }
 
-/** Documents edited since their draft was last written. */
 const unwritten = new Set<string>()
 
-/** The draft `uri` stands for now; null once its document is clean or closed. */
 function draftOf(uri: string): EditorDraft | null {
   const documents = getEditorHost()?.documents
   if (!documents?.isDirty(uri)) return null
@@ -29,12 +26,10 @@ function persist(uris: readonly string[]): void {
   void putDrafts(drafts).catch((err: unknown) => report(err, { action: 'Keep the unsaved draft' }))
 }
 
-/** A dirty document changed; its draft is written by `writeDraft` or `flushDrafts`. */
 export function noteDraftChanged(uri: string): void {
   unwritten.add(uri)
 }
 
-/** Writes `uri`'s draft; the editor calls it once edits pause. */
 export function writeDraft(uri: string): void {
   persist([uri])
 }
@@ -46,7 +41,6 @@ export function clearDraft(uri: string): void {
     .catch((err: unknown) => report(err, { action: 'Discard the saved draft' }))
 }
 
-/** Writes every draft not written since its last edit. */
 function flushDrafts(): void {
   persist([...unwritten])
 }
@@ -68,7 +62,6 @@ export async function putDrafts(drafts: readonly EditorDraft[]): Promise<void> {
   await commit(tx, () => Promise.all(drafts.map((draft) => tx.store.put(draft))))
 }
 
-// Edits may not have paused when the window goes away.
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushDrafts)
 }

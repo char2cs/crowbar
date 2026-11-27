@@ -1,5 +1,3 @@
-//! The contract with the shell: the Source and Sink ports, commands and the data of every surface.
-
 mod chats;
 mod command;
 mod daemons;

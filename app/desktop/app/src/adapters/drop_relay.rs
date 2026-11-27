@@ -1,6 +1,3 @@
-//! Drags from other applications onto the shell's web views: the window's drags go through a
-//! proxy that hands them to the web view under the pointer (`platform::XdndProxy`).
-
 use gpui::{App, Global, Window};
 use platform::XdndProxy;
 

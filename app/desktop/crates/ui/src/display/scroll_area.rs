@@ -1,5 +1,3 @@
-//! A scrolling region with the styled overlay scrollbar.
-
 mod scrollbar;
 mod thumb;
 mod thumb_drag;
@@ -24,7 +22,6 @@ use crate::foundation::tokens::timing;
 const THUMB_ALPHA: f32 = 0.42;
 const THUMB_LIGHTNESS: f32 = 0.45;
 
-/// Vertical scrolling container; the thumb fades in while the pointer is over the area.
 #[derive(IntoElement)]
 pub struct ScrollArea {
     id: ElementId,
@@ -33,7 +30,6 @@ pub struct ScrollArea {
 }
 
 impl ScrollArea {
-    /// A scroll area around `content`; keep the `handle` to read or set the offset.
     pub fn new(
         id: impl Into<ElementId>,
         handle: &ScrollHandle,

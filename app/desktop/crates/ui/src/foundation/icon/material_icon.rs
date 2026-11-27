@@ -1,7 +1,6 @@
 const PAINT_ATTRIBUTES: [&str; 2] = ["fill", "stroke"];
 const CURRENT_COLOR: &str = "currentColor";
 
-/// The material-file-icons artwork for a file name, as develop's Files tree draws it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MaterialIcon {
     pub(crate) name: &'static str,
@@ -9,19 +8,16 @@ pub struct MaterialIcon {
 }
 
 impl MaterialIcon {
-    /// The icon set's own name for this icon, such as `typescript` or `image`.
     #[must_use]
     pub fn name(self) -> &'static str {
         self.name
     }
 
-    /// The artwork in its own colours.
     #[must_use]
     pub fn colored(self) -> &'static str {
         self.svg
     }
 
-    /// The artwork with every fill and stroke in `currentColor`, for a one-colour theme.
     #[must_use]
     pub fn monochrome(self) -> String {
         PAINT_ATTRIBUTES

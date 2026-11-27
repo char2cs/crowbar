@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Every chat is minted typed, so the backfill has nothing to write and the
-// listing of what it would leave behind is empty.
 func TestBackfillChatTypes_AMintedChatNeedsNoBackfill(t *testing.T) {
 	t.Parallel()
 

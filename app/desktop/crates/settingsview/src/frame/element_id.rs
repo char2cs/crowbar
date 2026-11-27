@@ -1,5 +1,3 @@
-//! Element ids built from a prefix and a name.
-
 use gpui::{ElementId, SharedString};
 
 pub(crate) fn element_id(

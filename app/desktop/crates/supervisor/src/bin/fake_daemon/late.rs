@@ -1,6 +1,3 @@
-//! The `late` mode: health is unserved until the test creates `<socket>.serve`, and the daemon
-//! announces that it listens by dialling `<socket>.up`.
-
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 

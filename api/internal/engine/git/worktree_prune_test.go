@@ -13,11 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestWorktreePrune_RemovesStaleRegistration is WorktreePrune's only real
-// behavior: a worktree directory deleted out from under git (not via `git
-// worktree remove`) still has a live registration in the main repo's
-// administrative files, and that stale entry must disappear from `worktree
-// list` after pruning, without touching any worktree that is still on disk.
 func TestWorktreePrune_RemovesStaleRegistration(t *testing.T) {
 	ctx := context.Background()
 	repo := initRepo(t)
@@ -28,13 +23,8 @@ func TestWorktreePrune_RemovesStaleRegistration(t *testing.T) {
 	_, err := e.WorktreeAddBranch(ctx, repo, wtPath, "feat", "HEAD")
 	require.NoError(t, err)
 
-	// Delete the worktree directory directly, bypassing `git worktree remove`,
-	// so its registration under .git/worktrees is left stale.
 	require.NoError(t, os.RemoveAll(wtPath))
 
-	// git worktree list reports its own resolved (symlink-free) path, which on
-	// macOS does not string-match a raw t.TempDir() path (/var vs /private/var),
-	// so entries are matched by their base directory name instead.
 	base := filepath.Base(wtPath)
 	before, err := e.WorktreeList(ctx, repo)
 	require.NoError(t, err)

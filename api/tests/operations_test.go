@@ -20,8 +20,6 @@ func operationSettled(op domain.Operation) bool {
 	return op.State == domain.OpSucceeded || op.State == domain.OpFailed
 }
 
-// startOperation POSTs body (nil for none) under a fresh Idempotency-Key and
-// returns the operation the 202 answers with.
 func startOperation(
 	t *testing.T,
 	h *harness,
@@ -70,8 +68,6 @@ func TestOperations_SnapshotCarriesSettledOperationsAcrossARestart(t *testing.T)
 	require.Equal(t, failed.Version, restored.Version)
 }
 
-// A crash mid repo-delete leaves its row and its item running. The restart fails
-// both as interrupted, and the delete it resumes settles its own item with it.
 func TestOperations_ARestartSettlesTheItemsOfTheDeleteItCutShort(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)

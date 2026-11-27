@@ -1,5 +1,3 @@
-//! One dot of a sprite: where it sits and its opacity in each frame.
-
 use crate::display::flicker_spinner::markup::attr;
 
 pub(crate) struct Dot {

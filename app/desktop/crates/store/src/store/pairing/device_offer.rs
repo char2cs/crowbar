@@ -1,6 +1,3 @@
-//! A one-time code another device pairs with this computer's daemon, minted when asked: each
-//! mint replaces the last on the daemon.
-
 use std::sync::{Arc, Mutex, PoisonError};
 
 use daemonapi::Call;
@@ -12,7 +9,6 @@ use crate::store::pairing::offer_state::OfferState;
 
 const CODE_PATH: &str = "/v0/pair/code";
 
-/// The Add a device dialog's code.
 pub struct DeviceOffer {
     client: daemonapi::Client,
     handle: Handle,
@@ -47,7 +43,6 @@ impl DeviceOffer {
         offer
     }
 
-    /// The code shown now.
     pub fn state(&self) -> OfferState {
         self.state
             .lock()
@@ -55,7 +50,6 @@ impl DeviceOffer {
             .clone()
     }
 
-    /// Asks for a fresh code; the old one stops working.
     pub fn renew(self: &Arc<Self>) {
         self.settle(OfferState::Minting);
         let offer = Arc::clone(self);

@@ -1,5 +1,3 @@
-//! The Crowbar desktop shell: a GPUI window whose content area hosts panes as web views.
-
 mod adapters;
 mod app_options;
 mod daemon;

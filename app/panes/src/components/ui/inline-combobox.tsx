@@ -1,5 +1,3 @@
-// Ported from the Plate registry (inline-combobox.json, a dependency of `slash-node.tsx`),
-// verbatim aside from formatting: a self-contained Ariakit wrapper touching none of our primitives.
 'use client'
 
 import * as React from 'react'
@@ -94,7 +92,6 @@ const InlineCombobox = ({
     [setValueProp, hasValueProp],
   )
 
-  /** The point just before the input, where to insertText if a selection change closes it. */
   const insertPointRef = React.useRef<PointRef | null>(null)
 
   React.useEffect(() => {
@@ -161,7 +158,6 @@ const InlineCombobox = ({
 
   const items = store.useState('items')
 
-  /** If there is no active ID and the list of items changes, select the first item. */
   React.useEffect(() => {
     if (!store.getState().activeId) {
       store.setActiveId(store.first())
@@ -201,9 +197,6 @@ const InlineComboboxInput = ({
 
   const ref = useComposedRef(propRef, contextRef)
 
-  // Auto-resizing input: a visually hidden span holds the value and the input sits over it (except
-  // when the value outgrows the container).
-
   return (
     <>
       {showTrigger && trigger}
@@ -229,7 +222,6 @@ const InlineComboboxInput = ({
 InlineComboboxInput.displayName = 'InlineComboboxInput'
 
 const InlineComboboxContent: typeof ComboboxPopover = ({ className, ...props }) => {
-  // Portal prevents CSS from leaking into popover
   const store = useComboboxContext()
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -301,7 +293,6 @@ const InlineComboboxItem = ({
 
   const store = useComboboxContext()!
 
-  // Optimization: Do not subscribe to value if filter is false
   const search = filter && store.useState('value')
 
   const visible = React.useMemo(

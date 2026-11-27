@@ -8,8 +8,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// resolveSelectionForSpawn clears a stored model/effort THIS provider does not declare
-// to "" (its default): a discovered catalogue can drop a model the chat still holds.
 func resolveSelectionForSpawn(
 	descriptor engineagents.Agent,
 	sel engineagents.Selection,
@@ -25,8 +23,6 @@ func resolveSelectionForSpawn(
 	return sel
 }
 
-// movedPick is an unstaged launch's pick: one moving the chat onto another provider
-// takes what it last ran as here, else its default, never the outgoing one's model.
 func (rs *Runners) movedPick(
 	ctx context.Context, chat domain.Chat, providerID string, staged *domain.ChatSelection,
 ) (*domain.ChatSelection, error) {

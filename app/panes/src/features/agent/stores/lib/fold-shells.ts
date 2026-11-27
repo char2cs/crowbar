@@ -6,8 +6,6 @@ import {
   type ShellItem,
 } from '@/features/agent/stores/lib/transcript-items'
 
-/** A shell starts on its row, shows its newest line while it runs and ends once, by the
- *  first end the daemon records. */
 export function applyShell(fold: FeedFold, row: LedgerRow<'shell'>) {
   if (row.scope) return
   const { phase, shellId } = row.body
@@ -50,7 +48,6 @@ export function applyShell(fold: FeedFold, row: LedgerRow<'shell'>) {
   }
 }
 
-/** The CLI that ran them is gone, and takes its background commands with it. */
 export function stopShells(fold: FeedFold, row: LedgerRow) {
   for (const id of fold.facts.shells) {
     const shell = fold.item<ShellItem>(id)
@@ -58,7 +55,6 @@ export function stopShells(fold: FeedFold, row: LedgerRow) {
   }
 }
 
-/** The chat's background shells in the order they started. */
 export function shellsOf(feed: ChatFeed): ShellItem[] {
   return feed.facts.shells.map((id) => feed.items.get(id) as ShellItem)
 }

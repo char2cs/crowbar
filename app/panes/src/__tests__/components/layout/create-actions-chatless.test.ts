@@ -109,10 +109,6 @@ describe('chatless workspace rows — create verbs send the WORKSPACE id as the 
   })
 })
 
-// Every worktree verb is chat-keyed, and the daemon mints an owner on the
-// first read of a chatless workspace — so a row with none recorded is a list
-// still landing. The verb sends nothing and says so in the user's words, not
-// the scope registry's.
 describe('workspace rows whose owning chat has not been recorded yet', () => {
   it('unlock sends nothing and says the chat is still loading', async () => {
     await performSetWorkspaceLock('ws-locked', false)

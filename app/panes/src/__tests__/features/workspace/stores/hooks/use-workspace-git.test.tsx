@@ -65,7 +65,6 @@ const held = () => heldScopes('git:')
 const onGitFrame = () => (data: unknown) =>
   streamDaemon.deliver({ t: 'signal', scope: 'git:ws-test', kind: 'git_status', data })
 
-// The slice loads its API modules on first use; transform them once, outside the waitFor budget.
 beforeAll(async () => {
   await Promise.all([
     import('@/features/git/api/git-data-api'),
@@ -132,7 +131,6 @@ describe('useWorkspaceGit', () => {
       return ctx
     }
 
-    // The stream's first push repeats the status the load just returned.
     it('does not reload for a frame equal to the loaded status, but does for a changed one', async () => {
       const { reloadStatusAndLog } = await ready()
 
@@ -145,7 +143,6 @@ describe('useWorkspaceGit', () => {
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(1)
     })
 
-    // Frames arrive faster than the debounce; a resetting timer would starve.
     it('reloads despite a continuous stream of frames, once per distinct change', async () => {
       const { reloadStatusAndLog } = await ready()
       const frame = onGitFrame()
@@ -161,8 +158,6 @@ describe('useWorkspaceGit', () => {
       expect(reloadStatusAndLog).toHaveBeenCalledTimes(2)
     })
 
-    // The daemon says git can no longer read the worktree (its repo moved), then that it can again,
-    // with the very status it had: each is news, so the panel shows and then clears the error.
     it('reloads on an unreadable frame and again on the recovery that repeats the old status', async () => {
       const { reloadStatusAndLog } = await ready()
 
@@ -200,7 +195,6 @@ describe('useWorkspaceGit', () => {
       expect(useGitRefreshStore.getState().changed['ws-test']).toBe(before + 1)
     })
 
-    // An edit to a file already modified leaves the status frame as it was; the edit is the news.
     it('reloads when a worktree file changes, though the status frame does not', async () => {
       const { reloadStatusAndLog } = await ready()
       await vi.waitFor(() => expect(heldScopes('files:')).toEqual(['files:ws-test']))
@@ -272,7 +266,6 @@ describe('on an install that has paired a remote host', () => {
     expect(held()).toEqual([])
     expect(remote.store.getState().gitLoad).not.toBe('ready')
 
-    // Each workspace waits for its OWN project's row, not merely for a list.
     act(() => loadProjects(projectOn('p-remote', 'host-1')))
     await waitFor(() => expect(remote.store.getState().gitLoad).toBe('ready'))
     expect(fetchGitData.mock.calls).toEqual([['ws-remote']])
@@ -321,8 +314,6 @@ describe('on an install that has paired a remote host', () => {
 describe('files summary ownership', () => {
   afterEach(() => destroyWorkspaceStore('ws-test'))
 
-  // The Files changed tab reads the workspace store's reviewFiles; the store alone fetches it
-  // when the git tick fires.
   it('fetches the summary once per git tick', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
     fetchGitData.mockResolvedValue({ status, commits: [], reviewFiles: [] })

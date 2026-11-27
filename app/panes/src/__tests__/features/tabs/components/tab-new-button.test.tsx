@@ -9,7 +9,6 @@ describe('TabAddButton', () => {
     expect(screen.getByRole('button', { name: 'New tab' })).toBeDefined()
   })
 
-  // The choice of what lands in the pane lives on the New Tab page itself.
   it('opens a New Tab directly, with no menu in between', async () => {
     const user = userEvent.setup()
     const onNewTab = vi.fn()

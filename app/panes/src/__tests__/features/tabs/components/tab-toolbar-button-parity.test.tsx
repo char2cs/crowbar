@@ -3,11 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { BranchReviewShortcutButton } from '@/features/tabs/components/branch-review-shortcut-button'
 import TabNavigationButtons from '@/features/tabs/components/tab-navigation-buttons'
 
-// Compare the full class list rather than spot-checking a token: drift is several separate
-// properties, and only whole-recipe equality catches the next one.
 const classesOf = (el: HTMLElement) => new Set(el.className.split(/\s+/).filter(Boolean))
 
-// The mirror is the one legitimate difference: the toggle flips when the sidebar is docked right.
 const MIRROR = 'scale-x-[-1]'
 const withoutMirror = (el: HTMLElement) => {
   const classes = classesOf(el)

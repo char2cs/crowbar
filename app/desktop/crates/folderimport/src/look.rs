@@ -1,5 +1,3 @@
-//! Sizes and strings of the add dialogs, from develop's Dialog and Input.
-
 use gpui::{Pixels, px};
 
 pub(crate) const ADDING: &str = "Adding…";

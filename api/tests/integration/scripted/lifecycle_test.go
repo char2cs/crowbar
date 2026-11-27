@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// Switching away and back resumes the provider's OWN session, handed only
-// what happened meanwhile; the provider switched to is handed the transcript.
 func TestScripted_SwitchProviderRoundTrip(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -40,7 +38,6 @@ func TestScripted_SwitchProviderRoundTrip(t *testing.T) {
 	r.eventually(func() bool { return !r.working(chatID) }, "the turn never closed")
 }
 
-// Deleting a chat mid-turn is bounded, and leaves nothing behind for it.
 func TestScripted_DeleteMidTurn(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -62,8 +59,6 @@ func TestScripted_DeleteMidTurn(t *testing.T) {
 	}
 }
 
-// The compact intent reaches each provider as its own gesture and settles
-// without a reply.
 func TestScripted_CompactIntent(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -82,8 +77,6 @@ func TestScripted_CompactIntent(t *testing.T) {
 	}
 }
 
-// Two chats in one worktree each keep their own vendor session: a revive is
-// never "the latest session in this directory".
 func TestScripted_TwoChatsInOneWorktreeKeepTheirOwnSessions(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -119,7 +112,6 @@ func TestScripted_TwoChatsInOneWorktreeKeepTheirOwnSessions(t *testing.T) {
 	}
 }
 
-// A prompt typed straight into claude's terminal is recorded like a sent one.
 func TestScripted_TypedPromptInTheTerminal(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()

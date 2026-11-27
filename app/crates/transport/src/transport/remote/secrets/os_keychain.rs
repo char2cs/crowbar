@@ -4,14 +4,12 @@ use crate::transport::remote::secrets::read_error::ReadError;
 
 const SERVICE: &str = "crowbar-desktop";
 
-/// Raw access to the OS keychain under one service name.
 #[derive(Debug, Clone, Copy)]
 pub struct OsKeychain {
     service: &'static str,
 }
 
 impl OsKeychain {
-    /// The keychain the desktop app keeps its host credentials in (`crowbar-desktop`).
     #[must_use]
     pub const fn desktop() -> Self {
         Self { service: SERVICE }

@@ -1,6 +1,3 @@
-// Package modeldiscovery is the generic model.discover: primitive: run a command, decode its JSON,
-// keep/order/map rows into models. Every field name it reads is data from the descriptor, so it
-// never hardcodes a provider's own wire vocabulary.
 package modeldiscovery
 
 import (
@@ -24,7 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// connectOutputLimit bounds what a connect command may print: one small JSON object.
 const (
 	maxStderrBytes     = 256 << 10
 	connectOutputLimit = 64 << 10
@@ -36,8 +32,6 @@ var (
 	ErrMalformedOutput = errors.New("agents: model discovery output is malformed")
 )
 
-// Model is one discovered, filtered/mapped catalogue entry. Default is whether the
-// source flagged this row as default (default_when), never inferred from position.
 type Model struct {
 	ID            string
 	Label         string
@@ -46,9 +40,6 @@ type Model struct {
 	Default       bool
 }
 
-// Probe runs a descriptor's model.discover command and maps its output into
-// the kept, ordered model list. It never reads or writes a cache — that is
-// Cache's job.
 func Probe(
 	ctx context.Context,
 	d *spec.Descriptor,
@@ -88,8 +79,6 @@ func Probe(
 	return found, nil
 }
 
-// flagCurrent marks the row whose id is the reply's own selection; a selection no
-// row offers is not a pickable default, so it stays unknown.
 func flagCurrent(found []Model, template string, reply map[string]any) {
 	id, ok := expandAll(template, reply)
 	if !ok {
@@ -100,8 +89,6 @@ func flagCurrent(found []Model, template string, reply map[string]any) {
 	}
 }
 
-// fetch is the raw catalogue: the descriptor's api call over its own connection, or
-// its command's stdout.
 func fetch(
 	ctx context.Context,
 	d *spec.Descriptor,
@@ -173,8 +160,6 @@ func validWorkdir(dir string) (string, error) {
 	return clean, nil
 }
 
-// itemMapping is the filter/order/render vocabulary model.discover: and
-// model.manifest: share, so mapModels/renderModel serve both sources.
 type itemMapping struct {
 	KeepWhen    *spec.ModelFieldMatch
 	OrderBy     string
@@ -214,8 +199,6 @@ func mapModels(rows []any, m itemMapping) []Model {
 	return out
 }
 
-// subRows is row itself, or with each declared one row per element at that path,
-// carrying row as "parent" so a child can name the group it belongs to.
 func subRows(row map[string]any, each string) []map[string]any {
 	if each == "" {
 		return []map[string]any{row}
@@ -238,8 +221,6 @@ func mergedRow(child, parent map[string]any) map[string]any {
 	return merged
 }
 
-// fieldMatches reports whether m's field equals its value on row — true for
-// a nil m, so an undeclared keep_when keeps every row unconditionally.
 func fieldMatches(row map[string]any, m *spec.ModelFieldMatch) bool {
 	if m == nil {
 		return true
@@ -267,9 +248,6 @@ func renderModel(row map[string]any, m itemMapping) (Model, bool) {
 
 var placeholder = regexp.MustCompile(`\{([^{}]+)\}`)
 
-// expand replaces every {field} in template with row's own value at that
-// field path — the arbitrary-field-name counterpart of catalog/mapping.go's
-// expand, which only ever substitutes a fixed handful of names.
 func expand(template string, row map[string]any) string {
 	if template == "" {
 		return ""
@@ -284,8 +262,6 @@ func expand(template string, row map[string]any) string {
 	})
 }
 
-// expandAll is expand, but reports false unless the template names a field and every
-// field it names has a value, so a composed id never carries a blank half.
 func expandAll(template string, row map[string]any) (string, bool) {
 	complete := template != ""
 	out := placeholder.ReplaceAllStringFunc(template, func(m string) string {

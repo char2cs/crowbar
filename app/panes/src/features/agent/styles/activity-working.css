@@ -1,5 +1,3 @@
-/* What the agent is doing right now. Scoped under `.agent-chat`. */
-
 .agent-chat .activity {
   display: flex;
   flex-direction: column;
@@ -7,8 +5,6 @@
   padding: 4px 0;
   font-size: 14px;
   color: var(--muted-foreground);
-  /* Glued to the line before it (sent text or streamed reply) instead of a full 18px `.stream`
-     gap below; leaves ~4px before this element's own padding. */
   margin-top: -14px;
 }
 .agent-chat .activity .hd {
@@ -23,7 +19,6 @@
 .agent-chat .activity .hd .dim {
   flex: none;
   white-space: pre;
-  /* The same clock face as the tray rows. */
   font-family: var(--editor-font-family, ui-monospace, monospace);
   font-size: 11.5px;
 }
@@ -40,7 +35,6 @@
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-/* Live reasoning sits directly below the working verb as a quiet subtitle. */
 .agent-chat .activity .reasoning-subtitle {
   margin: 0;
   padding-left: 24px;
@@ -52,7 +46,6 @@
   line-height: 1.35;
   color: var(--muted-foreground);
 }
-/* Historical reasoning has no working indicator and keeps its own disclosure. */
 .agent-chat .historical-activity .thinking {
   margin: 0;
   padding: 0 0 0 24px;

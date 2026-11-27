@@ -38,7 +38,6 @@ const names = () => screen.queryAllByRole('treeitem').map((el) => el.textContent
 
 beforeEach(() => {
   posted.mockClear()
-  // jsdom lays nothing out; the list virtualises over a phone-sized viewport.
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(402)
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800)
   ;(window as Shell).webkit = { messageHandlers: { files: { postMessage: posted } } }
@@ -128,7 +127,6 @@ describe('MobileFilesPage over a long tree', () => {
       isDir: false,
       git: null,
     }))
-    // jsdom lays out and scrolls nothing: give the list its content height and catch the scroll.
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(
       files.length * TOUCH_ROW_METRICS.height,
     )
@@ -139,7 +137,6 @@ describe('MobileFilesPage over a long tree', () => {
     })
     render(<MobileFilesPage />)
     push({ ...snapshot, files, expanded: [], activePath: '/r/f190.ts' })
-    // The row's bottom edge (191 rows down) at the bottom of the 800px viewport.
     await waitFor(() =>
       expect(scrollTo).toHaveBeenLastCalledWith(
         expect.objectContaining({ top: 191 * TOUCH_ROW_METRICS.height - 800 }),

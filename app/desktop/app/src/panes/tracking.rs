@@ -1,5 +1,3 @@
-//! What the shell tracks across panes: titles, dirty panes, focus, open chats.
-
 pub(crate) mod active_file;
 pub(crate) mod close_guard;
 pub(crate) mod dirty_panes;

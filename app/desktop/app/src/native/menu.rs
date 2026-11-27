@@ -1,5 +1,3 @@
-//! Pops the desktop's context menu for the shell, through the web views' platform.
-
 use std::rc::Rc;
 
 use gpui::{App, Task, Window};

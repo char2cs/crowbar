@@ -29,7 +29,6 @@ describe('browserApi', () => {
     expect(host.invoke).toHaveBeenLastCalledWith('browser_unpark', { id: 't1', ...rect })
   })
 
-  // The phone app has no native webview commands: a call is refused, never sent.
   it('refuses every command outside the desktop app', async () => {
     host.desktop = false
     await expect(browserApi.open('t1', 'https://a.test', rect, 1, false)).rejects.toThrow(
@@ -40,7 +39,6 @@ describe('browserApi', () => {
     expect(host.invoke).not.toHaveBeenCalled()
   })
 
-  // A browser tab mounts the webview listener too; with no desktop there is nothing to hear.
   it('listens to nothing outside the desktop app', async () => {
     host.desktop = false
     const off = await browserApi.onNavigated(() => {})

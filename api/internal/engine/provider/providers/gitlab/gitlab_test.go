@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// TestHelperProcess is the subprocess used by fakeCmd.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -30,8 +29,6 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// fakeCmd returns a stub that prints output and exits with code.
-// Production code sets cmd.Dir after creation; use t.TempDir() as the repoPath.
 func fakeCmd(
 	output string,
 	exitCode int,
@@ -43,7 +40,6 @@ func fakeCmd(
 	) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--", output, fmt.Sprint(exitCode)}
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		// A coverage build exits warning on stderr without GOCOVERDIR; share the parent's.
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "GOCOVERDIR=" + flag.Lookup("test.gocoverdir").Value.String()}
 		return cmd
 	}
@@ -54,8 +50,6 @@ type fakeResponse struct {
 	code   int
 }
 
-// sequentialFake sequences multiple fake commands, one per call.
-// It panics if called more times than there are responses.
 func sequentialFake(
 	responses []fakeResponse,
 ) func(ctx context.Context, name string, args ...string) *exec.Cmd {
@@ -90,16 +84,12 @@ func TestProtectedBranches_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "gitlab: protected-branches")
 }
 
-// TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted mirrors the
-// GitHub regression: a merged MR whose source branch was deleted on the remote
-// must still be observed. Gating the lookup on `git ls-remote` hid it, leaving the
-// workspace pr-open forever.
 func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Done","target_branch":"main","sha":"3d06bd4"}]`
 	g := New(sequentialFake([]fakeResponse{
-		{output: mrJSON, code: 0}, // glab mr list
-		{output: "", code: 0},     // git merge-base --is-ancestor → branch contains the MR head
+		{output: mrJSON, code: 0},
+		{output: "", code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -108,29 +98,23 @@ func TestRegression_PullRequestForBranch_MergedAfterRemoteBranchDeleted(t *testi
 	assert.Equal(t, "merged", pr.Status)
 }
 
-// TestPullRequestForBranch_IgnoresStaleMRAfterBranchNameReuse: glab matches MRs by
-// source branch NAME, so fresh work reusing a merged branch's name matches the old
-// MR. The new branch does not contain that MR's head commit, so it is not ours.
 func TestPullRequestForBranch_IgnoresStaleMRAfterBranchNameReuse(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Old","target_branch":"main","sha":"3d06bd4"}]`
 	g := New(sequentialFake([]fakeResponse{
-		{output: mrJSON, code: 0}, // glab mr list
-		{output: "", code: 1},     // git merge-base --is-ancestor → branch does NOT contain it
+		{output: mrJSON, code: 0},
+		{output: "", code: 1},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
 	assert.Nil(t, pr)
 }
 
-// TestPullRequestForBranch_OpenMR: an open MR still owns its source ref, so no
-// containment check runs. The single queued response is the assertion —
-// sequentialFake panics on an extra call.
 func TestPullRequestForBranch_OpenMR(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":7,"state":"opened","web_url":"https://gitlab.com/o/r/-/merge_requests/7","title":"My MR","target_branch":"main","sha":"deadbee"}]`
 	g := New(sequentialFake([]fakeResponse{
-		{output: mrJSON, code: 0}, // glab mr list, and nothing else
+		{output: mrJSON, code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -140,14 +124,11 @@ func TestPullRequestForBranch_OpenMR(t *testing.T) {
 	assert.Equal(t, "main", pr.TargetBranch)
 }
 
-// TestPullRequestForBranch_MergedWithoutSHA keeps the containment guard permissive
-// when the provider gives us no head sha to check: a false negative here would
-// resurrect the stale-status bug the guard is built alongside.
 func TestPullRequestForBranch_MergedWithoutSHA(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[{"iid":3,"state":"merged","web_url":"https://gitlab.com/o/r/-/merge_requests/3","title":"Done","target_branch":"main"}]`
 	g := New(sequentialFake([]fakeResponse{
-		{output: mrJSON, code: 0}, // glab mr list, and nothing else
+		{output: mrJSON, code: 0},
 	}))
 	pr, err := g.PullRequestForBranch(context.Background(), dir, "my-branch")
 	require.NoError(t, err)
@@ -243,9 +224,6 @@ func TestGlabProvider_OwnerAvatarURL_CliError_ReturnsEmpty(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// TestGlabProvider_OpenPullRequests maps every open MR to a source→target link in
-// one glab call. Unlike PullRequestForBranch there is no ownership check: an OPEN
-// MR still owns its source ref by name, so a stale-name match is impossible.
 func TestGlabProvider_OpenPullRequests(t *testing.T) {
 	dir := t.TempDir()
 	mrJSON := `[
@@ -262,8 +240,6 @@ func TestGlabProvider_OpenPullRequests(t *testing.T) {
 	assert.Equal(t, "develop", links[0].Base)
 	assert.Equal(t, 7, links[0].Number)
 	assert.Equal(t, "Add A", links[0].Title)
-	// The chained MR is what makes this a graph rather than a flat list: b's base
-	// is a's head, which is exactly the parent chain the import dialog walks.
 	assert.Equal(t, "feature/b", links[1].Head)
 	assert.Equal(t, "feature/a", links[1].Base)
 }
@@ -298,7 +274,6 @@ func TestGlabProvider_OpenPullRequests_InvalidJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "gitlab: open-mrs: parse")
 }
 
-// A failed command reads as what the tool printed, so the user sees how to fix it.
 func TestProtectedBranches_AFailureReadsAsTheToolsOwnWords(t *testing.T) {
 	g := New(fakeCmd("To get started with GitLab CLI, please run:  glab auth login", 1))
 	_, err := g.ProtectedBranches(context.Background(), t.TempDir())

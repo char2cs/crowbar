@@ -1,17 +1,12 @@
-//! How the text caret blinks; the shell sets it from the desktop's settings.
-
 use std::time::Duration;
 
 use gpui::{App, Global};
 
 pub(crate) const GTK_DEFAULT_PHASE: Duration = Duration::from_millis(600);
 
-/// Global caret preference; [`CaretBlink::Every`] the GTK default until the shell sets one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaretBlink {
-    /// The caret stays shown.
     Steady,
-    /// The caret shows, then hides, holding each phase this long.
     Every(Duration),
 }
 
@@ -24,12 +19,10 @@ impl Default for CaretBlink {
 }
 
 impl CaretBlink {
-    /// The installed preference; the GTK default when none was installed.
     pub fn of(cx: &App) -> Self {
         cx.try_global::<Self>().copied().unwrap_or_default()
     }
 
-    /// How long each phase lasts; `None` for a steady caret.
     pub fn phase(self) -> Option<Duration> {
         match self {
             Self::Steady => None,

@@ -12,11 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// currentBranch returns the branch checked out at dir, or "" on a detached
-// HEAD (`git symbolic-ref` fails when there is no symbolic ref to resolve).
-// Used instead of WorktreeList path-matching because `git worktree list`
-// reports the worktree's resolved (symlink-free) path, which does not always
-// string-match a raw t.TempDir() path (e.g. macOS's /var -> /private/var).
 func currentBranch(t *testing.T, dir string) string {
 	t.Helper()
 	cmd := osexec.Command("git", "symbolic-ref", "--short", "HEAD")
@@ -28,10 +23,6 @@ func currentBranch(t *testing.T, dir string) string {
 	return string(out[:len(out)-1])
 }
 
-// TestDetachWorktree_ThenCheckoutBranch covers the round trip DetachWorktree /
-// CheckoutBranch exist for: freeing a branch from one worktree's HEAD (so it
-// can be attached to a different, newly managed worktree) and then restoring
-// it.
 func TestDetachWorktree_ThenCheckoutBranch(t *testing.T) {
 	ctx := context.Background()
 	repo := initRepo(t)
@@ -50,9 +41,6 @@ func TestDetachWorktree_ThenCheckoutBranch(t *testing.T) {
 	assert.Equal(t, "feat", currentBranch(t, wtPath), "checking back out to feat must re-attach the branch")
 }
 
-// TestCheckoutBranch_AlreadyCheckedOutElsewhere_ReturnsError covers
-// CheckoutBranch's error path: a branch already checked out in another
-// worktree cannot also be checked out here.
 func TestCheckoutBranch_AlreadyCheckedOutElsewhere_ReturnsError(t *testing.T) {
 	ctx := context.Background()
 	repo := initRepo(t)

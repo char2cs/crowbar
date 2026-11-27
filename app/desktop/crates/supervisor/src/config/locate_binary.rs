@@ -12,13 +12,6 @@ fn is_executable_file(path: &Path) -> bool {
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & EXECUTE_BITS != 0)
 }
 
-/// Finds the daemon binary: `explicit` when given, else `crowbar-api` beside `current_exe`, else
-/// in the absolute directories of `path_var`, in that order. Relative or empty `path_var`
-/// entries are skipped so the working directory is never searched. A bundled app keeps the
-/// daemon next to its own executable, and callers that must trust the binary pass no `path_var`.
-///
-/// # Errors
-/// [`Error::BinaryNotFound`] naming every place that was looked in.
 pub fn locate_binary(
     explicit: Option<&Path>,
     current_exe: Option<&Path>,

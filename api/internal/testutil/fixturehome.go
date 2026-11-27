@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// FixtureHome creates an empty Crowbar home under the test's temp dir and
-// returns it, so a test never resolves to the real home.
 func FixtureHome(tb testing.TB) home.Home {
 	tb.Helper()
 	root := filepath.Join(tb.TempDir(), "home")
@@ -26,9 +24,6 @@ func FixtureHome(tb testing.TB) home.Home {
 	return h
 }
 
-// WriteFile writes content at rel under the home, creating parent
-// directories with mode 0o700 and the file with mode 0o600. It fails the test
-// for a rel that is absolute or escapes the home.
 func WriteFile(
 	tb testing.TB,
 	h home.Home,
@@ -48,8 +43,6 @@ func WriteFile(
 	}
 }
 
-// TreeSnapshot lists every file under the home as "relpath size", sorted, so
-// a test can assert that a code path left the tree untouched.
 func TreeSnapshot(
 	tb testing.TB,
 	h home.Home,

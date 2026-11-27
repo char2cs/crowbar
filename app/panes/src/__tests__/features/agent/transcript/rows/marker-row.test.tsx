@@ -67,7 +67,6 @@ describe('MarkerRow', () => {
   const markers = (feed: ReturnType<typeof seed>) =>
     feed.order.filter((id) => feed.items.get(id)?.kind === 'marker')
 
-  // The CLI died under the turn: what it said stays above, and the prompt can go again.
   it('draws a turn its CLI’s exit interrupted as a divider below the reply it had begun', () => {
     const l = ledger()
     const feed = seed([
@@ -252,7 +251,6 @@ describe('MarkerRow', () => {
     expect(actions.compact).toHaveBeenCalled()
   })
 
-  // A provider's warning: bold first sentence, the rest on the line after it.
   it('says a warning by its first sentence in bold, the rest beside it, with no Details', () => {
     const said =
       'Provider A could not find bubblewrap on PATH. Install bubblewrap with your OS package manager.'
@@ -265,7 +263,6 @@ describe('MarkerRow', () => {
     expect(screen.queryByRole('button', { name: 'Details' })).toBeNull()
   })
 
-  // A move is one line at its newest phase; what a later phase leaves out, its request named.
   describe('a move', () => {
     const asked = {
       phase: 'requested' as const,
@@ -352,8 +349,6 @@ describe('MarkerRow', () => {
     })
   })
 
-  // Every marker kind the daemon accepts (written by the api's ledger tests),
-  // and whether the transcript draws it; MarkerKind must name exactly these.
   const drawn: Record<MarkerKind, true | string> = {
     compaction_started: 'opens a compaction; its end draws the pill',
     compaction_ended: true,

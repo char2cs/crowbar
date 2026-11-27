@@ -13,12 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// MaxOutlineHunksPerFile bounds one file's outline: a line-by-line rewrite would otherwise make it
-// as large as the diff. Past the cap the leading hunks are kept and the entry is marked partial.
 const MaxOutlineHunksPerFile = 1000
 
-// outlineBufferBytes also bounds a single line's cost: a longer line is dispatched on its
-// leading bytes and the rest discarded unread.
 const outlineBufferBytes = 64 << 10
 
 var (
@@ -32,8 +28,6 @@ var (
 
 const devNull = "/dev/null"
 
-// Outline returns the hunk geometry (no content) of FileSummaries' file set so the client can reserve
-// scroll space; streamed a line at a time, O(hunks) memory. -U3 matches the patch endpoint.
 func Outline(
 	ctx context.Context,
 	repoPath string,
@@ -55,8 +49,6 @@ func Outline(
 	return s.files, nil
 }
 
-// outlineScan is a state machine, not a prefix match: a diff can contain a diff, and the
-// lines each hunk still owes tell a `+diff --git` content line from a header.
 type outlineScan struct {
 	files        []gitdomain.FileOutline
 	current      gitdomain.FileOutline
@@ -113,8 +105,6 @@ func (s *outlineScan) inHunk() bool {
 	return s.oldRemaining > 0 || s.newRemaining > 0
 }
 
-// body consumes one hunk line; an empty line is unspaced context, `\` belongs to no side, and
-// anything else means the header lied, so the hunk closes and the line is re-read as a header.
 func (s *outlineScan) body(
 	line []byte,
 ) {
@@ -180,8 +170,6 @@ func (s *outlineScan) startFile(
 	s.hunksSeen = 0
 }
 
-// newSidePath prefers `+++`'s path, which runs to end of line, over the ambiguous `diff --git`
-// header; a deletion's `+++ /dev/null` is ignored.
 func (s *outlineScan) newSidePath(
 	raw string,
 ) {
@@ -216,8 +204,6 @@ func (s *outlineScan) flush() {
 	s.oldRemaining, s.newRemaining = 0, 0
 }
 
-// readOutlineLine returns the next line, valid until the next read; an over-long line comes
-// back truncated to its leading bytes (all the scanner dispatches on).
 func readOutlineLine(
 	r *bufio.Reader,
 ) ([]byte, error) {
@@ -243,8 +229,6 @@ func discardOutlineLine(
 	}
 }
 
-// parseHunkShape reads `-a,b +c,d @@ optional heading`, the remainder of a hunk
-// header after its `@@ `. Either count may be omitted, which means one line.
 func parseHunkShape(
 	rest string,
 ) (gitdomain.HunkShape, bool) {
@@ -291,8 +275,6 @@ func parseHunkRange(
 	return start, count, true
 }
 
-// diffGitPath recovers the b-side path; " b/" in a path is ambiguous, so the last occurrence
-// wins. Only binary and mode-only entries, which have no `+++` line, rely on it.
 func diffGitPath(
 	rest string,
 ) string {
@@ -315,9 +297,6 @@ func trimSidePrefix(
 	return path
 }
 
-// unquotePath undoes the C-style quoting git applies to a path carrying a byte
-// outside printable ASCII. The escape forms git emits — octal, \t, \", \\ — are
-// all valid in a Go string literal, so Unquote is the exact inverse.
 func unquotePath(
 	raw string,
 ) string {

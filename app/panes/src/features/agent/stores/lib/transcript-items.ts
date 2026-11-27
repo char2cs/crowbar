@@ -12,7 +12,6 @@ import type { CallRound } from '@/features/agent/stores/lib/fold-rounds'
 
 interface ItemBase {
   id: string
-  /** The seq of the item's first row; 0 while it is known only from deltas. */
   seq: number
   turnId?: string
   at: string
@@ -34,13 +33,11 @@ export interface TextItem extends ItemBase {
   text: string
   settled: boolean
   phase: '' | 'commentary'
-  /** The turn reply this message joins, as its first row naming one said. */
   reply?: string
 }
 
 export type ToolStatus = 'running' | 'ok' | 'error' | 'declined' | 'interrupted' | 'abandoned'
 
-/** A tool's status once `body` lands on it. */
 export function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | undefined): ToolStatus {
   if (body.phase === 'post') return body.status === 'error' ? 'error' : 'ok'
   if (body.phase === 'fail') {
@@ -50,10 +47,8 @@ export function toolStatus(body: RowBodies['tool_call'], prev: ToolStatus | unde
   return prev ?? 'running'
 }
 
-/** The status of an upserted step that leaves the plan (ledger/plan.go). */
 const STEP_REMOVED = 'removed'
 
-/** `items` with each of `next` replacing the item of its id, or appended. */
 export function upsertPlan(items: PlanItem[], next: PlanItem[]): PlanItem[] {
   let out = [...items]
   for (const item of next) {
@@ -71,31 +66,22 @@ export interface ToolItem extends ItemBase {
   scope: string
   body: ToolCallBody
   status: ToolStatus
-  /** Decided by the call's first row; it never changes. */
   family: ToolFamily
-  /** The ask gating this call, while it is pending. */
   askId?: string
-  /** How that ask was decided, once it was. */
   askNote?: string
-  /** The seq of the row holding this call's whole diff while `body.diff` is a preview of it. */
   fullSeq?: number
 }
 
-/** `choice.id` is the ask id; it stays pending until its ask_resolved row. */
 export interface AskItem extends ItemBase {
   kind: 'ask'
   scope: string
   choice: AgentChoice
-  /** What a permission is about to touch: the ask's own, else its tool call's. */
   toolTarget: string
   toolId?: string
-  /** The gated call's input; with `toolInputTruncated`, its leading text. */
   toolInput?: unknown
   toolInputTruncated?: boolean
   mcpServer?: string
-  /** The gated call's family, when its row came first: what kind of call is asked about. */
   family?: ToolFamily
-  /** The agent's own sentence on why it asks. */
   detail?: string
 }
 
@@ -107,26 +93,17 @@ export interface MarkerItem extends ItemBase {
   marker: MarkerName
   detail?: string
   reason?: string
-  /** A turn_failed boundary's trouble as the provider's descriptor classified it (auth, limit,
-   *  overloaded); absent on a row recorded before the daemon classified. */
   failureKind?: string
-  /** The other chat the boundary names: who holds a conflicting session, or took a lost one. */
   chat?: string
-  /** A legacy_unreadable boundary's left-out records, each in its own words. */
   records?: string[]
-  /** A launch's switches (provider, model, effort) drawn as this one divider. */
   parts?: { marker: MarkerName; detail?: string }[]
-  /** The slash command this boundary ran, drawn beside its words. */
   command?: string
-  /** A 'move' marker's newest phase, over what its request named (where to, under what). */
   move?: MoveBody
 }
 
 export type SubagentStatus =
   'starting' | 'running' | 'done' | 'failed' | 'interrupted' | 'abandoned'
 
-/** A subagent from spawn to result, keyed by the call that spawned it (or its
- *  scope when no call did); its rows are `scoped[scope]` once bound. */
 export interface SubagentItem extends ItemBase {
   kind: 'subagent'
   spawnToolId?: string
@@ -136,9 +113,7 @@ export interface SubagentItem extends ItemBase {
   status: SubagentStatus
   result?: string
   usage?: { tokens?: number; toolUses?: number; durationMs?: number }
-  /** The seq of the row holding the whole result while `result` is a preview of it. */
   fullSeq?: number
-  /** The parent is waiting on, or closing, this subagent. */
   parentWaiting: boolean
   startedAt: string
   endedAt?: string
@@ -146,13 +121,9 @@ export interface SubagentItem extends ItemBase {
 
 type ShellStatus = 'running' | 'finished' | 'failed' | 'stopped'
 
-/** A background command of the main agent; kept in the items but never placed
- *  in the transcript order, since the tray lists it. */
 export interface ShellItem extends ItemBase {
   kind: 'shell'
-  /** The provider's id for the task, which a notification names. */
   shellId: string
-  /** A monitor reports the lines its command prints; a shell just runs. */
   shellKind: 'shell' | 'monitor'
   command: string
   label: string
@@ -161,10 +132,8 @@ export interface ShellItem extends ItemBase {
   persistent?: boolean
   timeoutMs?: number
   status: ShellStatus
-  /** The agent was asked to end it; only its own end settles the row. */
   stopping?: boolean
   exitCode?: number
-  /** The newest line while it runs, the end of its output once it ended. */
   tail?: string
   summary?: string
   startedAt: string
@@ -174,13 +143,11 @@ export interface ShellItem extends ItemBase {
 export interface ReasoningItem extends ItemBase {
   kind: 'reasoning'
   text: string
-  /** The seq of the row holding the whole text while `text` is a preview of it. */
   fullSeq?: number
   startedAt: string
   endedAt: string
 }
 
-/** The main plan as its turn left it. */
 export interface PlanSnapshotItem extends ItemBase {
   kind: 'plan'
   items: PlanItem[]
@@ -198,53 +165,32 @@ export type TranscriptItem =
   | PlanSnapshotItem
 
 export type PromptFact =
-  /** `launch` when a CLI launch carries it: that launch's dividers read above it;
-   *  `steer` when the running turn's end hands it on. */
   | { state: 'pending'; seq: number; launch?: true; steer?: true }
   | { state: 'delivered'; turnId: string }
-  /** `builtin` when the CLI ran it itself (a command) and no turn took it. */
   | { state: 'settled'; builtin?: true }
   | { state: 'refused'; reason: string }
-  /** A refused prompt a later one (`by`) sent again: nothing more to do about it. */
   | { state: 'retried'; by: string }
-  /** `turnId` when its turn spoke before the retract ended it: the row stays. */
   | { state: 'retracted'; turnId?: string }
 
 export interface TurnFacts {
   running: { turnId: string; requestId?: string; startedAt: string; seq: number } | null
-  /** requestId → its state, from rows. */
   prompts: Record<string, PromptFact>
   compacting: boolean
   openAsks: string[]
-  /** Asks decided since the person last spoke; a call's ask has no row of its own to find them by. */
   decidedAsks: string[]
-  /** Subagent cards still starting or running. */
   liveSubagents: string[]
-  /** Every background shell of the chat, in the order they started. */
   shells: string[]
-  /** scope → the card bound to it. */
   subagentScopes: Record<string, string>
-  /** A subagent that announced its scope while a spawn it may be is unbound. */
   pendingScopes: Record<string, { type?: string; title?: string }>
-  /** By scope, latest. */
   plan: Record<string, PlanItem[]>
-  /** The turn Stop was pressed on; it reads as stopping only while it runs. */
   stopping: string | null
-  /** Turn ids that produced text or a tool. */
   output: Record<string, true>
-  /** Turns a retract took back before they said anything, hidden until output follows. */
   traceless: Record<string, { requestId: string; marker: string }>
-  /** turnId → the effort its turn_ended reported. */
   efforts: Record<string, string>
-  /** turnId → the provider its turn_started named. */
   providers: Record<string, string>
-  /** The provider of the newest CLI started on the chat. */
   provider: string
-  /** The model the live CLI runs: its launch model, or the newest change. */
   model: string
-  /** turnId → the model it ran on, where one was named. */
   models: Record<string, string>
-  /** turnId → its main-scope calls since its last message. */
   calls: Record<string, CallRound>
 }
 
@@ -252,23 +198,15 @@ export interface ChatFeed {
   status: 'connecting' | 'live' | 'error'
   error?: string
   epoch: string
-  /** The last applied row. */
   seq: number
-  /** Rows at or below it are not held: the feed opened on a window of a longer ledger. */
   from: number
-  /** Main-scope item ids by the seq of their first row. */
   order: string[]
-  /** Ids known only from deltas, after the order. */
   liveTail: string[]
   items: ItemMap
-  /** `<stream>:<delta id>` → live text; each stream numbers its own frames. */
   live: Record<string, string>
   liveN: Record<string, number>
-  /** The live key of the newest main-scope reasoning stream. */
   liveReasoning: string | null
-  /** Item ids of rows in a subagent scope, by scope. */
   scoped: Record<string, string[]>
-  /** Main-scope ids a turn end can still settle, by turn id ('' for none). */
   unsettled: Record<string, string[]>
   facts: TurnFacts
 }

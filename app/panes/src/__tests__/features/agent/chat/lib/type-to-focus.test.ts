@@ -51,8 +51,6 @@ describe('advanceTypeToFocus', () => {
   })
 
   it('does not reset an in-progress buffer on a disqualifying key between qualifying ones', () => {
-    // Capitalizing a letter fires a bare "Shift" keydown before the letter's own
-    // — that must not wipe out characters already typed earlier in the burst.
     let buffer = advanceTypeToFocus(EMPTY_TYPE_BUFFER, key('a'), 1000).buffer
     buffer = advanceTypeToFocus(buffer, key('Shift'), 1005).buffer
     const result = advanceTypeToFocus(buffer, key('B', { key: 'B' }), 1010)

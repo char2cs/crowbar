@@ -1,5 +1,3 @@
-//! The create operations the daemon reports, as rows to draw until their entities arrive.
-
 use crate::live::Entities;
 use crate::live::Item;
 use crate::live::OperationRecord;

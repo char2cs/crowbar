@@ -10,26 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRowWrapped pins the emulator's per-row wrap bit to xterm's isWrapped: autowrap sets
-// it, the row carries it into the scrollback, and it drops only where xterm drops it.
 func TestRowWrapped(t *testing.T) {
 	const (
-		wrap   = "0123456789ABCDEFGHIJ" // row 0 full, autowraps into row 1
+		wrap   = "0123456789ABCDEFGHIJ"
 		thirty = "0123456789ABCDEFGHIJKLMNOPQRST"
-		// One history line and "top" on row 0, for the rows that park the cursor below the grid.
 		parked = "hist\r\n\r\n\r\n\r\n\x1b[Htop"
 	)
 	crlf := func(n int) string { return strings.Repeat("\r\n", n) }
 	tests := []struct {
 		name       string
 		bytes      string
-		resize     [2]int // cols, rows; zero means no resize
-		after      string // written after the resize
-		maxLines   int    // scrollback cap; zero means 100
+		resize     [2]int
+		after      string
+		maxLines   int
 		grid       string
-		scrollback string // empty means not checked
-		screen     string // ScreenText; empty means not checked
-		history    string // scrollback text joined by "|"; empty means not checked
+		scrollback string
+		screen     string
+		history    string
 	}{
 		{name: "autowrap sets it", bytes: wrap, grid: "F T F F"},
 		{name: "exact fit + CRLF is a hard break", bytes: "0123456789\r\nABCDEFGHIJ", grid: "F F F F"},
@@ -94,8 +91,6 @@ func TestRowWrapped(t *testing.T) {
 			name:  "a scroll under a top margin drops row 0's flag",
 			bytes: thirty + crlf(3) + "\x1b[2;4r\x1b[S", grid: "F F F F", scrollback: "F T F",
 		},
-		// A shrink with the cursor on the last row scrolls the top rows into the scrollback, as in
-		// xterm; a flag access at the cursor afterwards must not panic.
 		{
 			name:  "alt exit after a shrink, then ED0",
 			bytes: parked + "\x1b[4;1Hprompt\x1b[?1049h", resize: [2]int{10, 2}, after: "\x1b[?1049l\x1b[J",
@@ -111,7 +106,6 @@ func TestRowWrapped(t *testing.T) {
 			bytes: parked + "\x1b[4;1H\x1b7", resize: [2]int{10, 2}, after: "\x1b8\x1b[K",
 			grid: "F F", screen: "\n", history: "hist|top|",
 		},
-		// As in xterm, a bottom margin never reaches past the screen, so a scroll cannot run off it.
 		{
 			name:  "a bottom margin past the screen is clamped: DL at its top",
 			bytes: parked + "\x1b[1;20r\x1b[M",
@@ -171,27 +165,25 @@ func TestRowWrapped(t *testing.T) {
 	}
 }
 
-// TestResizeReflow pins a resize to xterm.js 6.0.0's Buffer.resize: every expectation is what
-// xterm shows after the same bytes and resizes.
 func TestResizeReflow(t *testing.T) {
 	const (
 		thirty = "0123456789ABCDEFGHIJKLMNOPQRST"
-		t36    = thirty + "UVWXYZ\r\nhello\r\n" // a 4-row chain, then a short line and the cursor
-		tall   = "x"                            // repeated to a chain taller than the viewport
+		t36    = thirty + "UVWXYZ\r\nhello\r\n"
+		tall   = "x"
 		main   = "0123456789ABCDEFGHIJ\r\n\x1b[?1049h\x1b[H0123456789ABCDEFGHIJ"
 	)
 	tallChain := strings.Repeat(tall, 60) + "\r\ny"
 	tests := []struct {
 		name     string
 		bytes    string
-		size     [2]int // cols, rows; zero means 10x4
-		maxLines int    // zero means 100
+		size     [2]int
+		maxLines int
 		resizes  [][2]int
 		after    string
 		flags    string
-		history  string // scrollback text joined by "|"
+		history  string
 		screen   string
-		cursor   string // "x,y"; empty means not checked
+		cursor   string
 	}{
 		{
 			name: "a shrink rewraps every chain but the cursor's", bytes: t36, resizes: [][2]int{{6, 4}},
@@ -252,7 +244,6 @@ func TestResizeReflow(t *testing.T) {
 			resizes: [][2]int{{6, 6}}, flags: "grid F T T T F F | scrollback", screen: "012345\n6789a\n日cdef\ngh\nz\n", cursor: "1,4",
 		},
 		{
-			// xterm.js keeps the clipped head (BufferLine.resize); x/vt blanks it (UPSTREAM.md D2).
 			name: "the cursor's chain blanks a wide glyph the new edge splits", bytes: "01234日", resizes: [][2]int{{6, 4}},
 			flags: "grid F F F F | scrollback", screen: "01234\n\n\n", cursor: "5,0",
 		},
@@ -280,7 +271,6 @@ func TestResizeReflow(t *testing.T) {
 			screen: "XDEFGH\nIJKLMN\nOPQRST\n", cursor: "1,0",
 		},
 		{
-			// xterm.js pops a row per row it adds while the cursor is above, losing the chain's head.
 			name: "a chain below the cursor pops the rows it adds", bytes: "\x1b[3;1Habcdefghijklmnopqrst\x1b[H",
 			resizes: [][2]int{{4, 4}}, flags: "grid F T T T | scrollback", screen: "\nijkl\nmnop\nqrst", cursor: "0,3",
 		},
@@ -332,15 +322,13 @@ func TestResizeReflow(t *testing.T) {
 	}
 }
 
-// TestResize_AllocsDoNotGrowWithHistory guards the cost of a pane drag: a resize that reflows
-// nothing allocates per call, never per history line.
 func TestResize_AllocsDoNotGrowWithHistory(t *testing.T) {
 	allocs := func(history int) int {
 		vm := newVTModel(120, 40, 10000)
 		t.Cleanup(vm.Close)
 		vm.Write([]byte(strings.Repeat(strings.Repeat("s", 40)+"\r\n", history)))
 		narrow := false
-		return int(testing.AllocsPerRun(20, func() { // an integral average
+		return int(testing.AllocsPerRun(20, func() {
 			narrow = !narrow
 			if narrow {
 				vm.Resize(90, 40)

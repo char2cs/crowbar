@@ -1,5 +1,3 @@
-//! Border, fill and shadows of a text area for each condition.
-
 use crate::control::editor::field::{Chrome, chrome};
 use crate::control::editor::text_area::render::text_area_condition::TextAreaCondition;
 use crate::foundation::Appearance;

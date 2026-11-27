@@ -1,4 +1,3 @@
-/* Import order is the cascade: composer, then transcript, then activity, then the tray surfaces. */
 @import './composer-dock.css';
 @import './composer-pill.css';
 @import './composer-signposts.css';

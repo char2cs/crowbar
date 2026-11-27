@@ -11,7 +11,6 @@ import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
 const REASON = 'this home is at layout 9 but this Crowbar only knows layout 0'
 
-// The real root, with a stand-in route: the halt must replace whatever route is showing.
 function renderRootOn(path: string) {
   const landing = createRoute({
     getParentRoute: () => RootRoute,

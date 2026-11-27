@@ -2,12 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveTerminalFont } from '@/features/terminal/utils/resolve-font'
 
 describe('resolveTerminalFont', () => {
-  // available = set of family names whose load()+check() succeed.
   let available: Set<string>
 
   beforeEach(() => {
     available = new Set()
-    // jsdom lacks FontFaceSet; provide a minimal document.fonts.
     Object.defineProperty(document, 'fonts', {
       configurable: true,
       value: {
@@ -48,7 +46,6 @@ describe('resolveTerminalFont', () => {
   })
 
   it('keeps a variable font as-is instead of mapping to its static cut', async () => {
-    // Both cuts available: the DOM renderer takes a variable font as-is.
     available.add('Geist Mono')
     available.add('Geist Mono Variable')
     const result = await resolveTerminalFont('Geist Mono Variable', 14)
@@ -71,7 +68,6 @@ describe('resolveTerminalFont', () => {
   })
 
   it('uses the platform fallback when nothing loads', async () => {
-    // available stays empty
     const result = await resolveTerminalFont('Nonexistent Font Variable', 14)
 
     expect(result).toMatch(/,\s*monospace$/)

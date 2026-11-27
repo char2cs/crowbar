@@ -4,44 +4,20 @@ use crate::port::daemon_response::DaemonResponse;
 use crate::port::relay_endpoint::RelayEndpoint;
 use crate::port::relay_scope::RelayScope;
 
-/// Completion callback of [`DaemonTransport::request`]; called exactly once.
 pub type Responder = Box<dyn FnOnce(Result<DaemonResponse>) + Send + 'static>;
 
-/// How the shell reaches daemon hosts.
-///
-/// The shell serves `crowbar://<host>/...` requests and hands out WebSocket relay endpoints
-/// through this trait. The implementation (unix socket, paired remote host, token and TLS pin
-/// handling) lives in the `transport` crate. The trait is callback based so it needs no async
-/// runtime: an implementation may answer from any thread.
-///
-/// Only a pane has a [`PaneOrigin`](crate::PaneOrigin), so a browser tab, which has none, can
-/// neither build a [`DaemonRequest`] nor ask for a [`RelayScope`]; the shell must not invent one
-/// for it.
 pub trait DaemonTransport: Send + Sync + 'static {
-    /// Forwards `request` and calls `respond` exactly once, from any thread, with
-    /// [`Error::Interrupted`](crate::Error::Interrupted) if the transport stops first. Must not
-    /// block the caller.
-    ///
-    /// The platform's custom protocol task (WebKit's URL scheme task) may only be completed on
-    /// the UI thread, so the `respond` the shell passes in hops there; an implementation never
-    /// assumes it runs on the caller's thread.
     fn request(
         &self,
         request: DaemonRequest,
         respond: Responder,
     );
 
-    /// Issues a relay endpoint and token for a pane's WebSocket streams.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the host is unknown or unreachable.
     fn relay_endpoint(
         &self,
         scope: &RelayScope,
     ) -> Result<RelayEndpoint>;
 
-    /// Revokes the relay token issued for `scope`'s pane and closes its open streams, so a token
-    /// does not outlive the pane. A transport that issues no tokens has nothing to revoke.
     fn revoke_pane(
         &self,
         _scope: &RelayScope,

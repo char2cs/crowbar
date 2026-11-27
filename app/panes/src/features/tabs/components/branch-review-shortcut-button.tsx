@@ -6,8 +6,6 @@ interface BranchReviewShortcutButtonProps {
   onOpen: () => void
 }
 
-/** A shortcut on the IDE sector's tab row to GitPanel's own "Review this branch" action
- *  (git-panel.tsx), which stays the feature's home. */
 export function BranchReviewShortcutButton({
   isBottomPane,
   onOpen,

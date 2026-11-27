@@ -1,5 +1,3 @@
-//! The daemon requests of the merge box: strategy, merge, stop and merge, commit.
-
 mod open_chat;
 
 use daemonapi::Call;

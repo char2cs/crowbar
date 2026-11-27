@@ -14,7 +14,6 @@ describe('createEdgeScroller', () => {
 
   it('scrolls a horizontal scroller from the pointer x, and reports each moving frame', () => {
     const el = document.createElement('div')
-    // jsdom does not clamp or lay out, so scrollLeft is a plain number here.
     const onScrolled = vi.fn()
     const scroller = createEdgeScroller(el, { left: 100, width: 400 }, { onScrolled })
 

@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A placement's Node writes rode the async Send path, so the sidebar's own
-// re-read right after the PATCH (refreshRepoPlacements, the home reseed)
-// could serve the PRE-write order and overwrite the decided one the response
-// and broadcast had already delivered: the row landed, then snapped back.
 func TestRegression_PlacementReadBackRightAfterThePatchIsTheDecidedOrder(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

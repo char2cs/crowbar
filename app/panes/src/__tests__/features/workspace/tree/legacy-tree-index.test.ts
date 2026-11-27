@@ -11,8 +11,6 @@ import {
   repoRows,
 } from '@/__tests__/__fixtures__/tree-rows'
 
-// "Create workspace" mints the workspace and its first chat in one atomic call
-// (`POST .../chats {ownWorktree: true}`).
 describe('an atomically-created own-worktree chat', () => {
   it('the fresh workspace and its owning chat fold into ONE row, titled by the chat', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -26,26 +24,19 @@ describe('an atomically-created own-worktree chat', () => {
     })
     const rows = repoRows(repo)
 
-    // No separate `ws-1` row, and no separate `chat`-kind row for `c-1` — the
-    // fold's whole point.
     expect(rows.find((r) => r.id === 'ws-1')).toBeUndefined()
     expect(rows.filter((r) => r.kind === 'chat')).toHaveLength(0)
 
     const row = rows.find((r) => r.id === 'c-1')
     expect(row?.kind).toBe('branch')
     expect(row?.workspaceId).toBe('ws-1')
-    // Untitled until the agent (or the user) names it — same fallback a
-    // bubble chat's label already uses.
     expect(row?.label).toBe(UNTITLED_CHAT_LABEL)
     expect(row?.branchName).toBe('workspace-abc123')
 
-    // Just the home row (`makeTestRepo`'s own fixture) and this one fold.
     expect(rows.filter((r) => r.id !== HOME_ROW_ID)).toHaveLength(1)
   })
 })
 
-// Rule 6: a regular fork is one row, never a `branch` row for the workspace plus a separate `chat`
-// row for the ordinary conversation that owns it.
 describe('an ordinary fork folds into its owning chat', () => {
   it('an ordinary fork with no children renders as ONE branch-styled row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -59,7 +50,6 @@ describe('an ordinary fork folds into its owning chat', () => {
     })
     const rows = repoRows(repo)
 
-    // Just the home row (`makeTestRepo`'s own fixture) and this one fold.
     const nonHome = rows.filter((r) => r.id !== HOME_ROW_ID)
     expect(nonHome).toHaveLength(1)
     const row = nonHome[0]
@@ -101,8 +91,6 @@ describe('an ordinary fork folds into its owning chat', () => {
       { id: 'ws-1', branch: 'feature/x', added: 10, deleted: 1 },
       { id: 'c-1', title: 'Fix the parser' },
     )
-    // Rule 8's git-branch-icon case: a genuine child chat (real `parentId`) that ALSO owns a brand-
-    // new workspace forked from its parent's branch.
     const { workspace: childWs, chat: childChat } = makeOwnedWorkspace(
       { id: 'ws-2', branch: 'feature/x/nested', parentId: 'ws-1', added: 4, deleted: 0 },
       { id: 'c-2', title: 'A nested spike' },
@@ -115,7 +103,6 @@ describe('an ordinary fork folds into its owning chat', () => {
     const rows = repoRows(repo)
 
     expect(rows.filter((r) => r.id !== HOME_ROW_ID)).toHaveLength(2)
-    // Never a `chat`-kind row for either.
     expect(rows.filter((r) => r.kind === 'chat')).toHaveLength(0)
 
     const parent = rows.find((r) => r.id === 'c-1')
@@ -129,14 +116,10 @@ describe('an ordinary fork folds into its owning chat', () => {
     expect(child?.label).toBe('A nested spike')
     expect(child?.branchName).toBe('feature/x/nested')
     expect(child?.added).toBe(4)
-    // …correctly nested under its TRUE parent, not the repo root.
     expect(child?.parentId).toBe('c-1')
   })
 
   it('a workspace with no resolvable owner stays a chat-less branch row (genuinely chat-less state)', () => {
-    // `owningChatId` absent, or naming a chat this repo has not seeded — both
-    // mean "nothing to fold by yet" (`Workspace.owningChatId`'s own doc), and
-    // `deriveRows` leaves such a workspace exactly as it always rendered.
     const repo = makeRepo({
       defaultWorkspaceId: 'ws-home',
       workspaces: [makeWorkspace({ id: 'ws-1', branch: 'feature/x' })],
@@ -148,8 +131,6 @@ describe('an ordinary fork folds into its owning chat', () => {
   })
 })
 
-// `owningChatOf` (owning_chat.go) files a new child directly under its parent workspace's id, a row
-// every workspace (locked, home or fork) has from creation.
 describe('a fresh child parents directly onto the workspace id', () => {
   it('a chat parented onto a locked branch’s raw workspace id resolves under its folded row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -174,14 +155,11 @@ describe('a fresh child parents directly onto the workspace id', () => {
   })
 })
 
-// An imported repo whose repo.workspaces includes its home must not draw a second, unlabeled row.
 describe('the repo home never doubles as a workspace row', () => {
   it('draws exactly ONE row when repo.workspaces wrongly contains the home workspace', () => {
     const repo = makeRepo({
       name: 'athas',
       defaultWorkspaceId: 'ws-home',
-      // No branch yet — an import whose defaultBranch has not resolved, which
-      // is what made the ghost unlabeled rather than merely duplicated.
       workspaces: [makeWorkspace({ id: 'ws-home', branch: '' })],
     })
     const rows = repoRows(repo)
@@ -192,9 +170,6 @@ describe('the repo home never doubles as a workspace row', () => {
   })
 
   it('draws exactly ONE row when that home workspace also names its owning chat', () => {
-    // The other half of the same payload bug: with `owningChatId` present the
-    // fold relabels the ghost to the home chat's id, producing a DUPLICATE id
-    // rather than an empty label.
     const repo = makeRepo({
       defaultWorkspaceId: 'ws-home',
       workspaces: [makeWorkspace({ id: 'ws-home', branch: 'main', owningChatId: HOME_ROW_ID })],
@@ -218,8 +193,6 @@ describe('the repo home never doubles as a workspace row', () => {
   })
 })
 
-// Today's placement rules turned into explicit containers: organisation and lineage stay
-// independent, and an incompatible folder edge falls back to the real fork parent.
 const ws = (id: string, over: Partial<Workspace> = {}): Workspace => ({
   id,
   branch: `branch/${id}`,
@@ -241,7 +214,6 @@ const chat = (id: string, over: Partial<Chat> = {}): Chat => ({
   ...over,
 })
 
-// One repo with no home checkout, so its members hang straight off the repo node.
 function treeOf(workspaces: Workspace[], folders: Folder[] = [], chats: Chat[] = []) {
   const index = legacyTreeIndex(
     [{ id: 'r1', name: 'r', avatarLabel: 'R', avatarColor: '', workspaces, folders, chats }],
@@ -286,7 +258,6 @@ describe('workspaces and folders', () => {
     expect(kids('parent')).toEqual(['child'])
   })
 
-  // The daemon files a create started on a folder row as a fork root (folderId, no parentId).
   it('a workspace created ON a folder row lands inside it, however deep the folder', () => {
     const { kids, roots } = treeOf(
       [ws('main'), ws('created', { folderId: 'backlog' })],
@@ -318,7 +289,6 @@ describe('workspaces and folders', () => {
     expect(treeOf([ws('orphan', { folderId: 'gone' })]).roots).toEqual(['orphan'])
   })
 
-  // The anchor walk steps THROUGH the chat: stopping there would drop the folder edge.
   it('a folder inside a chat still anchors a fork child to the right workspace', () => {
     const { kids } = treeOf(
       [ws('w1'), ws('kid', { parentId: 'w1', folderId: 'f1' })],
@@ -383,7 +353,6 @@ describe('sibling order', () => {
     ])
   })
 
-  // The daemon compares time.Time; Go's RFC3339Nano wire form does not string-sort by instant.
   it('a tied level breaks on the createdAt INSTANT, not the ISO string', () => {
     const { roots } = treeOf([
       ws('a', { order: 0, createdAt: '2026-11-01T01:30:00-07:00' }),
@@ -408,7 +377,6 @@ describe('corrupt input degrades, never hangs', () => {
     expect(treeOf([], [], [chat('self', { parentId: 'self' })]).roots).toEqual(['self'])
   })
 
-  // A loop through BOTH structures is what one placement authority exists for: every row stays.
   it('a chat -> folder -> chat and a chat -> folder -> workspace cycle draw every row', () => {
     const drawn = (t: ReturnType<typeof treeOf>) => {
       const ids: string[] = []
@@ -431,7 +399,6 @@ describe('corrupt input degrades, never hangs', () => {
   })
 })
 
-// A workspace's owning chat is `type: 'chat'`, so ownership must never be read off Chat.type.
 describe('resolves the owning chat without ever reading Chat.type', () => {
   it('a locked branch folds by Workspace.owningChatId alone, even when no chat claims ownsWorktree', () => {
     const workspace = makeWorkspace({
@@ -440,8 +407,6 @@ describe('resolves the owning chat without ever reading Chat.type', () => {
       status: 'locked',
       owningChatId: 'branch-chat-1',
     })
-    // Deliberately no `ownsWorktree` and no `type` on the candidate chat — the
-    // direct `Workspace.owningChatId` field is the whole resolution.
     const chat = makeChat({ id: 'branch-chat-1', title: '', workspaceId: 'ws-locked' })
     const repo = makeRepo({
       defaultWorkspaceId: 'ws-home',
@@ -476,14 +441,9 @@ describe('resolves the owning chat without ever reading Chat.type', () => {
       workspaces: [],
       defaultWorkspaceId: 'ws-home',
       defaultBranch: 'main',
-      // No `defaultOwningChatId`, no `chats` at all — the daemon's chat-first
-      // create is racing this repo's own seed, a real (if narrow) window
-      // since the two ride separate streams.
     }
     expect(() => repoRows(repo)).not.toThrow()
     const home = repoRows(repo).find((r) => r.parentId === null)
-    // Degrades exactly like every other unresolved workspace-owning row:
-    // left as its own raw workspace id rather than dropped.
     expect(home?.id).toBe('ws-home')
     expect(home?.kind).toBe('branch')
   })

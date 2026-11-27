@@ -1,5 +1,3 @@
-//! The frame being painted with the colours it is painted in.
-
 use crate::terminal_view::paint::colors::Colors;
 use crate::terminal_view::paint::frame::Frame;
 

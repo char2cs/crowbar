@@ -11,8 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// A view holds the chat's writer while it runs, so no commit lands inside it,
-// and gives it back when it returns.
 func TestStore_ViewHoldsTheChatsWriter(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -28,8 +26,6 @@ func TestStore_ViewHoldsTheChatsWriter(t *testing.T) {
 	w.mu.Unlock()
 }
 
-// An import keeps no State: a boot converts every legacy chat through one store,
-// and a cached fold per chat would grow with the home.
 func TestStore_AnImportLeavesNoStateHeld(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)

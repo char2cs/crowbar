@@ -1,8 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct Span {
-    /// Left edge.
     pub x: f32,
-    /// Width.
     pub width: f32,
 }
 

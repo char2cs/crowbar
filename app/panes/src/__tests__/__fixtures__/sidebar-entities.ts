@@ -9,12 +9,10 @@ type EntityOf<K extends StoredKind> = EntityState['byKind'][K][string]['data']
 
 let v = 0
 
-/** No entity anywhere, and no scope synced. */
 export function resetEntities(): void {
   entityStore.setState(entityStore.getInitialState(), true)
 }
 
-/** Writes `hostId`'s rows as its projects scope's frames leave them, each at a newer version. */
 export function putEntities<K extends StoredKind>(
   kind: K,
   rows: readonly EntityOf<K>[],
@@ -29,7 +27,6 @@ export function putEntities<K extends StoredKind>(
   })
 }
 
-/** `hostId`'s projects scope's snapshot has landed. */
 export function markProjectsSynced(hostId = 'local'): void {
   const scope = hostScope(hostId, 'projects')
   entityStore.setState((s) => ({
@@ -143,7 +140,6 @@ function fromRepo(repo: Repo): {
 } {
   const projectId = repo.projectId ?? ''
   const workspaces = repo.workspaces.map((ws) => fromWorkspace(repo, ws))
-  // A repo whose tree names its default checkout as a row keeps that row.
   if (repo.defaultWorkspaceId && !workspaces.some((w) => w.id === repo.defaultWorkspaceId)) {
     workspaces.push(
       workspaceDTO({
@@ -158,7 +154,6 @@ function fromRepo(repo: Repo): {
       }),
     )
   }
-  // A chat that owns its worktree is its workspace's owning chat.
   for (const c of repo.chats ?? []) {
     const ws = workspaces.find((w) => w.id === c.workspaceId)
     if (c.ownsWorktree && ws && !ws.owningChatId) ws.owningChatId = c.id
@@ -187,8 +182,6 @@ function fromRepo(repo: Repo): {
 type Rows = { [K in StoredKind]?: (row: EntityOf<K>) => boolean }
 type Row = { id: string; hostId?: string }
 
-/** Drops the held rows `drop` names, then writes `rows` over the rest, in one write as
- *  a snapshot lands, and marks the projects scope synced. */
 function replaceEntities(drop: Rows, rows: { [K in StoredKind]?: readonly EntityOf<K>[] }): void {
   entityStore.setState((s) => {
     const byKind = { ...s.byKind }
@@ -200,7 +193,6 @@ function replaceEntities(drop: Rows, rows: { [K in StoredKind]?: readonly Entity
     }
     for (const kind of Object.keys(rows) as StoredKind[]) {
       const next = { ...byKind[kind] } as Record<string, { v: number; data: unknown }>
-      // A project row names its host; every other fixture row is the local daemon's.
       for (const row of (rows[kind] ?? []) as unknown as readonly Row[]) {
         const hostId = row.hostId ?? 'local'
         const data = kind === 'project' ? { ...row, hostId } : row
@@ -216,8 +208,6 @@ function replaceEntities(drop: Rows, rows: { [K in StoredKind]?: readonly Entity
   })
 }
 
-/** The repos the projects scope carries, in the shape the sidebar draws: replaces every
- *  repo and every row of one, and marks the snapshot landed. */
 export function seedRepos(repos: readonly Repo[]): void {
   const parts = repos.map(fromRepo)
   replaceEntities(
@@ -236,11 +226,9 @@ export function seedRepos(repos: readonly Repo[]): void {
   )
 }
 
-/** `projectId`'s home chats and folders, replacing what its home held. */
 export function seedHomeTree(projectId: string, tree: Partial<HomeTree>): void {
   const home = (row: { projectId: string; repoId: string }) =>
     row.projectId === projectId && !row.repoId
-  // A chat that owns its worktree is its home workspace's owning chat.
   const held = entityStore.getState().byKind.workspace
   const owned = (tree.chats ?? [])
     .filter((c) => c.ownsWorktree && c.workspaceId)
@@ -259,7 +247,6 @@ export function seedHomeTree(projectId: string, tree: Partial<HomeTree>): void {
   )
 }
 
-/** `projectId`'s home workspace as the projects scope carries it. */
 export function seedHome(projectId: string, wsId: string, over: Partial<WorkspaceDTO> = {}): void {
   replaceEntities(
     { workspace: (w) => w.projectId === projectId && !w.repoId },
@@ -267,7 +254,6 @@ export function seedHome(projectId: string, wsId: string, over: Partial<Workspac
   )
 }
 
-/** The project list, replacing the one held. */
 export function seedProjects(projects: readonly Project[]): void {
   replaceEntities({ project: () => true }, { project: projects })
 }

@@ -10,14 +10,12 @@ use crate::window_state::WindowState;
 use crate::window_store::adapters::disk_file::DiskFile;
 use crate::window_store::state_file::StateFile;
 
-/// The file the window state is kept in.
 #[derive(Debug, Clone)]
 pub struct WindowStore {
     file: Arc<dyn StateFile>,
 }
 
 impl WindowStore {
-    /// A store backed by `path`; the file is created on the first save.
     #[must_use]
     pub fn new(path: &Path) -> Self {
         Self::over(Arc::new(DiskFile::at(path)))
@@ -27,10 +25,6 @@ impl WindowStore {
         Self { file }
     }
 
-    /// The remembered state, `None` on a first run.
-    ///
-    /// # Errors
-    /// [`Error::Io`] when the file cannot be read, [`Error::Corrupt`] when it is not valid.
     pub fn load(&self) -> Result<Option<WindowState>, Error> {
         let text = self.file.read().map_err(|source| self.io(source))?;
         text.map(|text| self.parse(&text)).transpose()
@@ -52,10 +46,6 @@ impl WindowStore {
             .ok_or(Error::OutOfRange { path })
     }
 
-    /// Saves `state` atomically (write beside, then rename), creating the directory.
-    ///
-    /// # Errors
-    /// [`Error::Io`] when the file cannot be written.
     pub fn save(
         &self,
         state: &WindowState,

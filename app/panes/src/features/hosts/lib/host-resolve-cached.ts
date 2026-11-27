@@ -21,10 +21,6 @@ function cachedHost(wsId: string, chatId: string): string | null {
   return useHostConfigStore.getState().hosts.some((h) => h.id === hostId) ? hostId : null
 }
 
-/** The host a chat pane reads from: the one its workspace resolves to, else the one that held
- *  the chat last run while that host has not listed yet. Null while neither is known. The recall
- *  only reads: once that host lists, its rows are the answer and absence means gone, and every
- *  call that creates data keeps resolving through the daemons' lists. */
 export function useChatPaneHost(wsId: string, chatId: string): string | null {
   const resolved = useResolvedHost({ wsId })
   const subscribe = useCallback(
@@ -35,18 +31,14 @@ export function useChatPaneHost(wsId: string, chatId: string): string | null {
   return resolved ?? cached
 }
 
-/** True while the last run's placement still vouches for `chatId` (its host has not listed). */
 export function isChatRecalled(chatId: string): boolean {
   return cachedHost('', chatId) !== null
 }
 
-/** The host a chat's feed is read from: its resolved host, else the recalled one. A feed only
- *  reads (the stored copy, then the ledger), so the recall cannot misroute a write. */
 export function feedHostOf(chatId: string): string | null {
   return chatHostOf(chatId) ?? cachedHost('', chatId)
 }
 
-/** {@link feedHostOf}, re-rendering as the host lists change. */
 export function useFeedHost(chatId: string): string | null {
   const resolved = useChatHost(chatId)
   const subscribe = useCallback(

@@ -11,16 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// BrowseEntry is one child of a listed directory.
 type BrowseEntry struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
 	IsDir bool   `json:"isDir"`
 }
 
-// Browse serves GET /v0/system/browse?path=<absolute path, default home> for
-// the remote file picker. Not workspace-sandboxed: it is how a client picks
-// where to create one. Files are listed too; the client shows them inert.
 func Browse(c *gin.Context) {
 	path := c.Query("path")
 	if path == "" {
@@ -56,9 +52,6 @@ func Browse(c *gin.Context) {
 	for _, e := range dirEntries {
 		childPath := filepath.Join(path, e.Name())
 		isDir := e.IsDir()
-		// For symlinks, resolve the actual type instead of trusting IsDir().
-		// os.DirEntry.IsDir() returns false for symlinks even when they point
-		// to directories, so we need to stat the full path to get the truth.
 		if e.Type()&os.ModeSymlink != 0 {
 			if info, err := os.Stat(childPath); err == nil {
 				isDir = info.IsDir()

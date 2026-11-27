@@ -1,8 +1,3 @@
-//! Waiting for an operation a call started, as the host stream reports it.
-//!
-//! Spec: develop `web/src/core/entities/run-operation.ts` (`whenSettled`): no timeout, each
-//! outcome is a frame the daemon sends.
-
 use daemonapi::Call;
 
 use crate::live::Hub;

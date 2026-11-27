@@ -16,8 +16,6 @@ const itemSizeClassNames: Record<SegmentedControlSize, string> = {
 
 const SegmentedControlContext = React.createContext<SegmentedControlSize>('default')
 
-/** CossUI Segmented Control. The raised pill slides via Base UI's own Tabs
- *  indicator, so the root must be rendered as a Base UI `Tabs.List`. */
 export function SegmentedControl({
   className,
   children,

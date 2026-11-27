@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The stub paints a trust prompt and blocks until it reads a line, then clears
-// the screen the way a real CLI repaints once its modal is dismissed.
 const trustStubProviderDescriptorYAML = `id: truststub
 spawn:
   cmd: "sh"
@@ -48,10 +46,6 @@ func readTerminalWait(t *testing.T, h *harness, imported importedRepo, chatID st
 	return d
 }
 
-// TestRegression_TerminalPromptIsAnswerableFromTheChat proves a provider blocked
-// on its trust modal can be unblocked without opening the terminal: the descriptor's
-// answer is offered on the chat, posting it writes its keys to the PTY, and the
-// detector clears the wait once the screen no longer shows the prompt.
 func TestRegression_TerminalPromptIsAnswerableFromTheChat(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "truststub", trustStubProviderDescriptorYAML)
@@ -64,7 +58,6 @@ func TestRegression_TerminalPromptIsAnswerableFromTheChat(t *testing.T) {
 		map[string]string{"provider": "truststub", "workspaceId": imported.workspaceID},
 		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
-	// The modal shows once the CLI runs, which a new chat's start (or first prompt) does.
 	startChat(t, h, repoBase(imported), created.ID)
 	answerURL := repoBase(imported) + "/chats/" + created.ID + "/terminal-wait/answer"
 

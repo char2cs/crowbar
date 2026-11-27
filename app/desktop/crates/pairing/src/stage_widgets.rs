@@ -1,5 +1,3 @@
-//! The widgets the stages of the dialog are built from.
-
 use gpui::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity, IntoElement, ParentElement,
     SharedString, Styled, Window, div,

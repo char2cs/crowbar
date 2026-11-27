@@ -1,5 +1,3 @@
-//! Plans that change or remove something that exists.
-
 use daemonapi::Call;
 use serde_json::{Value, json};
 use sidebar::ProjectId;

@@ -1,5 +1,3 @@
-//! The Hosts page.
-
 use crate::schema::Action;
 use crate::schema::ButtonSpec;
 use crate::schema::Heading;

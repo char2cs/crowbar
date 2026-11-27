@@ -16,14 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
-// The LSP path contract has two halves and the engine owns both. Requests
-// arrive from the frontend with WORKSPACE-RELATIVE paths (the same format the
-// files API and the editor's buffers use) and must reach the language server as
-// ABSOLUTE file URIs rooted at the worktree, matching the URIs didOpen already
-// publishes. Results travel the opposite way: a server answers with absolute
-// file URIs and the frontend can only act on workspace-relative paths, so the
-// engine relativizes them back before the API layer serializes them.
-
 const relGoF = "pkg/util.go"
 
 func requestParams(
@@ -310,10 +302,6 @@ func TestAbsFilePath(t *testing.T) {
 	assert.Equal(t, "/already/abs.go", absFilePath("/tree", "/already/abs.go"))
 }
 
-// TestEngine_FeatureRequestsAreRefNeutral proves a feature request with NO open
-// document is net-zero: each request spawns the server, serves, and tears it
-// down. Before the fix the refcount grew by one per request and the server was
-// never closed.
 func TestEngine_FeatureRequestsAreRefNeutral(t *testing.T) {
 	fake := newFakeServer(json.RawMessage(`{"items":[]}`))
 	e, sc := buildCountingEngine(t, fake)
@@ -325,8 +313,6 @@ func TestEngine_FeatureRequestsAreRefNeutral(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// No open doc: each request must balance — spawn then teardown — so the
-	// counts grow together and the pool never retains a leaked ref.
 	assert.Equal(t, n, sc.count(), "each request spawns a fresh warm server")
 	assert.Equal(t, n, fake.closeCount(), "each request tears the server down again")
 }

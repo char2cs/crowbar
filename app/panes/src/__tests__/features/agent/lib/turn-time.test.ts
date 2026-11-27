@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { turnTimestampLabel, turnTimeTitle } from '@/features/agent/lib/turn-time'
 
-/** Mirrors `turnTimeLabel`'s own absolute formatting, so assertions hold in
- *  whatever timezone the test runner is actually in — never a hardcoded hour
- *  that would only be true in one specific one. */
 function expectedAbsolute(at: string): string {
   const then = new Date(Date.parse(at))
   const sameYear = then.getFullYear() === new Date().getFullYear()
@@ -38,8 +35,6 @@ describe('turnTimeTitle', () => {
   })
 })
 
-// A transcript labels every row on each mount; resolving the locale per call is
-// what made a chat switch pay for it per row.
 describe('turn time formatting cost', () => {
   it('formats rows without resolving the locale on each call', () => {
     const spies = (['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString'] as const).map(

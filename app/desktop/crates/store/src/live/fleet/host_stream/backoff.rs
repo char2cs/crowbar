@@ -1,5 +1,3 @@
-//! How long a stream waits before it dials again.
-
 use std::time::Duration;
 
 const FIRST: Duration = Duration::from_secs(1);

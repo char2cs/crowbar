@@ -195,7 +195,6 @@ describe('WSManager', () => {
   })
 
   describe('opened', () => {
-    /** A subscription whose socket is still connecting. */
     function connecting(mgr: ReturnType<typeof createWSManager>, endpoint = '/v0/chats/c1/ws') {
       const unsubscribe = mgr.subscribe(endpoint, vi.fn())
       const socket = MockWebSocket.instances.at(-1)!

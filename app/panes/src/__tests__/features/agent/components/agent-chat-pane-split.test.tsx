@@ -1,5 +1,3 @@
-// Split is a diagnostic that sets the chat beside the CLI's own TUI. With its switch
-// off the pane must stay what it always was: two surfaces, one live, one dormant.
 import { createElement, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,11 +17,6 @@ vi.spyOn(commandsApi, 'submitAgentPrompt').mockImplementation(vi.fn())
 const switchToTerminal = vi.spyOn(commandsApi, 'switchToTerminal').mockResolvedValue('pty-1')
 vi.spyOn(commandsApi, 'switchToNative').mockResolvedValue()
 
-// Both surfaces are stubbed to the ONE thing this file is about: the liveness
-// each of them is told it has, plus something real to put the caret in. The chat
-// view in particular is stubbed rather than rendered for real because `active`
-// is exactly the prop under test — a stub reports it, a real transcript only
-// implies it.
 const handed = vi.hoisted(() => new Set<unknown>())
 vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   const { ViewSwitch } = await import('@/features/agent/controls/view-switch')
@@ -54,9 +47,7 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
           'data-visible': String(visible),
         },
         createElement('textarea', { 'data-testid': 'composer' }),
-        // Every seeded chat is blank, so the pane's wait banner renders inside the view.
         blankSignpost,
-        // The real switcher: it is a pane control, and this file is its contract.
         presentation === 'terminal'
           ? null
           : createElement(ViewSwitch, {
@@ -107,9 +98,6 @@ import {
 } from '@/__tests__/__fixtures__/agent-chat'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
-// Both real descriptors declare hotswap:true — see
-// TestShippedDescriptors_DeclareHotswapTrue on the backend — which is what
-// offers split at all; this suite is about split's OWN behaviour, not the gate.
 const providers: AgentProvider[] = [provider('claude', 'Claude')]
 
 function liveChat(): AgentChat {
@@ -137,7 +125,6 @@ function seed() {
 
 type Store = ReturnType<typeof seed>
 
-/** Turn the Developer tab's switch on or off, the way the settings row does. */
 function setSplitEnabled(enabled: boolean) {
   useSettingsStore.setState({
     settings: { ...useSettingsStore.getState().settings, chatSplitPresentationEnabled: enabled },
@@ -163,12 +150,8 @@ async function renderPane(store: Store, opts?: { isActivePane?: boolean; isVisib
   await act(async () => render(pane(store, opts)))
 }
 
-/** A string `name` is matched against the WHOLE accessible name, which is what
- *  keeps 'Terminal' off the wait banner's own 'Open Terminal' button. */
 const surface = (name: 'Chat' | 'Terminal' | 'Split') => screen.getByRole('tab', { name })
 
-/** Which surface the switcher says is showing. Read off aria-pressed rather than
- *  a class, because the class is exactly the thing under test. */
 function showing(): 'chat' | 'terminal' | 'split' {
   if (screen.queryByRole('tab', { name: 'Split' })?.getAttribute('aria-selected') === 'true') {
     return 'split'
@@ -187,9 +170,6 @@ async function choose(name: 'Chat' | 'Terminal' | 'Split') {
   })
 }
 
-/** Real DOM focus, not a synthetic `focus` event: jsdom's own focus() fires the
- *  bubbling `focusin` React actually listens to, which is the whole mechanism
- *  the split's keyboard ownership rides on. */
 async function focusInto(testId: string) {
   await act(async () => {
     screen.getByTestId<HTMLTextAreaElement>(testId).focus()
@@ -199,7 +179,6 @@ async function focusInto(testId: string) {
 beforeEach(() => {
   resetChatStore()
   useTerminalStore.setState({ sessions: new Map() })
-  // These cases are about the Chat surface, so they land on it.
   useSettingsStore.setState({
     settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: true },
   })
@@ -224,11 +203,9 @@ describe('AgentChatPane — with the split view switched off', () => {
     expect(surface('Chat')).toBeInTheDocument()
     expect(surface('Terminal')).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Split' })).not.toBeInTheDocument()
-    // The divider belongs to the split and to nothing else.
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   })
 
-  // The invariant that matters most: one surface live, the other dormant.
   it('keeps exactly one surface live, whichever one is in front', async () => {
     await renderPane(seed())
 
@@ -285,9 +262,6 @@ describe('AgentChatPane — the split view', () => {
     expect(terminalHalf()).not.toHaveClass('hidden')
   })
 
-  // The point of the instrument: NEITHER surface is resting. A split where one
-  // half is dormant would show a stale TUI beside a live chat and invent
-  // discrepancies rather than reveal them.
   it('runs both surfaces at once', async () => {
     await renderPane(seed())
     await choose('Split')
@@ -326,8 +300,6 @@ describe('AgentChatPane — a split nobody is looking at', () => {
     setSplitEnabled(true)
   })
 
-  // isActive is what makes xterm seize the caret, with retries. A pane without
-  // focus must never do that, split or not.
   it('does not take the keyboard when its pane has no focus', async () => {
     await renderPane(seed(), { isActivePane: false })
     await choose('Split')
@@ -336,8 +308,6 @@ describe('AgentChatPane — a split nobody is looking at', () => {
     expect(xterm()).toHaveAttribute('data-active', 'false')
   })
 
-  // A hidden tab is still MOUNTED, for keep-alive. Nothing structural stops it
-  // rendering, so the props have to.
   it('goes dormant with the tab that holds it', async () => {
     const store = seed()
     const view = await act(async () => render(pane(store)))
@@ -351,7 +321,6 @@ describe('AgentChatPane — a split nobody is looking at', () => {
   })
 })
 
-// A fresh handler per pane render is a fresh row action for every transcript row.
 describe('AgentChatPane — what it hands the chat view', () => {
   it('hands the same terminal and surface handlers across its renders', async () => {
     const store = seed()
@@ -368,9 +337,6 @@ describe('AgentChatPane — who owns the keyboard in a split', () => {
     setSplitEnabled(true)
   })
 
-  // Two live surfaces means two things that can eat a keystroke. The composer
-  // wins by default: typing a prompt into a TUI by accident is the worse of the
-  // two mistakes, and it is silent.
   it('gives the chat the keyboard by default', async () => {
     await renderPane(seed())
     await choose('Split')
@@ -395,7 +361,6 @@ describe('AgentChatPane — who owns the keyboard in a split', () => {
     expect(xterm()).toHaveAttribute('data-active', 'false')
   })
 
-  // Arriving from the terminal, the user was mid-sentence at the CLI.
   it('arrives with the caret where the user just was', async () => {
     await renderPane(seed())
     await choose('Terminal')
@@ -417,9 +382,6 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     })
   }
 
-  // An escort exists only because the terminal is SOMEWHERE ELSE. In a split it
-  // is on screen already, so moving anybody would mean taking away the chat half
-  // they are deliberately watching.
   it('does not collapse the split when the CLI blocks on a prompt', async () => {
     await renderPane(seed())
     await choose('Split')
@@ -430,8 +392,6 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     expect(screen.getByTestId('agent-terminal-wait')).toBeInTheDocument()
   })
 
-  // And having moved nobody, it owes nobody a way back: the "return to chat"
-  // offer over a surface with the chat already on it would be nonsense.
   it('offers no way back once the prompt clears, because it took nobody anywhere', async () => {
     await renderPane(seed())
     await choose('Split')
@@ -443,8 +403,6 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
     expect(screen.queryByRole('button', { name: /return to chat/i })).not.toBeInTheDocument()
   })
 
-  // The banner's button still has to do SOMETHING useful. There is nowhere to
-  // send anybody, so it sends the caret.
   it('points the banner’s button at the terminal’s caret instead', async () => {
     await renderPane(seed())
     await choose('Split')
@@ -459,13 +417,11 @@ describe('AgentChatPane — the escort has nothing to do in a split', () => {
   })
 })
 
-// A reload empties the pane's memory: a hot-swap chat lands where the daemon
-// recorded it was last shown, even when that record arrives after the mount.
 describe('AgentChatPane — a hot-swap chat after a reload', () => {
   it('lands on the recorded surface over the default, and records the next pick', async () => {
     useSettingsStore.setState({
       settings: { ...getDefaultSettingsSnapshot(), chatIsDefaultPresentation: false },
-    }) // lands on the terminal
+    })
     chatStore.setState({ presentations: {} })
     const store = seed()
     await renderPane(store)

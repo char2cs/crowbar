@@ -1,5 +1,3 @@
-//! What a terminal session logs when it fails or loses its stream.
-
 use std::fmt;
 
 use journal::Level;

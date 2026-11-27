@@ -1,5 +1,3 @@
-//! Pops a menu as the desktop's own and applies the chosen entry.
-
 use gpui::{Context, Pixels, Point, Window};
 use sidebar::Intent;
 use ui::{MenuEdge, NativeEntry, NativeMenu, NativeRequest};

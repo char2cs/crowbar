@@ -19,8 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// newProjected builds a real asynx over throwaway DBs with the store projection
-// as its durable subscriber and the hub projection live, the production shape.
 func newProjected(
 	t *testing.T,
 ) (context.Context, asynx.Asynx[domain.Chat], storage, *captureHub) {
@@ -54,7 +52,6 @@ func buildOver(
 	return context.Background(), ax, h
 }
 
-// failFirstSave fails the first Save, then signals every Save that succeeds.
 type failFirstSave struct {
 	storage
 	failed atomic.Bool
@@ -123,7 +120,6 @@ func TestChatProjection_ASaveFailureIsRetriedNotDropped(t *testing.T) {
 	assert.Equal(t, "w1", row.WorkspaceID)
 }
 
-// Upstream can redeliver a Forget marker at startup; the second one finds no row.
 func TestChatProjection_AForgetDeliveredTwiceIsANoOp(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -148,7 +144,6 @@ func TestChatProjection_AStorageFailureIsReturned(t *testing.T) {
 	assert.Error(t, p.handle(ctx, asynxModels.Event[domain.Chat]{AggregateID: "c1", EventName: asynxModels.ForgetEventName}))
 }
 
-// fakeAxFailsHubSubscribe fails the hub projection's Subscribe.
 type fakeAxFailsHubSubscribe struct {
 	asynx.Asynx[domain.Chat]
 }
@@ -171,7 +166,6 @@ func TestNew_HubProjectionError(t *testing.T) {
 	assert.Contains(t, err.Error(), "agentchat store: projections")
 }
 
-// fakeAx is a minimal asynx stub that fails Subscribe / OnForget on demand.
 type fakeAx struct {
 	asynx.Asynx[domain.Chat]
 	subscribeErr error

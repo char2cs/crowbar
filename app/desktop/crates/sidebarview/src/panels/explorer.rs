@@ -1,5 +1,3 @@
-//! The Files panel.
-
 mod copy_flash;
 mod file_dialog_view;
 mod file_drag;
@@ -44,7 +42,6 @@ use crate::sidebar::Sidebar;
 
 const ROOT_STRIP: f32 = 48.0;
 const NO_MATCH: &str = "No matching files";
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/styles/file-explorer-tree.css
 const STACK_RULE_ALPHA: f32 = 0.406;
 
 fn empty_message(phase: FolderPhase) -> &'static str {
@@ -81,8 +78,6 @@ impl Sidebar {
         }
     }
 
-    /// Names the file of the focused pane's active editor tab, or `None` without one: the
-    /// tree's keyboard cursor moves there when it changes.
     pub fn set_active_file(
         &mut self,
         path: Option<String>,
@@ -158,7 +153,6 @@ impl Sidebar {
         }
     }
 
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-sticky-ancestors.tsx
     fn sticky_stack(
         &self,
         context: &FilesContext,
@@ -188,7 +182,6 @@ impl Sidebar {
         )
     }
 
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-tree-container-events.ts
     fn root_strip(
         root_menu: Vec<ui::MenuItem>,
         cx: &mut Context<'_, Self>,

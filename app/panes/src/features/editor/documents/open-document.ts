@@ -31,15 +31,11 @@ type HostRef = Extract<DocumentRef, { authority: 'host' }>
 
 export interface OpenDocumentOptions {
   preview?: boolean
-  /** The pane a tab lands in, unless a pane of its view holds it; omitted, the focused one. */
   paneId?: string
-  /** Called with the buffer about to be shown, before anything observes it shown. */
   beforeShow?: (bufferId: string) => void
-  /** Told why a read was refused, in place of the error toast; the caller says it instead. */
   onRefused?: (reason: DocumentUnavailable) => void
 }
 
-/** The open editor buffer holding `ref`, if any. */
 export function findDocumentBuffer(ref: DocumentRef): EditorContent | null {
   const found = windowPaneStore
     .getState()
@@ -47,13 +43,11 @@ export function findDocumentBuffer(ref: DocumentRef): EditorContent | null {
   return found && isEditorContent(found) ? found : null
 }
 
-/** The view, stage or bottom tray `paneId` lives in, as one comparable key. */
 function viewKeyOf(paneId: string): string | null {
   const home = homeOf(windowPaneStore.getState(), paneId)
   return home && (home.kind === 'view' ? `view:${home.viewId}` : home.kind)
 }
 
-// A holder in another view is off screen: the target pane gets its own tab.
 function show(buffer: EditorContent, { paneId, beforeShow }: OpenDocumentOptions): string {
   beforeShow?.(buffer.id)
   const { panes, paneActions, activePaneId } = windowPaneStore.getState()
@@ -77,7 +71,6 @@ function targetLabel(target: DocumentTarget): { path: string; name: string } {
   return { path, name: name.replace(/^untitled:/, '') }
 }
 
-/** Why the daemon refuses this client a document; null for any other failure. */
 export function documentRefusal(error: unknown): { title: string; message: string } | null {
   if (!(error instanceof ApiError) || error.status !== 403) return null
   if (error.problem.code === HOST_DOCUMENT_TRANSPORT_CODE) {
@@ -92,7 +85,6 @@ export function documentRefusal(error: unknown): { title: string; message: strin
   return null
 }
 
-/** Why reading `target` failed, as the user is told. */
 export function openFailure(target: DocumentTarget, error: unknown): DocumentUnavailable {
   const { path, name } = targetLabel(target)
   const refusal = documentRefusal(error)
@@ -119,9 +111,6 @@ function sayRefused(reason: DocumentUnavailable, onRefused: OpenDocumentOptions[
   toast.error(reason.title, reason.message)
 }
 
-/** Why a host document whose watch the daemon refused opens nowhere: what a read hit, the OS out
- *  of file watches, its path now spelled otherwise (only the canonical spelling is watched), or
- *  else a failure to open. */
 export function watchRefusal(
   ref: DocumentRef,
   read: { ref: DocumentRef } | { error: unknown },
@@ -135,7 +124,6 @@ export function watchRefusal(
   return openFailure(ref, null)
 }
 
-/** The tab holding `ref`, untitled or not, says why its document could not be loaded; null clears it. */
 export function setDocumentUnavailable(ref: DocumentRef, reason: DocumentUnavailable | null): void {
   const holder = windowPaneStore
     .getState()
@@ -151,21 +139,17 @@ export function setDocumentUnavailable(ref: DocumentRef, reason: DocumentUnavail
   }))
 }
 
-/** A tab whose document failed to load and has no model: opening it again reads it again. */
 export function awaitsRetry(buffer: EditorContent): boolean {
   return !!buffer.unavailable && !getEditorHost()?.documents.has(documentUri(documentRefOf(buffer)))
 }
 
-/** Reads a tab's document again, as the boot restore would; answers whether it opened. */
 export async function retryLoad(buffer: EditorContent): Promise<boolean> {
-  // Lazy: the restore builds on this module.
   const { retryDocument } = await import('./restore-documents')
   const reason = await retryDocument(buffer)
   if (reason) toast.error(reason.title, reason.message)
   return !reason
 }
 
-/** Shows an open tab; one whose document failed to load reads it again, one left unwatched follows again. */
 async function showAndRetry(
   buffer: EditorContent,
   opts: OpenDocumentOptions,
@@ -173,17 +157,14 @@ async function showAndRetry(
   const id = show(buffer, opts)
   if (awaitsRetry(buffer)) return (await retryLoad(buffer)) ? id : null
   if (buffer.authority === 'host') {
-    // Lazy: the external-change path builds on this module.
     const { refollowHostDocument } = await import('@/features/workspace/lib/external-buffer-sync')
     await refollowHostDocument(buffer)
   }
   return id
 }
 
-/** Opens a document's model holding `text`; it is dirty while disk holds other `savedText`. */
 export type OpenDocumentModel = (ref: DocumentRef, text: string, savedText?: string) => void
 
-/** Resolves once Monaco has loaded, with the way to open document models synchronously. */
 export async function documentModelOpener(): Promise<OpenDocumentModel> {
   const host = await loadEditorHost()
   return (ref, text, savedText = text) => {
@@ -197,7 +178,6 @@ interface Loaded {
   openModel: OpenDocumentModel
 }
 
-/** Reads `target` with Monaco ready to take it; a failed read is reported and answers null. */
 async function load(
   target: DocumentTarget,
   onRefused: OpenDocumentOptions['onRefused'],
@@ -211,7 +191,6 @@ async function load(
   }
 }
 
-/** Opens what was read in a new tab; null when no tab takes it, and then its model goes. */
 function openLoaded({ read, openModel }: Loaded, opts: OpenDocumentOptions): string | null {
   openModel(read.ref, read.text)
   const id = windowPaneStore
@@ -228,10 +207,7 @@ function openLoaded({ read, openModel }: Loaded, opts: OpenDocumentOptions): str
   return id
 }
 
-/** A host document is read only once the daemon armed its watch, so no change between is missed,
- *  and never opens unwatched: a refused watch opens nothing. */
 async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promise<string | null> {
-  // Lazy: the external-change path builds on this module.
   const { followHostDocument } = await import('@/features/workspace/lib/external-buffer-sync')
   let unwatch: () => void
   try {
@@ -242,7 +218,6 @@ async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promis
     return null
   }
   const loaded = await load(ref, opts.onRefused)
-  // A concurrent open of the same document may have landed, holding its own watch.
   const landed = loaded && findDocumentBuffer(loaded.read.ref)
   if (!loaded || landed) {
     unwatch()
@@ -253,8 +228,6 @@ async function openHostDocument(ref: HostRef, opts: OpenDocumentOptions): Promis
   return id
 }
 
-/** Open a document in an editor tab and answer its buffer id: an open buffer is shown, anything
- *  else is read first. A failed read is reported and answers null. */
 export async function openDocument(
   target: DocumentTarget,
   opts: OpenDocumentOptions = {},
@@ -266,15 +239,12 @@ export async function openDocument(
   }
   const loaded = await load(target, opts.onRefused)
   if (!loaded) return null
-  // A concurrent open of the same document, or another spelling of it, may have landed.
   const landed = findDocumentBuffer(loaded.read.ref)
   if (landed) return showAndRetry(landed, opts)
-  // The read only resolved a path to its host document, which is read again once watched.
   if (loaded.read.ref.authority === 'host') return openHostDocument(loaded.read.ref, opts)
   return openLoaded(loaded, opts)
 }
 
-/** Open each absolute path into `paneId`, one after another, in the order given. */
 export async function openDocumentsAtPaths(
   paths: readonly string[],
   paneId: string,
@@ -285,14 +255,12 @@ export async function openDocumentsAtPaths(
   }
 }
 
-/** The desktop Open File… dialog: every picked file opens into `paneId`. */
 export async function openDocumentFromDialog(paneId: string): Promise<void> {
   if (!isTauri()) return
   const picked = await openNativeDialog({ multiple: true, directory: false })
   if (picked) await openDocumentsAtPaths(picked, paneId)
 }
 
-/** An untitled path no open buffer holds: each untitled tab is its own document. */
 function freeUntitledRef(workspaceId: string): DocumentRef {
   const taken = new Set(windowPaneStore.getState().buffers.map((b) => b.path))
   let n = 1
@@ -300,7 +268,6 @@ function freeUntitledRef(workspaceId: string): DocumentRef {
   return workspaceRef(workspaceId, `untitled:Untitled-${n}`)
 }
 
-/** A new, unsaved document in `workspaceId`, opened into `paneId` (over `replaceTabId` if given). */
 export async function openUntitledDocument(
   workspaceId: string,
   paneId: string,

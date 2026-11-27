@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 class MockWebSocket {
-  // vi.stubGlobal replaces the real WebSocket, so the mock must carry the
-  // standard readyState constants — production code compares against them.
   static CONNECTING = 0
   static OPEN = 1
   static CLOSING = 2
@@ -51,7 +49,7 @@ describe('connection store', () => {
     const mgr = createWSManager(hostPorts)
     expect(status()).toBe('idle')
     mgr.subscribe('/v0/ws/git', vi.fn())
-    expect(status()).toBe('idle') // connecting, not yet reported
+    expect(status()).toBe('idle')
     MockWebSocket.instances[0].simulateOpen()
     expect(status()).toBe('connected')
   })
@@ -65,10 +63,10 @@ describe('connection store', () => {
     expect(status()).toBe('connected')
 
     MockWebSocket.instances[0].simulateClose()
-    expect(status()).toBe('connected') // one channel still alive
+    expect(status()).toBe('connected')
 
     MockWebSocket.instances[1].simulateClose()
-    expect(status()).toBe('disconnected') // backend gone
+    expect(status()).toBe('disconnected')
   })
 
   it('returns to connected after a successful reconnect', () => {
@@ -82,7 +80,7 @@ describe('connection store', () => {
 
       vi.advanceTimersByTime(1000)
       expect(MockWebSocket.instances).toHaveLength(2)
-      expect(status()).toBe('disconnected') // still connecting
+      expect(status()).toBe('disconnected')
       MockWebSocket.instances[1].simulateOpen()
       expect(status()).toBe('connected')
     } finally {
@@ -108,7 +106,6 @@ describe('connection store', () => {
       vi.advanceTimersByTime(1000)
       MockWebSocket.instances[1].simulateOpen()
       expect(status()).toBe('connected')
-      // Late close event from the replaced socket must be ignored.
       MockWebSocket.instances[0].simulateClose()
       expect(status()).toBe('connected')
     } finally {
@@ -157,7 +154,7 @@ describe('connection store', () => {
       const mgr = createWSManager(hostPorts)
       mgr.subscribe('/v0/ws/git', vi.fn())
       MockWebSocket.instances[0].simulateOpen()
-      expect(reconnects()).toBe(0) // the first connect is not a reconnect
+      expect(reconnects()).toBe(0)
 
       MockWebSocket.instances[0].simulateClose()
       vi.advanceTimersByTime(1000)
@@ -190,15 +187,13 @@ describe('connection store', () => {
       vi.advanceTimersByTime(1000)
       MockWebSocket.instances[2].simulateOpen()
       expect(degraded()).toBe(false)
-      expect(reconnects()).toBe(0) // the backend was never lost
+      expect(reconnects()).toBe(0)
     } finally {
       vi.useRealTimers()
     }
   })
 })
 
-// Whether a remote host's live streams are open: not whether the host is up (its status
-// says that), but whether what the app shows of it is being kept current.
 describe('live streams per remote host', () => {
   const remoteStatus = (hostId: string) => useConnectionStore.getState().hostStreams[hostId]
 

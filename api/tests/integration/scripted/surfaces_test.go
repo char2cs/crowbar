@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// codex on the terminal surface is its TUI in a PTY, reporting over hooks:
-// it boots past every modal (trust, resume cwd are pre-answered), announces
-// its session on the first turn, and the next message resumes it.
 func TestScripted_CodexTerminalSurfaceBootsAndResumes(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -43,8 +40,6 @@ func TestScripted_CodexTerminalSurfaceBootsAndResumes(t *testing.T) {
 	assert.Empty(t, r.logged("refused"))
 }
 
-// "Open in terminal" hands a native codex chat to its TUI and back: one
-// channel at a time, the same thread throughout.
 func TestScripted_CodexOpenInTerminalAndBack(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -74,8 +69,6 @@ func TestScripted_CodexOpenInTerminalAndBack(t *testing.T) {
 	assert.NotEqual(t, domain.AgentExitResumeFailed, r.exitReason(chatID))
 }
 
-// Stopping a chat whose native view is open ends the view and the runner,
-// within a bound, and the chat takes the next message.
 func TestScripted_CodexStopWhileInTerminal(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -96,8 +89,6 @@ func TestScripted_CodexStopWhileInTerminal(t *testing.T) {
 	r.continues(chatID, "after stopping the terminal")
 }
 
-// Opening codex's TUI before any turn completed starts it fresh — there is
-// no rollout to resume — and the conversation carries on there and back.
 func TestScripted_CodexOpenInTerminalBeforeAnyTurn(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -121,8 +112,6 @@ func TestScripted_CodexOpenInTerminalBeforeAnyTurn(t *testing.T) {
 	assert.Empty(t, r.logged("refused"))
 }
 
-// A claude chat switched to codex opens codex's TUI on Crowbar's transcript,
-// and switching back to claude there resumes claude's own session.
 func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -147,7 +136,6 @@ func TestScripted_SwitchProviderThenOpenTheTerminal(t *testing.T) {
 	assert.Equal(t, domain.SurfaceTerminal, r.snapshot(chatID).Chat.Surface)
 }
 
-// A codex chat born in its TUI moves to Crowbar's chat on the same session.
 func TestScripted_CodexTerminalChatMovesToTheChat(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -166,8 +154,6 @@ func TestScripted_CodexTerminalChatMovesToTheChat(t *testing.T) {
 	assert.Equal(t, tuiSession, r.lastPrompt()["session"])
 }
 
-// A dormant chat moves surface without starting anything; its next message
-// starts it there.
 func TestScripted_ADormantChatStartsOnTheSurfaceItMovedTo(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -191,7 +177,6 @@ func TestScripted_ADormantChatStartsOnTheSurfaceItMovedTo(t *testing.T) {
 	assert.Equal(t, thread, r.lastPrompt()["session"])
 }
 
-// claude's one process serves both surfaces: moving between them starts nothing.
 func TestScripted_ClaudeMovesSurfacesOnItsOwnProcess(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -214,7 +199,6 @@ func TestScripted_ClaudeMovesSurfacesOnItsOwnProcess(t *testing.T) {
 	assert.Len(t, r.logged("start"), starts)
 }
 
-// codexTUIStarts is every launch of codex's TUI (not its app-server).
 func (r *rig) codexTUIStarts() []logEntry {
 	var out []logEntry
 	for _, e := range r.logged("start") {
@@ -232,7 +216,6 @@ func (r *rig) lastPrompt() logEntry {
 	return prompts[len(prompts)-1]
 }
 
-// called reports whether the app-server was sent method for thread.
 func (r *rig) called(method string, thread any) bool {
 	return slices.ContainsFunc(r.logged("rpc"), func(e logEntry) bool {
 		return e["method"] == method && e["thread"] == thread

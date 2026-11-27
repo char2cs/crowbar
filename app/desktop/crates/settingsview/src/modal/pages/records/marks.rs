@@ -1,5 +1,3 @@
-//! The small marks of a record row: its grip, its artwork and its status dot.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{ParentElement, Styled, div, px};
 use ui::{Icon, IconName, Palette, ProviderGlyph};

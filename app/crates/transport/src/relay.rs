@@ -29,18 +29,11 @@ use crate::relay::state::adapters::tokio_clock::tokio_now;
 use crate::transport::StreamAccess;
 use crate::transport::Transport;
 
-/// The loopback WebSocket relay: listens on `127.0.0.1` on a random port, checks each pane's
-/// token, `Host` and `Origin` before dialling the daemon, then bridges frames unchanged so
-/// binary stays binary. Dropping it closes every stream.
 pub struct Relay {
     state: Arc<State>,
 }
 
 impl Relay {
-    /// Binds the relay and starts serving.
-    ///
-    /// # Errors
-    /// [`Error::Bind`] when no loopback port can be bound.
     pub async fn start(
         transport: Arc<Transport>,
         policy: Arc<dyn OriginPolicy>,
@@ -52,12 +45,6 @@ impl Relay {
         Self::start_on(listener, transport, policy, config)
     }
 
-    /// Starts serving connections from `acceptor`, which panes reach at `127.0.0.1` on its
-    /// [`Acceptor::local_port`]. [`Relay::start`] is this over a loopback TCP listener; tests
-    /// pass an in-memory acceptor.
-    ///
-    /// # Errors
-    /// [`Error::Bind`] when the acceptor does not know its port.
     pub fn start_on(
         acceptor: impl Acceptor,
         transport: Arc<Transport>,
@@ -81,13 +68,11 @@ impl Relay {
         Ok(Self { state })
     }
 
-    /// The address the relay listens on.
     #[must_use]
     pub fn addr(&self) -> SocketAddr {
         SocketAddr::from((Ipv4Addr::LOCALHOST, self.state.port))
     }
 
-    /// Stops accepting and closes every open stream.
     pub fn shutdown(&self) {
         self.state.shutdown.cancel();
     }
@@ -169,7 +154,6 @@ mod tests {
 
     const PORT: u16 = 4242;
 
-    /// An acceptor nobody dials: the unit tests drive the relay's state directly.
     struct Idle {
         port: u16,
         incoming: tokio::sync::mpsc::Receiver<tokio::io::DuplexStream>,

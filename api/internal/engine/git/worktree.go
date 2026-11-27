@@ -12,10 +12,7 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// worktrees is the worktree surface of Engine: adding, listing, moving and removing
-// checkouts, and counting what a removal would lose.
 type worktrees interface {
-	// WorktreeAdd adds a git worktree for branch at path (04 write ops / 07).
 	WorktreeAdd(
 		ctx context.Context,
 		repoPath string,
@@ -23,8 +20,6 @@ type worktrees interface {
 		branch string,
 	) error
 
-	// WorktreeRemove removes a git worktree. Without force git refuses a dirty worktree, the only safe way
-	// to remove one whose work is not Crowbar's to throw away.
 	WorktreeRemove(
 		ctx context.Context,
 		repoPath string,
@@ -32,32 +27,22 @@ type worktrees interface {
 		force bool,
 	) error
 
-	// WorktreeRepair repoints the repo's admin files at a worktree already moved on disk, so git follows
-	// a branch rename that relocated the workspace root.
 	WorktreeRepair(
 		ctx context.Context,
 		repoPath string,
 		worktreePath string,
 	) error
 
-	// WorktreePrune reaps worktree registrations whose on-disk directory is gone
-	// (`git worktree prune`). Used by the startup recovery sweep to clean up
-	// orphaned worktrees left behind by a crash mid-teardown (H19).
 	WorktreePrune(
 		ctx context.Context,
 		repoPath string,
 	) error
 
-	// UncommittedFiles counts the paths git status reports in the worktree at
-	// worktreePath — staged, unstaged and untracked, never ignored: exactly what
-	// `git worktree remove --force` would throw away.
 	UncommittedFiles(
 		ctx context.Context,
 		worktreePath string,
 	) (int, error)
 
-	// UnmergedCommits counts commits from tips that nothing but dropBranch reaches (no other branch,
-	// remote branch or tag): what is lost once dropBranch and its worktree go. Missing tips are ignored.
 	UnmergedCommits(
 		ctx context.Context,
 		dir string,
@@ -65,31 +50,22 @@ type worktrees interface {
 		dropBranch string,
 	) (int, error)
 
-	// WorktreeList lists all git worktrees in a repo (04 / 07).
 	WorktreeList(
 		ctx context.Context,
 		repoPath string,
 	) ([]WorktreeEntry, error)
 
-	// DetachWorktree detaches HEAD of the worktree at worktreePath (keeping its
-	// files), freeing the branch it had checked out so another worktree can take
-	// it (07 — managed-worktree import of the unmanaged main folder's branch).
 	DetachWorktree(
 		ctx context.Context,
 		worktreePath string,
 	) error
 
-	// CheckoutBranch switches the worktree at worktreePath onto branch,
-	// re-attaching a detached HEAD (rollback / restore the main folder).
 	CheckoutBranch(
 		ctx context.Context,
 		worktreePath string,
 		branch string,
 	) error
 
-	// WorktreeAddBranch creates a new git worktree at worktreePath on a freshly
-	// created branch starting at startPoint, returning the resolved start SHA so
-	// callers can record it as forkPointSha.
 	WorktreeAddBranch(
 		ctx context.Context,
 		repoPath string,
@@ -98,9 +74,6 @@ type worktrees interface {
 		startPoint string,
 	) (string, error)
 
-	// WorktreeAddAtRef checks branch out into a fresh worktree with the ref RESET to startRef
-	// (`git worktree add -B`), returning the start SHA, so an import holds startRef's commits even
-	// when a diverged local branch of that name exists.
 	WorktreeAddAtRef(
 		ctx context.Context,
 		repoPath string,
@@ -110,9 +83,6 @@ type worktrees interface {
 	) (string, error)
 }
 
-// WorktreeEntry is a single worktree from `git worktree list`. Prunable is true
-// when git reports the worktree's working directory as missing (a dangling
-// registration left by a deleted checkout); such entries are not usable.
 type WorktreeEntry struct {
 	Path     string
 	Branch   string
@@ -132,17 +102,12 @@ func (e *engine) WorktreeAdd(
 	defer e.lockRepo(ctx, repoPath)()
 	r := e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	if rawErr := gitexec.RequireSuccess("worktree add", r); rawErr != nil && isStaleWorktreeConflict(rawErr) {
-		// A worktree whose directory vanished still holds its branch, blocking re-adding it.
-		// Prune dead registrations and retry once; a live conflict still fails the retry.
 		e.pruneBeforeRetry(ctx, repoPath)
 		r = e.exec(ctx, repoPath, "worktree", "add", worktreePath, branch)
 	}
 	return classifyGitError("worktree add", r)
 }
 
-// isStaleWorktreeConflict reports whether a worktree-add error is the
-// "branch already used / checked out by another worktree" failure that pruning
-// dead worktree registrations can clear.
 func isStaleWorktreeConflict(err error) bool {
 	if err == nil {
 		return false
@@ -167,9 +132,6 @@ func (e *engine) WorktreeRemove(
 	return gitexec.RequireSuccess("worktree remove", r)
 }
 
-// WorktreeRepair runs `git worktree repair` after the caller relocated a worktree.
-// Branch rename moves the whole root (worktree plus its `chats` sibling) in one
-// os.Rename, which `git worktree move` cannot express, so git catches up here.
 func (e *engine) WorktreeRepair(
 	ctx context.Context,
 	repoPath string,
@@ -180,9 +142,6 @@ func (e *engine) WorktreeRepair(
 	return gitexec.RequireSuccess("worktree repair", r)
 }
 
-// WorktreePrune runs `git worktree prune`, which removes registrations for
-// worktrees whose directory is gone. It only touches dead registrations, so a
-// live worktree is never disturbed.
 func (e *engine) WorktreePrune(
 	ctx context.Context,
 	repoPath string,
@@ -191,7 +150,6 @@ func (e *engine) WorktreePrune(
 	return e.pruneWorktrees(ctx, repoPath)
 }
 
-// pruneWorktrees runs `git worktree prune`. The caller holds the repo lock.
 func (e *engine) pruneWorktrees(
 	ctx context.Context,
 	repoPath string,
@@ -200,8 +158,6 @@ func (e *engine) pruneWorktrees(
 	return gitexec.RequireSuccess("worktree prune", r)
 }
 
-// pruneBeforeRetry clears dead registrations ahead of a second worktree add. A prune
-// that fails is logged, not returned: the add that follows is what decides the outcome.
 func (e *engine) pruneBeforeRetry(
 	ctx context.Context,
 	repoPath string,
@@ -222,8 +178,6 @@ func (e *engine) WorktreeList(
 	return parseWorktreeList(r.Stdout), nil
 }
 
-// DetachWorktree puts the worktree at worktreePath on a detached HEAD at its current
-// commit, leaving files untouched, so its branch can be added to a new managed worktree.
 func (e *engine) DetachWorktree(
 	ctx context.Context,
 	worktreePath string,
@@ -233,9 +187,6 @@ func (e *engine) DetachWorktree(
 	return gitexec.RequireSuccess("switch --detach", r)
 }
 
-// CheckoutBranch switches the worktree at worktreePath onto branch, re-attaching a
-// detached HEAD (rolling back a failed detach+add, or restoring the main folder). It
-// fails if the branch is checked out in another worktree.
 func (e *engine) CheckoutBranch(
 	ctx context.Context,
 	worktreePath string,
@@ -297,10 +248,6 @@ func parseWorktreeList(
 	return entries
 }
 
-// makeWorktreeParent creates the directories above a new checkout before git
-// runs, owner-only but for traverse when they lie in a Crowbar home, so another
-// uid still reaches the checkout. The checkout itself is the user's and git
-// creates it.
 func makeWorktreeParent(
 	worktreePath string,
 ) error {

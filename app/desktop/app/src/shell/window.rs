@@ -1,5 +1,3 @@
-//! The window: memory, chrome, menus, vibrancy, notices.
-
 pub(crate) mod app_menu;
 pub(crate) mod caret_follower;
 pub(crate) mod chrome;

@@ -21,20 +21,12 @@ interface ComposerFieldProps {
     caret: CaretEdges,
     shape: ComposerShape,
   ) => void
-  /** Reported on every change, so the handle can ride the last line. */
   onHeightChange: (height: number) => void
-  /** Forwarded straight through to `ChatMarkdownEditor` — see
-   *  `ChatMarkdownEditorHandle` for what a caller outside the field can do
-   *  with it. */
   ref?: Ref<ChatMarkdownEditorHandle>
 }
 
-// A style prop, not a class: Slate's Editable writes `min-height: 20px` INLINE,
-// and spreads the caller's style after its own defaults.
 const DOCK_STYLE = { minHeight: COMPOSER_LINE_HEIGHT } satisfies CSSProperties
 
-// The composer's one-line field that grows. Rich, not a textarea: the agent reads it and the
-// transcript renders it as markdown, so the box shows `**bold**` the way the rest of the chat does.
 export function ComposerField({
   wsId,
   chatId,

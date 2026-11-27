@@ -17,9 +17,7 @@ interface ZoomState {
   actions: ZoomActions
 }
 
-// Rounded after every step, or IEEE-754 error accumulates into `style.zoom` (1.2000000000000002).
 const ZOOM_STEP = 0.1
-// Divide by 10 rather than multiply by STEP: multiplying back by 0.1 can reintroduce the error.
 const roundToStep = (z: number) => Math.round(z * 10) / 10
 
 const useZoomStoreBase = create<ZoomState>((set) => ({

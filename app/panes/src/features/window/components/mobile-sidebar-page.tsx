@@ -12,7 +12,6 @@ import { postToShell, receiveShellSnapshots } from '@/lib/shell-page-bridge'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
 import { DraggableRow, RowDragScope } from './sidebar-row-drag'
 
-// Gear and New thread float over the foot of the page.
 const CLEAR_FLOATING_BUTTONS_PB = 'pb-[calc(env(safe-area-inset-bottom)+84px)]'
 
 const selectRow = (id: string) => postToShell('sidebar', { type: 'selectRow', id })
@@ -20,7 +19,6 @@ const toggleFold = (id: string) => postToShell('sidebar', { type: 'toggleFold', 
 const selectProject = (id: string) => postToShell('sidebar', { type: 'selectProject', id })
 const openSettings = () => postToShell('sidebar', { type: 'openSettings' })
 
-// The page owns the hold; the shell only presents the menu for the row it is told of.
 function showRowMenu(rowId: string, node: HTMLElement, actions: NativeSidebar['actions']) {
   const { x, y, width, height } = node.getBoundingClientRect()
   postToShell('sidebar', {
@@ -31,8 +29,6 @@ function showRowMenu(rowId: string, node: HTMLElement, actions: NativeSidebar['a
   })
 }
 
-/** The phone's chat list, drawn from the main webview's snapshot. Owns no state and opens no
- *  connection; picks go back as intents. Gear and New thread are native buttons over its foot. */
 export function MobileSidebarPage() {
   useSurfaceThemeColor()
   const [snapshot, setSnapshot] = useState<NativeSidebar | null>(null)
@@ -65,7 +61,6 @@ export function MobileSidebarPage() {
               overlay={(id) => <DragOverlayRow rows={snapshot.rows} id={id} />}
               onMenu={(id, node) => showRowMenu(id, node, snapshot.actions)}
             >
-              {/* No callout or text selection, so a long press is the page's own gesture. */}
               <nav
                 aria-label="Chats"
                 className={cn(
@@ -91,7 +86,6 @@ export function MobileSidebarPage() {
   )
 }
 
-/** The agents running now, pinned above the floating buttons: the ordinary rows of chats already in it. */
 function ActiveSection({ running }: { running: SidebarRowType[] }) {
   if (running.length === 0) return null
   return (
@@ -121,7 +115,6 @@ function ActiveSection({ running }: { running: SidebarRowType[] }) {
   )
 }
 
-/** The desktop tree's walk (sidebar-tree.tsx) over rows whose live facts arrive resolved. */
 function SnapshotTree({ rows, collapsed }: { rows: SidebarRowType[]; collapsed: string[] }) {
   const { roots, childrenByParent } = sidebarRowTree(rows)
   const folded = new Set(collapsed)
@@ -148,7 +141,6 @@ function SnapshotTree({ rows, collapsed }: { rows: SidebarRowType[]; collapsed: 
   return <>{roots.map((row) => renderRow(row, 0))}</>
 }
 
-/** The lifted copy of the row being dragged. */
 function DragOverlayRow({ rows, id }: { rows: SidebarRowType[]; id: string }) {
   const row = rows.find((r) => r.id === id)
   return row ? (

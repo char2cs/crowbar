@@ -1,5 +1,3 @@
-//! The marks on every occurrence of the word under the caret.
-
 use gpui::{Context, Entity, Hsla};
 use gpui_kit::component::input::{
     EditorState, RangeDecoration, RangeDecorationCollection, RangeDecorationStyle,
@@ -10,7 +8,6 @@ use crate::Settings;
 use crate::editor_view::EditorView;
 use crate::editor_view::find::occurrences::word_query;
 
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/wordHighlighter/browser/highlightDecorations.ts (editor.wordHighlightBackground)
 const DARK_WORD: u32 = 0x5757_57b8;
 const LIGHT_WORD: u32 = 0x5757_5740;
 

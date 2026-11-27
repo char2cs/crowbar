@@ -3,7 +3,6 @@ import type { CSSProperties } from 'react'
 const CELL = 6
 const ROWS = 14
 const PATTERN_HEIGHT = CELL * ROWS
-// Tall enough to cover a pill grown to half the viewport once the pattern is dropped by a cell.
 const LAYER_HEIGHT = 640
 const HEAD_OPACITY = 0.34
 
@@ -15,12 +14,10 @@ interface Dot {
 
 interface Layer {
   id: string
-  /** Seconds per full fall; the two layers differ so the columns never line up. */
   seconds: number
   dots: Dot[]
 }
 
-/** mulberry32: a tiny seeded generator, so the same width always rains the same columns. */
 function seeded(seed: number): () => number {
   let a = seed
   return () => {
@@ -65,8 +62,6 @@ function layoutFor(width: number): Layer[] {
   return layers
 }
 
-/** Faint falling dot-matrix streaks behind the pill while the conversation compacts: two
- *  patterns, each moved by one stepped transform, so it stays cheap and the text stays readable. */
 export function CompactionRain({ width }: { width: number }) {
   const layers = layoutFor(width)
   return (

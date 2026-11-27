@@ -43,7 +43,6 @@ func newFixture(t *testing.T) fixture {
 	return fixture{svc: svc, store: opStore, frames: frames}
 }
 
-// until reads frames until one for id is settled, returning every frame for id.
 func (f fixture) until(t *testing.T, id string) []domain.Operation {
 	t.Helper()
 	var got []domain.Operation
@@ -59,7 +58,6 @@ func (f fixture) until(t *testing.T, id string) []domain.Operation {
 	return got
 }
 
-// published takes the frame a synchronous call already emitted; none fails at once.
 func (f fixture) published(t *testing.T) domain.Operation {
 	t.Helper()
 	select {
@@ -152,7 +150,6 @@ func TestService_AFailedItemFailsTheOperationAsPartial(t *testing.T) {
 	assert.Equal(t, "taken", op.Items[1].Error.Message)
 }
 
-// The accepted row is the caller's to answer with while the work runs on.
 func TestService_TheAcceptedRowIsNotChangedByItsWork(t *testing.T) {
 	f := newFixture(t)
 	id := uuid.NewString()
@@ -206,7 +203,6 @@ func TestService_AReusedKeyForOtherWorkIsAConflict(t *testing.T) {
 	assert.Equal(t, problem.OperationIDConflict, problem.CodeOf(err))
 }
 
-// A retry replays its key's operation; under other work (kind, subject) it conflicts.
 func TestService_ReplayAnswersTheKeysOperationOfThatWork(t *testing.T) {
 	f, ctx, id := newFixture(t), context.Background(), uuid.NewString()
 	ws1 := pushSpec(id).Subject
@@ -270,8 +266,6 @@ func TestService_APanickingWorkFailsTheOperation(t *testing.T) {
 	assert.Equal(t, problem.Problem{Code: problem.Internal, Message: "internal error: boom"}, *last.Error)
 }
 
-// A graceful stop cancels at once: work in flight at quit must not eat the
-// writer drain the terminal and the aggregates still need.
 func TestService_ShutdownCancelsAndRecordsTheWorkInterrupted(t *testing.T) {
 	f := newFixture(t)
 	id := uuid.NewString()
@@ -309,8 +303,6 @@ func TestService_ShutdownReturnsWhenItsCtxEndsThoughWorkIgnoresCancel(t *testing
 	close(release)
 }
 
-// Every admitted operation is cancellable the moment Start returns, so a stop
-// racing a start never leaves work it did not cancel.
 func TestService_ShutdownRacingStartsCancelsEveryAdmittedOperation(t *testing.T) {
 	for range 50 {
 		f := newFixture(t)
@@ -333,7 +325,6 @@ func TestService_ShutdownRacingStartsCancelsEveryAdmittedOperation(t *testing.T)
 	}
 }
 
-// The service keeps the cap as operations settle, not only at boot.
 func TestService_SettlingPrunesPastTheNewest500(t *testing.T) {
 	f := newFixture(t)
 	for i := range 500 {
@@ -354,7 +345,6 @@ func TestService_SettlingPrunesPastTheNewest500(t *testing.T) {
 	assert.Equal(t, id, f.row(t, id).ID)
 }
 
-// A running row is never pruned: deleting it would lose its idempotency key.
 func TestService_SettlingNeverPrunesARunningOperation(t *testing.T) {
 	f := newFixture(t)
 	seed(t, f, "running", domain.OpRunning, epoch.Add(-48*time.Hour))
@@ -386,7 +376,7 @@ func TestService_RunRecordsAndReturnsTheSettledOperation(t *testing.T) {
 	ran := false
 
 	op, err := f.svc.Run(context.Background(), pushSpec(""), func(context.Context, operation.Progress) error {
-		ran = true // the caller's goroutine: no synchronisation needed to read it below
+		ran = true
 		return nil
 	})
 	require.NoError(t, err)
@@ -450,8 +440,6 @@ func moveSpec(id string) operation.Spec {
 	}
 }
 
-// Two hierarchy verbs on one workspace would race each other's git and rows:
-// the second is refused while the first runs, and admitted once it settled.
 func TestService_ASecondWorkspaceVerbWhileOneRunsIsRefused(t *testing.T) {
 	f := newFixture(t)
 	first := uuid.NewString()
@@ -481,7 +469,6 @@ func TestService_ASecondWorkspaceVerbWhileOneRunsIsRefused(t *testing.T) {
 	f.until(t, next.ID)
 }
 
-// The boot sweep that finishes a purge clears the failure it reported.
 func TestService_DismissFailedClearsTheSubjectsFailures(t *testing.T) {
 	f := newFixture(t)
 	ref := domain.EntityRef{Kind: domain.EntityWorkspace, ID: "ws1"}

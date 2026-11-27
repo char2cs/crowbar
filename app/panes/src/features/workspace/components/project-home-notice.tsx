@@ -2,7 +2,6 @@ import { useParams } from '@tanstack/react-router'
 import { useHomeWorkspaceState } from '@/features/workspace/lib/home-workspace-resolver'
 import { useHostUnavailable } from '@/lib/host-unavailability'
 
-/** The home route's loading/error/host-down state; WorkspaceHost retains and paints the home workspace beside the Outlet, so a host that is down is named only when no home workspace is known to show. */
 export function ProjectHomeNotice() {
   const { projectId } = useParams({ from: '/_shell/ide/$projectId/home' })
   const { wsId, error } = useHomeWorkspaceState(projectId)

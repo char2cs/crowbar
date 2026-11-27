@@ -28,8 +28,6 @@ pub(super) fn reveal_line(
 }
 
 impl EditorView {
-    /// Puts the caret at a language server's `(line, character)`, counted in UTF-16 code units
-    /// as LSP counts them, as develop reveals a definition in a tab already open.
     pub fn reveal_lsp_position(
         &mut self,
         (line, character): (u32, u32),

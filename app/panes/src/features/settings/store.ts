@@ -24,7 +24,6 @@ import type { Settings } from './types/settings'
 
 export type { Settings } from './types/settings'
 
-// The index is ~9 KB of text only the settings dialog's search needs, so it stays out of the boot chunk.
 let searchIndex: SettingSearchRecord[] | null = null
 
 let settingsStoreInitPromise: Promise<Settings> | null = null
@@ -134,7 +133,6 @@ export const useSettingsStore = create(
           })
 
           if (!searchIndex) {
-            // Re-runs against whatever the query is once the index lands, so a stale query never wins.
             void import('./config/search-index').then((m) => {
               searchIndex = m.settingsSearchIndex
               useSettingsStore.getState().runSearch()

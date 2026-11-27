@@ -1,5 +1,3 @@
-//! Asks the settings' confirmations as the desktop's message dialog.
-
 use gpui::{Context, TaskExt as _, Window};
 use settings::Prompt;
 use ui::{AlertButton, AlertRequest, AlertRole, NativeAlert};

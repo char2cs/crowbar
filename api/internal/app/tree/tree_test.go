@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 )
 
-// orders reads the plan's index for each id, which is the only thing a caller
-// ever writes back.
 func orders(
 	t *testing.T,
 	plan tree.Tree,
@@ -37,8 +35,6 @@ func level(
 	return nodes
 }
 
-// The caller's slice must not be renumbered behind its back: it is still the
-// list the caller compares against to decide what actually moved.
 func TestNew_CopiesTheRowsItIsGiven(t *testing.T) {
 	rows := level("", "a", "b")
 	plan := tree.New(rows)
@@ -148,9 +144,6 @@ func TestSetParent_IgnoresAnUnchangedOrUnknownRow(t *testing.T) {
 	assert.Empty(t, plan.Dirty(), "a move that moves nothing is not a write")
 }
 
-// The sidebar clears a workspace's folder edge while leaving it in its fork
-// parent's space: the stored edge moved, the container did not, and without a
-// Touch that write is dropped and the row reverts on the next read.
 func TestTouch_RecordsAChangeTheTreeDoesNotModel(t *testing.T) {
 	plan := tree.New(level("", "a"))
 
@@ -182,9 +175,6 @@ func TestReorder_LiftsThePlacedRowToItsTarget(t *testing.T) {
 	assert.Equal(t, []string{"c", "a", "b"}, ids(plan.Members("")))
 }
 
-// A client computes its drop index against the list it has on screen, which may
-// already be stale. Clamping lands the row at an end instead of failing a move
-// the user has already seen happen.
 func TestReorder_ClampsAnOutOfRangeTarget(t *testing.T) {
 	plan := tree.New(level("", "a", "b", "c"))
 
@@ -201,8 +191,6 @@ func TestReorder_WithNoPlacedRowOnlyDensifies(t *testing.T) {
 	assert.Equal(t, []int{0, 1}, orders(t, plan, "a", "b"))
 }
 
-// A negative target is how a caller says "this row is not being positioned
-// here" — the level a row has just left still has to close its gap.
 func TestReorder_WithANegativeTargetLeavesThePlacedRowWhereItIs(t *testing.T) {
 	plan := tree.New(level("", "a", "b", "c"))
 
@@ -252,8 +240,6 @@ func TestReparent_HandsTheChildrenOverWithoutTouchingTheContainer(t *testing.T) 
 	assert.Equal(t, []string{"a", "b"}, plan.Dirty())
 }
 
-// A caller whose rows are not all alike moves the ones that cannot follow their
-// siblings first; whatever is still a child by then follows the destination.
 func TestReparent_LeavesRowsTheCallerAlreadyMovedAlone(t *testing.T) {
 	plan := tree.New([]tree.Node{
 		{ID: "box", ParentID: "host"},
@@ -283,16 +269,12 @@ func TestReaches_WalksUpAcrossEveryEdge(t *testing.T) {
 	assert.False(t, plan.Reaches("", "outer"), "the root is above everything")
 }
 
-// The shape a deleted row leaves behind: an edge naming something the forest
-// does not hold. The walk answers rather than treating it as a container.
 func TestReaches_WalksPastADanglingEdge(t *testing.T) {
 	plan := tree.New([]tree.Node{{ID: "orphan", ParentID: "gone"}})
 
 	assert.False(t, plan.Reaches("orphan", "subject"))
 }
 
-// An already corrupt persisted cycle must be answered, not spun on, while a
-// placement is being validated.
 func TestReaches_TerminatesOnAPersistedCycle(t *testing.T) {
 	plan := tree.New([]tree.Node{
 		{ID: "a", ParentID: "b"},
@@ -319,9 +301,6 @@ func TestDirty_IsEmptyForAPlanThatChangedNothing(t *testing.T) {
 	assert.Empty(t, plan.Dirty())
 }
 
-// The distinction Dirty cannot draw: a renumbered row is dirty and NOT
-// reparented, and a caller that writes a parent for it writes one it read rather
-// than one it decided.
 func TestReparented_ARenumberIsNotAReparent(t *testing.T) {
 	plan := tree.New(level("", "a", "b"))
 
@@ -341,8 +320,6 @@ func TestReparented_ReportsARowThatChangedContainer(t *testing.T) {
 	assert.False(t, plan.Reparented("a"))
 }
 
-// SetParent onto the container a row already sits in changes nothing, and must
-// not claim otherwise: the caller would then write a parent it never decided.
 func TestReparented_IgnoresAMoveOntoTheSameContainer(t *testing.T) {
 	plan := tree.New(level("", "a", "b"))
 
@@ -351,8 +328,6 @@ func TestReparented_IgnoresAMoveOntoTheSameContainer(t *testing.T) {
 	assert.False(t, plan.Reparented("b"))
 }
 
-// Reparent promotes a container's children, so each of them changed level even
-// though nothing named them individually.
 func TestReparented_CoversTheChildrenAReparentPromoted(t *testing.T) {
 	plan := tree.New([]tree.Node{{ID: "f"}, {ID: "a", ParentID: "f"}})
 
@@ -361,8 +336,6 @@ func TestReparented_CoversTheChildrenAReparentPromoted(t *testing.T) {
 	assert.True(t, plan.Reparented("a"))
 }
 
-// A row the plan invented has a container the store has never been told, so it
-// is reparented by construction.
 func TestReparented_CoversAnAddedRow(t *testing.T) {
 	plan := tree.New(nil)
 
@@ -371,7 +344,6 @@ func TestReparented_CoversAnAddedRow(t *testing.T) {
 	assert.True(t, plan.Reparented("f"))
 }
 
-// A dropped row is not a row to write, by either question.
 func TestReparented_ForgetsADroppedRow(t *testing.T) {
 	plan := tree.New([]tree.Node{{ID: "a"}, {ID: "b"}})
 	plan.SetParent("b", "a")
@@ -382,8 +354,6 @@ func TestReparented_ForgetsADroppedRow(t *testing.T) {
 	assert.Empty(t, plan.Dirty())
 }
 
-// Touch says a caller's own edge moved behind a container that did not, so it
-// must not be mistaken for a re-parenting.
 func TestReparented_IsNotSetByTouch(t *testing.T) {
 	plan := tree.New(level("", "a"))
 

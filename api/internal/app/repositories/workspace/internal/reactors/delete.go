@@ -1,5 +1,3 @@
-// Package reactors holds the workspace aggregate's post-commit reactions; the Purger is the ONLY
-// physical purger, re-driven by both the delete reactor and the boot sweep so they cannot diverge.
 package reactors
 
 import (
@@ -23,8 +21,6 @@ const (
 	defaultRetryCap       = 2 * time.Second
 )
 
-// Forgetter purges an aggregate's event log; its marker drops the read-model
-// row. asynx.Asynx satisfies it.
 type Forgetter interface {
 	Forget(
 		ctx context.Context,
@@ -32,8 +28,6 @@ type Forgetter interface {
 	) error
 }
 
-// Purger tears down one tombstoned workspace (dependents, on-disk root, then the aggregate),
-// reading everything off the persisted tombstone so the reactor and the boot sweep work alike.
 type Purger struct {
 	ax               Forgetter
 	dropRow          func(ctx context.Context, id string) error
@@ -41,9 +35,6 @@ type Purger struct {
 	removeWorktree   func(ctx context.Context, tomb domain.Workspace) error
 }
 
-// NewPurger builds the one physical purger. dropRow deletes the read-model row
-// directly; removeWorktree is the hardened workspace-root remover
-// (repositories/workspace/purge.WorktreeRemover).
 func NewPurger(
 	ax Forgetter,
 	dropRow func(ctx context.Context, id string) error,
@@ -53,9 +44,6 @@ func NewPurger(
 	return &Purger{ax: ax, dropRow: dropRow, forgetDependents: forgetDependents, removeWorktree: removeWorktree}
 }
 
-// Purge's steps are idempotent so a re-drive converges: dependents first while still listable, the
-// root only when Crowbar provisioned it, the aggregate LAST so earlier failures keep the tombstone.
-// An already-Forgotten aggregate never re-projects, so its read-model row is dropped here.
 func (p *Purger) Purge(
 	ctx context.Context,
 	tomb domain.Workspace,
@@ -82,26 +70,17 @@ func (p *Purger) Purge(
 	}
 }
 
-// StoreReader lets the reactor purge only a PERSISTED tombstone: an unsaved one could be
-// re-saved after the worktree is gone, or be lost to a crash.
 type StoreReader interface {
-	// AwaitTombstone blocks until the read model holds id's "deleted" row and
-	// returns it. It is woken by the projection's save, not by polling.
 	AwaitTombstone(
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
 }
 
-// GiveUp hears a purge that did not complete before its deadline; tomb is nil
-// when the tombstone was never observed. The boot sweep retries it.
 type GiveUp func(ctx context.Context, wsID string, tomb *domain.Workspace, err error)
 
-// Opt configures the delete reactor's bounded-wait tunables.
 type Opt func(*deleteReactor)
 
-// WithReactorTimeout bounds the whole post-commit purge (tombstone wait + every
-// retry). Non-positive values are ignored.
 func WithReactorTimeout(
 	d time.Duration,
 ) Opt {
@@ -112,9 +91,6 @@ func WithReactorTimeout(
 	}
 }
 
-// RegisterDeleteReactor subscribes to "workspace.deleted.*" (a bare "workspace.deleted" never fires).
-// Each purge runs in its own goroutine under root, not the handler's ctx: asynx refuses a Forget from
-// inside the same aggregate's handler, and WithoutCancel would keep that mark.
 func RegisterDeleteReactor(
 	root context.Context,
 	ax asynx.Asynx[domain.Workspace],
@@ -174,8 +150,6 @@ func (r *deleteReactor) onEvent(
 	if wsID == "" {
 		wsID = evt.Aggregate.ID
 	}
-	// Refused once the daemon is draining (drain.Gate). Not a dropped event: the DBs
-	// this purge would write to are about to close, and the boot sweep re-purges.
 	if !r.gate.Enter() {
 		return
 	}
@@ -188,15 +162,12 @@ func (r *deleteReactor) run(
 	defer r.gate.Leave()
 	bg, cancel := context.WithTimeout(context.WithoutCancel(r.root), r.timeout)
 	defer cancel()
-	// Parked while a quiesce drains the bus (drain.Gate.Hold); never in production.
 	if !r.gate.Proceed(bg) {
 		return
 	}
 	r.purgeUntilDone(bg, wsID)
 }
 
-// purgeUntilDone waits for the persisted tombstone and purges it, retrying with capped backoff
-// until ctx's deadline; past it the give-up is reported and the boot sweep takes over.
 func (r *deleteReactor) purgeUntilDone(
 	ctx context.Context,
 	wsID string,
@@ -229,7 +200,6 @@ func (r *deleteReactor) purgeUntilDone(
 	}
 }
 
-// giveUp reports under a ctx that outlives the purge's deadline, which has passed.
 func (r *deleteReactor) giveUp(
 	ctx context.Context,
 	wsID string,
@@ -239,7 +209,6 @@ func (r *deleteReactor) giveUp(
 	r.onGiveUp(context.WithoutCancel(ctx), wsID, tomb, err)
 }
 
-// attempt purges once, returning the tombstone when it was observed.
 func (r *deleteReactor) attempt(
 	ctx context.Context,
 	wsID string,

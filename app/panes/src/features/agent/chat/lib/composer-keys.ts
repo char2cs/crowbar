@@ -20,20 +20,16 @@ interface ComposerKeyTargets {
     recallNewer: () => string | undefined
     searchOlder: (typed: string) => string | undefined
   }
-  /** The composer's own stop button is showing. */
   canStop: boolean
   stop: () => void
-  /** Esc in an empty box: false when there is no prompt to take back. */
   retract: () => boolean
   stashOrRestore: (markdown: string) => void
   selectSlashItem: (item: PickerItem) => void
   send: (markdown: string) => void
-  /** False in the blank chat's document: plain Enter is a new line there, Cmd/Ctrl+Enter sends. */
   enterSends: boolean
   recall: (text: string) => void
 }
 
-/** One key in the composer, routed to the picker, the queue or history recall. */
 export function handleComposerKey(
   targets: ComposerKeyTargets,
   event: KeyboardEvent<HTMLDivElement>,
@@ -71,8 +67,6 @@ export function handleComposerKey(
   const plainEnter = !event.metaKey && !event.ctrlKey
   if (isSendKey(event) && (targets.enterSends || !plainEnter || slash.highlighted)) {
     event.preventDefault()
-    // Enter completes when there is a completion, else sends: the catalogue is
-    // incomplete by declaration. A command already typed in full has nothing to complete.
     const draft = readMarkdown()
     const { highlighted } = slash
     const typedInFull =
@@ -81,14 +75,12 @@ export function handleComposerKey(
     else targets.send(draft)
     return
   }
-  // The terminal's reverse search; in a browser ctrl+r would reload the page.
   if (event.key === 'r' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
     event.preventDefault()
     const found = targets.history.searchOlder(readMarkdown())
     if (found !== undefined) targets.recall(found)
     return
   }
-  // History recall only at an edge the caret could not otherwise move past.
   const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
   if (slash.open || !plain) return
   const recalled =

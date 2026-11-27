@@ -1,5 +1,3 @@
-//! The 16 ANSI colours of the crowbar theme (spec 00-tokens section 6).
-
 use terminal::Rgb;
 use ui::Appearance;
 

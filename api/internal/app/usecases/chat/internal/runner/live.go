@@ -1,6 +1,3 @@
-// Package runner (file live.go) is the supervisor's table of live CLIs: one
-// entry per chat, keyed so a second can never be added. It is in memory only;
-// what survives a restart is the ledger's runner_started/runner_exited rows.
 package runner
 
 import (
@@ -17,31 +14,21 @@ type liveTable struct {
 	mu        sync.Mutex
 	chats     map[string]*liveEntry
 	runners   map[string]*liveEntry
-	launching sync.Map // carriers a submission is launching: their prompts are owed, not orphaned
+	launching sync.Map
 }
 
 type liveEntry struct {
-	runner engineagents.Runner
-	// turnOrder orders a turn opening on this runner against its end: an end
-	// marked under it closes every turn opened before, and none opens after.
-	// Only inTurnOrder takes it.
-	turnOrder *sync.Mutex
-	// started is set once its runner_started row has committed; until then
-	// the runner is a spawn in progress, which no reader outside it is shown.
-	started bool
-	// exitedEarly is set by a process exit before started: the spawn records it.
+	runner      engineagents.Runner
+	turnOrder   *sync.Mutex
+	started     bool
 	exitedEarly bool
-	// exiting is set once the runner's end is asked for or under way; its
-	// hooks still resolve until remove.
-	exiting bool
-	// claimed is set by the one exit that records the runner's end.
-	claimed bool
-	exited  chan struct{} // closed by remove
-	cause   string        // the first exit reason noted; "" = exited on its own
-	exit    runnerExit    // how its process ended, once it has
+	exiting     bool
+	claimed     bool
+	exited      chan struct{}
+	cause       string
+	exit        runnerExit
 }
 
-// liveView is one read of a chat's entry.
 type liveView struct {
 	runner                    engineagents.Runner
 	started, exiting, claimed bool
@@ -52,7 +39,6 @@ func newLiveTable() *liveTable {
 	return &liveTable{chats: map[string]*liveEntry{}, runners: map[string]*liveEntry{}}
 }
 
-// add registers r on r.CurrentChatID, refusing while that chat has an entry.
 func (t *liveTable) add(r engineagents.Runner) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -74,13 +60,11 @@ func (t *liveTable) view(chatID string) (liveView, bool) {
 	return liveView{runner: e.runner, started: e.started, exiting: e.exiting, claimed: e.claimed, exited: e.exited}, true
 }
 
-// byChat is the runner on chatID, exiting or not.
 func (t *liveTable) byChat(chatID string) (engineagents.Runner, bool) {
 	v, ok := t.view(chatID)
 	return v.runner, ok
 }
 
-// byRunner is runnerID's runner, exiting or not.
 func (t *liveTable) byRunner(runnerID string) (engineagents.Runner, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -90,9 +74,6 @@ func (t *liveTable) byRunner(runnerID string) (engineagents.Runner, bool) {
 	return engineagents.Runner{}, false
 }
 
-// inTurnOrder runs fn under the turn order of chatID's runner: a turn opens on
-// it (TurnRunner), or its end is marked, inside one. A chat with no runner has
-// nothing to order.
 func (t *liveTable) inTurnOrder(chatID string, fn func()) {
 	t.mu.Lock()
 	e, ok := t.chats[chatID]
@@ -104,7 +85,6 @@ func (t *liveTable) inTurnOrder(chatID string, fn func()) {
 	fn()
 }
 
-// unending is runnerID's runner while its end is not under way.
 func (t *liveTable) unending(runnerID string) (engineagents.Runner, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -114,7 +94,6 @@ func (t *liveTable) unending(runnerID string) (engineagents.Runner, bool) {
 	return engineagents.Runner{}, false
 }
 
-// update applies change to runnerID's runner while its exit is unclaimed.
 func (t *liveTable) update(runnerID string, change func(*engineagents.Runner)) (engineagents.Runner, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -126,9 +105,6 @@ func (t *liveTable) update(runnerID string, change func(*engineagents.Runner)) (
 	return e.runner, true
 }
 
-// markStarted records that runnerID's runner_started row has committed, and
-// reports whether its process had already exited: that exit is the spawn's to
-// record.
 func (t *liveTable) markStarted(runnerID string) (exitedEarly bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -140,8 +116,6 @@ func (t *liveTable) markStarted(runnerID string) (exitedEarly bool) {
 	return e.exitedEarly
 }
 
-// exitBeforeStart reports whether runnerID's process exited while its spawn is
-// still under way, and marks it so for markStarted.
 func (t *liveTable) exitBeforeStart(runnerID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -153,8 +127,6 @@ func (t *liveTable) exitBeforeStart(runnerID string) bool {
 	return true
 }
 
-// markExiting notes cause and marks runnerID's end as under way, and returns
-// the channel its exit closes.
 func (t *liveTable) markExiting(runnerID, cause string) (<-chan struct{}, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -167,8 +139,6 @@ func (t *liveTable) markExiting(runnerID, cause string) (<-chan struct{}, bool) 
 	return e.exited, true
 }
 
-// noteCause records why runnerID will end, if it ends, without saying that it
-// is ending: whoever waits on it still sees it live until its end is asked for.
 func (t *liveTable) noteCause(runnerID, cause string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -177,15 +147,12 @@ func (t *liveTable) noteCause(runnerID, cause string) {
 	}
 }
 
-// noteCause keeps the first cause noted.
 func (e *liveEntry) noteCause(cause string) {
 	if e.cause == "" {
 		e.cause = cause
 	}
 }
 
-// keepLive takes back an end that never got under way: the process is still
-// running, so its runner holds the chat as before.
 func (t *liveTable) keepLive(runnerID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -194,7 +161,6 @@ func (t *liveTable) keepLive(runnerID string) {
 	}
 }
 
-// noteExit keeps how runnerID's process ended for the exit that records it.
 func (t *liveTable) noteExit(runnerID string, exit runnerExit) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -203,8 +169,6 @@ func (t *liveTable) noteExit(runnerID string, exit runnerExit) {
 	}
 }
 
-// claimExit hands runnerID's entry to the one exit that records it; every
-// later call is refused.
 func (t *liveTable) claimExit(runnerID string) (liveEntry, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -216,7 +180,6 @@ func (t *liveTable) claimExit(runnerID string) (liveEntry, bool) {
 	return liveEntry{runner: e.runner, started: e.started, cause: e.cause, exit: e.exit}, true
 }
 
-// remove drops runnerID and closes its exit channel: the chat is free.
 func (t *liveTable) remove(runnerID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -229,7 +192,6 @@ func (t *liveTable) remove(runnerID string) {
 	close(e.exited)
 }
 
-// exitAll notes cause on every runner in the table.
 func (t *liveTable) exitAll(cause string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -239,7 +201,6 @@ func (t *liveTable) exitAll(cause string) {
 	}
 }
 
-// all is every started runner, exiting or not.
 func (t *liveTable) all() []engineagents.Runner {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -252,8 +213,6 @@ func (t *liveTable) all() []engineagents.Runner {
 	return out
 }
 
-// LiveRunnerForChat is the runner on chatID, ErrNoLiveRunner when it is
-// dormant. A runner whose end is under way still answers until it exits.
 func (rs *Runners) LiveRunnerForChat(_ context.Context, chatID string) (engineagents.Runner, error) {
 	if r, ok := rs.live.byChat(chatID); ok {
 		return r, nil
@@ -261,18 +220,14 @@ func (rs *Runners) LiveRunnerForChat(_ context.Context, chatID string) (engineag
 	return engineagents.Runner{}, ErrNoLiveRunner
 }
 
-// AllLive is every started runner in the table.
 func (rs *Runners) AllLive(context.Context) ([]engineagents.Runner, error) {
 	return rs.live.all(), nil
 }
 
-// RunnerByID is runnerID's runner while it is in the table.
 func (rs *Runners) RunnerByID(runnerID string) (engineagents.Runner, bool) {
 	return rs.live.byRunner(runnerID)
 }
 
-// RecordedRunner is runnerID as its chat's ledger started it, for a hook the
-// table no longer resolves: what a CLI said before it died is its chat's.
 func (rs *Runners) RecordedRunner(ctx context.Context, runnerID string) (engineagents.Runner, bool, error) {
 	chatID, started, ok, err := rs.ledger.RunnerStart(ctx, runnerID)
 	if err != nil || !ok {
@@ -291,8 +246,6 @@ func (rs *Runners) RecordedRunner(ctx context.Context, runnerID string) (enginea
 	}, true, nil
 }
 
-// TurnRunner runs open on runnerID's runner held against its end, and reports
-// false without running it once that end is under way: no turn may open then.
 func (rs *Runners) TurnRunner(runnerID string, open func(engineagents.Runner) error) (bool, error) {
 	r, ok := rs.live.byRunner(runnerID)
 	if !ok {
@@ -307,8 +260,6 @@ func (rs *Runners) TurnRunner(runnerID string, open func(engineagents.Runner) er
 	return ok, err
 }
 
-// LiveRunner implements snapshot.Runtime: a runner is on the chat from its
-// runner_started row until its exit is being recorded.
 func (rs *Runners) LiveRunner(chatID string) (engineagents.Runner, bool) {
 	v, ok := rs.live.view(chatID)
 	if !ok || !v.started || v.claimed {
@@ -317,8 +268,6 @@ func (rs *Runners) LiveRunner(chatID string) (engineagents.Runner, bool) {
 	return v.runner, true
 }
 
-// awaitDormant waits out a runner on chatID whose end is under way, and
-// returns the runner live once it has, if any.
 func (rs *Runners) awaitDormant(ctx context.Context, chatID string) (engineagents.Runner, bool, error) {
 	for {
 		v, ok := rs.live.view(chatID)

@@ -1,6 +1,3 @@
-//! Whether the pointer is over a tree row. Kept as state, not a group-hover style, because the
-//! row's buttons take room from its label and gpui resolves group hover only after layout.
-
 use gpui::{App, Div, ElementId, Entity, Stateful, StatefulInteractiveElement, Window};
 use ui::Pose;
 

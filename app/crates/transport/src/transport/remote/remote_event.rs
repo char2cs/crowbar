@@ -1,5 +1,3 @@
-//! What forwarding a request to a paired remote host logs.
-
 use std::fmt;
 
 use journal::Level;

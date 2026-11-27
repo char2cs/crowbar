@@ -1,58 +1,45 @@
 package ledger
 
-// Marker kinds the transcript shows between turns.
 const (
-	MarkerSessionChanged    = "session_changed"  // the CLI moved the chat onto another session of its own
-	MarkerSessionConflict   = "session_conflict" // the CLI entered a session another chat owns
-	MarkerDeadLetter        = "dead_letter"      // the CLI reported something Crowbar could not map
+	MarkerSessionChanged    = "session_changed"
+	MarkerSessionConflict   = "session_conflict"
+	MarkerDeadLetter        = "dead_letter"
 	MarkerCompactionStarted = "compaction_started"
 	MarkerCompactionEnded   = "compaction_ended"
-	MarkerStopped           = "stopped"           // a person stopped the running turn
-	MarkerProviderSwitched  = "provider_switched" // Detail: the provider switched to
-	MarkerModelChanged      = "model_changed"     // Detail: the model selected
-	MarkerEffortChanged     = "effort_changed"    // Detail: the effort selected
-	MarkerNotification      = "notification"      // Detail: what the CLI told its user
-	MarkerWarning           = "warning"           // Detail: a warning the CLI printed in its transcript
-	MarkerUnreadable        = "legacy_unreadable" // Detail: in plain words, how many records the upgrade could not convert
-	MarkerFromRecord        = "from_record"       // a lost session's replacement was handed Crowbar's record of the chat
+	MarkerStopped           = "stopped"
+	MarkerProviderSwitched  = "provider_switched"
+	MarkerModelChanged      = "model_changed"
+	MarkerEffortChanged     = "effort_changed"
+	MarkerNotification      = "notification"
+	MarkerWarning           = "warning"
+	MarkerUnreadable        = "legacy_unreadable"
+	MarkerFromRecord        = "from_record"
 )
 
-// markerKinds is every marker kind; a marker of any other kind is malformed.
 var markerKinds = []string{
 	MarkerSessionChanged, MarkerSessionConflict, MarkerDeadLetter, MarkerCompactionStarted, MarkerCompactionEnded,
 	MarkerStopped, MarkerProviderSwitched, MarkerModelChanged, MarkerEffortChanged, MarkerNotification, MarkerWarning,
 	MarkerUnreadable, MarkerFromRecord,
 }
 
-// Marker is the body of a marker row: a fact the transcript shows between
-// turns, named by Kind, with Detail as its subject.
 type Marker struct {
-	Kind   string `json:"kind"`
-	Detail string `json:"detail,omitempty"`
-	// Records names, for legacy_unreadable, each record the upgrade left out, in its own words.
-	Records []string `json:"records,omitempty"`
-	// Owner is the chat that holds the session of a session_conflict.
-	Owner string `json:"owner,omitempty"`
-	// ProviderTurnID is the provider turn a compaction runs as its own: that
-	// turn's end is the compaction's, never a reply.
-	ProviderTurnID string `json:"providerTurnId,omitempty"`
+	Kind           string   `json:"kind"`
+	Detail         string   `json:"detail,omitempty"`
+	Records        []string `json:"records,omitempty"`
+	Owner          string   `json:"owner,omitempty"`
+	ProviderTurnID string   `json:"providerTurnId,omitempty"`
 }
 
-// compaction is the chat's compaction in flight, the provider turn whose end
-// closes it, and the turn it began inside, whose end closes it too.
 type compaction struct {
 	open           bool
 	providerTurnID string
 	turnID         string
 }
 
-// CompactionIn reports whether an open compaction began inside turnID.
 func (s State) CompactionIn(turnID string) bool {
 	return s.keys.compaction.open && turnID != "" && s.keys.compaction.turnID == turnID
 }
 
-// Compaction reports whether a compaction is open, and the provider turn id
-// whose end is the compaction's ("" when none is armed).
 func (s State) Compaction() (open bool, providerTurnID string) {
 	return s.keys.compaction.open, s.keys.compaction.providerTurnID
 }

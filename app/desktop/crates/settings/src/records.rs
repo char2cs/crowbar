@@ -1,5 +1,3 @@
-//! The state of a record list.
-
 #[cfg(feature = "fake")]
 mod fake_backend;
 mod flag_look;
@@ -22,13 +20,9 @@ pub use record_command::RecordCommand;
 pub use record_flag::RecordFlag;
 pub use tone::Tone;
 
-/// A list the backend is loading, failed to load, or holds.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Records {
-    /// The first answer has not arrived.
     Loading,
-    /// The backend could not answer.
     Failed,
-    /// The current records, possibly none.
     Ready(Vec<Record>),
 }

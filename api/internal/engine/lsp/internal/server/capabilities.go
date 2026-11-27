@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
-// clientCapabilities declares what the Monaco editor can consume. Servers shape answers
-// by it: without codeActionLiteralSupport they send bare commands, without hierarchical
-// symbols a flat list, without markdown plain-text hovers.
 func clientCapabilities() map[string]any {
 	markup := []string{"markdown", "plaintext"}
 	return map[string]any{
@@ -65,8 +62,6 @@ func clientCapabilities() map[string]any {
 	}
 }
 
-// semanticTokensCapability advertises the canonical legend (semtok) so servers
-// that shape tokens by the client's list use names the editor styles.
 func semanticTokensCapability() map[string]any {
 	return map[string]any{
 		"dynamicRegistration":     false,
@@ -80,8 +75,6 @@ func semanticTokensCapability() map[string]any {
 	}
 }
 
-// serverFeatures is what the client reads out of a server's initialize
-// result: its semantic-token support and the commands it executes.
 type serverFeatures struct {
 	semTok   semtok.Support
 	commands map[string]bool
@@ -103,7 +96,6 @@ func featuresFromInitialize(
 	}
 	if len(res.Capabilities) > 0 {
 		if err := json.Unmarshal(res.Capabilities, &caps); err != nil {
-			// Only code actions and lenses use the commands: the server still starts.
 			slog.Warn("lsp: executeCommandProvider unreadable; offering no commands", "err", err)
 			caps.ExecuteCommand.Commands = nil
 		}
@@ -115,7 +107,6 @@ func featuresFromInitialize(
 	return serverFeatures{semTok: semtok.FromCapabilities(res.Capabilities), commands: commands}, nil
 }
 
-// recordFeatures keeps what the initialize result declares for the session.
 func (s *server) recordFeatures(
 	result json.RawMessage,
 ) error {

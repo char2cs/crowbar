@@ -1,24 +1,12 @@
-//! What the pointer is over while a Files row is dragged.
-
 use crate::shell::FileKind;
 
-/// The part of the Files panel under a dragged row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropSpot {
-    /// The panel away from any row: the workspace root.
     Root,
-    /// A row of the tree.
-    Row {
-        /// The row's path.
-        path: String,
-        /// Whether it is a file or a folder, and its fold.
-        kind: FileKind,
-    },
+    Row { path: String, kind: FileKind },
 }
 
 impl DropSpot {
-    /// The folder a drop here lands in: the row's own folder, the folder holding a file row, or
-    /// the root (an empty path).
     pub fn directory(&self) -> &str {
         match self {
             Self::Root => "",

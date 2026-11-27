@@ -1,5 +1,3 @@
-//! The secondary-text style the dialog uses for its hints.
-
 use gpui::{Div, Styled, div};
 use ui::Palette;
 

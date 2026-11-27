@@ -27,8 +27,6 @@ export function useSidebar(): SidebarContextProps {
   return context
 }
 
-/** The sidebar context, or null outside a provider: for consumers that only ADJUST to the
- *  sidebar and must render on their own. */
 export function useSidebarOptional(): SidebarContextProps | null {
   return React.useContext(SidebarContext)
 }
@@ -46,8 +44,6 @@ export function SidebarProvider({
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }): React.ReactElement {
-  // This is the internal state of the sidebar.
-  // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
   const setOpen = React.useCallback(
@@ -62,10 +58,8 @@ export function SidebarProvider({
     [setOpenProp, open],
   )
 
-  // One state at every width: the shell lays a narrow window's sidebar over the content itself.
   const toggleSidebar = React.useCallback(() => setOpen((open) => !open), [setOpen])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
@@ -78,8 +72,6 @@ export function SidebarProvider({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [toggleSidebar])
 
-  // We add a state so that we can do data-state="expanded" or "collapsed".
-  // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? 'expanded' : 'collapsed'
 
   const contextValue = React.useMemo<SidebarContextProps>(
@@ -121,8 +113,6 @@ export function SidebarHeader({
 }: React.ComponentProps<'div'>): React.ReactElement {
   return (
     <div
-      // Flush, no vertical padding. `pl-3 pr-3` matches a depth-0 tree row's inset: the container's
-      // `px-1.5` plus the row's own `px-1.5` (FILE_TREE_BASE_INDENT).
       className={cn('flex flex-col gap-2 pl-3 pr-3 backdrop-blur-sm', className)}
       data-sidebar="header"
       data-slot="sidebar-header"

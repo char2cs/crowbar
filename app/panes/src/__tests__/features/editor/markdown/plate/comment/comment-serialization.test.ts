@@ -6,16 +6,6 @@ import {
 
 const roundTrip = (md: string) => commentValueToMarkdown(commentMarkdownToValue(md))
 
-// The comment editor runs a REDUCED plugin set (see comment-plugins.tsx), and
-// @platejs/markdown drops any node whose plugin is absent. That makes this file
-// the gate on the trim: every construct here is one a reviewer plausibly writes,
-// and a construct that does not survive is not a missing affordance — it is a
-// comment that loses content the moment its author edits it to fix a typo.
-//
-// Assertions are on CONTENT rather than bytes. The round trip re-canonicalizes
-// punctuation and cell padding (the file editor has the same property, which is
-// why it keeps a baseline instead of comparing to the original), so byte
-// equality would fail for reasons that cost the user nothing.
 describe('comment markdown round-trip: what a review comment contains', () => {
   it('preserves prose with marks', () => {
     const md = 'This is **bold**, *italic*, ~~struck~~ and `inline code`.'
@@ -69,16 +59,12 @@ describe('comment markdown round-trip: what a review comment contains', () => {
   })
 
   it('preserves a raw HTML block', () => {
-    // `<details>` is how a reviewer folds a long log into a comment — and it is
-    // markup no node type here models, so it rides through HtmlKit verbatim.
     const md = '<details>\n<summary>full output</summary>\n\nplenty of text\n\n</details>'
     expect(roundTrip(md)).toContain('<details>')
     expect(roundTrip(md)).toContain('<summary>full output</summary>')
   })
 
   it('leaves dollar signs alone', () => {
-    // No math plugin and no remark-math, so `$` is the literal character a
-    // reviewer typed — most often inside a shell snippet, not an equation.
     expect(roundTrip('run `$HOME/bin/x` and pay $5')).toContain('$HOME/bin/x')
   })
 
@@ -109,9 +95,6 @@ describe('comment markdown round-trip: what a review comment contains', () => {
 
 describe('comment markdown round-trip: empty input', () => {
   it('turns an empty comment into an empty document, not a stray character', () => {
-    // Plate's init synthesizes a paragraph for an empty document. If that
-    // synthesized node serialized to anything, a composer the user opened and
-    // closed would post — or enable its Comment button on — whitespace.
     expect(commentValueToMarkdown(commentMarkdownToValue('')).trim()).toBe('')
   })
 })

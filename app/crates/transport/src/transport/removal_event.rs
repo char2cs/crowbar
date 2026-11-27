@@ -1,5 +1,3 @@
-//! What forgetting a paired host logs.
-
 use std::fmt;
 
 use journal::Level;

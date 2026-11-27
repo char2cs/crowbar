@@ -33,32 +33,24 @@ afterEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-// A project-home chat (in no repo) has no pane-resolved workspace until a store is seeded, yet the
-// file explorer must show the home workspace at once: its id and path are known when `GET /home`
-// answers, independent of any chat.
 describe('useIdeShellWorkspaceRetention — project-home chat, before it resolves via a pane', () => {
   it("resolves sidebarWorkspacePath to the home workspace's REAL path, not the empty state", () => {
     seedRepos([repoWithOwnPath])
     const { paneActions } = windowPaneStore.getState()
-    // A freshly opened project-home chat: no workspace store has it yet, and
-    // it is not (and never is) present in any repo's own `chats` array, so
-    // the sidebar hint this hook's `activePaneWorkspaceId` leans on cannot
-    // name a workspace for it either.
     paneActions.openChat('home-chat-1')
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
-        undefined, // activeWorkspaceId — the home route has no repoId/wsId segment
-        'ws-home-1', // homeWorkspaceId — already resolved by ide-shell.tsx
+        undefined,
+        'ws-home-1',
         'p1',
         undefined,
-        true, // isHomeRoute
-        '/Users/mateo/projects/rabbyte-labs', // homeWorkspacePath — GET /home's own localPath
+        true,
+        '/Users/mateo/projects/rabbyte-labs',
       ),
     )
 
     expect(result.current.sidebarWorkspacePath).toBe('/Users/mateo/projects/rabbyte-labs')
-    // Neither empty nor another repo's checkout standing in for "the project's root".
     expect(result.current.sidebarWorkspacePath).not.toBe('')
     expect(result.current.sidebarWorkspacePath).not.toBe(repoWithOwnPath.localPath)
   })
@@ -72,7 +64,6 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
       useIdeShellWorkspaceRetention(undefined, 'ws-home-1', 'p1', undefined, true, null),
     )
 
-    // Graceful degradation: some real directory under the project beats an empty file explorer.
     expect(result.current.sidebarWorkspacePath).toBe(repoWithOwnPath.localPath)
   })
 
@@ -95,9 +86,6 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
   })
 })
 
-// A view can split a home chat's pane with a branch chat's pane; focusing the branch pane flips
-// the explorer to its worktree though the route stays on home. The pane store guarantees the
-// focused pane belongs to the showing view, so its workspace is never stale and must win.
 describe('useIdeShellWorkspaceRetention — home route with a split pane focused on a branch workspace', () => {
   it('resolves to the focused pane workspace, not home, when the active pane holds a branch-workspace chat', () => {
     seedRepos([
@@ -121,17 +109,15 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
       },
     ])
     const { paneActions } = windowPaneStore.getState()
-    // The split's OTHER pane: a branch-workspace chat, focused, while the
-    // route is still on project home.
     paneActions.openChat('branch-chat-1', { workspaceId: 'ws-other-repo' })
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
-        undefined, // activeWorkspaceId — the home route has no repoId/wsId segment
-        'ws-home-1', // homeWorkspaceId — already resolved by ide-shell.tsx
+        undefined,
+        'ws-home-1',
         'p1',
         undefined,
-        true, // isHomeRoute
+        true,
         '/Users/mateo/projects/rabbyte-labs',
       ),
     )
@@ -141,8 +127,6 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
 
   it('falls back to the home workspace when the active pane is the chatless stage (no branch pane focused)', () => {
     seedRepos([repoWithOwnPath])
-    // No `openChat` call: the active pane is the chatless stage/tray, so
-    // `activePaneWorkspaceId` resolves to null.
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
@@ -150,7 +134,7 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
         'ws-home-1',
         'p1',
         undefined,
-        true, // isHomeRoute
+        true,
         '/Users/mateo/projects/rabbyte-labs',
       ),
     )
@@ -159,9 +143,6 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
   })
 })
 
-// A home chat's pane is active while the ROUTE is a repo workspace (`isHomeRoute` false): a
-// correctly resolved `homeWorkspaceId` is honoured regardless of route. The shell's half of the
-// wiring is ide-shell.test.tsx's "mixed split".
 describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFERENT (repo) workspace of the same project', () => {
   afterEach(() => {
     destroyWorkspaceStore('ws-home-1')
@@ -170,8 +151,6 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
   it("resolves sidebarWorkspacePath to the home workspace's own path even though isHomeRoute is false", () => {
     seedRepos([repoWithOwnPath])
     const { paneActions } = windowPaneStore.getState()
-    // The pane's chat resolves to home via the REGISTRY (the sidebar hint can't name a home chat),
-    // as in the real app once the chat has streamed.
     writeChat({
       id: 'home-chat-1',
       workspaceId: 'ws-home-1',
@@ -189,11 +168,11 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
-        'ws-a', // activeWorkspaceId — the route's own repo workspace
-        'ws-home-1', // homeWorkspaceId — resolved for the active PROJECT, not the route
+        'ws-a',
+        'ws-home-1',
         'p1',
         'r1',
-        false, // isHomeRoute — the route is on a repo, not home
+        false,
         '/Users/mateo/projects/rabbyte-labs',
       ),
     )
@@ -204,8 +183,6 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
   })
 })
 
-// Branch-out and move re-point a chat to another workspace; its pane keeps the workspace it
-// opened in. The Files tab, the git tab and store retention must follow the chat.
 describe('useIdeShellWorkspaceRetention — a chat that moved to a child worktree', () => {
   const todoCli: Repo = {
     id: 'r-todo',

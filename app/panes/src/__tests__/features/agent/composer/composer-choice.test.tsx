@@ -110,7 +110,6 @@ describe('ComposerChoice permission card', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show all 20 lines' }))
     expect(body).toHaveTextContent('step 19')
     expect(screen.queryByTestId('agent-choice-hidden-lines')).toBeNull()
-    // The unfolded request scrolls by keyboard: its keys are not answers.
     fireEvent.keyDown(body.querySelector('pre')!, { key: '1' })
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
@@ -145,7 +144,6 @@ describe('ComposerChoice that cannot be answered from here', () => {
 })
 
 describe('ComposerChoice failures', () => {
-  // A 400 would only repeat, so the controls come down for the place an answer can land.
   it('takes the controls down on an unsupported shape, offering the terminal instead', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('this provider cannot express that answer', 400))
     show({}, { onOpenTerminal: vi.fn() })
@@ -171,7 +169,6 @@ describe('ComposerChoice failures', () => {
     expect(screen.queryByTestId('agent-choice-error')).toBeNull()
   })
 
-  // 409: the relay let go between poll and click, so the controls come down at once.
   it('takes the controls down when the gate has already closed', async () => {
     answerChoiceFn.mockRejectedValue(new ApiError('no longer answerable', 409))
     show({}, { onOpenTerminal: vi.fn() })
@@ -249,7 +246,6 @@ describe('ComposerChoice keys', () => {
     expect(answerChoiceFn).not.toHaveBeenCalled()
   })
 
-  // With focus on the page a digit is for the card; an Enter may end a message.
   it('takes a digit pressed while nothing has focus, never an Enter', async () => {
     show()
     ;(document.activeElement as HTMLElement | null)?.blur()

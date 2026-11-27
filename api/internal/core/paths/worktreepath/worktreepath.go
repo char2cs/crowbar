@@ -1,6 +1,3 @@
-// Package worktreepath derives deterministic paths under ~/.crowbar: per-entity metadata dirs keyed by
-// UUIDs, and human-readable worktree dirs keyed by remote identity so navigable paths carry no UUIDs.
-// DetectClash rejects case-only collisions on case-insensitive filesystems.
 package worktreepath
 
 import (
@@ -12,14 +9,8 @@ import (
 	"strings"
 )
 
-// ErrPathClash reports that a candidate worktree path collides
-// case-insensitively with an already-existing sibling worktree, which is
-// unrepresentable on a case-insensitive filesystem (macOS APFS, Windows).
 var ErrPathClash = errors.New("worktreepath: case-insensitive path clash")
 
-// Derive returns <home>/projects/<project>/<slug>/<branch>/worktree for a workspace. The "worktree"
-// leaf makes <slug>/<branch> a workspace root holding the worktree beside its "chats" tree, so agent
-// state never shows in git status and one rm -rf of the root removes the whole footprint.
 func Derive(
 	home string,
 	project string,
@@ -31,9 +22,6 @@ func Derive(
 			"worktreepath: derive requires non-empty home, project, slug, and branch",
 		)
 	}
-	// filepath.Join cleans traversal components (a remote-less repo's name slug can be "../../tmp"),
-	// and a workspace outside <home>/projects is unreclaimable by every removal guard, so refuse it
-	// here where the path is built rather than trusting callers.
 	root := filepath.Join(home, "projects")
 	path := filepath.Join(root, project, slug, branch, "worktree")
 	if !UnderHome(path, root) {
@@ -44,23 +32,14 @@ func Derive(
 	return path, nil
 }
 
-// WorkspaceRoot returns the workspace directory that holds the worktree and
-// the chats tree as siblings, given the worktree path.
 func WorkspaceRoot(worktreePath string) string { return filepath.Dir(worktreePath) }
 
-// ChatsDir returns a managed worktree's chats directory, beside the worktree so agent state never
-// appears in git status. Only valid for worktrees under crowbar home: an adopted checkout must use
-// HomeDefaultChatsDir so its chats never land on the user's filesystem.
 func ChatsDir(worktreePath string) string {
 	return filepath.Join(WorkspaceRoot(worktreePath), "chats")
 }
 
-// worktreeLeaf is the last component of every managed worktree path (Derive).
 const worktreeLeaf = "worktree"
 
-// OwnRoot returns the root holding a managed worktree path's "worktree" leaf, and false otherwise.
-// Pre-leaf <slug>/<branch> rows are refused (their parent is shared by siblings), as are unclean
-// paths and roots not strictly inside <home>/projects/<project>.
 func OwnRoot(
 	worktreePath string,
 	home string,
@@ -77,9 +56,6 @@ func OwnRoot(
 	return root, true
 }
 
-// ManagedChatsDir resolves a home worktree's chats dir: beside a leaf-shaped worktree, or the legacy
-// <slug>/chats of a pre-leaf row so its attachments stay readable — unless that dir is a checkout or
-// outside the project, when it gets its own dir keyed by workspace id.
 func ManagedChatsDir(
 	home string,
 	projectID string,
@@ -97,9 +73,6 @@ func ManagedChatsDir(
 	return filepath.Join(project, ".workspace-chats", workspaceID)
 }
 
-// HoldsAnother reports whether checkout is, or contains, another workspace's
-// checkout or the chats tree beside it — as a pre-leaf branch named "chats"
-// holds every sibling's. A forced removal of it would delete their files.
 func HoldsAnother(
 	checkout string,
 	others []string,
@@ -119,9 +92,6 @@ func HoldsAnother(
 	return false
 }
 
-// HomeDefaultChatsDir returns <home>/projects/<project>/<slug>/default/chats (blank slug collapses
-// the <slug> level) for an adopted checkout, so no conversation ledger is ever written beside the
-// user's real repository; the adopted worktree itself stays where it was imported.
 func HomeDefaultChatsDir(
 	home string,
 	project string,
@@ -130,23 +100,14 @@ func HomeDefaultChatsDir(
 	return filepath.Join(home, "projects", project, slug, "default", "chats")
 }
 
-// RunnerDir returns a runner's per-spawn config dir, <chatsDir>/runners/<runnerID>-<provider>. It is
-// keyed by the runner, not the chat, because a runner's chat pointer is erasable (Displace) while
-// runner id and provider are not, so boot reconciliation can always find and reap it.
 func RunnerDir(chatsDir, runnerID, provider string) string {
 	return filepath.Join(chatsDir, "runners", runnerID+"-"+provider)
 }
 
-// LedgerChatsDir returns <crowbar home>/chats, under which each chat's directory is joined by id. It
-// is never derived from WorkspaceID, which is optional and whose directory can move, so a ledger
-// never moves out from under a chat that is writing to it.
 func LedgerChatsDir(crowbarHome string) string {
 	return filepath.Join(crowbarHome, "chats")
 }
 
-// UnderHome reports whether path is strictly nested under crowbarHome at a directory boundary; blank
-// inputs, home itself and string-prefix siblings are not. It is the one notion of "under home" the
-// chats-dir seam and the repository rm guard share.
 func UnderHome(
 	path string,
 	home string,
@@ -157,8 +118,6 @@ func UnderHome(
 	return strings.HasPrefix(path, strings.TrimRight(home, "/")+"/")
 }
 
-// ResolvePath resolves symlinks in p, falling back to a lexical clean when p
-// cannot be resolved (e.g. it no longer exists on disk).
 func ResolvePath(p string) string {
 	if resolved, err := filepath.EvalSymlinks(p); err == nil {
 		return resolved
@@ -166,22 +125,15 @@ func ResolvePath(p string) string {
 	return filepath.Clean(p)
 }
 
-// SamePath reports whether two paths name the same location after resolving symlinks, since git
-// worktree list emits resolved paths while a repo's Path is as imported.
 func SamePath(a, b string) bool {
 	return ResolvePath(a) == ResolvePath(b)
 }
 
-// IsLiveCheckout reports whether dir is a git checkout: it holds a `.git`
-// entry (a file, for a linked worktree). A checkout git still has registered is
-// git's to remove — never a delete's rm -rf.
 func IsLiveCheckout(dir string) bool {
 	_, err := os.Lstat(filepath.Join(dir, ".git"))
 	return err == nil
 }
 
-// SiblingRoots lists the existing workspace roots under a repo's slug directory so a create can
-// reject a case-insensitive clash; a missing slug directory has none.
 func SiblingRoots(
 	crowbarHome string,
 	projectID string,
@@ -202,8 +154,6 @@ func SiblingRoots(
 	return paths, nil
 }
 
-// DetectClash returns ErrPathClash when candidate is case-insensitively equal to any existing path:
-// on a case-insensitive filesystem the two would share a directory, so creation is refused.
 func DetectClash(
 	existingPaths []string,
 	candidate string,
@@ -221,9 +171,6 @@ func DetectClash(
 	return nil
 }
 
-// StorageDir returns the per-workspace storage directory.
-//
-// Path: .../workspaces/<workspaceID>/storages
 func StorageDir(
 	crowbarHome string,
 	projectID string,
@@ -236,9 +183,6 @@ func StorageDir(
 	)
 }
 
-// RepoDir returns the per-repo directory.
-//
-// Path: <crowbarHome>/projects/<projectID>/<repoID>
 func RepoDir(
 	crowbarHome string,
 	projectID string,
@@ -247,9 +191,6 @@ func RepoDir(
 	return filepath.Join(ProjectDir(crowbarHome, projectID), repoID)
 }
 
-// RepoIconPath returns the per-repo icon file path.
-//
-// Path: .../projects/<projectID>/<repoID>/icon
 func RepoIconPath(
 	crowbarHome string,
 	projectID string,
@@ -258,9 +199,6 @@ func RepoIconPath(
 	return filepath.Join(RepoDir(crowbarHome, projectID, repoID), "icon")
 }
 
-// ProjectDir returns the per-project directory.
-//
-// Path: <crowbarHome>/projects/<projectID>
 func ProjectDir(
 	crowbarHome string,
 	projectID string,
@@ -281,14 +219,8 @@ func workspaceDir(
 	)
 }
 
-// maxPathBranchAttempts bounds the disambiguation search. It is a wedge ceiling,
-// not a budget: reaching it means a hundred workspaces have frozen variants of
-// one name, which is a home in trouble for other reasons.
 const maxPathBranchAttempts = 100
 
-// FreePathBranch returns branch, or branch-2, branch-3, … when taken: a workspace's directory is fixed
-// at creation and never follows a rename, so an abandoned name must not block a new branch. The
-// sibling scan catches case-only clashes; the directory test catches nested branches.
 func FreePathBranch(
 	home string,
 	project string,
@@ -319,8 +251,6 @@ func FreePathBranch(
 		ErrPathClash, branch, maxPathBranchAttempts)
 }
 
-// RemoveUnderHome deletes target only when strictly under crowbar home, and says why when it stays.
-// It stops a poisoned or misconfigured chats dir from reaching the user's real repository.
 func RemoveUnderHome(
 	home string,
 	target string,
@@ -334,21 +264,14 @@ func RemoveUnderHome(
 	return nil
 }
 
-// AttachmentsDir returns <home>/chats/<chatID>/attachments, a chat's durable attachment store. It
-// hangs off the chat's own directory, not its workspace's, so a move keeps it and a delete reaps it.
 func AttachmentsDir(crowbarHome, chatID string) string {
 	return filepath.Join(LedgerChatsDir(crowbarHome), chatID, "attachments")
 }
 
-// RelayDir returns <home>/chats/<chatID>/relay, where a session's MCP relay finds its token. Like
-// the attachment store it hangs off the chat, so a new runner or a move of the chat keeps the path.
 func RelayDir(crowbarHome, chatID string) string {
 	return filepath.Join(LedgerChatsDir(crowbarHome), chatID, "relay")
 }
 
-// RestoreDurableAttachmentRefs rewrites durable-store absolute attachment paths in a hook's prompt
-// back to logical chats/<chatID>/attachments/<file> refs, since a prompt typed into the CLI has no
-// other copy of the original text. Text without such paths comes back unchanged.
 func RestoreDurableAttachmentRefs(text, crowbarHome, chatID string) string {
 	absolutePrefix := filepath.ToSlash(AttachmentsDir(crowbarHome, chatID))
 	pattern := regexp.MustCompile(regexp.QuoteMeta(absolutePrefix) + `/([^/)\s]+)`)

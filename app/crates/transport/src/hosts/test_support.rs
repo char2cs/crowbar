@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::hosts::storage::Storage;
 
-/// An in-memory hosts document that can be told to fail its next writes.
 #[derive(Debug, Default)]
 pub(crate) struct MemoryStorage {
     path: PathBuf,

@@ -1,5 +1,3 @@
-//! A pane's life: runtime state, phases, stages, frames, visibility and slot placement.
-
 mod frames;
 mod group_frame;
 mod mounted;

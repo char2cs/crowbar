@@ -20,8 +20,6 @@ import (
 )
 
 func TestImportRepo_DuplicatePath_IsNoOp(t *testing.T) {
-	// Re-adding a folder already imported under the project is a no-op: it returns
-	// the existing repo and creates no duplicate row or duplicate workspaces.
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
 	ws := mocks.NewWorkspaceRepo()
@@ -57,8 +55,6 @@ func TestImportRepo_DuplicatePath_IsNoOp(t *testing.T) {
 	assert.Len(t, ws.Created, wsCount, "no duplicate workspaces")
 }
 
-// TestImportRepo_UnknownProject_Errors pins that adding a repo under an unknown
-// project id returns an error and persists nothing.
 func TestImportRepo_UnknownProject_Errors(
 	t *testing.T,
 ) {
@@ -85,8 +81,6 @@ func TestImportRepo_UnknownProject_Errors(
 	assert.Empty(t, repos.Saved)
 }
 
-// TestImportRepo_LoadProjectError_Errors pins that a project-store lookup error
-// surfaces from ImportRepo and persists nothing.
 func TestImportRepo_LoadProjectError_Errors(
 	t *testing.T,
 ) {
@@ -125,8 +119,6 @@ func TestCheckRepoImportable_SameProjectIsNotAConflict(t *testing.T) {
 	_, repos, _, _, _, uc := newImport(t)
 	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-1", Path: "/repoA"}}
 
-	// Re-adding a folder the SAME project already has is a dedup (importOneRepo
-	// returns the existing row), never a refusal.
 	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
 }
 
@@ -151,8 +143,6 @@ func TestCheckRepoImportable_OtherProjectRefusedAndNamed(t *testing.T) {
 
 func TestCheckRepoImportable_OtherProjectUnnamedStillRefused(t *testing.T) {
 	_, repos, _, _, _, uc := newImport(t)
-	// The owning project row is absent, so its name cannot be resolved. The
-	// refusal still stands — it just loses the pointer to where the folder lives.
 	repos.Saved = []domain.Repository{{ID: "r1", ProjectID: "proj-2", Path: "/repoA"}}
 
 	err := uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA")
@@ -172,8 +162,6 @@ func TestCheckRepoImportable_ProjectLookupErrorStillRefuses(t *testing.T) {
 	assert.NotContains(t, err.Error(), "in the project")
 }
 
-// A read failure is an error, not "importable": guessing would let two
-// projects share the folder.
 func TestCheckRepoImportable_ARepoReadErrorIsReturned(t *testing.T) {
 	_, repos, _, _, _, uc := newImport(t)
 	repos.FindErr = errors.New("boom")
@@ -181,16 +169,11 @@ func TestCheckRepoImportable_ARepoReadErrorIsReturned(t *testing.T) {
 	require.ErrorContains(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"), "boom")
 }
 
-// TestImportRepo_FolderAlreadyOwnedByAnotherProject_RefusesWithNoNewRow proves
-// that importOneRepo's own CheckRepoImportable call (reached via ImportRepo,
-// not called directly) refuses a folder another project has already imported,
-// and persists nothing for the second project.
 func TestImportRepo_FolderAlreadyOwnedByAnotherProject_RefusesWithNoNewRow(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Name: "First"}))
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-2", Name: "Second"}))
-	// proj-1 already owns /shared/repo.
 	require.NoError(t, repos.Save(context.Background(), domain.Repository{ID: "r1", ProjectID: "proj-1", Path: "/shared/repo"}))
 
 	uc := newImportUsecase(t, project.ImportDeps{
@@ -212,17 +195,13 @@ func TestImportRepo_FolderAlreadyOwnedByAnotherProject_RefusesWithNoNewRow(t *te
 	require.Len(t, repos.Saved, 1, "no second row for the same folder under a different project")
 }
 
-// TestImport_CrowbarHomeError_SkipsIconAndProtectedWorktrees proves that when
-// CrowbarHome itself errors, BOTH the repo-icon write and the protected-branch
-// worktree provisioning degrade cleanly: the repo is still imported (with a
-// generated avatar and no managed worktrees), never failing the batch.
 func TestImport_CrowbarHomeError_SkipsIconAndProtectedWorktrees(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	ws := mocks.NewWorkspaceRepo()
 	git := mocks.NewGitEngine()
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
 	prov := mocks.NewProviderEngine()
-	prov.Protected = []string{"main"} // unheld -> would normally get a managed worktree
+	prov.Protected = []string{"main"}
 	uc := newImportUsecase(t, project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
@@ -245,12 +224,6 @@ func TestImport_CrowbarHomeError_SkipsIconAndProtectedWorktrees(t *testing.T) {
 	}
 }
 
-// TestImport_CrowbarHomeIsAFile_IconAndSiblingScanBothFail proves the DISTINCT
-// degrade when CrowbarHome resolves to a real, non-empty path that is simply
-// unusable as a directory (here: an existing plain file): the icon write's own
-// os.MkdirAll fails, and the protected-branch worktree provisioning's sibling
-// scan (os.ReadDir) fails the same way — both surfacing the real os error
-// rather than the "home unset" degrade above, yet the import still succeeds.
 func TestImport_CrowbarHomeIsAFile_IconAndSiblingScanBothFail(t *testing.T) {
 	brokenHome := filepath.Join(t.TempDir(), "not-a-directory")
 	require.NoError(t, os.WriteFile(brokenHome, []byte("x"), 0o644))
@@ -316,7 +289,6 @@ func TestImport_AvatarFetchError_LeavesGeneratedAvatar(t *testing.T) {
 	assert.False(t, repos.Saved[0].AvatarHasIcon)
 }
 
-// A failure to read the prior imports fails the import and saves nothing.
 func TestImportRepo_AnExistingRepoLookupErrorFailsTheImport(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
@@ -344,7 +316,7 @@ func TestImportRepo_AnExistingRepoLookupErrorFailsTheImport(t *testing.T) {
 
 func TestImport_NoWorktreeMatchesRepoPath_HomeHasEmptyBranch(t *testing.T) {
 	_, ws, git, prov, uc := newImportForCoverage(t)
-	git.Worktrees = nil // no entry at all — not even the repo's own path
+	git.Worktrees = nil
 	prov.Protected = nil
 
 	_, err := uc.Import(context.Background(), "P", "/root")
@@ -360,11 +332,6 @@ func TestImport_NoWorktreeMatchesRepoPath_HomeHasEmptyBranch(t *testing.T) {
 	assert.Empty(t, home.Branch, "with no worktree entry to read a branch from, it is left empty")
 }
 
-// TestImportRepo_RecordsRealOriginRemoteURL proves gitRemoteURL's success
-// return: with a REAL git repository configured with an origin remote at the
-// import path, the persisted Repository carries that exact remote URL. Every
-// other import test in this package points at a directory with no real .git
-// at all, which only ever exercises gitRemoteURL's failure branch.
 func TestImportRepo_RecordsRealOriginRemoteURL(t *testing.T) {
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init")
@@ -403,10 +370,6 @@ func runGit(t *testing.T, dir string, args ...string) {
 	require.NoErrorf(t, err, "git %v: %s", args, out)
 }
 
-// TestImportRepo_IconWriteSkipped_WhenCrowbarHomeUnavailable proves writeRepoIcon
-// degrades cleanly when CrowbarHome cannot be resolved: a local icon IS found on
-// disk, but with nowhere under ~/.crowbar to write it the repo still imports,
-// just with AvatarHasIcon left false (the generated label/color avatar).
 func TestImportRepo_IconWriteSkipped_WhenCrowbarHomeUnavailable(t *testing.T) {
 	repoDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "favicon.svg"), []byte("<svg>icon</svg>"), 0o644))
@@ -438,7 +401,6 @@ func TestImportRepo_IconWriteSkipped_WhenCrowbarHomeUnavailable(t *testing.T) {
 		"the icon cannot be written with nowhere under crowbar home to put it")
 }
 
-// workspaceOutcome is one protected branch's outcome as ImportRepo reports it.
 type workspaceOutcome struct {
 	ID, Branch string
 	Err        error

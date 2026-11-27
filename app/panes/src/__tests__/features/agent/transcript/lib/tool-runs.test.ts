@@ -87,7 +87,6 @@ describe('displayRows', () => {
     }
   })
 
-  // A memoized row skips only while its props keep their identity.
   it('keeps the rows a newer call leaves as they were', () => {
     const a = tool({ kind: 'read', target: '/a' })
     const b = tool({ kind: 'search', target: 'x' })
@@ -109,7 +108,6 @@ describe('displayRows', () => {
     expect(rowsOf([a, meta, plan, b])).toEqual([{ id: `g:${a.id}`, members: [a.id, b.id] }])
   })
 
-  // The person decided on it: its row is the record of what was approved.
   it('draws a plan call a person was asked about', () => {
     const asked = { ...tool({ kind: 'plan', name: 'ExitPlanMode' }), askId: 'q1' }
     const answered = { ...tool({ kind: 'plan', name: 'ExitPlanMode' }), askNote: 'Allowed' }

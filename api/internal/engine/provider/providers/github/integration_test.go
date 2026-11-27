@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/provider/providers/github"
 )
 
-// repoRoot walks up from this file to find the git root so the test works
-// regardless of where it is run from.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -26,7 +24,7 @@ func repoRoot(t *testing.T) string {
 	for {
 		if _, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output(); err == nil {
 			out, _ := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
-			return filepath.Clean(string(out[:len(out)-1])) // trim trailing newline
+			return filepath.Clean(string(out[:len(out)-1]))
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -36,7 +34,6 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// originOf returns dir's real origin URL, which the engine would have detected.
 func originOf(t *testing.T, dir string) string {
 	t.Helper()
 	out, err := exec.CommandContext(t.Context(), "git", "-C", dir, "remote", "get-url", "origin").Output()
@@ -44,7 +41,6 @@ func originOf(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestIntegration_ProtectedBranches calls the real gh CLI against this repo.
 func TestIntegration_ProtectedBranches(t *testing.T) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Skip("gh not installed")
@@ -55,17 +51,10 @@ func TestIntegration_ProtectedBranches(t *testing.T) {
 
 	branches, err := p.ProtectedBranches(context.Background(), dir)
 	require.NoError(t, err)
-	// Result may be empty if no branches are protected — that is valid.
-	// What matters is no error and the type is correct.
 	assert.IsType(t, []string{}, branches)
 	t.Logf("protected branches: %v", branches)
 }
 
-// TestIntegration_PullRequestForBranch exercises the real `gh pr list`
-// invocation + parsing. It does NOT pin a specific live PR: the original fixture
-// (PR #10 open on feature/wave2-engines) drifted when that PR merged, so the test
-// now asserts the call succeeds and that any returned PR is well-typed — accepting
-// "no open PR" as valid.
 func TestIntegration_PullRequestForBranch(t *testing.T) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Skip("gh not installed")
@@ -88,7 +77,6 @@ func TestIntegration_PullRequestForBranch(t *testing.T) {
 	t.Logf("PR: #%d %q status=%s target=%s", pr.Number, pr.Title, pr.Status, pr.TargetBranch)
 }
 
-// TestIntegration_PullRequestForBranch_NoPR verifies nil is returned for a branch with no PR.
 func TestIntegration_PullRequestForBranch_NoPR(t *testing.T) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Skip("gh not installed")
@@ -97,7 +85,6 @@ func TestIntegration_PullRequestForBranch_NoPR(t *testing.T) {
 	dir := repoRoot(t)
 	p := github.New(originOf(t, dir), exec.CommandContext)
 
-	// Use a branch name that is extremely unlikely to have a PR.
 	pr, err := p.PullRequestForBranch(context.Background(), dir, "no-such-branch-xyzzy-12345")
 	require.NoError(t, err)
 	assert.Nil(t, pr)

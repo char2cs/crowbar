@@ -16,8 +16,6 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
 const closeMock = vi.fn().mockResolvedValue(undefined)
 const menuNewMock = vi.fn()
 
-// Items must be built through their own constructors: Tauri drops the click
-// channel of an item passed inline to Menu.new (see crowbar-bridge.ts).
 vi.mock('@tauri-apps/api/menu', () => ({
   Menu: { new: (...args: unknown[]) => menuNewMock(...args) },
   MenuItem: {
@@ -27,12 +25,6 @@ vi.mock('@tauri-apps/api/menu', () => ({
   PredefinedMenuItem: { new: async () => ({ close: closeMock }) },
 }))
 
-// showNativeContextMenu (crowbar-bridge.ts) pops the menu through this app's
-// own `popup_native_context_menu` command via window.__TAURI_INTERNALS__.invoke
-// — not the JS `menu.popup()` method — because Tauri's built-in
-// `plugin:menu|popup` command holds the webview's resources-table lock across
-// the whole blocking popup call, deadlocking every other resource-backed
-// command for as long as the menu stays open.
 const invokeMock = vi.fn().mockResolvedValue(undefined)
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: { invoke: typeof invokeMock } }
@@ -97,7 +89,6 @@ describe('ContextMenu — native path (isTauri() true)', () => {
       />,
     )
 
-    // Flush the effects and any promise they started.
     await act(async () => {})
     expect(menuNewMock).not.toHaveBeenCalled()
     expect(invokeMock).not.toHaveBeenCalled()
@@ -124,24 +115,14 @@ describe('ContextMenu — native path (isTauri() true)', () => {
       expect.any(Error),
     )
 
-    // The user must not be left with silence: a broken native popup call
-    // falls back to the same rendered menu the non-Tauri path already uses.
     await waitFor(() => expect(getByText('A')).toBeInTheDocument())
 
-    // onClose must NOT have fired on the failure path itself — doing so
-    // would flip the caller's `isOpen` to false and unmount the fallback
-    // before it ever got to render (every real call site gates its own
-    // render on that same `isOpen`).
     expect(onClose).not.toHaveBeenCalled()
 
-    // The fallback must be a real, usable menu: its own dismissal (Escape)
-    // still calls the real onClose, exactly like the non-Tauri path.
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  // StrictMode (src/main.tsx) double-invokes the effect before Menu.new() resolves; only the
-  // surviving invocation may pop a native menu, or two stacked menus read as "it reopens".
   it('under StrictMode, only the surviving effect invocation pops up a menu', async () => {
     const onClose = vi.fn()
     render(
@@ -156,18 +137,12 @@ describe('ContextMenu — native path (isTauri() true)', () => {
     )
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledOnce())
-    // StrictMode's double-invoke DOES call Menu.new() twice — that's expected
-    // and harmless (the cancelled invocation's menu resource just gets closed
-    // unopened, asserted below; the popped one stays open until its action
-    // runs or the next menu replaces it). What must stay singular is the actual popup.
     await waitFor(() => expect(menuNewMock).toHaveBeenCalledTimes(2))
-    // The cancelled invocation closing its menu is the point it would otherwise have popped it.
     await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(2))
     expect(invokeMock).toHaveBeenCalledOnce()
   })
 })
 
-// The phone app runs in Tauri but has no OS context menu: the rendered one is the menu.
 describe('ContextMenu — in the phone app', () => {
   it('renders the menu itself and pops no native one', async () => {
     platform.mobile = true

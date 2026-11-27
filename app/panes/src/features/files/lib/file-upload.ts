@@ -2,8 +2,6 @@ import { workspaceRef, writeDocument } from '@/lib/api/documents'
 import { joinPath } from '@/utils/path-helpers'
 import { createFileNode } from './file-tree-api'
 
-// Show the OS file picker; resolves to [] on cancel. The <input> stays detached from the DOM:
-// browsers fire `change`/`cancel` on a detached input clicked synchronously from a user gesture.
 function pickFiles(): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
@@ -15,8 +13,6 @@ function pickFiles(): Promise<File[]> {
   })
 }
 
-// A File's bytes as base64 (the payload of readAsDataURL's data: URL). Reading bytes rather than
-// file.text() keeps binary uploads byte-faithful; a UTF-8 round trip mangles non-UTF-8 bytes.
 function readFileAsBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -34,9 +30,6 @@ function readFileAsBase64(file: Blob): Promise<string> {
   })
 }
 
-// Upload picked files into `directoryPath` ('' is the workspace root) via the daemon's create
-// and document-write endpoints, as base64 so the exact bytes land on disk. Returns the
-// workspace-relative paths written.
 export async function pickAndUploadFiles(wsId: string, directoryPath: string): Promise<string[]> {
   const files = await pickFiles()
   const written: string[] = []

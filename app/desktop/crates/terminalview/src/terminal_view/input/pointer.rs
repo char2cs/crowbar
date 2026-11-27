@@ -1,5 +1,3 @@
-//! Mouse presses on the view: reporting to the program, starting a selection, pasting.
-
 pub(crate) mod auto_scroll;
 pub(crate) mod button_event;
 mod drag;

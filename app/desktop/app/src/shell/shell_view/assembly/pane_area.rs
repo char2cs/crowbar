@@ -1,5 +1,3 @@
-//! Where the panes' web views sit in the window, and what the window's overlays cover of them.
-
 use gpui::{App, Entity, Window};
 
 pub(crate) struct PaneArea {

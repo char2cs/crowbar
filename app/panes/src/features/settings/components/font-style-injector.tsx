@@ -9,23 +9,18 @@ import { currentPlatform, IS_WINDOWS } from '@/utils/platform'
 import { normalizeMarkdownFontSize } from '../lib/markdown-font-size'
 import { getUiFontScale, normalizeUiFontSize } from '../lib/ui-font-size'
 
-// Cross-platform monospace fallback stack
 const DEFAULT_MONO_FALLBACK =
   '"Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
-// Windows-optimized monospace fallback stack (WebView2 renders these more consistently)
 const WINDOWS_MONO_FALLBACK =
   '"Geist Mono Variable", Consolas, "Cascadia Mono", "Cascadia Code", "Courier New", ui-monospace, monospace'
 
-// Cross-platform sans fallback stack
 const DEFAULT_SANS_FALLBACK =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
 
-// Windows-optimized sans fallback stack
 const WINDOWS_SANS_FALLBACK =
   '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif'
 
-// Heading fallback stack — same on every platform, no Nerd Font/icon concerns
 const HEADING_FALLBACK = 'Georgia, "Times New Roman", serif'
 
 function stripWrappingQuotes(value: string): string {
@@ -37,7 +32,6 @@ function buildFontVariable(primary: string, fallback: string): string {
   const normalized = stripWrappingQuotes(primary)
   if (!normalized) return fallback
 
-  // Preserve legacy values that already include a full stack.
   if (normalized.includes(',')) {
     return `${normalized}, ${fallback}`
   }
@@ -45,7 +39,6 @@ function buildFontVariable(primary: string, fallback: string): string {
   return `"${normalized}", ${fallback}`
 }
 
-// Font fallbacks live in styles.css's @theme directive.
 export const FontStyleInjector = () => {
   const settings = useSettingsStore((s) => s.settings)
 
@@ -82,9 +75,6 @@ export const FontStyleInjector = () => {
       `${getUiFontScale(normalizedUiFontSize)}`,
     )
 
-    // Base type size for the Plate markdown surface. Read by
-    // markdown-editor.css; every other size there is `em`-relative, so this one
-    // value rescales the whole document.
     document.documentElement.style.setProperty(
       '--md-base-font-size',
       `${normalizeMarkdownFontSize(settings.markdownFontSize)}px`,

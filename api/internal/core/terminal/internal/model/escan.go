@@ -6,12 +6,8 @@ import (
 	"strings"
 )
 
-// maxEscanParams bounds the CSI parameter bytes buffered per sequence: DECSTBM needs a handful;
-// past the cap the final byte is still consumed but parameters stop accumulating.
 const maxEscanParams = 64
 
-// maxEscanOSCText bounds the OSC 0/1/2 body buffered per title, limiting growth on a never-terminated
-// OSC; only trailing title text is ever truncated. The serializer caps separately.
 const maxEscanOSCText = 4096
 
 const (
@@ -24,9 +20,6 @@ const (
 	escOSCEsc
 )
 
-// scanCharsetAndRegion recovers the state the pinned x/vt gives no callback for (SCS designation,
-// SI/SO locking shift, DECSTBM) plus OSC 0/1/2 titles, which x/vt truncates at a 0x9C UTF-8 byte.
-// It recognises only these and carries state across Writes, so split sequences still match.
 func (m *vtModel) scanCharsetAndRegion(
 	p []byte,
 ) {
@@ -35,8 +28,6 @@ func (m *vtModel) scanCharsetAndRegion(
 	}
 }
 
-// resetEscan returns the scanner to ground state, dropping any in-flight partial sequence.
-// Called after a parse-panic recreate, when the emulator is blanked to a known state.
 func (m *vtModel) resetEscan() {
 	m.escanState = escGround
 	m.escanParams = m.escanParams[:0]
@@ -60,22 +51,20 @@ func (m *vtModel) escanStep(
 		m.escanFromCSI(c)
 	case escOSC:
 		m.escanFromOSC(c)
-	default: // escOSCEsc
+	default:
 		m.escanFromOSCEsc(c)
 	}
 }
 
-// escanFromGround dispatches ground-state bytes. Only the 7-bit ESC starts a sequence: 0x9B is a
-// valid UTF-8 continuation byte, and framing it as CSI would swallow the following text.
 func (m *vtModel) escanFromGround(
 	c byte,
 ) {
 	switch c {
-	case 0x0e: // SO — invoke G1 into GL
+	case 0x0e:
 		m.shadow.glLock = 1
-	case 0x0f: // SI — invoke G0 into GL
+	case 0x0f:
 		m.shadow.glLock = 0
-	case 0x1b: // ESC
+	case 0x1b:
 		m.escanState = escEsc
 	}
 }
@@ -84,42 +73,34 @@ func (m *vtModel) escanFromEsc(
 	c byte,
 ) {
 	switch c {
-	case '(': // designate G0
+	case '(':
 		m.escanState = escSCSG0
-	case ')': // designate G1
+	case ')':
 		m.escanState = escSCSG1
-	case '[': // CSI
+	case '[':
 		m.beginCSI()
-	case ']': // OSC — icon/title string
+	case ']':
 		m.beginOSC()
-	case 'c': // RIS — full reset
+	case 'c':
 		m.applyRIS()
 		m.escanState = escGround
 	default:
-		// Any other ESC sequence (including CAN/SUB abort and the multi-byte SCS variants
-		// ESC * / ESC + for G2/G3 we do not track) returns to ground; the emulator still
-		// parses it for the grid.
 		m.escanState = escGround
 	}
 }
 
-// applyRIS resets the shadow state x/vt never reports back (scroll region, G0/G1, locking shift) on
-// ESC c. Private modes and keypad are left to x/vt's resetModes callbacks: clearing them here would
-// clobber an ESC = arriving in the same Write, since escan runs after the emulator.
 func (m *vtModel) applyRIS() {
 	m.shadow.scrollRegionSet = false
 	m.shadow.scrollTop, m.shadow.scrollBottom = 0, 0
 	m.shadow.g0, m.shadow.g1, m.shadow.glLock = 'B', 'B', 0
 }
 
-// escanFromSCS records the designator's final byte for the slot, skipping the intermediate bytes
-// (0x20-0x2f) of a multi-byte 96-charset designator.
 func (m *vtModel) escanFromSCS(
 	c byte,
 	slot int,
 ) {
 	if c >= 0x20 && c <= 0x2f {
-		return // intermediate; keep collecting
+		return
 	}
 	m.shadow.setCharset(slot, c)
 	m.escanState = escGround
@@ -135,18 +116,17 @@ func (m *vtModel) escanFromCSI(
 	c byte,
 ) {
 	switch {
-	case c == 0x18 || c == 0x1a: // CAN / SUB abort
+	case c == 0x18 || c == 0x1a:
 		m.escanState = escGround
-	case c == 0x1b: // ESC — abort this CSI and start a fresh sequence (defense-in-depth: a
-		// real sequence arriving mid-CSI must not be swallowed as a param byte).
+	case c == 0x1b:
 		m.escanState = escEsc
-	case c >= 0x40 && c <= 0x7e: // final byte
+	case c >= 0x40 && c <= 0x7e:
 		m.finishCSI(c)
 		m.escanState = escGround
-	case c >= 0x3c && c <= 0x3f: // private-marker byte (e.g. '?') — never a DECSTBM
+	case c >= 0x3c && c <= 0x3f:
 		m.escanPrivate = true
 		m.appendEscanParam(c)
-	default: // parameter / intermediate byte
+	default:
 		m.appendEscanParam(c)
 	}
 }
@@ -160,8 +140,6 @@ func (m *vtModel) appendEscanParam(
 	m.escanParams = append(m.escanParams, c)
 }
 
-// finishCSI applies a completed CSI sequence. Only DECSTBM (final byte 'r', no private
-// marker) is acted upon; every other CSI is ignored (x/vt handles it for the grid).
 func (m *vtModel) finishCSI(
 	final byte,
 ) {
@@ -171,8 +149,6 @@ func (m *vtModel) finishCSI(
 	m.applyDECSTBM(string(m.escanParams))
 }
 
-// applyDECSTBM updates the shadow scroll region: empty params reset to full screen; otherwise top
-// must be >= 1 and below bottom (default: height) or the sequence is ignored, as on a VT.
 func (m *vtModel) applyDECSTBM(
 	params string,
 ) {
@@ -196,7 +172,7 @@ func (m *vtModel) parseDECSTBM(
 	if i := strings.IndexByte(params, ';'); i >= 0 {
 		topStr, botStr = params[:i], params[i+1:]
 		if strings.IndexByte(botStr, ';') >= 0 {
-			return 0, 0, false // more than two parameters is not DECSTBM
+			return 0, 0, false
 		}
 	}
 	top = 1
@@ -216,30 +192,26 @@ func (m *vtModel) parseDECSTBM(
 		bottom = v
 	}
 	if top >= bottom {
-		return 0, 0, false // a region must span at least two rows
+		return 0, 0, false
 	}
 	return top, bottom, true
 }
 
-// beginOSC starts an OSC body. The 8-bit 0x9D introducer is not honoured: it is a valid UTF-8
-// continuation byte and would start an OSC on ordinary text.
 func (m *vtModel) beginOSC() {
 	m.escanState = escOSC
 	m.escanOSC = m.escanOSC[:0]
 }
 
-// escanFromOSC accumulates the body until BEL or 7-bit ST (ESC \); CAN/SUB abort. Bytes >= 0x80,
-// including 0x9C, are title content — the reason this scanner exists.
 func (m *vtModel) escanFromOSC(
 	c byte,
 ) {
 	switch c {
-	case 0x07: // BEL terminates
+	case 0x07:
 		m.finishOSC()
 		m.escanState = escGround
-	case 0x1b: // possible 7-bit ST (ESC \)
+	case 0x1b:
 		m.escanState = escOSCEsc
-	case 0x18, 0x1a: // CAN / SUB abort — discard the partial string
+	case 0x18, 0x1a:
 		m.escanState = escGround
 	default:
 		if len(m.escanOSC) < maxEscanOSCText {
@@ -248,9 +220,6 @@ func (m *vtModel) escanFromOSC(
 	}
 }
 
-// escanFromOSCEsc resolves the byte after an ESC inside an OSC string: ESC \ is the 7-bit ST
-// terminator and commits the string; any other byte means that ESC was not a terminator, so
-// the scanner returns to the string and treats the byte as content. A lone ESC is never itself appended, so it cannot corrupt the captured title.
 func (m *vtModel) escanFromOSCEsc(
 	c byte,
 ) {
@@ -263,8 +232,6 @@ func (m *vtModel) escanFromOSCEsc(
 	m.escanFromOSC(c)
 }
 
-// finishOSC routes a "<code>;<text>" body to the title (0/2) and/or icon name (0/1); any other OSC
-// is ignored. Text stays raw UTF-8; the serializer sanitizes it.
 func (m *vtModel) finishOSC() {
 	i := bytes.IndexByte(m.escanOSC, ';')
 	if i < 0 {

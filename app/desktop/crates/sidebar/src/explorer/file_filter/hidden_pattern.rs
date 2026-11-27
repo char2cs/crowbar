@@ -1,5 +1,3 @@
-//! Gitignore-style patterns of the hidden file and directory settings.
-
 use crate::shell::FileKind;
 
 pub(crate) fn matches(

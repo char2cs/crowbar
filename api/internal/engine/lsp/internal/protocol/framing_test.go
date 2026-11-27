@@ -45,14 +45,12 @@ func TestFraming_TwoMessages(t *testing.T) {
 }
 
 func TestFraming_BadHeaderErrors(t *testing.T) {
-	// Garbage header line — no ":" separator.
 	r := bufio.NewReader(strings.NewReader("garbage\r\n\r\n{}"))
 	_, err := ReadMessage(r)
 	require.Error(t, err)
 }
 
 func TestFraming_MissingContentLength(t *testing.T) {
-	// Valid header format but without Content-Length.
 	r := bufio.NewReader(strings.NewReader("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}"))
 	_, err := ReadMessage(r)
 	require.Error(t, err)
@@ -72,7 +70,6 @@ func TestFraming_NegativeContentLength(t *testing.T) {
 }
 
 func TestFraming_TruncatedBody(t *testing.T) {
-	// Content-Length says 100 bytes but body is only 2 bytes.
 	r := bufio.NewReader(strings.NewReader("Content-Length: 100\r\n\r\n{}"))
 	_, err := ReadMessage(r)
 	require.Error(t, err)
@@ -90,7 +87,6 @@ func TestFraming_EmptyPayload(t *testing.T) {
 }
 
 func TestFraming_WriteError(t *testing.T) {
-	// errWriter always fails.
 	err := WriteMessage(&errWriter{}, []byte(`{}`))
 	require.Error(t, err)
 }
@@ -103,8 +99,6 @@ func TestFraming_EOFOnFirstRead(t *testing.T) {
 }
 
 func TestFraming_HeaderWithExtraFields(t *testing.T) {
-	// Real LSP servers send Content-Type alongside Content-Length; we should
-	// ignore unknown headers and still succeed.
 	const msg = "Content-Length: 2\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}"
 	r := bufio.NewReader(strings.NewReader(msg))
 	got, err := ReadMessage(r)
@@ -112,7 +106,6 @@ func TestFraming_HeaderWithExtraFields(t *testing.T) {
 	assert.Equal(t, []byte("{}"), got)
 }
 
-// errWriter always returns an error on Write.
 type errWriter struct{}
 
 func (e *errWriter) Write(

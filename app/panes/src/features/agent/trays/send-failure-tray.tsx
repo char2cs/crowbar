@@ -4,7 +4,6 @@ import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import { describeSendFailure } from '@/features/agent/trays/lib/send-failure'
 import { FailureNotice } from '@/features/agent/transcript/rows/failure-notice'
 
-/** A message that did not go out, above the input box with its two ways on. */
 export function SendFailureTray({
   chatId,
   item,
@@ -12,7 +11,6 @@ export function SendFailureTray({
 }: {
   chatId: string
   item: OutboxItem | undefined
-  /** Puts the failed message's text in the composer. */
   onEdit: (text: string) => void
 }) {
   if (!item) return null

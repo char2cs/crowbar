@@ -1,5 +1,3 @@
-//! One record of a list: icon, text, flags and actions.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,

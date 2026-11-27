@@ -1,24 +1,14 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum HaltReason {
-    /// The data was written by a newer Crowbar.
     LayoutNewer,
-    /// The data layout cannot be read.
     LayoutUnreadable,
-    /// The migration ledger is damaged.
     LedgerCorrupt,
-    /// Reading or writing the data failed.
     IoFailed,
-    /// The migration plan could not be made.
     PlanFailed,
-    /// A check before migrating failed.
     PreflightFailed,
-    /// A migration step failed.
     StepFailed,
-    /// The migrated data did not verify.
     VerifyFailed,
-    /// A step has no implementation in this version.
     NoImplementation,
-    /// A code this version does not know, or none at all.
     Other(Option<String>),
 }
 

@@ -1,14 +1,9 @@
-//! What the daemon answered for a name typed inline: taken closes the input, refused keeps it
-//! open over the reason, as develop's `branch-out-input.tsx` does.
-
 use gpui::Context;
 use sidebar::RowId;
 
 use crate::sidebar::Sidebar;
 
 impl Sidebar {
-    /// The daemon answered the name typed into `row`'s input: taken closes it, a `refusal`
-    /// keeps it open with the reason under it.
     pub fn name_answered(
         &mut self,
         row: &RowId,
@@ -40,7 +35,6 @@ mod tests {
     use crate::panels::edit::outcome::Outcome;
     use crate::test_support::prelude::*;
 
-    /// What the open input shows: `None` once it closed, else its error text ("" for none).
     fn shown(
         sidebar: &gpui::Entity<Sidebar>,
         cx: &mut gpui::VisualTestContext,

@@ -3,9 +3,6 @@ import { renderHook, act } from '@testing-library/react'
 import { Terminal } from '@xterm/xterm'
 import type { TerminalConnection } from '@/lib/crowbar-bridge'
 
-// A fake TerminalConnection the test drives by hand: the hook binds to whatever
-// connection object it is given, so frames are delivered through its captured
-// listener and everything the hook sends is recorded.
 function makeFakeConnection() {
   type Frame = { data: Uint8Array; snapshot: boolean } | { exit: true; code: number }
   let listener: ((frame: Frame) => void) | null = null
@@ -28,26 +25,20 @@ function makeFakeConnection() {
   }
   return {
     conn,
-    // Simulate a PTY output frame arriving from the daemon.
     deliver: (data: string, snapshot = false) =>
       listener?.({ data: new TextEncoder().encode(data), snapshot }),
-    // Simulate the daemon's exit frame.
     exit: (code: number) => listener?.({ exit: true, code }),
   }
 }
 
-// The connection each render binds to; beforeEach hooks replace it.
 let bridge = makeFakeConnection()
 beforeEach(() => {
   bridge = makeFakeConnection()
 })
 
-// xterm's write() takes a string or bytes; the fakes record both as text.
 const asText = (data: string | Uint8Array) =>
   typeof data === 'string' ? data : new TextDecoder().decode(data)
 
-// Capturing themeRegistry mock: fire() invokes the hook's registered onThemeChange
-// callback so a test can simulate a light<->dark switch.
 const themeReg = vi.hoisted(() => {
   let cb: (() => void) | null = null
   return {
@@ -70,12 +61,7 @@ vi.mock('@/extensions/themes/theme-registry', () => ({
 
 import { useTerminalConnection } from '@/features/terminal/hooks/use-terminal-connection'
 
-// Minimal xterm stand-in covering only what the hook touches. write() invokes
-// its parse-complete callback synchronously, mirroring xterm's contract closely
-// enough to assert the finalize fires after the bulk replay is written.
 function makeFakeTerminal() {
-  // order records reset() and write(data) in sequence, so a test can assert that a
-  // snapshot never resets outside xterm's write queue.
   const order: string[] = []
   const scrollToBottom = vi.fn()
   const refresh = vi.fn()
@@ -106,7 +92,6 @@ function makeFakeTerminal() {
     element: { parentElement: parent },
     buffer: { active: { type: 'normal' } },
     modes: { mouseTrackingMode: 'none', sendFocusMode: false },
-    // The onThemeChange handler assigns terminal.options.theme; give it a home.
     options: {} as { theme?: unknown },
   }
   return {
@@ -146,8 +131,6 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     const { terminal, scrollToBottom, refresh, write } = makeFakeTerminal()
     renderConnection(terminal)
 
-    // First post-attach frame: the daemon's bulk scrollback replay. Written
-    // to xterm synchronously on arrival — no discretionary rAF delay.
     act(() => {
       bridge.deliver('REPLAYED SCROLLBACK')
     })
@@ -156,7 +139,6 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     expect(asText(write.mock.calls[0][0])).toBe('REPLAYED SCROLLBACK')
     expect(scrollToBottom).toHaveBeenCalledTimes(1)
     expect(refresh).toHaveBeenCalledTimes(1)
-    // refresh must repaint every visible row (0..rows-1).
     expect(refresh).toHaveBeenCalledWith(0, 39)
   })
 
@@ -172,7 +154,6 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     })
 
     expect(write).toHaveBeenCalledTimes(2)
-    // Finalize stays one-shot: streaming keeps xterm's cheap incremental render.
     expect(scrollToBottom).toHaveBeenCalledTimes(1)
     expect(refresh).toHaveBeenCalledTimes(1)
   })
@@ -182,8 +163,6 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
     const { terminal, write } = makeFakeTerminal()
     renderConnection(terminal)
 
-    // No follow-up rAF flush anywhere: the write must already be visible the
-    // instant deliver() returns, inside the same act().
     act(() => {
       bridge.deliver('incremental chunk')
     })
@@ -194,10 +173,6 @@ describe('useTerminalConnection — re-attach viewport finalize', () => {
   })
 })
 
-// Renders with rerenderable props so tests can hand in a NEW connection mid-test
-// — a transport-drop re-attach — forcing the main effect to tear down and re-run
-// on the SAME terminal instance, unlike renderConnection() above which fixes all
-// props for the hook's lifetime.
 function renderConnectionRerenderable(
   terminal: unknown,
   initialOverrides: Record<string, unknown> = {},
@@ -217,8 +192,6 @@ function renderConnectionRerenderable(
   )
 }
 
-// A snapshot is the daemon's whole screen: it lands as ONE write that begins with RIS, xterm's
-// in-band reset, so the reset and the redraw parse in the same chunk and no frame shows between.
 const RIS = '\x1bc'
 
 describe('useTerminalConnection — snapshot frames (attach redraw / resize resync)', () => {
@@ -248,7 +221,6 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
       bridge.deliver('after')
     })
 
-    // The second snapshot parses last of the two, so its reset wins.
     expect(order).toEqual([
       'write:stale',
       `write:${RIS}S1`,
@@ -259,8 +231,6 @@ describe('useTerminalConnection — snapshot frames (attach redraw / resize resy
   })
 })
 
-// A real xterm whose every write slice expires (12 ms in WriteBuffer), so each chunk parses in its
-// own timer task: what row 0 shows between two tasks is what a viewer could see.
 function rowZeroAcrossTasks(...steps: ((reattach: () => void) => void)[]) {
   vi.useFakeTimers()
   let now = 0
@@ -339,12 +309,10 @@ describe('useTerminalConnection — theme propagation', () => {
       themeReg.fire()
     })
 
-    expect(bridge.conn.setTheme).toHaveBeenCalledTimes(2) // attach + switch
+    expect(bridge.conn.setTheme).toHaveBeenCalledTimes(2)
   })
 })
 
-// The daemon's exit frame is the only thing that ends a terminal. Typing
-// "exit" is ordinary input — inside ssh, a REPL or an agent TUI it ends nothing.
 describe('useTerminalConnection — exit is daemon-authoritative', () => {
   beforeEach(() => {})
 
@@ -398,7 +366,6 @@ describe('useTerminalConnection — initial command', () => {
       bridge.deliver('PROMPT$ ', true)
       bridge.deliver('more')
     })
-    // A re-render that re-binds the same connection must not send it again.
     act(() => {
       rerender({ created: true, initialCommand: 'npm test', updateSession: () => {} })
     })

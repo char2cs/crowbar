@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// currentPlatform is computed ONCE, at module load, from navigator.userAgent —
-// so each case needs a fresh module evaluation with the UA already stubbed,
-// not a mutation after import.
 async function loadWithUserAgent(userAgent: string, maxTouchPoints = 0) {
   vi.stubGlobal('navigator', { userAgent, maxTouchPoints })
   vi.resetModules()
@@ -82,7 +79,6 @@ describe('normalizeKey', () => {
     expect(normalizeKey('cmd+s')).toBe('cmd+s')
   })
 
-  // An iPhone's hardware keyboard has Command, as a Mac's does.
   it('leaves cmd untouched on iOS, which keys like a Mac', async () => {
     const { normalizeKey, APPLE_KEYBOARD } = await loadWithUserAgent(
       'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',

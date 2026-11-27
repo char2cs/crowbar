@@ -6,7 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// The refusals a placement verb answers with; each message is what the user reads.
 var (
 	ErrCycle          = problem.New(problem.TreeCycle, "A row can't be moved inside itself")
 	ErrNotAContainer  = problem.New(problem.TreeNotAContainer, "That row can't hold this one")
@@ -18,18 +17,15 @@ var (
 	ErrExists         = problem.New(problem.IDConflict, "tree: the row is already placed")
 )
 
-// Facts are what the rules need from other aggregates, for the nodes a verb
-// touches and the containers above them. They are passed in, never stored.
 type Facts struct {
-	ProjectHome string            // the project home workspace id
-	RepoHome    map[string]string // repo id → its home checkout's workspace id
-	Repo        map[string]string // workspace id → its repo id ("" for the project home)
-	BoundTo     map[string]string // chat id → the workspace it runs in
-	ForkParent  map[string]string // workspace id → the workspace it was forked from ("" = none)
-	Working     map[string]bool   // node id → a chat it stands for is working
+	ProjectHome string
+	RepoHome    map[string]string
+	Repo        map[string]string
+	BoundTo     map[string]string
+	ForkParent  map[string]string
+	Working     map[string]bool
 }
 
-// check is every structural rule for id at the place t now holds it.
 func check(t Tree, id string, f Facts) error {
 	n := t.Nodes[id]
 	if n.ParentID == "" {
@@ -52,8 +48,6 @@ func check(t Tree, id string, f Facts) error {
 	return nil
 }
 
-// checkContainer: a chat holds only chats and workspaces, and a repo hangs only
-// at project level (the root, checked by the caller, or a home folder).
 func checkContainer(t Tree, n, parent Node) error {
 	if parent.Kind == KindChat && n.Kind != KindChat && n.Kind != KindWorkspace {
 		return fmt.Errorf("tree: %s %s under chat %s: %w", n.Kind, n.ID, parent.ID, ErrNotAContainer)
@@ -64,8 +58,6 @@ func checkContainer(t Tree, n, parent Node) error {
 	return nil
 }
 
-// checkChat: a chat directly under a chat or a workspace runs in that row's
-// workspace; one filed in a folder keeps its own wherever the folder hangs.
 func checkChat(t Tree, n, parent Node, f Facts) error {
 	if parent.Kind != KindChat && parent.Kind != KindWorkspace {
 		return nil
@@ -77,8 +69,6 @@ func checkChat(t Tree, n, parent Node, f Facts) error {
 	return fmt.Errorf("tree: chat %s of %s under %s: %w", n.ID, bound, parent.ID, ErrCrossWorkspace)
 }
 
-// checkFork: a workspace hangs where its fork parent resolves (the repo's
-// home checkout when it was forked from none).
 func checkFork(t Tree, n Node, f Facts) error {
 	want := f.ForkParent[n.ID]
 	if want == "" {
@@ -90,7 +80,6 @@ func checkFork(t Tree, n Node, f Facts) error {
 	return fmt.Errorf("tree: workspace %s away from %s: %w", n.ID, want, ErrForkChain)
 }
 
-// contextOf is the repo whose subtree holds id, "" for the project home.
 func contextOf(t Tree, id string) string {
 	for seen := map[string]bool{}; id != "" && !seen[id]; {
 		seen[id] = true
@@ -106,8 +95,6 @@ func contextOf(t Tree, id string) string {
 	return ""
 }
 
-// ownContext is the context a new chat or workspace belongs in, when the
-// facts name it.
 func ownContext(n Node, f Facts) (string, bool) {
 	ws := n.ID
 	if n.Kind == KindChat {

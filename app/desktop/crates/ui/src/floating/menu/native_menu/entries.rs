@@ -1,5 +1,3 @@
-//! The menu's rows as the desktop draws them, and the action a chosen path names.
-
 use std::rc::Rc;
 
 use gpui::{App, Window};

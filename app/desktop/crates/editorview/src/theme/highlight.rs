@@ -1,10 +1,3 @@
-//! develop's editor colours, matched per token class (D3), as gpui-kit's highlight style.
-//!
-//! Markdown takes the classes develop's Monaco grammar gives it, not the `--syntax-markdown-*`
-//! tokens, which develop's editor never reads: headings and list markers are keywords, link
-//! targets and code blocks strings, inline code a variable, and bold and italic keep the text
-//! colour.
-
 use gpui_kit::component::highlighter::HighlightThemeStyle;
 use serde_json::{Map, Value, json};
 use ui::Palette;

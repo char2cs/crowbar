@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// ChatRenamer is the narrow write port set_chat_title needs from the agent
-// usecase: renaming by runner id, not chat id, so the tool always affects
-// whichever chat the calling runner is on right now.
 type ChatRenamer interface {
 	RenameByRunner(ctx context.Context, runnerID, title, source string) error
 }
@@ -38,8 +35,6 @@ func chatTools(deps Deps) []toolDef {
 			if title == "" {
 				return "", fmt.Errorf("agenttools: set_chat_title: title must not be empty")
 			}
-			// By runner, not chat id, so a cleared conversation titles the chat it is in now.
-			// source="agent" upgrades a derived title but never clobbers one the user locked.
 			if err := deps.Chats.RenameByRunner(ctx, c.RunnerID, title, "agent"); err != nil {
 				return "", fmt.Errorf("agenttools: set_chat_title: %w", err)
 			}

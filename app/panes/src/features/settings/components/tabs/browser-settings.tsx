@@ -30,7 +30,6 @@ async function clearBrowsingData() {
     await browserApi.clearData()
     toast.success('Browsing data cleared', 'Reload open pages to see the change.')
   } catch (error) {
-    // The native side rejects with its own sentence, not an Error.
     report(error, {
       action: 'Could not clear browsing data',
       fallback: typeof error === 'string' ? error : undefined,

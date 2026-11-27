@@ -1,5 +1,3 @@
-//! Attachment to the daemon's browser peer socket: the connection loop, its frames in and out.
-
 mod agent_request;
 mod connection_event;
 mod ending;

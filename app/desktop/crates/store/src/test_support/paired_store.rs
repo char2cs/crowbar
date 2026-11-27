@@ -6,8 +6,6 @@ use crate::store::Store;
 
 use super::{FakeDaemon, desk, quiet};
 
-/// A store following this computer's daemon and the paired host `id`, started on the current
-/// runtime.
 pub(crate) fn paired_store(id: &str) -> Store {
     let transport: Arc<dyn protocol::DaemonTransport> = FakeDaemon::shared();
     let local = HostSpec {

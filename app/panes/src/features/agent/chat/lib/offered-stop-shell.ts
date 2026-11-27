@@ -3,9 +3,6 @@ import { toast } from '@/features/window/stores/toast-store'
 import { ApiError } from '@/lib/errors/api-error'
 import { report } from '@/lib/errors/report'
 
-/** Ending a shell, offered only where the provider can be asked and the chat is on its
- *  own surface with a live agent; a refusal is said, not thrown at the page. The request
- *  is a prompt, so a working chat can only be told to wait. */
 export function offeredStopShell(wsId: string, chatId: string, offered: boolean) {
   if (!offered) return undefined
   return (shellId: string) =>

@@ -1,5 +1,3 @@
-//! The window's view and state, and what only they use.
-
 mod dialogs;
 pub(crate) mod inbox;
 pub(crate) mod ports;

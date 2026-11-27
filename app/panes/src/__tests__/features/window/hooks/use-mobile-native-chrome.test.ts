@@ -47,7 +47,6 @@ describe('useMobileNativeChrome', () => {
     expect(chrome.models.at(-1)?.brandGround).toBe('#98a86a')
   })
 
-  // The native sheets are painted from the same tokens as the Settings page and its cards.
   it('hands the native sheets the theme’s palette', () => {
     const root = document.documentElement.style
     root.setProperty('--background', '#fcfcfa')
@@ -80,7 +79,6 @@ describe('useMobileNativeChrome', () => {
     expect(chatButtons()).toEqual(['leading:chat-list:true', 'trailing:ide:false'])
   })
 
-  // The IDE is a `</>` (the desktop's open-editor icon), never a terminal.
   it('draws the IDE button with the Code icon', () => {
     renderHook(() => useMobileNativeChrome(workspaces))
     const ide = chrome.models.at(-1)?.headers?.chat.find((b) => b.id === 'ide')
@@ -109,7 +107,6 @@ describe('useMobileNativeChrome', () => {
     expect(reveal()).toBe('ide')
   })
 
-  // An edge swipe the user finished is the chrome's report; the store decides what is current.
   it('takes the reveal swipes as navigation', async () => {
     renderHook(() => useMobileNativeChrome(workspaces))
 
@@ -124,7 +121,6 @@ describe('useMobileNativeChrome', () => {
     expect(useMobileScreenStore.getState().screen).toBe('chat')
   })
 
-  // The files drawer is the IDE's: the chrome slides it out over the IDE.
   it('reveals the files drawer over the IDE, from the shell’s own store', () => {
     useMobileScreenStore.setState({ screen: 'ide' })
     renderHook(() => useMobileNativeChrome(workspaces))
@@ -132,8 +128,6 @@ describe('useMobileNativeChrome', () => {
     expect(reveal()).toBe('files')
   })
 
-  // Each screen owns its header and every push carries both, so the chrome never has to keep
-  // the one a screen left behind while it slides away.
   it('hands over the header of each screen, whichever is in front', () => {
     renderHook(() => useMobileNativeChrome(workspaces))
     const expected = {
@@ -153,7 +147,6 @@ describe('useMobileNativeChrome', () => {
     }
   })
 
-  // Fast swipes queue intents; the chrome throws away any state older than its last word.
   it('acknowledges the last intent it applied, in the same push as the reveal it caused', async () => {
     renderHook(() => useMobileNativeChrome(workspaces))
     await send({ type: 'openIde', seq: 1 })
@@ -178,7 +171,6 @@ describe('useMobileNativeChrome', () => {
     expect(chrome.models.at(-1)).toMatchObject({ reveal: 'ide', ack: 2 })
   })
 
-  // The IDE's files button is the web's to handle: the chrome sends its intent as given.
   it('has the IDE’s files button ask for the files', () => {
     useMobileScreenStore.setState({ screen: 'ide' })
     renderHook(() => useMobileNativeChrome(workspaces))
@@ -186,14 +178,12 @@ describe('useMobileNativeChrome', () => {
     expect(files?.intent).toBe('openFiles')
   })
 
-  // Settings brings its own header: no chat button floats over it.
   it('shows no chat buttons over Settings', () => {
     renderHook(() => useMobileNativeChrome(workspaces))
     act(() => useUIState.setState({ isSettingsOpen: true }))
     expect(chatButtons()).toEqual([])
   })
 
-  // Settings is a native sheet whose pages are the web's own tabs; the store still owns open.
   it('opens the native Settings sheet from the store and closes it on its intent', async () => {
     renderHook(() => useMobileNativeChrome(workspaces))
     expect(chrome.models.at(-1)?.settings?.open).toBe(false)
@@ -206,7 +196,6 @@ describe('useMobileNativeChrome', () => {
     expect(useUIState.getState().isSettingsOpen).toBe(false)
   })
 
-  // The native list's rows, appearance cards and theme list are the web's inventory, not Swift's.
   it('hands the Settings sheet its pages and the registry’s themes', () => {
     useSettingsStore.setState((state) => ({ settings: { ...state.settings, theme: 'crowbar' } }))
     renderHook(() => useMobileNativeChrome(workspaces))
@@ -232,7 +221,6 @@ describe('useMobileNativeChrome', () => {
     expect(useSettingsStore.getState().settings.theme).toBe('frosted')
   })
 
-  // The chat list's Hosts button shows where the shown host runs, as the desktop's host icons do.
   it('tells the chrome whether the shown host is this computer or a remote', () => {
     const { rerender } = renderHook(
       ({ shownHost }) => useMobileNativeChrome({ ide: true, shownHost }),
@@ -243,7 +231,6 @@ describe('useMobileNativeChrome', () => {
     expect(chrome.models.at(-1)?.hostPlace).toBe('local')
   })
 
-  // The Hosts button's dot is the shown host's status, from the hook the desktop's icons read.
   it('tells the chrome the shown host\u2019s status', () => {
     useConnectionStore.setState({ status: 'connected' })
     const { rerender } = renderHook(
@@ -257,7 +244,6 @@ describe('useMobileNativeChrome', () => {
     expect(chrome.models.at(-1)?.hostStatus).toBe('unknown')
   })
 
-  // Native views follow the app's own theme mode, or the system's while the app does.
   it('hands the chrome the app’s theme mode', () => {
     setThemeMode('light')
     renderHook(() => useMobileNativeChrome(workspaces))

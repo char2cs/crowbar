@@ -1,5 +1,3 @@
-//! The on/off switch.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
@@ -30,7 +28,6 @@ const TRAVEL: f32 = 12.0;
 const DISABLED_OPACITY: f32 = 0.64;
 const THUMB_SLIDE: std::time::Duration = std::time::Duration::from_millis(150);
 
-/// A 30x18 switch; the thumb slides 12px and the track fades to the primary colour.
 #[derive(IntoElement)]
 pub struct Switch {
     id: ElementId,
@@ -41,7 +38,6 @@ pub struct Switch {
 }
 
 impl Switch {
-    /// A switch showing `checked`; the owner stores the value and passes it back.
     pub fn new(
         id: impl Into<ElementId>,
         checked: impl Into<Pose>,
@@ -55,14 +51,12 @@ impl Switch {
         }
     }
 
-    /// Disables the switch.
     #[must_use]
     pub fn disabled(mut self) -> Self {
         self.disabled = true;
         self
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,
@@ -72,7 +66,6 @@ impl Switch {
         self
     }
 
-    /// Registers the handler receiving the requested value.
     #[must_use]
     pub fn on_change(
         mut self,

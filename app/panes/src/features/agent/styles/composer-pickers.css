@@ -1,8 +1,5 @@
-/* ── the slash and file pickers ────────────────────────── */
 .agent-chat .slash {
   margin-bottom: 8px;
-  /* Never taller than the room above the dock, or it climbs under the header and the view
-     switcher: 300px is the header, the switcher, the pill and the footer. */
   max-height: min(360px, calc(100dvh - 300px));
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -166,7 +163,6 @@
   }
 }
 
-/* ── prompt stash picker ───────────────────────────────── */
 .agent-chat .stash-picker {
   width: min(100%, 440px);
   max-height: min(280px, calc(100dvh - 300px));
@@ -227,9 +223,6 @@
   margin-left: auto;
 }
 
-/* ── the plus menu (a popover; the phone's is native) and the attach dialog ──
-   Portaled out of `.agent-chat`, so unscoped. Unlayered, so they beat the shared components'
-   utilities. */
 .plus-menu {
   width: 216px;
   min-width: 0;
@@ -336,7 +329,6 @@
   background: none;
   color: var(--muted-foreground);
 }
-/* The phone sheet's remove control: 24px to the eye, 44pt to the finger. */
 .attach-sheet .attach-x {
   position: relative;
 }
@@ -463,7 +455,6 @@
   background: var(--primary);
   animation: attach-bar 1.1s ease-in-out infinite alternate;
 }
-/* A file the page sends as bytes reports real progress; a host path the daemon reads does not. */
 .attach-bar[data-determinate] i {
   animation: none;
   transition: width 0.15s linear;
@@ -531,7 +522,6 @@
   flex: 1 1 0;
 }
 
-/* ── the permission-level menu (portaled, so unscoped) ── */
 .lvl-row {
   display: flex;
   align-items: flex-start;

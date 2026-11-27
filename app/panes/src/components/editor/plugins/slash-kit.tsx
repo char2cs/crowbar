@@ -1,5 +1,3 @@
-// From the Plate registry (`https://platejs.org/r/slash-kit.json`), verbatim —
-// no primitive collision.
 'use client'
 
 import { SlashInputPlugin, SlashPlugin } from '@platejs/slash-command/react'

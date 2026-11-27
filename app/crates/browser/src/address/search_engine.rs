@@ -1,24 +1,16 @@
 const QUERY_SLOT: &str = "%s";
 
-/// The search engine the address bar falls back to for text that is not a host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SearchEngine {
-    /// `DuckDuckGo`, the default.
     DuckDuckGo,
-    /// Google.
     Google,
-    /// Bing.
     Bing,
-    /// Brave Search.
     Brave,
-    /// A user-chosen `http(s)` URL containing `%s` where the query goes.
     Custom(String),
 }
 
 impl SearchEngine {
-    /// The URL template, `%s` marking the query. A custom template that is not an `http(s)`
-    /// URL with a `%s` falls back to `DuckDuckGo`.
     #[must_use]
     pub fn template(&self) -> &str {
         match self {

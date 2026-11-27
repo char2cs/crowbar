@@ -1,6 +1,3 @@
-//! The fill behind a group's tab bar and editor. GPUI clips a child to a rectangle, so the fill
-//! rounds the pane's corners itself and what is drawn over it paints none.
-
 use gpui::{Div, Hsla, Styled as _, div, px};
 use layout::Rect;
 

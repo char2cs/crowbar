@@ -1,12 +1,7 @@
-//! What happens to the branch once it is merged.
-
-/// Whether the merged branch and its chats are deleted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AfterMerge {
-    /// The branch stays.
     #[default]
     Keep,
-    /// The branch and its chats are deleted.
     DeleteBranch,
 }
 

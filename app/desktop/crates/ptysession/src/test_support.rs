@@ -1,5 +1,3 @@
-//! In-memory fakes shared by the unit tests of this crate.
-
 use std::io;
 use std::sync::Arc;
 
@@ -31,7 +29,6 @@ use crate::terminal_sessions::TerminalSessions;
 
 const BUFFER: usize = 64 * 1024;
 
-/// A dialer whose every connection is an in-memory pipe, and the server ends of those pipes.
 pub(crate) fn memory_dial() -> (Dial, UnboundedReceiver<DuplexStream>) {
     let (servers, accepted) = unbounded_channel();
     let dial: Dial = Arc::new(move |_address| connect(&servers));
@@ -47,19 +44,16 @@ fn connect(servers: &UnboundedSender<DuplexStream>) -> Dialing {
     })
 }
 
-/// A dialer that cannot reach anything.
 pub(crate) fn refusing_dial() -> Dial {
     Arc::new(|_address| Box::pin(async { Err(io::Error::from(io::ErrorKind::ConnectionRefused)) }))
 }
 
-/// Requests of host `local` through `daemon`.
 pub(crate) fn rest(daemon: &Arc<FakeDaemon>) -> Rest {
     let transport: Arc<dyn DaemonTransport> = Arc::<FakeDaemon>::clone(daemon);
     let host = HostId::new("local").unwrap();
     Rest { transport, host }
 }
 
-/// Sessions on `daemon` whose streams go through `dial`.
 pub(crate) fn sessions(
     daemon: &Arc<FakeDaemon>,
     dial: Dial,
@@ -67,7 +61,6 @@ pub(crate) fn sessions(
     TerminalSessions::dialing(rest(daemon), Handle::current(), "crowbar://local", dial)
 }
 
-/// The view's side of a terminal opened in pane `t1` of chat `c1`.
 pub(crate) struct View {
     pub(crate) frames: Receiver<DaemonFrame>,
     pub(crate) messages: Sender<ClientMessage>,
@@ -75,7 +68,6 @@ pub(crate) struct View {
 }
 
 impl View {
-    /// Opens a terminal bound as `binding` through `sessions`.
     pub(crate) fn open(
         sessions: &TerminalSessions,
         binding: Binding,
@@ -97,7 +89,6 @@ impl View {
         }
     }
 
-    /// The text of every output frame until the stream ends.
     pub(crate) async fn all_output(&self) -> String {
         let mut text = String::new();
         while let Ok(DaemonFrame::Output(bytes)) = self.frames.recv().await {
@@ -107,7 +98,6 @@ impl View {
     }
 }
 
-/// Every report until the session ends.
 pub(crate) async fn all_reports(reports: &Receiver<Report>) -> Vec<Report> {
     let mut told = Vec::new();
     while let Ok(report) = reports.recv().await {

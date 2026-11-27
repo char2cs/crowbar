@@ -1,5 +1,3 @@
-//! One embedded Phosphor icon.
-
 use crate::foundation::icon::icon_name::IconName;
 use crate::foundation::icon::icon_weight::IconWeight;
 

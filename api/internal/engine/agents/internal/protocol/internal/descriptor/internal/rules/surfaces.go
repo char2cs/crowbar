@@ -2,9 +2,6 @@ package rules
 
 import "github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 
-// surfaces validates the `surfaces:` block: known names, a channel the runtime
-// speaks, a `terminal` backed by a real terminal, and `start_here` only where a
-// FRESH spawn can land with no session to name.
 type surfaces struct{}
 
 func (surfaces) Name() string { return "surfaces" }
@@ -34,9 +31,6 @@ func (surfaces) Check(d *spec.Descriptor) error {
 			return invalid(d.ID, "surfaces[terminal]: declared but descriptor has no terminal "+
 				"(api transport with no attach)")
 		}
-		// A hooks-channel terminal is the spawn.cmd PTY, live from the fork. An
-		// api-channel one is attach, naming a {session_id} that exists at birth
-		// only when the descriptor hotswaps.
 		if s.StartHere && s.Channel == spec.ChannelAPI && !d.Runtime.Hotswap {
 			return invalid(d.ID, "surfaces[terminal]: start_here on channel api requires hotswap — "+
 				"attach names a session that does not exist at birth, so a non-hotswap api terminal "+

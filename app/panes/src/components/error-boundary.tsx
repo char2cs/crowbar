@@ -5,9 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface Props {
   children: ReactNode
-  /** Drawn in place of the children; a function is handed the way to try them again. */
   fallback?: ReactNode | ((retry: () => void) => ReactNode)
-  /** A change clears a caught error, so the children get another try. */
   resetKey?: unknown
 }
 

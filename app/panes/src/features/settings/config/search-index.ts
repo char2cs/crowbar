@@ -1,7 +1,6 @@
 import type { SettingSearchRecord } from '../types/search'
 
 export const settingsSearchIndex: SettingSearchRecord[] = [
-  // Editor Settings
   {
     id: 'editor-auto-save',
     tab: 'editor',
@@ -107,7 +106,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['tabs', 'limit', 'maximum', 'open'],
   },
 
-  // File Tree Settings
   {
     id: 'file-tree-indent-size',
     tab: 'file-explorer',
@@ -181,7 +179,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['git', 'compact', 'badges', 'status', 'dense'],
   },
 
-  // Appearance Settings
   {
     id: 'appearance-theme',
     tab: 'appearance',
@@ -238,7 +235,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: 'Switch the sidebar between Chats, Files and Git as focus moves',
     keywords: ['sidebar', 'focus', 'follow', 'files', 'git', 'chats', 'mode'],
   },
-  // Language Settings
   {
     id: 'language-format-on-save',
     tab: 'editor',
@@ -272,8 +268,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['parameter', 'hints', 'intellisense', 'function'],
   },
 
-  // Agents Settings: shared keywords, since a user hunting for any control uses the same words.
-  // `provider` stays a keyword though the tab says "Agents": the docs and product still say it.
   {
     id: 'providers-priority-order',
     tab: 'providers',
@@ -315,9 +309,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     ],
   },
   {
-    // The row calls this "Tools" and never says MCP — the transport is not what
-    // the user is deciding. A KEYWORD may say it, because someone who knows the
-    // term will type it, and keywords are never shown.
     id: 'providers-tools',
     tab: 'providers',
     section: 'Agents',
@@ -338,8 +329,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     ],
   },
   {
-    // Lives on the Agents tab but is about the CHAT surface, so it carries the
-    // surface's own vocabulary as well as the tab's.
     id: 'agents-chat-default-presentation',
     tab: 'providers',
     section: 'Chat',
@@ -358,7 +347,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     ],
   },
 
-  // Terminal Settings
   {
     id: 'terminal-font-family',
     tab: 'terminal',
@@ -424,7 +412,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ['terminal', 'cursor', 'width', 'thickness', 'bar'],
   },
 
-  // Browser Settings
   {
     id: 'browser-homepage',
     tab: 'browser',

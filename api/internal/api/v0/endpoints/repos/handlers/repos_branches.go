@@ -14,9 +14,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// Branches handles GET /v0/projects/:projectId/repos/:repoId/branches, listing origin's branches
-// with isProtected and hasWorkspace. It fetches with prune first because nothing else does a full
-// fetch; the refresh is best-effort so an offline machine still gets the cached list.
 func (h *Handlers) Branches(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
@@ -61,9 +58,6 @@ func (h *Handlers) Branches(c *gin.Context) {
 	libs.WriteQueryOK(c, entries)
 }
 
-// protectedSet is the repo's protected branches. A lookup that fails is an
-// error, not "none protected": the picker would offer a protected branch as an
-// ordinary one.
 func (h *Handlers) protectedSet(ctx context.Context, repoPath string) (map[string]bool, error) {
 	protected := map[string]bool{}
 	if h.provider == nil {
@@ -79,9 +73,6 @@ func (h *Handlers) protectedSet(ctx context.Context, repoPath string) (map[strin
 	return protected, nil
 }
 
-// managedBranches is the branches the repo has a live managed workspace on. The
-// default workspace is the imported folder itself, an unmanaged checkout of
-// whatever branch it sits on, so it does not make that branch "imported".
 func (h *Handlers) managedBranches(ctx context.Context, repoID string) (map[string]bool, error) {
 	hasWS := map[string]bool{}
 	if h.wsReader == nil {
@@ -99,8 +90,6 @@ func (h *Handlers) managedBranches(ctx context.Context, repoID string) (map[stri
 	return hasWS, nil
 }
 
-// PRLinkDTO is one head→base edge of the repo's open-PR graph, returned by
-// GET …/repos/:repoId/pull-requests for the import dialog's parent hint.
 type PRLinkDTO struct {
 	Head   string `json:"head"`
 	Base   string `json:"base"`
@@ -110,8 +99,6 @@ type PRLinkDTO struct {
 	Title  string `json:"title"`
 }
 
-// PullRequests handles GET /v0/projects/:projectId/repos/:repoId/pull-requests: the open-PR graph
-// as an advisory parent hint (import re-resolves parenting), soft-failing to [] without a provider CLI.
 func (h *Handlers) PullRequests(c *gin.Context) {
 	repo, err := h.store.FindByKey(c.Request.Context(), c.Param("repoId"))
 	if err != nil || repo == nil {
@@ -121,7 +108,7 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	links := []PRLinkDTO{}
 	if h.provider != nil {
 		got, err := h.provider.OpenPullRequests(c.Request.Context(), repo.Path)
-		if err != nil { // an advisory hint: no provider CLI or no auth is the common case
+		if err != nil {
 			slog.DebugContext(c.Request.Context(), "repos: open pull requests", "repo_id", repo.ID, "err", err)
 		}
 		for _, l := range got {
@@ -134,9 +121,6 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	libs.WriteQueryOK(c, links)
 }
 
-// originBranches keeps origin's remote-tracking branches with the prefix stripped. Other remotes
-// are dropped because import resolves a name against origin/<name>; origin/HEAD ("origin")
-// has no prefix and falls away.
 func originBranches(all []gitdomain.Branch) []string {
 	var result []string
 	seen := map[string]bool{}

@@ -130,15 +130,12 @@ function collectWorkspaceTextEdits(edit: WorkspaceEdit): Map<string, LspTextEdit
   return editsByFile
 }
 
-/** Apply `edits` to one file: its open document as a user edit, else straight to disk. */
 async function editFile(workspaceId: string, filePath: string, edits: LspTextEdit[]) {
   const [{ readDocument, workspaceRef, writeDocument }, { documentText, replaceDocumentText }] =
     await Promise.all([
       import('@/lib/api/documents'),
       import('@/features/editor/documents/document-text'),
     ])
-  // Buffers are window-level: the edit belongs to ITS OWN workspace's file, never
-  // a sibling worktree's file at the same relative path.
   const ref = workspaceRef(workspaceId, filePath)
   const open = documentText(ref)
   if (open !== null) {
@@ -155,9 +152,6 @@ export async function applyWorkspaceEdit(
 ): Promise<WorkspaceEditApplyResult> {
   const editsByFile = collectWorkspaceTextEdits(edit)
 
-  // Each file's read -> transform -> write is independent of every other
-  // file's (distinct paths, distinct buffer ids), so run them concurrently
-  // instead of one file at a time — a rename can touch many files.
   await Promise.all(
     Array.from(editsByFile, ([filePath, edits]) => editFile(workspaceId, filePath, edits)),
   )

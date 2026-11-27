@@ -8,7 +8,6 @@ import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-s
 import { useSettingsStore } from '@/features/settings/store'
 import type { GitDiff } from '@/features/git/types/git-types'
 
-// Split/Inline is a display preference, persisted in settings, so it survives reopening the tab.
 const oneFile: GitDiff = {
   file_path: 'src/pricing.ts',
   is_new: false,
@@ -22,9 +21,6 @@ vi.mock('@/features/git/hooks/use-review-files-summary', () => ({
 vi.mock('@/features/git/hooks/use-review-outline', () => ({
   useReviewOutline: () => ({ outline: [], loaded: true }),
 }))
-// The real ReviewCodeView pulls in the full diff-rendering/highlight-worker
-// stack — irrelevant to this toggle, which lives entirely in the toolbar
-// above it.
 vi.mock('@/features/git/components/diff/review-code-view', () => ({
   ReviewCodeView: () => null,
 }))

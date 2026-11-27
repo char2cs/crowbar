@@ -1,7 +1,3 @@
-//! Adding a host: probe its certificate, have the user confirm the fingerprint, then redeem a
-//! code from its `crowbar pair`. The code stage is reached only by that confirm and pins exactly
-//! the fingerprint shown, never a re-probed one.
-
 mod endpoint_text;
 mod held;
 mod host_id_text;
@@ -25,8 +21,6 @@ use crate::store::pairing::pairing_session::held::Held;
 
 const CODE_SHAPE_NOTICE: &str = "A pairing code is exactly 6 digits.";
 
-/// One attempt at adding a host. Mount one per attempt: a confirmed fingerprint never carries
-/// over to the next.
 pub struct PairingSession {
     pub(crate) desk: HostDesk,
     pub(crate) fleet: Arc<Fleet>,
@@ -71,12 +65,10 @@ impl PairingSession {
         result
     }
 
-    /// What the dialog shows now.
     pub fn state(&self) -> PairingState {
         self.held().state.clone()
     }
 
-    /// The typed name or address changed: a failure about the old one is stale.
     pub fn edited(&self) {
         self.update(|held| {
             held.state.error = None;
@@ -84,7 +76,6 @@ impl PairingSession {
         });
     }
 
-    /// Reads the certificate of the host at `address`, to be named `name`.
     pub fn submit_address(
         self: &Arc<Self>,
         name: &str,
@@ -121,17 +112,14 @@ impl PairingSession {
         self.update(|held| held.state.error = Some(error));
     }
 
-    /// The user compared the fingerprint with the host's own and accepts it.
     pub fn confirm(&self) {
         self.update(Held::enter_code);
     }
 
-    /// One stage back, unless the host is answering.
     pub fn back(&self) {
         self.update(Held::step_back);
     }
 
-    /// Redeems `code` at the host the confirmed fingerprint belongs to.
     pub fn submit_code(
         self: &Arc<Self>,
         code: &str,

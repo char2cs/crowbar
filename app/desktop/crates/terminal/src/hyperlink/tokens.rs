@@ -1,5 +1,3 @@
-//! Finds every link candidate in one line of text.
-
 use std::ops::Range;
 
 use crate::hyperlink::link_target::LinkTarget;

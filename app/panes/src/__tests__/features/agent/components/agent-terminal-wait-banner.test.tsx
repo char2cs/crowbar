@@ -21,10 +21,6 @@ describe('AgentTerminalWaitBanner', () => {
     )
   })
 
-  // The honest fallback, and the reason the daemon carries a kind at all rather
-  // than a sentence. An unidentified prompt says only what is known — that input
-  // is wanted — because naming a login screen "workspace trust" would send the
-  // user looking for the wrong thing.
   it('says only that input is wanted when it cannot identify the prompt', () => {
     render(<AgentTerminalWaitBanner kind="" providerLabel="Codex" onOpenTerminal={vi.fn()} />)
 
@@ -34,8 +30,6 @@ describe('AgentTerminalWaitBanner', () => {
     expect(screen.getByRole('alert')).not.toHaveTextContent('trust')
   })
 
-  // Forward compatibility: a daemon that learns a new kind must never make an
-  // older client claim something specific it has no wording for.
   it('falls back to the generic wording for a kind it does not know', () => {
     render(
       <AgentTerminalWaitBanner
@@ -56,9 +50,6 @@ describe('AgentTerminalWaitBanner', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('The agent is waiting for input')
   })
 
-  // It never offers to ANSWER — that is the whole distinction from a choice card.
-  // There is no channel to reply on, so the only control is the way to the place
-  // where a reply is possible.
   it('offers only the terminal when the prompt declares no answers', () => {
     const onOpenTerminal = vi.fn()
     render(
@@ -94,8 +85,6 @@ describe('AgentTerminalWaitBanner', () => {
     expect(screen.getByRole('button', { name: /Open Terminal/ })).toBeInTheDocument()
   })
 
-  // One ellipsis-cut line has a fixed height the pane can reserve without measuring; a wrapping
-  // message would grow into whatever sits below it.
   it('keeps its message to one truncated line rather than letting it wrap', () => {
     render(
       <AgentTerminalWaitBanner

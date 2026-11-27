@@ -1,8 +1,3 @@
-//! Opening a large file in the editor and typing at its end, through gpui's test platform with
-//! the Linux text system shaping the lines (decision D8 of the native-editor plan).
-//!
-//! Run with `cargo bench -p editorview --bench open_large`.
-
 mod adapters;
 
 use std::io::Write;

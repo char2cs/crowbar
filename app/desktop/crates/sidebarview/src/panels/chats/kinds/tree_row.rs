@@ -1,5 +1,3 @@
-//! A normal row of the chats tree.
-
 mod drag_payload;
 mod editable_mark;
 

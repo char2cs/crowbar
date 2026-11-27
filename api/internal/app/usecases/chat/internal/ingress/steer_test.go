@@ -35,7 +35,6 @@ func TestSteer_APendingSteerRidesTheTurnStopReply(t *testing.T) {
 	assert.Empty(t, c.st.PendingPrompts())
 }
 
-// A steer the ending CLI cannot take now is settled, for its client to keep.
 func TestSteer_ASteerTheCLICannotTakeIsSettled(t *testing.T) {
 	unheld := steerable(hooksSource())
 	unheld.Held = false
@@ -65,7 +64,6 @@ func TestSteer_AnEndThatClosesNothingHandsOverNothing(t *testing.T) {
 	assert.Empty(t, fx.Reply)
 }
 
-// Prompts steered one after another reach the CLI one per turn end, oldest first.
 func TestSteer_QueuedSteersRideSuccessiveTurnEnds(t *testing.T) {
 	c := steering(t)
 	c.commit(crowbarPrompt(t, "req-2", "then this", ledger.DeliverySteer))
@@ -79,8 +77,6 @@ func TestSteer_QueuedSteersRideSuccessiveTurnEnds(t *testing.T) {
 	assert.Equal(t, "req-2", c.st.PendingPrompts()[0].RequestID)
 }
 
-// A Stop settles every steer the turn carried: the end of the interrupted turn
-// must hand none of them to the CLI.
 func TestRegression_Steer_StopSettlesEveryQueuedSteerAndTheLateEndDeliversNone(t *testing.T) {
 	c := steering(t)
 	c.commit(crowbarPrompt(t, "req-2", "then this", ledger.DeliverySteer))
@@ -106,8 +102,6 @@ func TestRegression_Steer_StopSettlesEveryQueuedSteerAndTheLateEndDeliversNone(t
 	assert.False(t, running)
 }
 
-// A steer reaches the CLI only through its turn's end, so words the provider
-// reports as a prompt of its own are never that steer's, even when they match.
 func TestRegression_Steer_AProviderPromptWithTheSameWordsDoesNotBindToAQueuedSteer(t *testing.T) {
 	c := steering(t)
 	c.commit(crowbarPrompt(t, "req-2", "and also", ledger.DeliverySteer))
@@ -128,9 +122,6 @@ func TestRegression_Steer_AProviderPromptWithTheSameWordsDoesNotBindToAQueuedSte
 	assert.Equal(t, "req-2", c.st.PendingPrompts()[0].RequestID, "the steer is still waiting for its own turn end")
 }
 
-// Captured with the CLI: a steered turn's Stop and its message's hook leave the
-// CLI together, and the message may be handled after the Stop that opened the next
-// turn. Its words are the closed turn's reply, never the running turn's own.
 func TestRegression_Steer_ALateMessageOfAnEndedTurnJoinsItsReplyNotTheNextTurn(t *testing.T) {
 	c := steering(t)
 	c.commit(crowbarPrompt(t, "req-2", "then this", ledger.DeliverySteer))

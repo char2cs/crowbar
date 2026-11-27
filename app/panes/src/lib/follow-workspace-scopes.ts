@@ -24,9 +24,6 @@ function onChange(s: EntityState, prev: EntityState) {
     follow(s.byKind.workspace, prev.byKind.workspace)
 }
 
-/** Records each workspace record's scope (project, repo, owning chat) as it arrives and forgets it
- *  when the record goes, so every page can build the chat-scoped URLs of any workspace it shows.
- *  Returns the stop. */
 export function followWorkspaceScopes(): () => void {
   follow(entityStore.getState().byKind.workspace, {})
   return entityStore.subscribe(onChange)

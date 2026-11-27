@@ -3,9 +3,6 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
 let registration: Promise<void> | undefined
 
-/** Settles once every saved host is registered with the desktop proxy, whose in-memory
- *  registry starts empty each launch (pairing registers new hosts itself). Registering
- *  dials nothing, so a down host delays nothing; a browser has no proxy: ready at once. */
 export function hostsRegistered(): Promise<void> {
   registration ??= registerSavedHosts()
   return registration

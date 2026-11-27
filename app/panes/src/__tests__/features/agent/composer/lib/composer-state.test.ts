@@ -41,8 +41,6 @@ describe('resolveComposerState', () => {
     expect(state).toMatchObject({ kind: 'signpost', reason: 'dormant' })
   })
 
-  // Nothing typed or answered here can reach an unreachable host, so the bar says so
-  // over a feed failure and a pending question as much as over an input.
   it('is a read-only signpost while the host is unreachable, over everything else', () => {
     const state = resolveComposerState(
       inputs({ offline: true, feedError: 'did not line up', asks: [askItem()] }),
@@ -58,8 +56,6 @@ describe('resolveComposerState', () => {
     })
   })
 
-  // A chat blocked on a trust dialog AND holding a pending choice shows the trust
-  // dialog, because that is the one a person can actually do something about.
   it('puts a terminal wait ahead of a pending choice', () => {
     const state = resolveComposerState(
       inputs({
@@ -81,7 +77,6 @@ describe('resolveComposerState', () => {
     expect(resolveComposerState(inputs({ asks }))).toEqual({ kind: 'choices', asks })
   })
 
-  // Hiding an unanswerable prompt is what made a blocked agent look frozen.
   it('still surfaces an ask this provider cannot receive an answer for', () => {
     const asks = [askItem({ answerable: false })]
     expect(resolveComposerState(inputs({ asks }))).toMatchObject({ kind: 'choices' })
@@ -93,8 +88,6 @@ describe('resolveComposerState', () => {
 })
 
 describe('acceptsTyping', () => {
-  // Compaction QUEUES what is typed; it does not take the box away, because a
-  // disabled field would lose a thought somebody is halfway through writing.
   it('accepts typing while compacting', () => {
     expect(acceptsTyping({ kind: 'compacting' })).toBe(true)
     expect(acceptsTyping({ kind: 'input' })).toBe(true)

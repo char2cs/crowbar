@@ -13,12 +13,10 @@ import {
 import type { Settings } from '@/features/settings/types/settings'
 
 export const defaultSettings: Settings = {
-  // General
   autoSave: false,
   sidebarPosition: 'left',
   sidebarFollowsFocus: false,
   tabListScope: 'project',
-  // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
   fontSize: DEFAULT_CODE_FONT_SIZE,
   markdownFontSize: MARKDOWN_FONT_SIZE_DEFAULT,
@@ -30,7 +28,6 @@ export const defaultSettings: Settings = {
   renderIndentGuides: true,
   semanticHighlighting: true,
   highlightOccurrences: false,
-  // Terminal
   terminalFontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   terminalFontSize: DEFAULT_CODE_FONT_SIZE,
   terminalLineHeight: 1,
@@ -39,19 +36,15 @@ export const defaultSettings: Settings = {
   terminalCursorStyle: 'block',
   terminalCursorBlink: true,
   terminalCursorWidth: 2,
-  // Browser
   browserHomepage: '',
   browserSearchEngine: 'duckduckgo',
   browserCustomSearchUrl: '',
   browserZoom: 100,
-  // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
   headingFontFamily: DEFAULT_HEADING_FONT_FAMILY,
-  // Agents
   chatIsDefaultPresentation: true,
   chatSplitPresentationEnabled: false,
-  // Theme
   theme: 'crowbar',
   iconTheme: 'material',
   themeMode: 'system',
@@ -59,25 +52,17 @@ export const defaultSettings: Settings = {
   autoThemeLight: 'crowbar-light',
   autoThemeDark: 'crowbar-dark',
   windowTransparency: true,
-  // Layout
   sidebarWidth: 220,
-  // Keyboard
-  // Language
   formatOnSave: false,
   inlineBlame: true,
   autoCompletion: true,
   parameterHints: true,
-  // Features
   coreFeatures: {
     breadcrumbs: true,
   },
-  // Advanced
-  // A developer's diagnostic: a shipped build starts without it.
   buildReadout: import.meta.env.DEV,
   buildBadgeOverride: 'auto',
-  // Other
   maxOpenTabs: 100,
-  //// File tree
   fileTreeIndentSize: 16,
   compactFoldersInFileTree: false,
   fileTreeDensity: 'default',
@@ -87,7 +72,6 @@ export const defaultSettings: Settings = {
   hiddenDirectoryPatterns: [],
   showGitStatusInFileTree: true,
   compactGitStatusBadges: false,
-  //// Git
   diffViewMode: 'split',
 }
 

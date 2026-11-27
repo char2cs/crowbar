@@ -2,7 +2,6 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 use crate::address::SearchEngine;
 
-/// The pane type id of the browser pane.
 pub const BROWSER_PANE_TYPE: &str = "core.browser";
 
 const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
@@ -16,9 +15,6 @@ const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'(')
     .remove(b')');
 
-/// What the address bar's text means: `None` when empty, an absolute `http(s)` URL for a
-/// host, otherwise a search through `engine`. `localhost` and `127.0.0.1` get `http`, other
-/// dotted hosts `https`; a bare word or a phrase is a search.
 #[must_use]
 pub fn resolve_address(
     input: &str,

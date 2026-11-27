@@ -1,5 +1,3 @@
-//! What reaching the local daemon over its unix socket logs.
-
 use std::path::Path;
 use std::{fmt, io};
 

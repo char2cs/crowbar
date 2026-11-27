@@ -9,12 +9,10 @@ import { hostDotLabel, hostToneText } from '@/features/hosts/lib/host-tone'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
 
-// Unless another modal now covers Settings: focus the user took there is theirs to keep.
 function focusUnlessCovered(target: HTMLElement | null) {
   if (target && !target.closest('[aria-hidden="true"], [inert]')) target.focus()
 }
 
-/** What a host row draws. */
 type HostSummary = Pick<Host, 'id' | 'name' | 'endpoint'>
 
 interface HostRowProps<H extends HostSummary> {
@@ -34,8 +32,6 @@ function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: H
       <HostStatusIcon hostId={host.id} state={state} className="text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="ui-font ui-text-sm truncate text-foreground">{host.name}</div>
-        {/* Local is the app itself: its line is never tinted. An address is monospace, as typed in
-            the address field: the UI face kerns `7.0` into `70`. */}
         <div {...(isLocal ? { className: SECONDARY } : hostToneText(state, ADDRESS))}>
           {isLocal ? 'This computer' : host.endpoint}
           {state !== 'up' && ` · ${hostDotLabel(state)}`}
@@ -55,7 +51,6 @@ function HostRow<H extends HostSummary>({ host, isLocal, revoking, onRevoke }: H
           type="button"
           variant="ghost"
           size="icon-sm"
-          // Not `disabled`: the confirm returns focus here, and a disabled button takes none.
           aria-disabled={revoking || undefined}
           aria-label={`Revoke ${host.name}`}
           tooltip={`Revoke ${host.name}`}
@@ -79,7 +74,6 @@ interface HostsSettingsViewProps<H extends HostSummary> {
   children?: ReactNode
 }
 
-/** Settings → Hosts as drawn: every host with its status, revoke, and Add host. */
 function HostsSettingsView<H extends HostSummary>({
   hosts,
   description,
@@ -120,15 +114,11 @@ function HostsSettingsView<H extends HostSummary>({
   )
 }
 
-/** Settings → Hosts: Local and every paired daemon with its status, Add host, and revoke.
- *  Desktop-only: SETTINGS_TAB_ITEMS leaves it out of a non-Tauri build. */
 export function HostsSettings() {
   const hosts = useHostConfigStore((s) => s.hosts)
   const [addOpen, setAddOpen] = useState(false)
-  // Each opening is a new attempt, even one made while the last is still closing.
   const [addAttempt, setAddAttempt] = useState(0)
   const addHostRef = useRef<HTMLButtonElement>(null)
-  // Every host whose revoke is under way: none of them can be asked to revoke twice.
   const [revoking, setRevoking] = useState<ReadonlySet<string>>(() => new Set())
 
   const handleRevoke = useCallback(
@@ -137,7 +127,6 @@ export function HostsSettings() {
       setRevoking((ids) => new Set(ids).add(host.id))
       void revokeHost(host)
         .then((removed) => {
-          // The row that held the user's place is gone: Add host is the one control that stays.
           if (removed) focusUnlessCovered(addHostRef.current)
         })
         .finally(() => {

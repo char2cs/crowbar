@@ -14,22 +14,16 @@ import type { WorkingLineProps } from '@/features/agent/activity/working-line'
 
 export interface ComposerFacts {
   status?: ChatFeed['status']
-  /** A turn runs, a reply streams ahead of its rows, or a subagent works. */
   working: boolean
   compacting: boolean
-  /** The main agent's plan. */
   plan?: PlanItem[]
-  /** Pending asks of every scope, oldest first. */
   asks: AskItem[]
-  /** The effort the newest finished turn reported. */
   latestEffort: string
-  /** Nothing has been said in this chat yet. */
   empty: boolean
 }
 
 const lastOf = (feed: ChatFeed | undefined) => feed?.items.get(feed.order.at(-1) ?? '')
 
-/** How far back from the newest row a running main tool is looked for. */
 const TOOL_LOOKBACK = 50
 
 function runningTool(order: string[], items: ItemMap, turn: string) {
@@ -51,7 +45,6 @@ function runningTool(order: string[], items: ItemMap, turn: string) {
 
 const NO_ASKS: AskItem[] = []
 
-/** Pending asks of every scope, oldest first; the same items while none changed. */
 function pendingAsks(feed: ChatFeed | undefined): AskItem[] {
   const ids = feed?.facts.openAsks ?? []
   if (ids.length === 0) return NO_ASKS
@@ -62,8 +55,6 @@ function pendingAsks(feed: ChatFeed | undefined): AskItem[] {
 
 const heldBy = new WeakMap<ChatFeed['facts']['prompts'], string | null>()
 
-/** When the oldest prompt the daemon holds for a CLI that has not taken it yet was
- *  said; cached on the prompts, which the fold copies only to change them. */
 function heldSince(feed: ChatFeed | undefined): string | undefined {
   if (!feed) return undefined
   let since = heldBy.get(feed.facts.prompts)
@@ -79,8 +70,6 @@ function heldSince(feed: ChatFeed | undefined): string | undefined {
   return since ?? undefined
 }
 
-/** What the chat's feed says about the turn for the view's parts. Each is its own
- *  narrow read, and none is a tool's or a token's, so a running turn renders nothing. */
 export function useComposerFacts(chatId: string): ComposerFacts {
   const feedOf = (s: ChatStoreState) => s.feeds[chatId]
   const status = useFeedStatus(chatId)
@@ -98,8 +87,6 @@ export function useComposerFacts(chatId: string): ComposerFacts {
   return { status, working, compacting, plan, asks, latestEffort: effort, empty }
 }
 
-/** What the working line says of the turn: these change with every tool and token,
- *  so only the line reads them. */
 export function useWorkingLineFacts(chatId: string): WorkingLineProps {
   const feedOf = (s: ChatStoreState) => s.feeds[chatId]
   const reasoning = useLiveReasoning(chatId)
@@ -125,7 +112,6 @@ export function useWorkingLineFacts(chatId: string): WorkingLineProps {
     const newest = s.outbox[chatId]?.at(-1)
     return newest?.state === 'sending' ? newest.enteredAt : undefined
   })
-  // A send that launches a CLI lands its row long before the turn starts; it is still on its way.
   const held = useChatStore((s) => (feedOf(s)?.facts.running ? undefined : heldSince(feedOf(s))))
   const working = running != null || liveTail > 0 || agents > 0
   return {
@@ -144,8 +130,6 @@ export function useWorkingLineFacts(chatId: string): WorkingLineProps {
 
 const promptsBy = new WeakMap<string[], string[]>()
 
-/** The person's own prompts in `chatId`, oldest first, for history recall: read
- *  when a recall asks, so a landing row does not re-render the composer. */
 export function promptTexts(chatId: string): string[] {
   const feed = chatStore.getState().feeds[chatId]
   if (!feed) return []

@@ -1,19 +1,14 @@
 use sidebar::{Expansion, FileKind, IconTheme};
 use ui::{IconName, MaterialTable};
 
-/// How an icon theme draws a file or folder, in the Files tree and on its tab.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileGlyph {
-    /// A Phosphor icon in the ink of where it sits.
     Phosphor(IconName),
-    /// Material artwork painted in `currentColor`.
     Monochrome(String),
-    /// Material artwork in its own colours.
     Colored(&'static str),
 }
 
 impl FileGlyph {
-    /// The glyph `theme` draws for the entry `name` of `kind`, looked up in `icons`.
     #[must_use]
     pub fn of(
         (theme, kind): (IconTheme, FileKind),

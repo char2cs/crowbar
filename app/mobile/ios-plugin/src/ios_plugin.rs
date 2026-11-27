@@ -7,7 +7,6 @@ use std::sync::Arc;
 use tauri::plugin::{Builder, PluginApi, TauriPlugin};
 use tauri::{AppHandle, Asset, Manager, Runtime};
 
-/// Builds the plugin; on iOS it also starts the Swift chrome that draws over the webview.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("crowbar-chrome")
         .setup(|app, api| attach(app, &api))

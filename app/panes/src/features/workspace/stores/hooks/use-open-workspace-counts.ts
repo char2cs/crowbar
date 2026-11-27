@@ -14,12 +14,10 @@ function countWorking(s: EntityState): number {
   return n
 }
 
-/** Workspaces with a live store — the host keeps one iff it is in a view. */
 export function useOpenWorkspaceCount(): number {
   return useSyncExternalStore(subscribeWorkspaceRegistry, countOpen)
 }
 
-/** Chats mid-turn, by the daemon's folded busy flag on each chat entity. */
 export function useWorkingChatCount(): number {
   return useStore(entityStore, countWorking)
 }

@@ -20,23 +20,13 @@ import {
   watchToasts,
 } from '@/__tests__/__fixtures__/reports'
 
-// Mirrors the composer's inline cap (32 KiB): above it a paste or drawing uploads as a file.
 const INLINE_ATTACHMENT_MAX_BYTES = 32 * 1024
 
-// The mocked canvas exposes `save()` via the same imperative handle the real
-// one does, invoking `onSave` with whatever this file's `saveResult` holds at
-// the time — this file only exercises the TAKEOVER's own wiring (the header's
-// Attach button, id-minting, upload, insert-markdown, local persistence,
-// chrome), which is everything a real Attach click would trigger regardless
-// of what's drawn.
 let latestInitialScene: ParsedExcalidrawScene | undefined
 let saveResult: ExcalidrawSaveResult = {
   sceneJson: '{"elements":[],"appState":{}}',
   pngFile: new File(['x'], 'diagram.png', { type: 'image/png' }),
 }
-// Every existing test in this file wants Attach immediately usable, matching
-// the real component's own near-instant local init in practice — only the
-// dedicated "not ready yet" test below sets this false.
 let mockReady = true
 
 vi.mock('@/features/agent/composer/excalidraw-canvas', () => ({
@@ -138,8 +128,6 @@ describe('ExcalidrawTakeover', () => {
     expect(screen.queryByTestId('excalidraw-canvas')).not.toBeInTheDocument()
   })
 
-  // The whole point of trading the modal for this: a full-pane takeover, not
-  // a centered box floating over the still-visible transcript.
   it('renders as a full-pane takeover, not a centered dialog', async () => {
     await renderOpenTakeover()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -154,7 +142,6 @@ describe('ExcalidrawTakeover', () => {
     expect(onInsertMarkdown).not.toHaveBeenCalled()
   })
 
-  // Escape belongs to Excalidraw (deselect, leave text edit), so the takeover ignores it.
   it('does nothing on Escape', async () => {
     const { onClose } = await renderOpenTakeover()
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -265,7 +252,6 @@ describe('ExcalidrawTakeover', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  // Saving locally is what lets either entry point resume this design next time instead of blank.
   it('saves the scene to this chat’s local design slot on a successful attach', async () => {
     saveResult = {
       sceneJson: '{"elements":["a"],"appState":{}}',
@@ -290,7 +276,6 @@ describe('ExcalidrawTakeover', () => {
     expect(loadExcalidrawDesign('w1', 'c1')).toBeNull()
   })
 
-  // The in-flight guard lives on the header's Attach button.
   it('disables Attach while a save is in flight, so a fast second click cannot fire it twice', async () => {
     let resolveUpload!: (value: UploadedChatAttachment) => void
     vi.mocked(uploadChatAttachment).mockImplementationOnce(
@@ -316,8 +301,6 @@ describe('ExcalidrawTakeover', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
-  // The lazy-loaded canvas's save() silently no-ops before its api exists, so Attach stays disabled
-  // until the canvas signals it has something to export.
   it('disables Attach until the canvas signals it is ready, so a click cannot silently no-op', async () => {
     mockReady = false
     await renderOpenTakeover()

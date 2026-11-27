@@ -1,6 +1,3 @@
-//! Daemon-backed data for the native shell: the sidebar's entities and commands, and the settings
-//! and records the settings modal edits.
-
 mod editing;
 mod error;
 mod journal_sink;

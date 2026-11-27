@@ -9,28 +9,14 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Which level a snapshot's bare root stands for, and who belongs to it: the one sibling set every writer
-// counts against, mirroring what the sidebar renders.
-
-// forestScope names the level a snapshot's bare root stands for. Node.ParentID "" is shared by every
-// project's home, every repo root and every anchor, so only the root needs scoping; under a real container
-// every child is a sibling. The zero value is the bubble scope: bubbles and the home folders beside them.
 type forestScope struct {
-	// home is a project-home level: this project's repo headers (repoMemberIDs, nil for every repo) and
-	// its home folders (homeID, "" for every home).
 	home          bool
 	homeID        string
 	repoMemberIDs map[string]bool
-	// repoID is a repo's own root level: that repo's folders and the locked
-	// branches it draws, never a repo header or a home row.
-	repoID string
-	// workspaceID is whose root chats sit at this level (home, a repo's default checkout, or a locked
-	// branch); "" means any workspace of the scope.
-	workspaceID string
+	repoID        string
+	workspaceID   string
 }
 
-// scopeForWorkspace resolves the scope a workspace's rows sit in: home for a project-home workspace, the
-// bubble scope for "", and the repo root for any repo workspace (a branch's inner level is not the root).
 func (u *chatFolderUsecase) scopeForWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -51,9 +37,6 @@ func (u *chatFolderUsecase) scopeForWorkspace(
 	return u.scopeForFolder(ctx, dtree.Folder{RepoID: repoID}), nil
 }
 
-// scopeForFolder resolves a folder's scope off its own stored identity. A
-// repo folder's level is the repo root, whose chats are the default
-// checkout's.
 func (u *chatFolderUsecase) scopeForFolder(
 	ctx context.Context,
 	f dtree.Folder,
@@ -72,9 +55,6 @@ func (u *chatFolderUsecase) scopeForFolder(
 	return scope
 }
 
-// scopeForSubject resolves the scope for a snapshot built around one row:
-// a folder's own stored scope, otherwise the scope of the workspace the row
-// belongs to. An unknown subject degrades to an unscoped home root.
 func (u *chatFolderUsecase) scopeForSubject(
 	ctx context.Context,
 	subject domain.Chat,
@@ -91,8 +71,6 @@ func (u *chatFolderUsecase) scopeForSubject(
 	return u.scopeForWorkspace(ctx, subject.WorkspaceID)
 }
 
-// scopeForBubble resolves a workspace-less chat's scope from the folder or chat it hangs in; with no such
-// parent it keeps the zero scope.
 func (u *chatFolderUsecase) scopeForBubble(
 	ctx context.Context,
 	subject domain.Chat,
@@ -111,8 +89,6 @@ func (u *chatFolderUsecase) scopeForBubble(
 	return forestScope{}
 }
 
-// rootMember decides whether a Node at the bare root belongs to scope's level, asking each kind's own
-// aggregate. row is the base row the Node corrects, nil when the walk discovered it.
 func (u *chatFolderUsecase) rootMember(
 	ctx context.Context,
 	n dtree.Node,
@@ -128,7 +104,6 @@ func (u *chatFolderUsecase) rootMember(
 	case dtree.KindRepo:
 		return scope.home && (scope.repoMemberIDs == nil || scope.repoMemberIDs[n.ID])
 	case dtree.KindWorkspace:
-		// The level's own default checkout is its header, never a member.
 		if scope.repoID == "" || n.ID == scope.workspaceID {
 			return false
 		}
@@ -138,8 +113,6 @@ func (u *chatFolderUsecase) rootMember(
 	return false
 }
 
-// folderAtRoot is rootMember's folder case: a repo folder of the scope's
-// repo, or a home folder of its home — adopting a legacy one on the way.
 func (u *chatFolderUsecase) folderAtRoot(
 	ctx context.Context,
 	id string,
@@ -158,8 +131,6 @@ func (u *chatFolderUsecase) folderAtRoot(
 	return f.InHome(scope.homeID)
 }
 
-// foreignAtRoot names the base rows at the bare root that are not scope's own: a global read carries every
-// workspace's root chats. They stay in the snapshot for walks, but off the plan's root level.
 func (u *chatFolderUsecase) foreignAtRoot(
 	ctx context.Context,
 	rows []domain.Chat,
@@ -177,9 +148,6 @@ func (u *chatFolderUsecase) foreignAtRoot(
 	return foreign
 }
 
-// chatAtRoot answers whether a root chat belongs to scope's level: the scope workspace's chats, or a fork's
-// owning chat in the scope's repo. A chat whose level the sidebar draws as something else takes no slot;
-// a bubble belongs to the bubble scope alone.
 func (u *chatFolderUsecase) chatAtRoot(
 	ctx context.Context,
 	row domain.Chat,
@@ -205,14 +173,10 @@ func (u *chatFolderUsecase) chatAtRoot(
 	return err == nil && repoID == scope.repoID
 }
 
-// zero reports the bubble scope: no level at all.
 func (s forestScope) zero() bool {
 	return !s.home && s.repoID == "" && s.workspaceID == ""
 }
 
-// levelAliases maps every id a row can be filed under to the id the sidebar draws that level as: a
-// workspace's anchor and its owning chat name one level (the root for home and default checkout, the
-// anchor for a locked branch, the chat for an ordinary fork). Rows keep the id they were filed under.
 type levelAliases map[string]string
 
 func (a levelAliases) canonical(
@@ -224,9 +188,6 @@ func (a levelAliases) canonical(
 	return id
 }
 
-// levelAliasesOf resolves the alias set over rows: every workspace some row
-// names, with the chat that RECORDS owning it (or a legacy branch row) —
-// never a heuristic winner, which could be the very thread being placed.
 func (u *chatFolderUsecase) levelAliasesOf(
 	ctx context.Context,
 	rows []domain.Chat,
@@ -249,7 +210,6 @@ func (u *chatFolderUsecase) levelAliasesOf(
 	return aliases
 }
 
-// aliasLevel records the level wsID and its owner ownerID name together.
 func (u *chatFolderUsecase) aliasLevel(
 	ctx context.Context,
 	aliases levelAliases,
@@ -280,8 +240,6 @@ func (u *chatFolderUsecase) aliasLevel(
 	}
 }
 
-// rememberDefault memoises repoID's default checkout in defaults. A lookup that
-// fails is logged and remembered as none, which is what a repo without one has.
 func (u *chatFolderUsecase) rememberDefault(
 	ctx context.Context,
 	defaults map[string]string,

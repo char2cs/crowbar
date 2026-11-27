@@ -75,8 +75,6 @@ fn entity((kind, id, data): (&str, &str, &str)) -> Frame {
     }
 }
 
-/// The daemon's frames for one space: a home with a chat, a repository with its checkout, a
-/// branch holding a thread, and a folder.
 pub(crate) fn frames() -> Vec<Frame> {
     let synced = Frame::Synced {
         scope: "projects".into(),
@@ -88,7 +86,6 @@ pub(crate) fn frames() -> Vec<Frame> {
     frames
 }
 
-/// An entity store holding `rows`, each `(kind, id, json)`.
 pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> Entities {
     let mut store = Entities::default();
     rows.iter()
@@ -98,8 +95,6 @@ pub(crate) fn store_of(rows: &[(&str, &str, &str)]) -> Entities {
     store
 }
 
-/// A state of one local host that has heard [`frames`], and the daemon its client talks to.
-/// A change signal nobody listens to.
 pub(crate) fn quiet() -> crate::live::ChangeSignal {
     Arc::new(|| ())
 }
@@ -113,7 +108,6 @@ pub(crate) fn state() -> (State, Arc<FakeDaemon>) {
     state_on(spec)
 }
 
-/// A state of the one host `spec` that has heard [`frames`], and the daemon its client talks to.
 pub(crate) fn state_on(spec: HostSpec) -> (State, Arc<FakeDaemon>) {
     let daemon = FakeDaemon::shared();
     let client = daemonapi::Client::new(Arc::<FakeDaemon>::clone(&daemon), local());

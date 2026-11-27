@@ -1,5 +1,3 @@
-//! A file pane's view: its events, focus, keyboard, locks and source mode.
-
 mod focusing;
 pub(crate) mod keyboard;
 mod locking;

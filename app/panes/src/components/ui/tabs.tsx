@@ -18,9 +18,6 @@ interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   isActive?: boolean
   isDragged?: boolean
   action?: React.ReactNode
-  /** 'pill' (default): filled and rounded. 'underline': a static 2px `bg-primary` bar per button,
-   *  not TabsList's sliding indicator (which can't follow a sortable strip). 'ghost': the IDE
-   *  strip's toolbar-button recipe, so tabs read as the same chrome as their neighbours. */
   variant?: 'pill' | 'underline' | 'ghost'
   size?: 'xs' | 'sm' | 'md' | 'lg'
   labelPosition?: 'start' | 'center' | 'end'
@@ -47,15 +44,10 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
   ) => (
     <button
       ref={ref}
-      // A click must not leave the focus ring: WebKit shows `:focus-visible` for real trackpad
-      // clicks. preventDefault on mousedown stops the focus move (keyboard never uses mousedown),
-      // unless a caller's handler (dnd-kit's drag activation) already took the event.
       onMouseDown={(e) => {
         onMouseDown?.(e)
         if (!e.defaultPrevented) e.preventDefault()
       }}
-      // And blur on a mouse click (`detail >= 1`; keyboard activation reports 0) as a backstop for
-      // whatever WebKit heuristic still earns the ring, keeping real keyboard focus visible.
       onClick={(e) => {
         onClick?.(e)
         if (e.detail !== 0) e.currentTarget.blur()

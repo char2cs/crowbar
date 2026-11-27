@@ -1,5 +1,3 @@
-//! The notes of every paired host, in one JSON file of the state directory.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -9,7 +7,6 @@ use crate::live::files::DiskFiles;
 use crate::live::files::{Files, read_text};
 use crate::live::fleet::host_desk::note::Note;
 
-/// The paired hosts' notes, loaded once and written through on every change.
 #[derive(Debug)]
 pub struct HostNotes {
     path: PathBuf,
@@ -23,10 +20,6 @@ impl HostNotes {
         self.path.parent().map_or_else(PathBuf::new, PathBuf::from)
     }
 
-    /// The notes stored at `path`; a missing file is no notes.
-    ///
-    /// # Errors
-    /// [`Error::File`] or [`Error::Json`] when the file exists and cannot be read.
     pub fn open(path: PathBuf) -> Result<Self> {
         Self::open_on(path, Arc::new(DiskFiles::default()))
     }
@@ -57,7 +50,6 @@ impl HostNotes {
         self.notes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The note of `host`, when it has one.
     pub fn get(
         &self,
         host: &str,

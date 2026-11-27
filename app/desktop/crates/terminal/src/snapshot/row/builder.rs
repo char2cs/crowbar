@@ -1,5 +1,3 @@
-//! Builds a drawable [`Row`] from one grid line.
-
 use std::ops::Range;
 
 use alacritty_terminal::grid::Row as GridRow;
@@ -143,7 +141,6 @@ impl<'a> Builder<'a> {
         if !self.selected.contains(&column) {
             return own;
         }
-        // SPEC: https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRendererRowFactory.ts
         *self.selected_style.get_or_insert(own)
     }
 

@@ -1,5 +1,3 @@
-//! What a native file chooser asks: its title, what it selects and which files it lists.
-
 mod choice_kind;
 mod file_choice;
 mod file_filter;

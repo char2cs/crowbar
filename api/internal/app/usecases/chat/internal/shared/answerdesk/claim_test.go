@@ -17,8 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// A relay whose budget runs out prints nothing, and the desk closes its question
-// once, as what the relay's channel hands its CLI then.
 func TestAwait_TheBudgetExpiringPrintsNothingAndClosesItsQuestion(t *testing.T) {
 	t.Parallel()
 	d, _, ledger := withLedger(time.Millisecond)
@@ -33,8 +31,6 @@ func TestAwait_TheBudgetExpiringPrintsNothingAndClosesItsQuestion(t *testing.T) 
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", domain.ChoiceResolutionRefused}}, ledger.all())
 }
 
-// A relay that stops waiting leaves its ask to be retired: abandoned, its
-// question is closed as proceeded past, as the CLI now asks it itself.
 func TestAwait_ACancelledRelayLeavesItsAskToItsAbandon(t *testing.T) {
 	t.Parallel()
 	d, _, ledger := withLedger(time.Hour)
@@ -59,8 +55,6 @@ func TestAwait_AnAskNobodyIsHoldingReturnsNothing(t *testing.T) {
 	assert.Empty(t, answer.Stdout)
 }
 
-// Four relays and one verdict. Exactly one prints it, and no interleaving loses
-// it — the property the claim-once design exists for.
 func TestAwait_AVerdictIsClaimedByExactlyOneOfManyRacingRelays(t *testing.T) {
 	t.Parallel()
 
@@ -115,8 +109,6 @@ func TestAnswer_ReleasesTheRelayHeldOnThatAsk(t *testing.T) {
 	assert.Same(t, other, held)
 }
 
-// One verdict, whatever the callers do. A second answer to a settled slot must
-// not overwrite the answer a relay may already be printing.
 func TestAnswer_SettlesOnce(t *testing.T) {
 	t.Parallel()
 
@@ -177,7 +169,6 @@ func TestAnswer_IgnoresASlotThatHasLeftTheDesk(t *testing.T) {
 	assert.False(t, waiting, "resolving a spent slot put it back on the desk")
 }
 
-// relay parks a relay on choice-1 and reports what it prints.
 func relay(ctx context.Context, d *answerdesk.Desk) <-chan string {
 	printed := make(chan string, 1)
 	go func() {
@@ -187,8 +178,6 @@ func relay(ctx context.Context, d *answerdesk.Desk) <-chan string {
 	return printed
 }
 
-// An answer looked up before its relay's budget ran out comes too late: it is
-// refused and records nothing, and the relay's own outcome stands.
 func TestAnswer_ARelayReleasedFirstRefusesTheAnswerAndRecordsNothing(t *testing.T) {
 	t.Parallel()
 	d, slot, ledger := withLedger(time.Millisecond)
@@ -209,8 +198,6 @@ func TestAnswer_ARelayReleasedFirstRefusesTheAnswerAndRecordsNothing(t *testing.
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", proceeded}}, ledger.all())
 }
 
-// A relay that hangs up before its answer is written closes its ask as
-// proceeded, and the answer, written second, is refused.
 func TestRegression_ARelayHangingUpBeforeItsAnswerIsWrittenLeavesItProceeded(t *testing.T) {
 	t.Parallel()
 	d, slot, ledger := withLedger(time.Minute)
@@ -225,7 +212,6 @@ func TestRegression_ARelayHangingUpBeforeItsAnswerIsWrittenLeavesItProceeded(t *
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", proceeded}}, ledger.all(), "exactly one outcome, the first")
 }
 
-// A relay that hangs up after its answer is written leaves that outcome alone.
 func TestAnswer_ARelayHangingUpAfterItsAnswerIsWrittenLeavesItAnswered(t *testing.T) {
 	t.Parallel()
 	d, slot, ledger := withLedger(time.Minute)
@@ -241,8 +227,6 @@ func TestAnswer_ARelayHangingUpAfterItsAnswerIsWrittenLeavesItAnswered(t *testin
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", ledgerrows.ResolutionAnswered}}, ledger.all())
 }
 
-// An answer whose relay its runner's exit released before the write is refused
-// and records nothing: the exit closes the question.
 func TestRegression_AnAnswerItsRunnersExitReleasedFirstRecordsNothing(t *testing.T) {
 	t.Parallel()
 	d, slot, ledger := withLedger(time.Minute)
@@ -257,8 +241,6 @@ func TestRegression_AnAnswerItsRunnersExitReleasedFirstRecordsNothing(t *testing
 	assert.Empty(t, ledger.all())
 }
 
-// An ask asked again while its answer is recorded is answered on its new relay,
-// which waits for that answer past its budget.
 func TestRegression_AnAskAskedAgainMidRecordHandsTheAnswerToItsNewRelay(t *testing.T) {
 	t.Parallel()
 	budget := make(chan time.Time)
@@ -278,8 +260,6 @@ func TestRegression_AnAskAskedAgainMidRecordHandsTheAnswerToItsNewRelay(t *testi
 	assert.Equal(t, []resolution{{"chat-1", "choice-1", ledgerrows.ResolutionAnswered}}, ledger.all())
 }
 
-// An answer that looked its relay up just before a re-ask displaced it is
-// handed to the relay now holding the ask, not refused.
 func TestRegression_AnAnswerLookedUpBeforeAReAskReachesItsNewRelay(t *testing.T) {
 	t.Parallel()
 	d, looked := fixture()
@@ -293,8 +273,6 @@ func TestRegression_AnAnswerLookedUpBeforeAReAskReachesItsNewRelay(t *testing.T)
 	assert.Equal(t, "allow", <-printed)
 }
 
-// A relay a re-ask displaced prints nothing; the answer reaches only the relay
-// now holding the ask.
 func TestAwait_ADisplacedRelayPrintsNothing(t *testing.T) {
 	t.Parallel()
 	parked := make(chan struct{}, 2)
@@ -314,13 +292,10 @@ func TestAwait_ADisplacedRelayPrintsNothing(t *testing.T) {
 	assert.Equal(t, "allow", <-second)
 }
 
-// clocked is a desk whose relay budget runs out when the test sends on budget.
 func clocked(budget chan time.Time) (*answerdesk.Desk, *answerdesk.Slot, *recordingLedger) {
 	return withLedger(time.Minute, answerdesk.WithBudgetClock(func(time.Duration) <-chan time.Time { return budget }))
 }
 
-// A budget that runs out while an answer is being recorded waits for it: the
-// relay prints the answer, and the expiry writes nothing.
 func TestAnswer_ABudgetRunningOutMidRecordWaitsForTheAnswer(t *testing.T) {
 	t.Parallel()
 	budget := make(chan time.Time)
@@ -338,8 +313,6 @@ func TestAnswer_ABudgetRunningOutMidRecordWaitsForTheAnswer(t *testing.T) {
 	assert.Empty(t, ledger.all(), "the expiry lost the relay and records nothing")
 }
 
-// An answer that could not be recorded hands its relay back, and a budget that
-// ran out meanwhile then releases it and records the outcome it delivered.
 func TestAnswer_AFailedRecordHandsAnExpiredRelayBackToItsBudget(t *testing.T) {
 	t.Parallel()
 	budget := make(chan time.Time)

@@ -49,7 +49,6 @@ fn confirmed<'a>(
     let NameEvent::Confirmed(name) = event else {
         return None;
     };
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/tabs/components/tab-context-menu.tsx
     let name: String = name.chars().filter(|c| !c.is_control()).collect();
     let name = name.trim();
     if name.is_empty() {

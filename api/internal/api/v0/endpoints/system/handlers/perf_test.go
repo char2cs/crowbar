@@ -15,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
-// perfEnvelope mirrors the {success, data} query envelope every v0 read answers
-// with, narrowed to the perf payload.
 type perfEnvelope struct {
 	Success bool `json:"success"`
 	Data    struct {
@@ -42,9 +40,6 @@ func doPerf(
 	return rec
 }
 
-// TestPerfGet_ReturnsSamples is the whole point of the endpoint: a capture run
-// reads the daemon's ring from OUTSIDE the daemon, so the samples must survive
-// the JSON envelope intact.
 func TestPerfGet_ReturnsSamples(
 	t *testing.T,
 ) {
@@ -68,9 +63,6 @@ func TestPerfGet_ReturnsSamples(
 	assert.InDelta(t, 12.0, got.Data.Samples[0].DurationMS, 0.001)
 }
 
-// TestPerfGet_EmptyRingSerialisesAsArray pins the wire shape a reader parses:
-// an empty ring must be [], not null, so the capture tooling can index it
-// without a nil check.
 func TestPerfGet_EmptyRingSerialisesAsArray(
 	t *testing.T,
 ) {
@@ -83,8 +75,6 @@ func TestPerfGet_EmptyRingSerialisesAsArray(
 	assert.Contains(t, rec.Body.String(), `"samples":[]`)
 }
 
-// TestPerfSet_ArmsAndClears proves arming starts a CLEAN window: a sample left
-// over from a previous scenario would otherwise be attributed to this one.
 func TestPerfSet_ArmsAndClears(
 	t *testing.T,
 ) {
@@ -121,9 +111,6 @@ func TestPerfSet_Disarms(
 	assert.False(t, perf.Enabled())
 }
 
-// TestPerfSet_RejectsUnparseableEnabled guards the capture run's worst failure
-// mode: a typo'd query value silently disarming the ring, so the operator
-// drives a whole scenario and reads back nothing with no error to explain it.
 func TestPerfSet_RejectsUnparseableEnabled(
 	t *testing.T,
 ) {

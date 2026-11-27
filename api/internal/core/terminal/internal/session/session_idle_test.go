@@ -9,13 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIsIdle_unix verifies IsIdle against a real PTY, at both of its edges:
-//
-//   - At its prompt the shell IS the terminal's foreground process group, so IsIdle is true.
-//   - With a foreground child running, the child owns the terminal, so IsIdle is false.
-//
-// Determinism: neither edge is waited out on a clock, because neither has to be. Both are
-// OBSERVABLE the moment they happen, and both observations are made through the shell's own
 // output:
 //
 //  1. Idle — waitPrompt blocks until the pinned PS1 is on screen. The prompt is the last thing
@@ -35,12 +28,9 @@ func TestIsIdle_unix(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
-	// --- Idle assertion -------------------------------------------------
 	waitPrompt(t, s)
 	assert.True(t, s.IsIdle(), "shell at prompt must report IsIdle=true")
 
-	// --- Active assertion -----------------------------------------------
-	// startForeground blocks on the child's announcement and asserts !IsIdle() there.
 	startForeground(t, s)
 	assert.False(t, s.IsIdle(), "shell with a foreground child must report IsIdle=false")
 }

@@ -23,8 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// spyExitTurns streams text for every runner whose end it is asked about, and
-// notes each runner retired.
 type spyExitTurns struct {
 	noopTurns
 	asked, retired []string
@@ -42,8 +40,6 @@ func (s *spyExitTurns) Retire(chatID, runnerID string) {
 	s.retired = append(s.retired, chatID+"/"+runnerID)
 }
 
-// A dead runner's own streamed text commits with its exit, never another
-// runner's, and its buffer is dropped once that commit holds it.
 func TestReconcileRunnerExit_RecordsWhatTheRunnerStreamedWithItsExit(t *testing.T) {
 	spy := &spyExitTurns{}
 	rs := &Runners{
@@ -74,8 +70,6 @@ func TestReconcileRunnerExit_RecordsWhatTheRunnerStreamedWithItsExit(t *testing.
 	assert.Equal(t, "streamed by runner-1", body.Text)
 }
 
-// askedLock is the ingress's chat locks, telling asked of every chat an exit
-// asks it for.
 type askedLock struct {
 	*ingress.Locks
 	asked chan<- string
@@ -86,8 +80,6 @@ func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
 	return l.Locks.Lock(ctx, chatID)
 }
 
-// A runner's exit never cuts into a hook recording on its chat: the exit's
-// commit waits for the chat's lock, so it lands after what the hook records.
 func TestRunnerExit_RecordsAfterTheHookHoldingItsChat(t *testing.T) {
 	for name, exit := range map[string]func(t *testing.T, rs *Runners){
 		"its PTY exits": func(t *testing.T, rs *Runners) {
@@ -116,7 +108,6 @@ func TestRunnerExit_RecordsAfterTheHookHoldingItsChat(t *testing.T) {
 				defer close(exited)
 				exit(t, rs)
 			}()
-			// The exit asks for the chat, or, recording without it, has already ended.
 			select {
 			case <-asked:
 			case <-exited:
@@ -142,9 +133,6 @@ func TestRunnerExit_RecordsAfterTheHookHoldingItsChat(t *testing.T) {
 	}
 }
 
-// TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY:
-// the native view SwitchToTerminal forks is tracked only in rs.attached, so a
-// retire must end it too, or the visible process runs forever.
 func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
 	term := &fakeTermForAttach{}
 	rs := retiring(t, &Runners{
@@ -168,8 +156,6 @@ func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanio
 	assert.Equal(t, domain.AgentExitDisplaced, retiredAs(t, rs))
 }
 
-// An exiting runner can acknowledge nothing more, so what it carried is
-// settled with its exit, and only that.
 func TestReconcileRunnerExit_SettlesOnlyThePromptsTheExitingRunnerCarried(t *testing.T) {
 	rs := retiring(t, &Runners{
 		agents: stubAgentsForInterrupt{},
@@ -189,9 +175,6 @@ func TestReconcileRunnerExit_SettlesOnlyThePromptsTheExitingRunnerCarried(t *tes
 	assert.False(t, live)
 }
 
-// No CLI outlives the daemon that started it: a runner the ledger still holds
-// live at boot is ended as daemon_restart, what it carried is settled, and the
-// directory its spawn made is reaped.
 func TestRegression_BootEndsTheLedgersLiveRunnerAsADaemonRestart(t *testing.T) {
 	home := t.TempDir()
 	chatsDir := filepath.Join(home, "chats")
@@ -233,7 +216,6 @@ func appendStarted(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) 
 	require.NoError(t, err)
 }
 
-// appendTurn starts a turn on runnerID.
 func appendTurn(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) {
 	t.Helper()
 	row, err := ledger.NewRow(ledger.KindTurnStarted, "T-"+chatID, "", ledger.TurnStarted{RunnerID: runnerID})
@@ -242,8 +224,6 @@ func appendTurn(t *testing.T, l *ledgerstore.Store, chatID, runnerID string) {
 	require.NoError(t, err)
 }
 
-// The boot pass closes a chat's turn in the commit that ends its runner, and
-// one chat it cannot reconcile stops no other.
 func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -272,7 +252,6 @@ func TestReconcileRunnersOnBoot_OneChatsFailureLeavesTheOthersReconciled(t *test
 	}
 }
 
-// purgedChats is a chat store in which gone no longer exists.
 type purgedChats struct {
 	stubChatsForSpawn
 	gone string
@@ -285,8 +264,6 @@ func (c purgedChats) GetChat(ctx context.Context, chatID string) (domain.Chat, e
 	return c.stubChatsForSpawn.GetChat(ctx, chatID)
 }
 
-// A daemon shutting down ends every runner as daemon_restart: the exit each
-// PTY's death fires records that cause once, closes its turn and frees its chat.
 func TestShutdown_EveryRunnerEndsAsADaemonRestart(t *testing.T) {
 	home := t.TempDir()
 	rs := &Runners{
@@ -333,13 +310,10 @@ func countKind(rows []ledger.Row, kind ledger.Kind) int {
 	return n
 }
 
-// noLedger takes every outcome the desk writes back and keeps none.
 type noLedger struct{}
 
 func (noLedger) ResolveAsk(context.Context, string, string, string) error { return nil }
 
-// A turn left running with no runner on the ledger (its runner never recorded
-// as live) is closed by the boot pass, or the chat shows working forever.
 func TestReconcileRunnersOnBoot_ClosesARunningTurnWithNoLiveRunner(t *testing.T) {
 	rs := retiring(t, &Runners{turns: noopTurns{}})
 	rs.live = liveWith(t)

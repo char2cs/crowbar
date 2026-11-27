@@ -5,7 +5,6 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
   body: string,
 ) => () => Promise<unknown>
 
-/** Runs one op the way the app does: as an async function body in the page. */
 function run(op: DomOp, args: Record<string, unknown> = {}): Promise<unknown> {
   return new AsyncFunction(domAgentBody(op, args))()
 }

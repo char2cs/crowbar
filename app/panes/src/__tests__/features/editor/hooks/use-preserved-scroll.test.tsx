@@ -3,12 +3,6 @@ import { StrictMode, useEffect, useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 
-/**
- * Minimal host for the hook: a scrollable div whose offset the hook is asked to
- * retain under `scrollKey`. Mirrors how the preview panes use it — the element
- * is destroyed and recreated on every remount, so the offset can only survive
- * outside the component.
- */
 function ScrollHost({ scrollKey, ready = true }: { scrollKey: string | null; ready?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   usePreservedScroll(ref, scrollKey === null ? null : `${testRun}:${scrollKey}`, ready)
@@ -19,7 +13,6 @@ function ScrollHost({ scrollKey, ready = true }: { scrollKey: string | null; rea
   )
 }
 
-// The offsets outlive a component, so each test keys its buffers apart from the others'.
 let testRun = 0
 
 describe('usePreservedScroll', () => {
@@ -57,8 +50,6 @@ describe('usePreservedScroll', () => {
     scroller.scrollTop = 300
     fireEvent.scroll(scroller)
 
-    // Same DOM node, different buffer: the new buffer must start at the top and
-    // must not overwrite buffer-a's remembered offset.
     view.rerender(<ScrollHost scrollKey="buffer-b" />)
     expect(scroller.scrollTop).toBe(0)
 
@@ -73,8 +64,6 @@ describe('usePreservedScroll', () => {
     fireEvent.scroll(scroller)
     first.unmount()
 
-    // Content not painted yet — restoring now would be clamped to 0 by the
-    // browser (empty scroll box), silently losing the offset.
     const second = render(<ScrollHost scrollKey="buffer-a" ready={false} />)
     expect(second.getByTestId('scroller').scrollTop).toBe(0)
 
@@ -95,10 +84,6 @@ describe('usePreservedScroll', () => {
     expect(second.getByTestId('scroller').scrollTop).toBe(0)
   })
 
-  /**
-   * The real preview parses its markdown in an effect, so the content lands one
-   * commit AFTER mount — the same shape as this host.
-   */
   function DeferredContentHost({ scrollKey }: { scrollKey: string }) {
     const ref = useRef<HTMLDivElement>(null)
     const [ready, setReady] = useState(false)
@@ -113,11 +98,6 @@ describe('usePreservedScroll', () => {
     )
   }
 
-  // The app renders under StrictMode, which mounts every component twice: setup
-  // → cleanup → setup. On the way back that first cleanup sees a BRAND NEW
-  // element still sitting at 0 with no content yet, and must not record it —
-  // doing so wipes the offset the restore is about to read, which is exactly how
-  // the retained scroll was lost in the real app.
   it('survives StrictMode double-invoked effects when content arrives a commit late', () => {
     const first = render(
       <StrictMode>
@@ -150,14 +130,6 @@ describe('usePreservedScroll', () => {
     expect(second.getByTestId('scroller').scrollTop).toBe(0)
   })
 
-  /**
-   * Content that keeps growing after the first commit — a README's images and
-   * embedded HTML sizing themselves, a diagram rendering — is the case jsdom
-   * cannot show on its own, because it has no layout and therefore never clamps
-   * anything. Both halves are modelled explicitly here: a scroll box that
-   * truncates an out-of-range `scrollTop` like a real one, and a ResizeObserver
-   * the test can fire to represent the content growing.
-   */
   describe('content that is still growing', () => {
     let maxScroll = 0
     let observerCallbacks: Array<() => void> = []
@@ -194,7 +166,6 @@ describe('usePreservedScroll', () => {
       })
     })
 
-    /** Fires every live observer, as the browser would once a box changed. */
     const growContent = (newMax: number) => {
       maxScroll = newMax
       act(() => {
@@ -224,15 +195,6 @@ describe('usePreservedScroll', () => {
       )
     }
 
-    // ALWAYS under StrictMode, like the app root, and with StrictMode as the
-    // ROOT of the render — behind an intermediate component the double-invoke
-    // had not flushed by the time the assertions ran, and this suite went green
-    // against a hook that did nothing in the real app.
-    //
-    // The double-invoke is the whole point: setup → cleanup → setup means the
-    // first cleanup tears down the growth watcher, and the second setup is past
-    // the once-per-key restore guard. A watcher owned by that guard is dead on
-    // arrival, and the offset stays truncated.
     const renderClamping = (scrollKey: string) =>
       render(
         <StrictMode>
@@ -240,8 +202,6 @@ describe('usePreservedScroll', () => {
         </StrictMode>,
       )
 
-    // Restoring once, before images and embedded HTML have sized themselves, would land partway
-    // down and stay there.
     it('re-applies the offset as the content grows tall enough to hold it', () => {
       maxScroll = 900
       const first = renderClamping('buffer-a')
@@ -250,18 +210,14 @@ describe('usePreservedScroll', () => {
       fireEvent.scroll(scroller)
       first.unmount()
 
-      // Remount with a document that has only partly rendered.
       maxScroll = 200
       const second = renderClamping('buffer-a')
-      expect(second.getByTestId('scroller').scrollTop).toBe(200) // clamped
+      expect(second.getByTestId('scroller').scrollTop).toBe(200)
 
       growContent(900)
       expect(second.getByTestId('scroller').scrollTop).toBe(600)
     })
 
-    // The clamped intermediate is not a reading position: recording it would
-    // replace the real offset with a truncated one, and every later restore
-    // would inherit the smaller value.
     it('does not record the clamped offset if the tab is switched again mid-growth', () => {
       maxScroll = 900
       const first = renderClamping('buffer-a')
@@ -273,7 +229,7 @@ describe('usePreservedScroll', () => {
       maxScroll = 200
       const second = renderClamping('buffer-a')
       expect(second.getByTestId('scroller').scrollTop).toBe(200)
-      second.unmount() // switched away again before the content finished
+      second.unmount()
 
       maxScroll = 900
       const third = renderClamping('buffer-a')
@@ -293,7 +249,6 @@ describe('usePreservedScroll', () => {
       const node = second.getByTestId('scroller')
       expect(node.scrollTop).toBe(200)
 
-      // The user takes over while the rest of the document is still loading.
       act(() => {
         node.scrollTop = 50
         fireEvent.scroll(node)

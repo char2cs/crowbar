@@ -1,5 +1,3 @@
-//! What the overlays drawn in a window cover, so that no native view draws over them.
-
 pub(crate) mod covering;
 mod covers;
 mod entry;
@@ -15,8 +13,6 @@ use crate::foundation::opaque_debug;
 
 pub(crate) use entry::{Away, Entry};
 
-/// The overlays open in one window that the window draws itself: dialogs, popovers and drags,
-/// each with the cards it painted. It notifies whenever what they cover changes, and only then.
 #[derive(Default)]
 pub struct Cover {
     open: BTreeMap<EntityId, Entry>,
@@ -25,7 +21,6 @@ pub struct Cover {
 opaque_debug!(Cover);
 
 impl Cover {
-    /// The cover of `window`, made on first use.
     pub fn of(
         window: &Window,
         cx: &mut App,
@@ -33,19 +28,16 @@ impl Cover {
         covers::of(window, cx)
     }
 
-    /// Whether a dialog or a drag is open, which covers the whole window.
     pub fn whole(&self) -> bool {
         self.open
             .values()
             .any(|entry| matches!(entry.float, Float::Modal | Float::Drag))
     }
 
-    /// Whether a drag is in progress.
     pub fn dragging(&self) -> bool {
         self.open.values().any(|entry| entry.float == Float::Drag)
     }
 
-    /// The cards the open popovers painted, in window coordinates.
     pub fn cards(&self) -> Vec<Bounds<Pixels>> {
         self.open
             .values()
@@ -54,8 +46,6 @@ impl Cover {
             .collect()
     }
 
-    /// Runs the click-away layers open in `window`, for a press a native view took outside
-    /// every card, once the caller's update is done, as a press in the window would.
     pub fn press_outside(
         window: &mut Window,
         cx: &mut App,

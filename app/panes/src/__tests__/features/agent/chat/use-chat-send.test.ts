@@ -15,8 +15,6 @@ beforeEach(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
-// Stop before a prompt's turn runs: the prompt comes back, or, once its provider
-// has it and nothing can take it back, the turn it starts is stopped instead.
 describe('useChatSend — withdraw', () => {
   const held = () => {
     const l = ledger('c1')

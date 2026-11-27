@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// LspClient keeps one session per workspace, addressed by the id the caller
-// passes (the buffer's own workspace), never the active one. A session lives
-// while it has an open document or a diagnostics handler; it holds the owning
-// chat's lsp: scope exactly while it lives AND that chat and its host are known.
-
 const { apiFetch } = vi.hoisted(() => ({
   apiFetch: vi.fn(async (..._args: unknown[]): Promise<unknown> => null),
 }))
@@ -53,7 +48,6 @@ const diag = (filePath: string) => ({
   message: 'boom',
 })
 
-// A client from an earlier test still holds its scopes; forgetting the workspaces lets them go.
 afterEach(() => {
   for (const wsId of ['w1', 'w2', 'w3']) forgetWorkspaceScope(wsId)
 })
@@ -354,7 +348,6 @@ describe('LspClient.request', () => {
   })
 })
 
-/** Resolves once `scope`'s current snapshot is complete. */
 async function synced(scope: string) {
   let stop = () => {}
   await new Promise<void>((resolve) => {
@@ -363,10 +356,6 @@ async function synced(scope: string) {
   stop()
 }
 
-// Each test below has workspaces of its own: a session another test left open keeps its
-// documents, and would answer a reconnect or a host change on a shared one.
-
-// The daemon closes a chat's servers when its lsp: scope is let go, as a dropped stream does.
 describe('LspClient across a stream drop', () => {
   it('opens what is open, with its text now, once the stream is back, and only then', async () => {
     const client = new LspClient()
@@ -383,7 +372,6 @@ describe('LspClient across a stream drop', () => {
     reconnectStream()
     await synced('lsp:chat-d')
 
-    // Every live session re-opens; this one's are the ones under test.
     const mine = apiFetch.mock.calls.filter(([url]) => String(url).includes('/chats/chat-d/'))
     expect(mine.map(([url]) => url)).toEqual([
       '/v0/chats/chat-d/lsp/didOpen',
@@ -397,8 +385,6 @@ describe('LspClient across a stream drop', () => {
   })
 })
 
-// A remote workspace's LSP route names its host: unknown until the project list loads, gone when
-// the host is revoked.
 describe('LspClient on a remote host', () => {
   let n = 0
   let remoteScope = { projectId: 'p-r', repoId: 'r', wsId: 'w-remote', owningChatId: 'chat-4' }
@@ -475,7 +461,7 @@ describe('LspClient on a remote host', () => {
 
     removeHost()
     expect(holding('host-1', REMOTE_SCOPE)).toBe(false)
-    loadProjects() // the re-read that no longer holds the host's rows
+    loadProjects()
 
     const later = vi.fn()
     subscribeToWorkspaceScope(ws, later)

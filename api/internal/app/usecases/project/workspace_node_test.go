@@ -16,17 +16,6 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow is 2026-09-08
-// sidebar-placement-unification Task 7's core invariant test: a workspace
-// created via project import — the project's own home, a repo's adopted home,
-// a protected branch's managed worktree, and a protected branch's placeholder
-// (no live holder is free here, so provisionProtectedBranchWorktree takes the
-// managed-worktree branch and createPlaceholderWorkspace takes the
-// held-by-home branch) — gets a Node{Kind:workspace} row minted immediately,
-// with no separate backfill or lazy-mint step. It reuses
-// TestImport_CreatesProjectReposAndAdoptsWorktrees' own fixture shape (four
-// workspaces from one Import call) so every project-package workspace-creation
-// path is proven in one pass.
 func TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
@@ -77,12 +66,6 @@ func TestImport_EveryCreatedWorkspaceHasItsOwnNodeRow(t *testing.T) {
 	}
 }
 
-// TestImport_WorkspaceNodeMintFails_RollsBackTheWorkspaceAndChat proves the
-// rollback half of the invariant: when the Node surface fails to mint a
-// workspace's own row, the workspace row and the chat minted to own it are
-// BOTH taken back out — the same orphan-free guarantee AttachOwningWorkspace
-// failing already gets, now extended to the Node mint that runs just before
-// it.
 func TestImport_WorkspaceNodeMintFails_RollsBackTheWorkspaceAndChat(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()

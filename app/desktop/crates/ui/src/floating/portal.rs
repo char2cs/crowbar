@@ -1,5 +1,3 @@
-//! The element through which a floating element paints above the rest of its window.
-
 use std::rc::Rc;
 
 use gpui::{App, Bounds, ElementId, IntoElement, RenderOnce, Styled, Window, canvas};
@@ -23,13 +21,6 @@ pub use cover::Cover;
 pub use float::Float;
 use layer::{Build, Layer};
 
-/// Paints what it builds above the rest of its window, either where the portal itself sits or
-/// over the whole window. A [`Float::Passive`] portal paints in the window's pop-up window once a
-/// [`crate::FloatHost`] is installed; every other kind paints in its own window and enters the
-/// window's [`Cover`], so the native views it covers are hidden while it shows.
-///
-/// The content is built in the window that paints it, so it captures entities and values,
-/// not elements.
 #[derive(IntoElement)]
 pub struct Portal {
     id: ElementId,
@@ -41,7 +32,6 @@ pub struct Portal {
 }
 
 impl Portal {
-    /// Paints `build` at the portal's own bounds, as an anchored popup does below its trigger.
     pub fn here<E: IntoElement>(
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -49,8 +39,6 @@ impl Portal {
         Self::new(id.into(), Reach::Here, build)
     }
 
-    /// Paints `build` at the portal's own bounds like [`Portal::here`], for the view a drag
-    /// shows under the pointer; it paints in place, not deferred.
     pub fn lifted<E: IntoElement>(
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -58,7 +46,6 @@ impl Portal {
         Self::new(id.into(), Reach::Lifted, build)
     }
 
-    /// Paints `build` over the whole window, its origin at the window's top-left corner.
     pub fn window<E: IntoElement>(
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -66,9 +53,6 @@ impl Portal {
         Self::new(id.into(), Reach::Window, build)
     }
 
-    /// Paints `build` over the whole window like [`Portal::window`], but in place rather than
-    /// deferred, so `build` may hold portals of its own: make it
-    /// the last child of the window's root, as a modal layer is.
     pub fn cover<E: IntoElement>(
         id: impl Into<ElementId>,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -105,7 +89,6 @@ impl Portal {
         self
     }
 
-    /// Sets where it paints; it is [`Float::Passive`] unless lifted.
     #[must_use]
     pub fn float(
         mut self,
@@ -115,7 +98,6 @@ impl Portal {
         self
     }
 
-    /// Sets the paint order among floating elements (see [`crate::layer`]); larger is on top.
     #[must_use]
     pub fn priority(
         mut self,

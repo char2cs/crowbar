@@ -5,74 +5,42 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Source is what the dispatcher read before the rows were decided: who sent
-// the event, and everything about it the ledger cannot answer.
 type Source struct {
-	RunnerID, Provider string
-	// SessionID is the chat's bound session with Provider; Persists how a turn
-	// on it makes it resumable.
+	RunnerID, Provider  string
 	SessionID, Persists string
 	Channel             engineagents.Channel
-	// Scope is the nested conversation an event of another session belongs to.
-	Scope string
-	// Prompt is a user_prompt's words as the dispatcher read them.
-	Prompt Prompt
-	// Held: the runner is held against its end, so a turn may open on it.
-	Held bool
-	// Steer is the hook reply handing a steered prompt to the CLI; false when
-	// the event's channel cannot carry one.
-	Steer func(ledger.Prompt) ([]byte, bool)
-	// Command reports whether a prompt's text is one the CLI runs itself.
-	Command func(text string) bool
-	// Answerable: Crowbar can hold an ask's reply.
-	Answerable bool
-	// CompactsByPrompt: a compaction is asked for with a prompt no turn
-	// acknowledges, so its start spends the prompt.
-	CompactsByPrompt bool
-	// Manual: a person asked for the chat's next compaction.
-	Manual bool
-	// Live is the runner's streamed text no row holds, for a turn's end, or
-	// what an event that ends the text before it records first.
-	Live Unrecorded
-	// EndsAtAction: the provider's messages are whole at its next action, so a
-	// whole row an action wrote is Crowbar's cut, and text after it continues it.
-	EndsAtAction bool
+	Scope               string
+	Prompt              Prompt
+	Held                bool
+	Steer               func(ledger.Prompt) ([]byte, bool)
+	Command             func(text string) bool
+	Answerable          bool
+	CompactsByPrompt    bool
+	Manual              bool
+	Live                Unrecorded
+	EndsAtAction        bool
 }
 
-// Prompt is a user_prompt's words. Origin is OriginProvider for words a person
-// typed, OriginHarness for the provider's own, and "" for Crowbar's injected
-// context alone: a turn starts, and nobody said anything.
 type Prompt struct {
 	Text, Origin string
 }
 
-// Unrecorded is a runner's streamed text no row holds, by kind.
 type Unrecorded struct {
 	Answers, Reasoning, Diff []liveText
 }
 
-// BlobRefs are the refs of a tool call's payloads, written before its rows.
 type BlobRefs struct{ Input, Result string }
 
-// Effects are what the dispatcher does once the rows are committed.
 type Effects struct {
-	Reply   []byte     // the hook's stdout: a steered prompt
-	HoldAsk string     // the ask whose reply Crowbar holds
-	Live    *LiveDelta // the text the event streamed
-	// Ended is the turn whose end spent its streamed text.
-	Ended string
-	// Title is the words of a prompt that opened a turn: they title the chat.
-	Title string
-	// Unbound is an ask bound to no call: its tool's open calls were each
-	// given another input.
+	Reply   []byte
+	HoldAsk string
+	Live    *LiveDelta
+	Ended   string
+	Title   string
 	Unbound string
-	// Bound is the subagent the rows bound to its scope: what is held for it is now its.
-	Bound string
+	Bound   string
 }
 
-// Map decides the rows for one parsed event against the chat's state. It does
-// no I/O: payload blobs are written before the Do that calls it, and their
-// refs are passed in. Every fact is keyed so a CLI's retry records it once.
 func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobRefs) ([]ledger.Row, Effects, error) {
 	if src.Scope != "" {
 		return mapNested(st, ev, src, refs)
@@ -89,7 +57,6 @@ func Map(st ledger.State, ev engineagents.CanonicalEvent, src Source, refs BlobR
 	return append(said, rows...), fx, err
 }
 
-// records is whether Map decides rows for an event of kind.
 func records(kind string) bool {
 	_, ok := mappers[kind]
 	return ok
@@ -97,8 +64,6 @@ func records(kind string) bool {
 
 type mapFunc func(ledger.State, engineagents.CanonicalEvent, Source, BlobRefs) ([]ledger.Row, Effects, error)
 
-// mappers is the one table of the events Map decides rows for; the ingest
-// gate reads it too, so the two cannot drift apart.
 var mappers = map[string]mapFunc{
 	engineagents.HookUserPrompt:      mapPromptEvent,
 	engineagents.HookTurnStop:        withoutRefs(mapStop),
@@ -139,7 +104,6 @@ func rowsOnly(f func(ledger.State, engineagents.CanonicalEvent, Source) ([]ledge
 	}
 }
 
-// scoped and scopedRows map an event in the scope of the subagent it names.
 func scoped(f func(ledger.State, engineagents.CanonicalEvent, Source, string) ([]ledger.Row, Effects, error)) mapFunc {
 	return func(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
 		return f(st, ev, src, subagentScope(ev))
@@ -153,7 +117,6 @@ func scopedRows(f func(ledger.State, engineagents.CanonicalEvent, Source, string
 	}
 }
 
-// mapPromptEvent is a prompt's rows; the provider's own prompt titles the chat.
 func mapPromptEvent(st ledger.State, ev engineagents.CanonicalEvent, src Source, _ BlobRefs) ([]ledger.Row, Effects, error) {
 	rows, err := mapPrompt(st, ev, src)
 	if err == nil && ev.Subagent == nil {
@@ -191,8 +154,6 @@ func subagentScope(ev engineagents.CanonicalEvent) string {
 	return ev.Subagent.ID
 }
 
-// turnFor is the turn a fact of src's runner belongs to: the one its provider
-// turn id names, else the newest its runner ran, else the chat's newest.
 func turnFor(st ledger.State, src Source, scope, providerTurnID string) (string, bool) {
 	if scope != "" {
 		if id, ok := st.ScopeTurn(scope); ok {
@@ -214,24 +175,18 @@ func runningTurn(st ledger.State) string {
 	return t.ID
 }
 
-// startsOn reports whether a turn may start on runnerID's CLI: only the
-// chat's live runner's.
 func startsOn(st ledger.State, runnerID string) bool {
 	live, ok := st.LiveRunner()
 	return ok && live.RunnerID == runnerID
 }
 
 func mapPrompt(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]ledger.Row, error) {
-	// A prompt inside a subagent is its parent talking to it; a turn its
-	// provider already started here is a retry.
 	if ev.Subagent != nil {
 		return nil, nil
 	}
 	return openProviderTurn(st, ev.TurnID, src)
 }
 
-// stopStatus is how a turn_stop's provider status ended its turn: anything but
-// a completed turn did not finish its work.
 func stopStatus(providerStatus string) ledger.TurnStatus {
 	if providerStatus == "" || providerStatus == "completed" {
 		return ledger.TurnStatusDone
@@ -239,8 +194,6 @@ func stopStatus(providerStatus string) ledger.TurnStatus {
 	return ledger.TurnStatusInterrupted
 }
 
-// compactionEnd is the marker a compaction's own turn ends as: that turn's
-// end is never a reply or a failure.
 func compactionEnd(st ledger.State, providerTurnID string) ([]ledger.Row, bool, error) {
 	_, armed := st.Compaction()
 	if armed == "" || armed != providerTurnID {
@@ -251,8 +204,6 @@ func compactionEnd(st ledger.State, providerTurnID string) ([]ledger.Row, bool, 
 	return []ledger.Row{row}, true, err
 }
 
-// compactionEndedWith closes the compaction that began inside turnID: a turn's
-// end is its compaction's, whether or not the provider posted one.
 func compactionEndedWith(st ledger.State, turnID string) ([]ledger.Row, error) {
 	if !st.CompactionIn(turnID) {
 		return nil, nil
@@ -292,7 +243,6 @@ func mapStop(st ledger.State, ev engineagents.CanonicalEvent, src Source) ([]led
 	return append(rows, steered...), fx, err
 }
 
-// lastText is the newest of texts, of turnID's turn when one is named.
 func lastText(texts []liveText, turnID string) string {
 	out := ""
 	for _, t := range texts {
@@ -303,8 +253,6 @@ func lastText(texts []liveText, turnID string) string {
 	return out
 }
 
-// abandonAsks closes the open asks of turnID that its end leaves nothing to
-// answer: an end a subagent runs past keeps the held ones (ledger.Ask.OutlivesEnd).
 func abandonAsks(st ledger.State, turnID string, outlived bool) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	for _, a := range st.PendingAsks() {
@@ -320,9 +268,6 @@ func abandonAsks(st ledger.State, turnID string, outlived bool) ([]ledger.Row, e
 	return rows, nil
 }
 
-// mapIdle is the provider saying it is idle: its running turn ends as any end
-// does; it ends no other, so a compaction's idle records no turn it never began.
-// With no turn, a hooks CLI's report means the prompts it carried were never taken.
 func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 	turnID, rows, closes, err := ledger.EndTurnOf(st, src.RunnerID, "", ledger.TurnEnded{
 		Status: string(ledger.TurnStatusDone), Reason: ledger.ReasonProviderIdle,
@@ -347,8 +292,6 @@ func mapIdle(st ledger.State, src Source) ([]ledger.Row, Effects, error) {
 	return settled, Effects{}, err
 }
 
-// Salvage is what a runner's exit records of the answers it streamed with no
-// row of their own, so its exit keeps what it said.
 func Salvage(st ledger.State, answers []liveText) ([]ledger.Row, error) {
 	var rows []ledger.Row
 	for _, a := range answers {

@@ -13,9 +13,6 @@ import {
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 
-/** A headless editor built from the SAME plugin set the real component uses —
- *  the `applyStreamedValue` tests' own pattern for exercising Plate transforms
- *  without a mounted DOM. */
 function editorWith(markdown: string, autoSelect?: 'start' | 'end'): PlateEditor {
   return createPlateEditor({
     plugins: chatComposerPlugins,
@@ -42,8 +39,6 @@ describe('insertAttachmentMarkdownInto', () => {
     ).toEqual(['hello world'])
   })
 
-  // The fallback branch: a caller (a modal, a drop handler) can invoke the
-  // handle before the box has ever taken a selection of its own.
   it('inserts at the end of the document when the editor has no selection', () => {
     const editor = editorWith('hello')
     expect(editor.selection).toBeNull()
@@ -53,8 +48,6 @@ describe('insertAttachmentMarkdownInto', () => {
     expect(codeBlockNode(editor)?.lang).toBe('text-attachment:def456')
   })
 
-  // Two inserts in a row once landed the second inside the first fence's
-  // code_line, dropping its content (the excalidraw fence-then-image save).
   it('TestRegression_insertsSecondAttachmentAsASiblingNotInsideTheFirstFence', () => {
     const editor = editorWith('', 'end')
 
@@ -90,20 +83,13 @@ describe('insertAttachmentMarkdownInto', () => {
     )
   })
 
-  // A blanket `mode: 'highest'` would split a table when the caret sits in a
-  // cell; only a code_block ancestor is special-cased.
   it('TestRegression_singleInsertWithCaretInATableCellDoesNotSplitTheTable', () => {
     const editor = editorWith('', 'end')
     insertAttachmentMarkdownInto(editor, '| a | b |\n| --- | --- |\n| 1 | 2 |')
     const table = (editor.children as { type?: string }[]).find((n) => n.type === 'table') as {
       children: { type: string; children: { type: string; children: unknown[] }[] }[]
     }
-    const firstCellParagraphPath = [
-      (editor.children as unknown[]).indexOf(table),
-      0, // header row
-      0, // first th
-      0, // its paragraph
-    ]
+    const firstCellParagraphPath = [(editor.children as unknown[]).indexOf(table), 0, 0, 0]
     editor.tf.select({
       anchor: { path: [...firstCellParagraphPath, 0], offset: 1 },
       focus: { path: [...firstCellParagraphPath, 0], offset: 1 },
@@ -114,14 +100,13 @@ describe('insertAttachmentMarkdownInto', () => {
     const tablesAfter = (editor.children as { type?: string; children?: unknown[] }[]).filter(
       (n) => n.type === 'table',
     )
-    expect(tablesAfter).toHaveLength(1) // still ONE table, not split in two
-    expect(tablesAfter[0]?.children).toHaveLength(2) // header row + body row, both intact
+    expect(tablesAfter).toHaveLength(1)
+    expect(tablesAfter[0]?.children).toHaveLength(2)
     expect(chatValueToMarkdown(editor.children as Value)).toContain(
       '![diagram](chats/c1/attachments/x-diagram.png)',
     )
   })
 
-  // After an attachment there must be a line to keep typing on without clicking below it.
   it('lands the caret on a fresh empty line right after inserting a single attachment', () => {
     const editor = editorWith('', 'end')
 
@@ -134,9 +119,6 @@ describe('insertAttachmentMarkdownInto', () => {
     expect(editor.api.end([])).toEqual(editor.selection?.focus)
   })
 
-  // The multi-file-drop/paste case: each upload resolves independently and
-  // calls this separately — the SECOND file's insert must not stack a new
-  // blank paragraph on top of the one the FIRST file's insert just made.
   it('reuses the same trailing empty line for a second attachment inserted right after the first', () => {
     const editor = editorWith('', 'end')
 
@@ -153,8 +135,6 @@ describe('insertAttachmentMarkdownInto', () => {
   })
 })
 
-// Photos preview at once from a local object URL; the real ref replaces it
-// when the upload settles, or the placeholder goes on failure.
 describe('insertPendingImageInto / settlePendingImageInto', () => {
   it('inserts an image node pointing at the local object URL immediately', () => {
     const editor = editorWith('', 'end')
@@ -181,9 +161,6 @@ describe('insertPendingImageInto / settlePendingImageInto', () => {
     expect(image.url).toBe('chats/c1/attachments/photo.png')
   })
 
-  // The person may have kept typing (or attached something else) while the
-  // upload was in flight — the placeholder is found by its OWN url, not by
-  // whatever position it happened to start at.
   it('finds the placeholder by its own url, not by position, if the document changed since', () => {
     const editor = editorWith('', 'end')
     insertPendingImageInto(editor, 'blob:first', 'first.png')
@@ -234,9 +211,6 @@ describe('insertPendingImageInto / settlePendingImageInto', () => {
     ).not.toThrow()
   })
 
-  // The server's sniffed type can disagree with the browser's guess (HEIC, a
-  // corrupt image): a non-image result replaces the placeholder, never leaving a
-  // void `img` on a revoked blob url that blocks Send forever.
   it('replaces the placeholder outright when the upload resolves to a non-image attachment', () => {
     const editor = editorWith('', 'end')
     insertPendingImageInto(editor, 'blob:local-preview', 'photo.heic')

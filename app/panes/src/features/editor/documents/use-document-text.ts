@@ -9,7 +9,6 @@ const RENDER_INTERVAL_MS = 150
 
 const modelText = (uri: string) => getEditorHost()?.documents.get(uri)?.getValue() ?? null
 
-/** The document's text as last shown: it moves at most once per interval while edits stream in. */
 function shownText(uri: string | null) {
   let shown: { text: string | null } | null = null
   const read = () => (shown ??= { text: uri ? modelText(uri) : null }).text
@@ -28,7 +27,6 @@ function shownText(uri: string | null) {
         { minIntervalMs: () => RENDER_INTERVAL_MS },
       )
       let content: { dispose(): void } | null = null
-      // Follows the model the document has now; a change before this ran would otherwise wait.
       const follow = () => {
         content?.dispose()
         content = getEditorHost()?.documents.get(uri)?.onDidChangeContent(refresh.schedule) ?? null
@@ -45,7 +43,6 @@ function shownText(uri: string | null) {
   }
 }
 
-/** The document's text, re-rendering at most every 150 ms while it changes; null when not open. */
 export function useDocumentText(ref: DocumentRef | null): string | null {
   const uri = ref ? documentUri(ref) : null
   const text = useMemo(() => shownText(uri), [uri])

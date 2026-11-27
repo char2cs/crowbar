@@ -1,5 +1,3 @@
-//! Caret jumps to the edges of a row and of the document.
-
 use std::ops::Range;
 
 use gpui::Context;

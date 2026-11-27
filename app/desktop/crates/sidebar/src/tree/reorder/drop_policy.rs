@@ -1,5 +1,3 @@
-//! Which placements the tree allows for a dragged row over a target row.
-
 use crate::shell::Activity;
 use crate::shell::Lock;
 use crate::shell::Row;
@@ -8,10 +6,7 @@ use crate::shell::Worktree;
 use crate::tree::reorder::drop_modes::DropModes;
 use crate::tree::reorder::row_tree::RowTree;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/sidebar/lib/sidebar-drop-policy.ts
 impl DropModes {
-    /// The placements allowed when `subject` (an index into `rows`) is dragged over `target`.
-    /// Illegal drops return [`DropModes::NONE`] and show no indicator.
     pub fn allowed(
         rows: &[Row],
         subject: usize,
@@ -137,8 +132,6 @@ fn in_repo(
 }
 
 impl Row {
-    /// Whether the row is a branch Crowbar does not own: locked, or on a shared worktree.
-    /// Such a branch can be reordered among its siblings but never nested into a folder.
     pub fn is_ownerless(&self) -> bool {
         self.kind == RowKind::Branch
             && (self.lock == Lock::Locked || self.worktree == Worktree::Shared)
@@ -287,7 +280,6 @@ mod tests {
         }
     }
 
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/sidebar/lib/sidebar-drop-policy.ts
     fn space() -> Vec<Row> {
         let mut lock = Row::new("lock", RowKind::Branch, 1, "main");
         lock.lock = Lock::Locked;

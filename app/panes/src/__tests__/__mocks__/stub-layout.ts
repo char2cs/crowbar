@@ -1,10 +1,3 @@
-/**
- * jsdom lays nothing out, so a virtualized list sees a zero-size viewport and
- * zero-height rows. This gives the viewport a size and every row (`data-index`)
- * a height, plus a `clientHeight` and a `scrollHeight` (the height the scroller's
- * first child declares), which is all the virtualizer and tail-following read.
- * Returns the function that puts jsdom back.
- */
 export function stubLayout(viewport = { width: 800, height: 400 }, row = 20): () => void {
   const proto = HTMLElement.prototype
   const elementProto = Element.prototype

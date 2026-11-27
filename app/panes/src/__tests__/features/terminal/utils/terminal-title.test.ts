@@ -9,7 +9,6 @@ describe('sanitizeTerminalTitle', () => {
   })
 
   it('rejects the exact garbled prompt-in-OSC title seen on restore (regression)', () => {
-    // A shell that encodes its ANSI-coloured prompt in the OSC title, replayed on restore.
     const raw =
       'crowbar [\x1b[01;32m0\x1b[00m] % \x1b[K\x1b[?1h\x1b=\x1b[?2004h ls -larph' +
       '\x1b[?1l\x1b>\x1b[?2004l \x1b]2;ls -G -larph'
@@ -17,8 +16,6 @@ describe('sanitizeTerminalTitle', () => {
   })
 
   it('rejects ESC-stripped prompt garbage (xterm dropped the ESC, leaving CSI bodies)', () => {
-    // This is the live tab-title bug: xterm's OSC parser drops the ESC, so the
-    // printable escape bodies survive the no-ESC check and reached the tab.
     expect(sanitizeTerminalTitle('Rabbyte [01;32m0[00m] % [?1h=')).toBe('')
     expect(sanitizeTerminalTitle('crowbar [01;32m0[00m] %')).toBe('')
     expect(sanitizeTerminalTitle('[2J[H clean')).toBe('')
@@ -31,13 +28,13 @@ describe('sanitizeTerminalTitle', () => {
   })
 
   it('rejects any title containing a raw ESC (two-byte Fe sequences too)', () => {
-    expect(sanitizeTerminalTitle('foo\x1b=bar')).toBe('') // DECKPAM
-    expect(sanitizeTerminalTitle('foo\x1b>bar')).toBe('') // DECKPNM
+    expect(sanitizeTerminalTitle('foo\x1b=bar')).toBe('')
+    expect(sanitizeTerminalTitle('foo\x1b>bar')).toBe('')
     expect(sanitizeTerminalTitle('\x1b[31mred\x1b[0m')).toBe('')
   })
 
   it('strips stray C0/DEL/C1 control bytes when there is no ESC', () => {
-    expect(sanitizeTerminalTitle('a\x07b\x7fc')).toBe('abc') // BEL + DEL
+    expect(sanitizeTerminalTitle('a\x07b\x7fc')).toBe('abc')
     expect(sanitizeTerminalTitle('tail\x00')).toBe('tail')
   })
 

@@ -29,9 +29,8 @@ func newRootCmd() *cobra.Command {
 func newServeCmd() *cobra.Command {
 	var host string
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start the Crowbar daemon",
-		// A failed start is the home or the host, never a mistyped flag.
+		Use:          "serve",
+		Short:        "Start the Crowbar daemon",
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runServe(host)
@@ -60,8 +59,6 @@ func runServe(
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Apply the login-shell PATH before anything execs tools or spawns PTYs: a daemon
-	// launched by launchd inherits a minimal PATH. Degrades to the inherited PATH.
 	shellenv.ApplyLoginShellPath(ctx)
 
 	staticFS, err := embeddedStaticFS()
@@ -71,8 +68,6 @@ func runServe(
 	return serve(ctx, host, staticFS, internal.WithLogRing(installLogRing()))
 }
 
-// serve runs the daemon until ctx is done. A halted daemon runs too, serving
-// only its health route, so its supervisor reads why instead of respawning it.
 func serve(
 	ctx context.Context,
 	host string,
@@ -81,8 +76,6 @@ func serve(
 ) error {
 	container, err := internal.New(ctx, host, staticFS, options...)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-		// Stopped mid-migration: the next boot resumes the run, so this is no failed
-		// start. The error is kept: it carries any teardown failure joined to ctx's.
 		slog.Warn("daemon: boot interrupted", "component", "daemon", "err", err)
 		return nil
 	}

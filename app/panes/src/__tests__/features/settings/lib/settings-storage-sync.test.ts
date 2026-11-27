@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { startSettingsStorageSync } from '@/features/settings/lib/settings-storage-sync'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 
-// Another webview (the phone's settings page) wrote a setting to the shared localStorage.
 const written = (key: string, value: unknown) =>
   window.dispatchEvent(
     new StorageEvent('storage', {

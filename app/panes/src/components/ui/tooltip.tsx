@@ -8,16 +8,12 @@ type Side = 'top' | 'bottom' | 'left' | 'right'
 const tooltipContentBase =
   'ui-text-sm pointer-events-none whitespace-nowrap rounded-lg border border-border/70 bg-card/95 px-2.5 py-1.5 text-foreground shadow-lg backdrop-blur-sm animate-in fade-in-0 zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1'
 
-/** The editor toolbars' compact, primary-colored bubble (Plate registry style). */
 export const tooltipContentPrimary =
   'w-fit text-balance rounded-md bg-primary px-3 py-1.5 text-primary-foreground text-xs'
 
-/** Hover delay before a tooltip opens. */
 const TOOLTIP_DELAY_MS = 150
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
-  // timeout=0: no "instant open after another closed" window, which kept two floating-ui rigs
-  // mounted during a fast sweep (jank); a quick pass over triggers opens none.
   return (
     <TooltipPrimitive.Provider delay={TOOLTIP_DELAY_MS} timeout={0}>
       {children}
@@ -25,8 +21,6 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** Props merge onto `trigger` itself, never a wrapper, so a button stays one `<button>` and a
- *  menu item keeps its role. `trigger` must forward its ref. */
 export function WithTooltip({
   trigger,
   content,
@@ -41,9 +35,7 @@ export function WithTooltip({
   side?: Side
   sideOffset?: number
   delay?: number
-  /** Added to the default bubble classes. */
   className?: string
-  /** Replaces the default bubble classes (e.g. `tooltipContentPrimary`). */
   popupClassName?: string
 }) {
   return (

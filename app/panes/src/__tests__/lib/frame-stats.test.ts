@@ -20,7 +20,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** Delivers one frame per `step` ms until `until`. */
 function runFrames(step: number, until: number) {
   while (now < until && frames.length > 0) {
     now += step

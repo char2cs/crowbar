@@ -202,7 +202,6 @@ describe('ToolRunRow around one call that stands alone', () => {
   ]
   const draw = () =>
     render(<ToolRunRow chatId="chat-1" id="g:t:r0" members={ids.map((id) => `t:${id}`)} />)
-  // In page order: each folded run's sentence, and the one call drawn as its own row.
   const shape = () =>
     [...document.querySelectorAll('[data-testid="agent-tool-run"], [data-tool-id]')].map((el) =>
       el.matches('[data-tool-id]') ? el.getAttribute('data-tool-id') : el.textContent,

@@ -1,5 +1,3 @@
-//! Pane types: the registry, each type's kind, lifecycle, multiplicity and entry URL.
-
 mod entry_url;
 mod multiplicity;
 mod pages;

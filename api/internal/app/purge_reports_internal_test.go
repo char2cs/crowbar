@@ -25,7 +25,6 @@ func recordingOps(t *testing.T) (*operation.Service, chan domain.Operation) {
 	return operation.New(opStore, func(op domain.Operation) { frames <- op }, time.Now), frames
 }
 
-// published takes the frame a synchronous report already emitted; none fails at once.
 func published(t *testing.T, frames chan domain.Operation) domain.Operation {
 	t.Helper()
 	select {

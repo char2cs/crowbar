@@ -23,15 +23,11 @@ interface DraftChatPaneProps {
   belowOverlayHeader: boolean
 }
 
-/** A thread nobody has written to yet: the blank chat, with no chat behind it.
- *  Sending creates the chat and hands it this prompt; closing the pane leaves
- *  nothing on the daemon or in the sidebar. */
 export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: DraftChatPaneProps) {
   const providers = usePaneProviders(hostId)
   const editorRef = useRef<ChatMarkdownEditorHandle>(null)
   const docRef = useRef<HTMLDivElement>(null)
   const [hasText, setHasText] = useState(false)
-  // Re-renders the document so its handle rides the last line as the box grows.
   const [, setFieldHeight] = useState(0)
   const [pick, setPick] = useState<{
     provider: string
@@ -54,8 +50,6 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     }
     setError('')
     setSending(true)
-    // The box empties as the prompt leaves; what is typed while the chat is created is
-    // the chat's next draft. A refused create gives the prompt back, ahead of that text.
     const editor = editorRef.current
     const draftId = draftOfPane(paneId)?.draftId
     editor?.clear()
@@ -68,8 +62,6 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
     })
   }
 
-  // A draft is always on Chat; Terminal makes the chat in its terminal, where the box's text
-  // stays as the draft. The segment then belongs to that chat, never to the draft.
   const openTerminal = () => {
     if (sending) return
     setSending(true)
@@ -89,12 +81,10 @@ export function DraftChatPane({ paneId, wsId, hostId, belowOverlayHeader }: Draf
 
   return (
     <section
-      // `agent-chat-pane` is the scope the picker's chip and cluster are styled under.
       className="agent-chat agent-chat-pane chat"
       aria-label="Agent chat"
       style={{ '--agent-header-clearance': `${headerClearancePx}px` } as CSSProperties}
     >
-      {/* No chat exists yet, so the box takes no attachments: it has no chat to upload to. */}
       <div className="docwrap" data-testid="agent-empty-document">
         <div ref={docRef} className="doc">
           <ChatMarkdownEditor

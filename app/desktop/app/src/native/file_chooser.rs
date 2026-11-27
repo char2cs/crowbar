@@ -1,5 +1,3 @@
-//! Opens develop's GTK chooser for the shell's buttons, on the web views' platform thread.
-
 use std::path::PathBuf;
 use std::rc::Rc;
 

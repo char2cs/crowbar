@@ -1,5 +1,3 @@
-// From the Plate registry (floating-toolbar-kit.json -> `mark-toolbar-button`), verbatim: our
-// `./toolbar` exports the `ToolbarButton` shape it expects.
 'use client'
 
 import * as React from 'react'

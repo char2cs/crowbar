@@ -22,7 +22,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// typingTerm is a PTY whose screen a test sets and whose writes it records.
 type typingTerm struct {
 	fakeTermForAttach
 	screen   engineterminal.ScreenState
@@ -54,10 +53,8 @@ func (f *typingTerm) written() []termWrite {
 	return append([]termWrite(nil), f.writes...)
 }
 
-// plainTerm is a PTY that cannot report its screen state.
 type plainTerm struct{ fakeTermForAttach }
 
-// selectedConversations is reviveConversations with the chat's desired pick.
 type selectedConversations struct {
 	reviveConversations
 	desired engineagents.Selection
@@ -67,7 +64,6 @@ func (c selectedConversations) ChatSelection(context.Context, string) (engineage
 	return c.desired, nil
 }
 
-// typedFixture is a chat whose idle claude CLI shows an empty composer.
 type typedFixture struct {
 	h    *spawnHarness
 	term *typingTerm
@@ -102,13 +98,11 @@ func newTypedFixture(t *testing.T, term seamTerm) typedFixture {
 	return f
 }
 
-// seamTerm is the PTY seam a fixture runs on.
 type seamTerm interface {
 	seam.TerminalCommander
 	callCount() int
 }
 
-// emptyComposer is the screen of a claude CLI idle at its input box.
 func emptyComposer(t *testing.T) engineterminal.ScreenState {
 	t.Helper()
 	typing, ok := testAgent(t, "claude").PromptType()
@@ -126,7 +120,6 @@ func (f typedFixture) appendRows(t *testing.T, rows ...ledger.Row) {
 	require.NoError(t, err)
 }
 
-// subagentOutlivingTurn is a finished main turn whose subagent still runs.
 func (f typedFixture) subagentOutlivingTurn(t *testing.T) {
 	t.Helper()
 	started, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: f.live.ID})
@@ -141,7 +134,6 @@ func (f typedFixture) subagentOutlivingTurn(t *testing.T) {
 	require.True(t, st.Busy() && !running, "precondition: only a subagent runs")
 }
 
-// typedText is the words written to the PTY: every write but the closing submit key.
 func (f typedFixture) typedText() string {
 	var b strings.Builder
 	writes := f.term.written()
@@ -160,8 +152,7 @@ func (f typedFixture) liveDescriptor(t *testing.T) engineagents.Agent {
 
 func TestSubmitPrompt_AnIdleCLIWithAnEmptyComposerIsTypedInto(t *testing.T) {
 	for name, setup := range map[string]func(*testing.T, typedFixture){
-		"idle": func(*testing.T, typedFixture) {},
-		// Background work outliving its turn is what typing keeps alive.
+		"idle":                    func(*testing.T, typedFixture) {},
 		"only a subagent running": func(t *testing.T, f typedFixture) { t.Helper(); f.subagentOutlivingTurn(t) },
 		"a faint suggestion after the cursor": func(t *testing.T, f typedFixture) {
 			t.Helper()
@@ -191,8 +182,6 @@ func TestSubmitPrompt_AnIdleCLIWithAnEmptyComposerIsTypedInto(t *testing.T) {
 	}
 }
 
-// A long multi-line message is the shape a TUI wraps as a paste once one read
-// carries too much: it goes in as keystrokes in bounded writes, paced.
 func TestSubmitPrompt_ALongMultiLineMessageIsTypedInPacedChunks(t *testing.T) {
 	f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
 	typing, ok := f.liveDescriptor(t).PromptType()
@@ -219,12 +208,11 @@ func TestSubmitPrompt_ALongMultiLineMessageIsTypedInPacedChunks(t *testing.T) {
 	}
 }
 
-// What the gate refuses goes where it went before: a restart, a steer, or a refusal.
 func TestSubmitPrompt_ACLIThatCannotBeTypedIntoIsNotTyped(t *testing.T) {
 	for name, tc := range map[string]struct {
 		text     string
 		setup    func(*testing.T, typedFixture)
-		delivery string // the receipt's delivery; "" when the send is refused
+		delivery string
 		wantErr  error
 	}{
 		"a turn is running": {text: "and the tests", delivery: ledger.DeliverySteer, setup: func(t *testing.T, f typedFixture) {
@@ -294,7 +282,6 @@ func pendingMove(t *testing.T, f typedFixture) {
 	require.True(t, pending, "precondition: a move is pending")
 }
 
-// typeAfterCursor paints text on the composer row after the cursor, which stays put.
 func (f typedFixture) typeAfterCursor(s *engineterminal.ScreenState, text string, faint bool) {
 	rows := strings.Split(s.Text, "\n")
 	rows[s.CursorRow] += text
@@ -312,8 +299,6 @@ func (f typedFixture) setScreen(edit func(*engineterminal.ScreenState)) {
 	edit(&f.term.screen)
 }
 
-// Before typed delivery, a prompt with only a subagent running was refused as
-// busy; a provider that declares no typing still is.
 func TestSubmitPrompt_ASubagentAloneStillRefusesAnUntypedPrompt(t *testing.T) {
 	f := newTypedFixture(t, &plainTerm{})
 	f.subagentOutlivingTurn(t)
@@ -346,7 +331,6 @@ func TestSubmitPrompt_AFailedTypeSettlesThePrompt(t *testing.T) {
 	assert.Equal(t, 1, f.term.callCount(), "a failed type is not retried as a restart")
 }
 
-// stuckTerm is a PTY whose app stopped reading: a write blocks until its context ends.
 type stuckTerm struct {
 	typingTerm
 	writing chan struct{}
@@ -358,9 +342,6 @@ func (f *stuckTerm) Write(ctx context.Context, _ string, _ []byte) error {
 	return context.Cause(ctx)
 }
 
-// Typing holds the chat only until Stop: Stop ends it, and the prompt is the
-// stop's own, settled stopped: the send is answered as stopped, not as an
-// outcome to inspect (the row and the answer must say the same).
 func TestRegression_SubmitPrompt_StopDuringTypingSettlesThePromptStopped(t *testing.T) {
 	term := &stuckTerm{typingTerm: typingTerm{screen: emptyComposer(t)}, writing: make(chan struct{})}
 	f := newTypedFixture(t, term)
@@ -394,8 +375,6 @@ func TestSubmitPrompt_AResendIsNeverTypedTwice(t *testing.T) {
 	assert.Len(t, f.term.written(), 2)
 }
 
-// The typed text is what a launch would be handed: an attachment the message
-// opens with is escaped from the shell sigil and points at its stored file.
 func TestSubmitPrompt_ATypedAttachmentIsGuardedAndMaterialised(t *testing.T) {
 	f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
 	dir := worktreepath.AttachmentsDir(f.h.home, f.h.chatID)
@@ -411,8 +390,6 @@ func TestSubmitPrompt_ATypedAttachmentIsGuardedAndMaterialised(t *testing.T) {
 	assert.Equal(t, " ![shot]("+stored+") what is this", f.typedText())
 }
 
-// A runner whose view is an attach of its api session is not typed into: its
-// own CLI is the connection, which the api path delivers to.
 func TestSubmitPromptTyped_ARunnerOverAnAPIConnectionOrAttachedViewIsNotTyped(t *testing.T) {
 	for name, setup := range map[string]func(*testing.T, typedFixture){
 		"api connection": func(t *testing.T, f typedFixture) { t.Helper(); f.h.seedLiveAPIConn(t, f.live.ID) },

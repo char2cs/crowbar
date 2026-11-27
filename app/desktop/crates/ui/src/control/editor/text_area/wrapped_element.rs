@@ -1,5 +1,3 @@
-//! Paints the wrapped text, selection and caret of a text area and registers its input handler.
-
 mod caret;
 mod frame;
 mod scroll;

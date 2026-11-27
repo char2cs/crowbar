@@ -7,27 +7,16 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// MergeEligibility answers whether a workspace can merge into its local parent and what
-// that parent's branch is. ResolveMergeEligibilities computes it per read; it is never stored.
 type MergeEligibility struct {
 	CanMergeLocally bool
 	ParentBranch    string
-	// MergeConflicts is true when a mergeable child would conflict with its
-	// parent (predicted via a non-destructive dry-run), so the UI blocks the
-	// merge until the conflicts are resolved.
-	MergeConflicts bool
+	MergeConflicts  bool
 }
 
-// MergeConflictBatchChecker predicts whether folding each pair's Theirs into its
-// Ours would conflict, for many pairs at once, so a list asks git once per parent
-// checkout instead of once per workspace. Implemented by the git engine.
 type MergeConflictBatchChecker interface {
 	WouldMergeConflicts(ctx context.Context, repoPath string, pairs []gitengine.MergePair) []gitengine.MergeVerdict
 }
 
-// ResolveMergeEligibilities computes each wss entry's overlay from siblings; it is the
-// single source for both reads and broadcasts so they agree. Conflict dry-runs batch per
-// parent checkout and fail open; a nil git skips conflict prediction.
 func ResolveMergeEligibilities(
 	ctx context.Context,
 	wss []domain.Workspace,
@@ -70,9 +59,6 @@ func ResolveMergeEligibilities(
 	return out
 }
 
-// mergeParent is ws's parent among siblings. A parent must live in the same
-// repo as its child: the usecase path already passes repo-scoped siblings, but
-// the broadcast path passes the full row set, so a wrong-repo row never matches.
 func mergeParent(
 	ws domain.Workspace,
 	siblings []domain.Workspace,
@@ -88,8 +74,6 @@ func mergeParent(
 	return domain.Workspace{}, false
 }
 
-// structuralEligibility is what the parent alone decides: it must be neither
-// locked nor deleted.
 func structuralEligibility(parent domain.Workspace) MergeEligibility {
 	return MergeEligibility{
 		CanMergeLocally: parent.Status != domain.WorkspaceStatusLocked &&

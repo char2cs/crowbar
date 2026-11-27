@@ -4,16 +4,11 @@ import type { NoticeTone } from '@/features/agent/transcript/lib/marker-failure'
 export interface FailureNoticeProps {
   tone: NoticeTone
   headline: string
-  /** One short second line. */
   hint?: string
-  /** Buttons, primary last; they sit at the right of the text. */
   actions?: ReactNode
-  /** Marks the headline for tests and the dock's own lookups. */
   headlineTestId?: string
 }
 
-/** The one failure notice: at most two plain lines with its way on at the right. No
- *  icon, no code, no raw provider text. */
 export function FailureNotice({
   tone,
   headline,

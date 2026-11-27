@@ -20,11 +20,6 @@ import { cn } from '@/utils/cn'
 import Section from '../settings-section'
 import { SettingSelect } from '@/features/settings/components/setting-select'
 
-// Imported, not redeclared: this list decides which categories render AT ALL, so a
-// second copy here would silently hide any command whose category the registry
-// knows about and this file has not been told about.
-
-/** Inline key-capture button for rebinding a single command. */
 function RebindControl({
   command,
   binding,
@@ -38,9 +33,6 @@ function RebindControl({
 }) {
   const [capturing, setCapturing] = useState(false)
 
-  // Read the latest onCapture via an Effect Event so the capture listener
-  // subscribes once per capturing session instead of re-subscribing when the
-  // parent hands down a new onCapture identity.
   const onChordCaptured = useEffectEvent((chord: string) => {
     onCapture(chord)
     setCapturing(false)
@@ -55,7 +47,7 @@ function RebindControl({
         return
       }
       const chord = chordFromEvent(e)
-      if (!chord) return // bare modifier — keep waiting
+      if (!chord) return
       onChordCaptured(chord)
     }
     window.addEventListener('keydown', handler, { capture: true })

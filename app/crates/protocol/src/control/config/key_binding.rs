@@ -4,7 +4,6 @@ use crate::control::config::key_chord::KeyChord;
 use crate::control::config::precedence::Precedence;
 use crate::identity::CommandId;
 
-/// One active keybinding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyBinding {
     keys: KeyChord,
@@ -14,7 +13,6 @@ pub struct KeyBinding {
 }
 
 impl KeyBinding {
-    /// The binding of `keys` to `command`.
     #[must_use]
     pub fn new(
         keys: KeyChord,
@@ -27,7 +25,6 @@ impl KeyBinding {
         }
     }
 
-    /// The same binding with `precedence`.
     #[must_use]
     pub fn with_precedence(
         self,
@@ -36,19 +33,16 @@ impl KeyBinding {
         Self { precedence, ..self }
     }
 
-    /// Key chord in the shell's notation, for example `mod+k`.
     #[must_use]
     pub fn keys(&self) -> &KeyChord {
         &self.keys
     }
 
-    /// The command it runs.
     #[must_use]
     pub fn command(&self) -> &CommandId {
         &self.command
     }
 
-    /// Who has the first say when a page also handles the chord.
     #[must_use]
     pub fn precedence(&self) -> Precedence {
         self.precedence

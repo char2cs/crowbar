@@ -1,4 +1,3 @@
-// Stub: file-system file-watcher is out of scope for this session.
 import { create } from 'zustand'
 import { createSelectors } from '@/utils/zustand-selectors'
 

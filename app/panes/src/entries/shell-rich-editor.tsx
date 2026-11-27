@@ -60,8 +60,6 @@ function useSaveChord(save: () => void) {
   }, [save])
 }
 
-/** The rich view of a Markdown document the shell owns: edits go to the shell, mod+s and the
- *  source toggle send the pending edit first, and a crash hands the document to the source view. */
 export function ShellRichEditor({ client, doc, wsId }: ShellRichEditorProps) {
   const content = useStore(documentSession, (s) => s.text)
   const readOnly = useWorkspaceReadOnly(doc.authority === 'workspace' ? wsId : null)

@@ -1,5 +1,3 @@
-//! A document as `GET /v0/documents/content` answers.
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]

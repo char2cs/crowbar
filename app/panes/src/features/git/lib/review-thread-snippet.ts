@@ -1,9 +1,7 @@
 import { getReviewPatch } from '@/features/git/api/review-window-api'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 
-/** Lines shown above the anchored line, as on a GitHub review thread. */
 const CONTEXT_LINES = 3
-/** Ceiling for a multi-line range, so a long selection never becomes a diff. */
 const MAX_SNIPPET_LINES = 12
 
 interface Row {
@@ -11,9 +9,7 @@ interface Row {
   text: string
   oldNo: number | null
   newNo: number | null
-  /** The old line a row sits before, for a hunk header that starts on an addition. */
   oldCursor: number
-  /** A following `\ No newline at end of file` marker belongs to this row. */
   trailer?: string
 }
 
@@ -48,8 +44,6 @@ function indexOfLine(rows: readonly Row[], side: ReviewThread['side'], line: num
   return rows.findIndex((r) => (side === 'old' ? r.oldNo : r.newNo) === line)
 }
 
-/** The few patch lines around a thread's anchor, as a patch of its own; null when the anchor is
- *  not in the patch (outdated, or past the server's per-file cap). */
 export function sliceThreadPatch(
   patch: string,
   thread: Pick<ReviewThread, 'filePath' | 'side' | 'lineNumber' | 'startLine'>,
@@ -106,10 +100,8 @@ function buildPatch(
   ].join('\n')
 }
 
-// Threads on one file share a single request while it is in flight.
 const inflight = new Map<string, Promise<string>>()
 
-/** One file's patch through the review diff's own per-file read. */
 export function fetchFilePatch(wsId: string, path: string): Promise<string> {
   const key = `${wsId}\u0000${path}`
   const pending = inflight.get(key)

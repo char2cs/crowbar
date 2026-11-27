@@ -29,9 +29,6 @@ func newWorkspaceUsecase(
 	repo := mocks.NewWorkspaceLifecycleRepo()
 	git := mocks.NewWorkingTreeGitEngine()
 	roll := mocks.NewProjectRollup()
-	// The hierarchy-only params are nil: none of this file's tests exercise the
-	// worktree hierarchy (CreateChild, Reparent, ...), only the lifecycle
-	// methods repo/git/roll above back — see workspace.New's doc comment.
 	uc := workspace.New(repo, git, roll, nil, nil, nil, nil, nil, nil)
 	return repo, git, roll, uc
 }
@@ -61,11 +58,6 @@ func TestWorkspaceUsecase_List_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestWorkspaceUsecase_ListInRepo proves ListInRepo forwards the requested
-// project/repo ids to the repo's ListInRepo (the real project+repo scoping is
-// proven at the repo layer in TestListInRepo_ScopesToRepo — this test proves
-// only that the usecase delegates to it rather than falling back to the
-// unscoped List).
 func TestWorkspaceUsecase_ListInRepo(t *testing.T) {
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -208,9 +200,6 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RecomputesAndRollsUp(t *testing.T
 	assert.True(t, roll.Touched)
 }
 
-// TestWorkspaceUsecase_SyncWorkingTreeState_ChildDiffsAgainstParentBranch pins
-// that a child's summary diffs against the PARENT BRANCH NAME (so the engine
-// re-derives the live merge-base), not the frozen ForkPointSha.
 func TestWorkspaceUsecase_SyncWorkingTreeState_ChildDiffsAgainstParentBranch(t *testing.T) {
 	repo, git, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -238,10 +227,6 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_ChildDiffsAgainstParentBranch(t *
 	assert.Equal(t, "develop", summaryBase, "child must diff against the parent branch, not the frozen fork point")
 }
 
-// TestWorkspaceUsecase_SyncWorkingTreeState_RootDiffsAgainstOwnBranch pins that a
-// protected root diffs against its OWN branch (live merge-base ≈ HEAD, i.e. only
-// uncommitted work), not its recorded ForkPointSha — which goes stale as the root
-// advances and otherwise inflates the sidebar count for the trunk itself.
 func TestWorkspaceUsecase_SyncWorkingTreeState_RootDiffsAgainstOwnBranch(t *testing.T) {
 	repo, git, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -266,10 +251,6 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_RootDiffsAgainstOwnBranch(t *test
 	assert.Equal(t, "develop", summaryBase, "root must diff against its own branch, not the frozen fork point")
 }
 
-// TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnresolvable
-// pins the fork-point fallback: when the base branch no longer resolves in the
-// worktree (renamed/deleted out of band), the summary must diff against the
-// recorded ForkPointSha rather than silently reporting +0/-0.
 func TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnresolvable(t *testing.T) {
 	repo, git, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -300,11 +281,6 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnres
 	assert.Equal(t, "fork-sha", summaryBase, "an unresolvable base branch must fall back to the recorded fork point")
 }
 
-// TestWorkspaceUsecase_ResolveConflicts_ClearsStatusAndRollsUp is
-// ResolveConflicts' only test: the git usecase calls it after a successful
-// operation-continue in a workspace's own worktree, to drop the sticky
-// pr-conflicts status. It must both return the cleared workspace and touch the
-// owning repo's activity, exactly like every other mutation in this usecase.
 func TestWorkspaceUsecase_ResolveConflicts_ClearsStatusAndRollsUp(t *testing.T) {
 	repo, _, roll, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -335,12 +311,6 @@ func TestWorkspaceUsecase_ResolveConflicts_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestWorkspaceUsecase_SyncWorkingTreeState_ChildParentLookupFails_FallsBackToForkPoint
-// covers summaryBase's parent-Get error branch specifically — as opposed to
-// TestWorkspaceUsecase_SyncWorkingTreeState_FallsBackToForkPointWhenBaseUnresolvable,
-// which covers the branch-cannot-resolve-via-RevParse fallback. Here the parent
-// row itself cannot be fetched at all (e.g. it was deleted between the child
-// being forked and this summary running).
 func TestWorkspaceUsecase_SyncWorkingTreeState_ChildParentLookupFails_FallsBackToForkPoint(t *testing.T) {
 	repo, git, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -491,8 +461,6 @@ func TestMergeEligibilitiesFor_ParentMissing(t *testing.T) {
 	assert.Empty(t, got.ParentBranch)
 }
 
-// The batch resolves each workspace exactly as the single call does, but asks
-// git ONCE per parent checkout, and a failed dry-run fails open.
 func TestMergeEligibilitiesFor_BatchesTheDryRunsAndFailsOpen(t *testing.T) {
 	_, git, _, uc := newWorkspaceUsecase(t)
 	var asked [][]enginegit.MergePair
@@ -529,14 +497,6 @@ func TestMergeEligibilitiesFor_BatchesTheDryRunsAndFailsOpen(t *testing.T) {
 	}}, asked, "one git read for the whole batch")
 }
 
-// TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit pins the guard behind
-// the "saving a file in the project home returns 500" fix. A project's home
-// workspace is rooted at the PROJECT directory, which is deliberately not a git
-// repository, so `git` there exits 129 "Not a git repository". The summary is
-// the first step of the post-mutation resync, so that failure surfaced as a 500
-// on every home file write: the bytes landed on disk and the editor still said
-// "Failed to save file". A home workspace has no branch to diff and no index to
-// conflict — its summary is zero by definition and git is never invoked.
 func TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit(t *testing.T) {
 	repo, git, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -580,11 +540,6 @@ func TestWorkspaceUsecase_SyncWorkingTreeState_HomeSkipsGit(t *testing.T) {
 	assert.False(t, captured.HasCommits)
 }
 
-// SetLock records the user's own lock decision, which outranks the provider's
-// protected flag from here on. The usecase's whole job is resolving what
-// "protected" currently means so the command can apply the override against it —
-// and the answer has to come from the STORED row, because clearing an override
-// is exactly the case where nobody is passing one in.
 func TestWorkspaceUsecase_SetLockPassesTheDecisionDown(t *testing.T) {
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	ctx := context.Background()
@@ -609,9 +564,6 @@ func TestWorkspaceUsecase_SetLockPassesTheDecisionDown(t *testing.T) {
 }
 
 func TestWorkspaceUsecase_SetLockReadsProtectedFromTheStoredRow(t *testing.T) {
-	// A row that is locked while carrying NO override is locked precisely
-	// because the provider said so. That is the only way to answer "is this
-	// protected?" when the override is being cleared.
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
 		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
@@ -654,17 +606,6 @@ func TestWorkspaceUsecase_SetLockSurfacesAFailedWrite(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestWorkspaceUsecase_SetLockLocksWithNoOwningChatReconciler is the
-// regression test for 2026-09-08 sidebar-placement-unification Task 7:
-// SetLock used to hand a newly-locked workspace to a chat-tree reconciler
-// (EnsureOwningChat) so its owning row became a branch row from that instant
-// rather than the next boot's backfill. That call is now a pure deletion —
-// every Workspace mints its own Node{Kind:workspace} row unconditionally at
-// creation (see the hierarchy/project packages), so there is no more "does
-// this now-locked workspace have an owning row yet" question left for a
-// runtime reconciler to answer. Usecase no longer even exposes a setter for
-// one; this proves the lock itself still transitions correctly with nothing
-// wired in that gap.
 func TestWorkspaceUsecase_SetLockLocksWithNoOwningChatReconciler(t *testing.T) {
 	repo, _, _, uc := newWorkspaceUsecase(t)
 	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {

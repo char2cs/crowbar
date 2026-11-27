@@ -9,15 +9,12 @@ import (
 	"slices"
 )
 
-// The phases of a tool call.
 const (
-	ToolPre  = "pre"  // the tool was invoked
-	ToolPost = "post" // it completed
-	ToolFail = "fail" // it failed or was declined
+	ToolPre  = "pre"
+	ToolPost = "post"
+	ToolFail = "fail"
 )
 
-// The tool kinds the ledger reads: a call into an MCP server, one that spawns
-// a subagent, and one whose target is the file it reads or edits.
 const (
 	ToolKindMCP      = "mcp"
 	ToolKindSubagent = "subagent"
@@ -27,58 +24,45 @@ const (
 	ToolKindMeta     = "meta"
 )
 
-// ToolCall is the body of a tool_call row: one phase of one tool call.
 type ToolCall struct {
-	ToolID     string         `json:"toolId"`
-	Phase      string         `json:"phase"`
-	Name       string         `json:"name,omitempty"`
-	Kind       string         `json:"kind,omitempty"`
-	Title      string         `json:"title,omitempty"`
-	Target     string         `json:"target,omitempty"`
-	Locations  []ToolLocation `json:"locations,omitempty"`
-	InputRef   string         `json:"inputRef,omitempty"`
-	ResultRef  string         `json:"resultRef,omitempty"`
-	Status     string         `json:"status,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	DurationMS int            `json:"durationMs,omitempty"`
-	Diff       string         `json:"diff,omitempty"`
-	// Output is what a finished call printed, when it is short enough to read inline.
-	Output string `json:"output,omitempty"`
-	// MCPServer and MCPTool name a call of kind ToolKindMCP; the server is
-	// absent where its channel does not say it.
-	MCPServer   string `json:"mcpServer,omitempty"`
-	MCPTool     string `json:"mcpTool,omitempty"`
-	ExitCode    *int   `json:"exitCode,omitempty"`
-	Interrupted bool   `json:"interrupted,omitempty"`
-	// Cwd and Ref are where a command ran and the provider's handle on its process;
-	// a shell that outlives the call is told by them.
-	Cwd string `json:"cwd,omitempty"`
-	Ref string `json:"ref,omitempty"`
-	// InputKey is InputKey of the call's input: what an ask about it names it by.
-	InputKey string `json:"inputKey,omitempty"`
-	// SpawnsScope is the subagent this call spawned; AddressesScope one it
-	// only waits on or closes, which makes the call itself meta.
-	SpawnsScope    string `json:"spawnsScope,omitempty"`
-	AddressesScope string `json:"addressesScope,omitempty"`
+	ToolID         string         `json:"toolId"`
+	Phase          string         `json:"phase"`
+	Name           string         `json:"name,omitempty"`
+	Kind           string         `json:"kind,omitempty"`
+	Title          string         `json:"title,omitempty"`
+	Target         string         `json:"target,omitempty"`
+	Locations      []ToolLocation `json:"locations,omitempty"`
+	InputRef       string         `json:"inputRef,omitempty"`
+	ResultRef      string         `json:"resultRef,omitempty"`
+	Status         string         `json:"status,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	DurationMS     int            `json:"durationMs,omitempty"`
+	Diff           string         `json:"diff,omitempty"`
+	Output         string         `json:"output,omitempty"`
+	MCPServer      string         `json:"mcpServer,omitempty"`
+	MCPTool        string         `json:"mcpTool,omitempty"`
+	ExitCode       *int           `json:"exitCode,omitempty"`
+	Interrupted    bool           `json:"interrupted,omitempty"`
+	Cwd            string         `json:"cwd,omitempty"`
+	Ref            string         `json:"ref,omitempty"`
+	InputKey       string         `json:"inputKey,omitempty"`
+	SpawnsScope    string         `json:"spawnsScope,omitempty"`
+	AddressesScope string         `json:"addressesScope,omitempty"`
 }
 
-// ToolLocation is a place in a file a tool call touched.
 type ToolLocation struct {
 	Path string `json:"path"`
 	Line int    `json:"line,omitempty"`
 }
 
-// toolKeys is what a retried phase of one tool call is recognised by.
 type toolKeys struct {
 	turnID, name, input string
-	kind, target        string // what the call does and to what, as first said
-	cwd, ref            string // where it ran and its process handle, as first said
+	kind, target        string
+	cwd, ref            string
 	phases              []string
-	seq                 int64 // its first row's seq
+	seq                 int64
 }
 
-// InputKey is the digest of a JSON input's canonical form, so two deliveries
-// of one input match however each spelled it; "" for no input or invalid JSON.
 func InputKey(input []byte) string {
 	dec := json.NewDecoder(bytes.NewReader(input))
 	dec.UseNumber()
@@ -94,30 +78,25 @@ func InputKey(input []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ToolTurn is the turn the tool call toolID of scope was first recorded in.
 func (s State) ToolTurn(scope, toolID string) (string, bool) {
 	t, ok := s.keys.tools[ref(scope, toolID)]
 	return t.turnID, ok
 }
 
-// HasToolPhase reports whether phase of the tool call is already recorded.
 func (s State) HasToolPhase(scope, toolID, phase string) bool {
 	return slices.Contains(s.keys.tools[ref(scope, toolID)].phases, phase)
 }
 
-// ToolAim is what the tool call toolID of scope does and to what: its kind and target.
 func (s State) ToolAim(scope, toolID string) (kind, target string) {
 	t := s.keys.tools[ref(scope, toolID)]
 	return t.kind, t.target
 }
 
-// ToolRun is where the tool call toolID of scope ran and the provider's handle on its process.
 func (s State) ToolRun(scope, toolID string) (cwd, handle string) {
 	t := s.keys.tools[ref(scope, toolID)]
 	return t.cwd, t.ref
 }
 
-// OpenToolOfRef is the uncompleted tool call of scope whose process handle is processRef.
 func (s State) OpenToolOfRef(scope, processRef string) (string, bool) {
 	var found newest
 	for key, t := range s.keys.tools {
@@ -129,20 +108,15 @@ func (s State) OpenToolOfRef(scope, processRef string) (string, bool) {
 	return found.id, found.id != ""
 }
 
-// ToolOpen reports whether the tool call toolID of scope was recorded and has not completed.
 func (s State) ToolOpen(scope, toolID string) bool {
 	t, ok := s.keys.tools[ref(scope, toolID)]
 	return ok && !t.closed()
 }
 
-// HasToolInput reports whether the tool call toolID of scope is keyed by an input.
 func (s State) HasToolInput(scope, toolID string) bool {
 	return s.keys.tools[ref(scope, toolID)].input != ""
 }
 
-// OpenTool is the newest uncompleted tool call of scope named name: with an input,
-// the newest given it, else the newest with no recorded input. anyOpen reports
-// whether any call of that name is open, bound or not.
 func (s State) OpenTool(scope, name, inputKey string) (id string, bound, anyOpen bool) {
 	var given, unknown newest
 	for key, t := range s.keys.tools {
@@ -162,7 +136,6 @@ func (s State) OpenTool(scope, name, inputKey string) (id string, bound, anyOpen
 	return id, id != "", anyOpen
 }
 
-// newest keeps the id of the newest call it is offered.
 type newest struct {
 	seq int64
 	id  string

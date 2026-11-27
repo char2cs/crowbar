@@ -1,5 +1,3 @@
-//! The active space's name: set tight, and renamed by a double click.
-
 use gpui::{
     AnyElement, ClickEvent, Context, Div, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, StatefulInteractiveElement, Styled, Window, div, px,
@@ -86,7 +84,6 @@ mod tests {
     use crate::test_support::prelude::*;
 
     const SEED: &str = "Crowbar Seed";
-    /// Tailwind `tracking-tight`, in em.
     const TIGHT: f32 = -0.025;
 
     fn name_width(

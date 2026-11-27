@@ -17,12 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
-// TestRealGopls is a build-tagged smoke test that spawns the real gopls binary
-// (if present) against a tiny temp Go module and verifies that
-// textDocument/documentSymbol returns the expected symbols.
-//
-// The test is excluded from the default suite and NEVER fails on a machine
-// where gopls is absent — it skips instead.
 func TestRealGopls(t *testing.T) {
 	goplsPath, err := exec.LookPath("gopls")
 	if err != nil {
@@ -32,7 +26,7 @@ func TestRealGopls(t *testing.T) {
 
 	dir := scaffoldGoModule(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25_000_000_000) // 25 s
+	ctx, cancel := context.WithTimeout(context.Background(), 25_000_000_000)
 	t.Cleanup(cancel)
 
 	srv, err := New(ctx, "gopls", []string{}, dir, map[string]any{"semanticTokens": true})
@@ -53,15 +47,12 @@ func TestRealGopls(t *testing.T) {
 	assert.Contains(t, names, "Greeting", "expected Greeting type in symbols")
 }
 
-// TestRealGopls_SemanticTokens runs the real handshake (our capabilities and
-// gopls's initializationOptions) and checks gopls then serves semantic tokens
-// that remap into the canonical legend.
 func TestRealGopls_SemanticTokens(t *testing.T) {
 	if _, err := exec.LookPath("gopls"); err != nil {
 		t.Skipf("gopls not found in PATH: %v", err)
 	}
 	dir := scaffoldGoModule(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 25_000_000_000) // 25 s
+	ctx, cancel := context.WithTimeout(context.Background(), 25_000_000_000)
 	t.Cleanup(cancel)
 
 	srv, err := New(ctx, "gopls", []string{}, dir, map[string]any{"semanticTokens": true})
@@ -95,8 +86,6 @@ func TestRealGopls_SemanticTokens(t *testing.T) {
 	assert.True(t, types["type"], "Greeting is a type token: %v", types)
 }
 
-// scaffoldGoModule creates a temp directory with a minimal Go module and a
-// source file containing a couple of named symbols.
 func scaffoldGoModule(
 	t *testing.T,
 ) string {
@@ -127,8 +116,6 @@ func main() {}
 `
 }
 
-// doInitialize performs the LSP initialize / initialized handshake required
-// before any workspace feature requests.
 func doInitialize(
 	t *testing.T,
 	ctx context.Context,
@@ -157,7 +144,6 @@ func doInitialize(
 	require.NoError(t, err, "initialized notification failed")
 }
 
-// notifyDidOpen sends textDocument/didOpen so gopls starts tracking the file.
 func notifyDidOpen(
 	t *testing.T,
 	ctx context.Context,
@@ -178,8 +164,6 @@ func notifyDidOpen(
 	require.NoError(t, srv.Notify(ctx, "textDocument/didOpen", params))
 }
 
-// requestDocumentSymbol sends textDocument/documentSymbol and parses the flat
-// SymbolInformation[] result (hierarchicalDocumentSymbolSupport: false).
 func requestDocumentSymbol(
 	t *testing.T,
 	ctx context.Context,
@@ -200,7 +184,6 @@ func requestDocumentSymbol(
 	return symbols
 }
 
-// symbolNames extracts the "name" field from each symbol in the list.
 func symbolNames(
 	symbols []map[string]any,
 ) []string {

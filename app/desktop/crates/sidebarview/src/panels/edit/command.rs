@@ -1,5 +1,3 @@
-//! The command a confirmed inline edit sends.
-
 use sidebar::{Command, Editing, NewEntry, PathText, RowId};
 
 fn creation(

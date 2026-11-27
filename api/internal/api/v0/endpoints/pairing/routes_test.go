@@ -23,7 +23,6 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-// listeningAccess is a daemon whose device listener is open: a closed one mints no codes.
 type listeningAccess struct{}
 
 func (listeningAccess) Status() exposure.Status {
@@ -52,9 +51,6 @@ type stubStreams struct{}
 
 func (stubStreams) Disconnect(string) {}
 
-// countingLimiter aborts with 429 once it has let max requests through — a
-// deterministic stand-in for the real newSourceLimiter (package v0,
-// unreachable here without an import cycle back through router.go).
 func countingLimiter(max int) gin.HandlerFunc {
 	n := 0
 	return func(c *gin.Context) {
@@ -75,8 +71,6 @@ func do(t *testing.T, r *gin.Engine, method, path string) *httptest.ResponseReco
 	return rec
 }
 
-// doPair posts a well-formed redeem body — Pair's own 400-on-malformed-JSON
-// branch is handlers_test.go's concern, not this route-wiring test's.
 func doPair(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -96,7 +90,6 @@ func TestRegisterOpen_MountsPair(t *testing.T) {
 		"minting a code needs the bearer guard, so it is not an open route")
 }
 
-// TestRegisterOpen_LimiterCapsRedeems proves the limiter guards POST /pair.
 func TestRegisterOpen_LimiterCapsRedeems(t *testing.T) {
 	h := pairinghandlers.New(stubPairing{}, stubRegistry{}, stubStreams{}, listeningAccess{})
 	r := gin.New()

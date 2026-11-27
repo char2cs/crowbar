@@ -2,15 +2,11 @@ import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { Tab } from '@/components/ui/tabs'
 
-// A mouse click must not leave a tab wearing the `:focus-visible` ring (WebKit shows it on a
-// click): Tab prevents the mousedown default, which keyboard navigation never goes through.
 describe('Tab — a mouse click never leaves it visibly focused', () => {
   it('prevents the mousedown default (the one thing that would move focus there)', () => {
     render(<Tab>Athas test</Tab>)
     const button = screen.getByRole('button', { name: 'Athas test' })
 
-    // fireEvent returns the DOM dispatchEvent result: false iff some handler
-    // called preventDefault() on a cancelable event.
     const notPrevented = fireEvent.mouseDown(button)
     expect(notPrevented).toBe(false)
   })
@@ -49,12 +45,6 @@ describe('Tab — a mouse click never leaves it visibly focused', () => {
   })
 })
 
-// The IDE sector's tab strip (tab-bar-item.tsx) and the chat identity header
-// (chat-branch-header.tsx) both need the "ghost toolbar button" treatment
-// SplitToggleButton/CloseViewButton already use — transparent at rest,
-// sidebar-element-hover on hover/active, rounded-sm, no underline bar — so a
-// tab reads as part of the same chrome family as its neighbours in the row
-// rather than the filled-pill/underline treatments the other two variants use.
 describe('Tab ghost variant', () => {
   it('is transparent with muted text at rest', () => {
     render(

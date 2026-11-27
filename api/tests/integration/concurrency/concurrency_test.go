@@ -17,8 +17,6 @@ func TestMain(m *testing.M) {
 	kit.Main(m)
 }
 
-// ConcurrencySuite exercises concurrent access patterns for repositories, git
-// engine calls, and hub broadcasts over the hierarchical, 202+WS API.
 type ConcurrencySuite struct {
 	kit.IntegrationSuite
 	imported kit.ImportedRepo
@@ -29,20 +27,10 @@ func (s *ConcurrencySuite) SetupTest() {
 	s.imported = s.Env.ImportRepo(s.T(), "concurrency", "")
 }
 
-// TestConcurrencySuite runs the ConcurrencySuite integration tests.
 func TestConcurrencySuite(t *testing.T) {
 	suite.Run(t, new(ConcurrencySuite))
 }
 
-// TestConcurrency_ParallelWorkspaceCreatesAreConsistent verifies that many
-// concurrent workspace creates all eventually succeed and are consistently
-// observable afterward with distinct branches.
-//
-// spec §8 step 6 deleted POST .../workspaces entirely: the only live creation
-// path is CreateWorkspaceWithChat (mirroring the atomic fork+chat create the
-// product surface now uses), so that is what n goroutines drive concurrently.
-// Consistency is checked against the real read model, GET .../chats, which is
-// what a client actually reads.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesAreConsistent() {
 	t := s.T()
 	const n = 20
@@ -72,8 +60,6 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesAreConsistent
 	s.Assert().Len(seenBranches, n, "all created workspaces must be independently observable with distinct branches")
 }
 
-// TestConcurrency_ParallelGitStatusCallsAreRaceClean verifies that concurrent
-// git status calls across distinct workspaces do not error or corrupt results.
 func (s *ConcurrencySuite) TestConcurrency_ParallelGitStatusCallsAreRaceClean() {
 	t := s.T()
 	const n = 10
@@ -106,9 +92,6 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelGitStatusCallsAreRaceClean() 
 	}
 }
 
-// httpGitStatusClean calls GET .../git/status via HTTP (chat-scoped, spec §8
-// step 6 — the workspace-scoped mount is gone) and returns an error if the
-// call fails or the working tree has unexpected dirty files.
 func (s *ConcurrencySuite) httpGitStatusClean(
 	chatID string,
 ) error {
@@ -135,16 +118,9 @@ func (s *ConcurrencySuite) httpGitStatusClean(
 	)
 }
 
-// TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster verifies that
-// concurrent creates — each publishing its workspace and owning chat to the
-// projects scope — do not race the stream (race detector is the assertion).
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster() {
 	t := s.T()
 	const n = 30
-	// A start barrier, not just a tight dispatch loop (same reasoning as the
-	// home-resolve race below): lining every goroutine up on one channel close
-	// is what actually forces the overlap this test exists to catch, rather
-	// than hoping ordinary scheduling staggers them into it.
 	ready := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := range n {
@@ -161,15 +137,10 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroa
 	s.Env.Quiesce()
 }
 
-// TestConcurrency_ParallelWsBroadcastsDoNotPanic ensures concurrent publishes
-// with connections holding the projects scope do not race the stream's
-// holder set.
 func (s *ConcurrencySuite) TestConcurrency_ParallelWsBroadcastsDoNotPanic() {
 	t := s.T()
 	const n = 10
 
-	// Hold projects on N connections so the holder set is non-empty under
-	// concurrent writes.
 	for range n {
 		s.Env.HoldProjects(t)
 	}

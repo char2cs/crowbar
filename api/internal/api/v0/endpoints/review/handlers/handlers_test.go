@@ -26,9 +26,6 @@ func TestMain(
 	m.Run()
 }
 
-// stubUsecase answers the whole ReviewUsecase surface with fixed data, and lets
-// a test replace any single windowed-diff method with a probe. Nil fields keep
-// the fixed answer, so a test only spells out the method it is about.
 type stubUsecase struct {
 	files     func(ctx context.Context, wsID, commit string) ([]gitdomain.ReviewFileSummary, error)
 	outline   func(ctx context.Context, wsID, commit string) ([]gitdomain.FileOutline, error)
@@ -127,10 +124,6 @@ func (s stubUsecase) SearchDiff(
 	}, false, nil
 }
 
-// routerFor wires the review handlers onto the flat chat-scoped group the way
-// router.go does, with a stand-in for chatScoped's resolveChatWorktree
-// middleware: the resolved workspace's id is the :chatId path param, which is
-// all these happy-path tests need from it.
 func routerFor(uc handlers.ReviewUsecase) *gin.Engine {
 	r := gin.New()
 	h := handlers.New(uc)

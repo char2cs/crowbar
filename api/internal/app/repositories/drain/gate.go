@@ -1,5 +1,3 @@
-// Package drain provides the shutdown gate every post-commit reactor enters before it
-// spawns work, and that the app layer closes and waits out on the way down.
 package drain
 
 import (
@@ -7,33 +5,22 @@ import (
 	"sync"
 )
 
-// Gate admits reactor goroutines until a drain begins, then refuses and waits for those inside. Not a
-// WaitGroup: Add concurrent with Wait is misuse, and shutdown's PTY kills wake reactors mid-drain.
-// Admission and starting the drain share one critical section, so the drain always converges.
 type Gate struct {
 	mu       sync.Mutex
 	n        int
 	draining bool
 
-	// idle is non-nil only while somebody is waiting for n to reach 0, and is CLOSED
-	// (not sent on) so any number of waiters wake and a late waiter never blocks.
 	idle chan struct{}
 
-	// hold is non-nil while a quiesce holds the door: a goroutine admitted meanwhile
-	// parks in Proceed until it is closed. parked counts those, and settled wakes
-	// WaitRunning whenever n-parked can have reached 0.
 	hold    chan struct{}
 	parked  int
 	settled chan struct{}
 }
 
-// New returns an open gate.
 func New() *Gate {
 	return &Gate{}
 }
 
-// Enter admits one goroutine, or reports false once draining — then the caller must NOT spawn the
-// work. Nothing is lost: the DBs are closing and the boot sweep picks the job up.
 func (g *Gate) Enter() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -45,9 +32,6 @@ func (g *Gate) Enter() bool {
 	return true
 }
 
-// Leave retires a goroutine admitted by Enter, releasing any waiter once the last one is
-// home. Pair it with `defer` at the top of the spawned goroutine, never at the call site:
-// the point is to count the goroutine's LIFETIME, not the dispatch that created it.
 func (g *Gate) Leave() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -60,8 +44,6 @@ func (g *Gate) Leave() {
 	g.wakeSettled()
 }
 
-// wakeSettled releases WaitRunning's waiters once nothing admitted is still running.
-// Called with g.mu held.
 func (g *Gate) wakeSettled() {
 	if g.n == g.parked && g.settled != nil {
 		close(g.settled)
@@ -69,9 +51,6 @@ func (g *Gate) wakeSettled() {
 	}
 }
 
-// Hold parks every goroutine admitted from now on at Proceed until Release, so a
-// quiesce round's WaitPublish, which waits only for what was already queued, is
-// not chasing a reactor that keeps producing; the reactor runs between rounds.
 func (g *Gate) Hold() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -81,9 +60,6 @@ func (g *Gate) Hold() {
 	}
 }
 
-// Release lets every parked goroutine go, and stops parking new ones. The parked
-// count drops here, with the door, so a WaitRunning can never mistake a goroutine
-// that is about to run for one still at the door.
 func (g *Gate) Release() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -95,9 +71,6 @@ func (g *Gate) Release() {
 	}
 }
 
-// Proceed is an admitted goroutine's first call: it returns at once while the gate is
-// open, and parks while a Hold is in force. It reports false once ctx is done, in
-// which case the caller must NOT do the work — the boot sweep re-drives it.
 func (g *Gate) Proceed(
 	ctx context.Context,
 ) bool {
@@ -120,12 +93,11 @@ func (g *Gate) Proceed(
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.hold == hold {
-		g.parked-- // still held: this one leaves the door on its own
+		g.parked--
 	}
 	return false
 }
 
-// Parked reports how many admitted goroutines are waiting at the door.
 func (g *Gate) Parked() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -133,9 +105,6 @@ func (g *Gate) Parked() int {
 	return g.parked
 }
 
-// WaitRunning blocks until every admitted goroutine has either left or parked: nothing
-// the gate let through is producing any more. Unlike WaitIdle it does not wait for
-// parked goroutines, which is what lets a quiesce drain the bus with the door held.
 func (g *Gate) WaitRunning(
 	ctx context.Context,
 ) {
@@ -156,8 +125,6 @@ func (g *Gate) WaitRunning(
 	}
 }
 
-// WaitIdle blocks until no admitted goroutine remains without closing the gate: a "has the work
-// landed" barrier tests use instead of a sleep. ctx is an escape hatch, not synchronisation.
 func (g *Gate) WaitIdle(
 	ctx context.Context,
 ) {
@@ -178,9 +145,6 @@ func (g *Gate) WaitIdle(
 	}
 }
 
-// Wait closes the gate and blocks until every admitted goroutine has left, or ctx is done
-// — a stuck reactor delays shutdown by the caller's deadline and no longer. Closing is
-// idempotent, so a second Wait simply waits on the same, already-shrinking set.
 func (g *Gate) Wait(
 	ctx context.Context,
 ) {

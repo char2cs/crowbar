@@ -1,5 +1,3 @@
-//! Opening the relay websocket: bounded connects and header values.
-
 use std::time::Duration;
 
 use tokio::time::timeout;

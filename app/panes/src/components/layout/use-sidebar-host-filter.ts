@@ -9,10 +9,6 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { treeUiStore, useTreeUi } from '@/features/workspace/tree/tree-ui-store'
 import type { Project } from '@/lib/types'
 
-/**
- * Which host's projects the switcher lists. A view filter only: nothing here touches a host's
- * connection, and the tree, the streams and notifications still read every project.
- */
 export function useSidebarHostFilter(
   projects: Project[],
   activeProjectId: string | undefined,
@@ -24,7 +20,6 @@ export function useSidebarHostFilter(
   const shown = shownHostOf(filter, hostIds, projects, activeProjectId)
   const shownProjects = useMemo(() => projectsOnHost(projects, shown), [projects, shown])
 
-  // Land on the host's remembered project, else its latest, unless the active one is already there.
   const selectHost = useCallback(
     (hostId: string) => {
       treeUiStore.getState().setHostFilter(hostId)

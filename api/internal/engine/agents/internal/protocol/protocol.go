@@ -1,6 +1,3 @@
-// Package protocol is the single face over a provider's descriptor, translating payloads both ways
-// and driving the api transport; internal/ is reached only through this file. It holds no
-// conversation lifecycle: that belongs to the runner.
 package protocol
 
 import (
@@ -22,8 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// Errors surfaced to callers, re-exported so nothing outside has to name the packages
-// underneath.
 var (
 	ErrUnknownProvider      = descriptor.ErrUnknown
 	ErrInvalidDescriptor    = descriptor.ErrInvalid
@@ -42,8 +37,6 @@ var (
 	ErrAPISessionLost = apidriver.ErrSessionLost
 )
 
-// APIFailureReason is the provider's own words for a call it refused, false when err
-// is not such a refusal.
 func APIFailureReason(err error) (string, bool) {
 	var call *jsonrpc.CallError
 	if !errors.As(err, &call) {
@@ -55,103 +48,72 @@ func APIFailureReason(err error) (string, bool) {
 	return call.Message + ": " + call.Detail, true
 }
 
-// ForeignPayloadError reports which required field was absent, i.e. why the payload
-// was judged to describe another CLI's conversation.
 type ForeignPayloadError = inbound.ForeignConversationError
 
-// RequiredFieldError names the descriptor, event, channel and field a
-// declared required: mapping resolved to nothing against.
 type RequiredFieldError = inbound.RequiredFieldError
 
-// DescriptorRuleFailure is one load rule a descriptor breaks.
 type DescriptorRuleFailure = descriptor.RuleFailure
 
-// DescriptorSource is one descriptor document Crowbar would load.
 type DescriptorSource = descriptor.Source
 
-// CheckDescriptor parses raw and reports every load rule it breaks.
 func CheckDescriptor(raw []byte) (*spec.Descriptor, []DescriptorRuleFailure) {
 	return descriptor.Check(raw)
 }
 
-// CheckDescriptorVersion refuses a document whose schema_version selects no reader.
 func CheckDescriptorVersion(raw []byte) error {
 	return descriptor.CheckVersion(raw)
 }
 
-// UnknownDescriptorKeys are the keys raw's own schema version does not define.
 func UnknownDescriptorKeys(raw []byte) []string {
 	return descriptor.UnknownKeys(raw)
 }
 
-// DescriptorSourceFor is the document Crowbar would load for id.
 func DescriptorSourceFor(homeDir, id string) (DescriptorSource, bool) {
 	return descriptor.SourceFor(homeDir, id)
 }
 
-// EmbeddedDescriptorSource is the shipped default for id.
 func EmbeddedDescriptorSource(id string) (DescriptorSource, bool) {
 	return descriptor.EmbeddedSource(id)
 }
 
-// DescriptorSources lists every descriptor document, overrides shadowing defaults.
 func DescriptorSources(homeDir string) ([]DescriptorSource, error) {
 	return descriptor.Sources(homeDir)
 }
 
-// All returns every descriptor Crowbar can resolve, sorted by id.
 func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*spec.Descriptor, error) {
 	return descriptor.All(ctx, homeDir, accept)
 }
 
-// EmbeddedModelManifest is descriptor.EmbeddedModelManifest, re-exported for
-// callers the internal/ boundary keeps out of descriptor.
 func EmbeddedModelManifest() []byte {
 	return descriptor.EmbeddedModelManifest()
 }
 
-// Resolve loads one provider's descriptor, preferring an on-disk override
-// that accept admits.
 func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bool) (*spec.Descriptor, error) {
 	return descriptor.Resolve(ctx, homeDir, id, accept)
 }
 
-// OverridePath is descriptor.OverridePath: where Resolve looks for id's override,
-// so a caller can tell cheaply whether Resolve's answer may have changed.
 func OverridePath(homeDir, id string) string {
 	return descriptor.OverridePath(homeDir, id)
 }
 
-// Installed reports whether a provider's command exists on PATH.
 func Installed(cmd string) bool { return descriptor.Installed(cmd) }
 
-// CheckVersion refuses a provider whose protocol is outside the range its descriptor
-// was written against.
 func CheckVersion(d *spec.Descriptor, actual string) error {
 	return descriptor.CheckProtocolVersion(d, actual)
 }
 
-// --- inbound: they tell us -------------------------------------------------
-
-// Recv turns one raw provider payload into a canonical event, reading the field
-// map of the channel it ACTUALLY arrived on, never the declared transport.
 func Recv(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
 	return inbound.Parse(d, canonical, raw, channel)
 }
 
-// Observes lists the canonical events this provider reports, sorted.
 func Observes(d *spec.Descriptor) []string { return inbound.Declared(d) }
 
-// RecvTelemetry maps the provider's own cost and capacity report, reading the field
-// map of the channel it arrived on.
 func RecvTelemetry(
 	d *spec.Descriptor, raw []byte, now time.Time, channel spec.Channel,
 ) (models.Telemetry, error) {
 	return telemetry.ParseCallback(d, raw, now, channel)
 }
 
-// ProbeTelemetry runs the provider's telemetry probe, for providers that have no
-// push channel.
 func ProbeTelemetry(
 	ctx context.Context, d *spec.Descriptor,
 	opts models.ProbeOptions, acquire exec.Acquire, now time.Time,
@@ -159,70 +121,43 @@ func ProbeTelemetry(
 	return telemetry.Probe(ctx, d, opts, acquire, now)
 }
 
-// --- outbound: we tell them ------------------------------------------------
-
-// Send resolves a canonical outbound event into the provider's own call and payload.
-// The bool is the capability check: a provider that declares no such event cannot be
-// told to do it.
 func Send(
 	d *spec.Descriptor, canonical string, values map[string]string,
 ) (wireEvent string, payload map[string]string, ok bool) {
 	return outbound.Resolve(d, canonical, values)
 }
 
-// CanSend reports whether one outbound event is available.
 func CanSend(d *spec.Descriptor, canonical string) bool {
 	_, _, ok := outbound.Resolve(d, canonical, nil)
 	return ok
 }
 
-// --- ask: they block on our reply ------------------------------------------
-
-// AnswerCapability reports whether a decision can be sent back for this event, and
-// which decisions the provider accepts.
 func AnswerCapability(d *spec.Descriptor, canonical string) (models.AnswerCapability, bool) {
 	return answer.Capability(d, canonical)
 }
 
-// Reply renders a human's decision into the bytes the provider expects.
 func Reply(
 	d *spec.Descriptor, canonical string, raw []byte, decision models.AnswerDecision,
 ) ([]byte, error) {
 	return answer.Render(d, canonical, raw, decision)
 }
 
-// --- terminal: what only the screen can tell us ----------------------------
-
-// TerminalPrompts reports whether the provider declares any screen-detected modal.
 func TerminalPrompts(d *spec.Descriptor) bool { return termprompt.Declared(d) }
 
-// MatchTerminalNotice matches a rendered screen against the provider's declared
-// notices — a signpost to read, not a question to answer.
 func MatchTerminalNotice(d *spec.Descriptor, screen string) (models.TerminalNotice, bool) {
 	return termprompt.MatchNotice(d, screen)
 }
 
-// MatchTerminalPrompt matches a rendered screen against the provider's declared
-// modals — the prompts that reach Crowbar through no hook at all.
 func MatchTerminalPrompt(d *spec.Descriptor, screen string) (models.TerminalPrompt, bool) {
 	return termprompt.Match(d, screen)
 }
 
-// --- api transport: a persistent connection instead of a per-hook payload -----
-
-// APIEvent is one canonical event resolved from a provider's API-transport wire
-// frame. AskID is non-nil exactly when a human decision must be sent back.
 type APIEvent = apidriver.Event
 
-// APISessionOrigin is told every session an api connection opens or enters —
-// see apidriver.SessionOrigin.
 type APISessionOrigin = apidriver.SessionOrigin
 
-// APIStdio is serve's stdin and stdout, the pipes its api connection speaks on.
 type APIStdio = jsonrpc.Stdio
 
-// APIConn wraps *apidriver.Driver so callers above this package's internal/
-// boundary can hold it without naming apidriver.
 type APIConn struct{ drv *apidriver.Driver }
 
 func (c *APIConn) Events() <-chan APIEvent { return c.drv.Events() }
@@ -233,40 +168,28 @@ func (c *APIConn) Reply(askID json.RawMessage, rendered []byte) error {
 
 func (c *APIConn) Close() error { return c.drv.Close() }
 
-// Overflowed reports whether the connection closed because its consumer fell
-// too far behind (see jsonrpc's mailbox).
 func (c *APIConn) Overflowed() bool { return c.drv.Overflowed() }
 
-// EstablishSession runs canonical's Fresh-or-Resume steps once per connection,
-// split from Dispatch so attach's argv can name the session id first.
 func (c *APIConn) EstablishSession(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
 	return c.drv.EstablishSession(ctx, canonical, values)
 }
 
-// Dispatch establishes canonical's session (a no-op once this connection
-// already has), then runs its Action steps — see apidriver.Driver.Dispatch.
 func (c *APIConn) Dispatch(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
 	return c.drv.Dispatch(ctx, canonical, values)
 }
 
-// Send drives a plain outbound canonical event (interrupt, compact_start) —
-// see apidriver.Driver.Send.
 func (c *APIConn) Send(ctx context.Context, canonical string, values map[string]string) error {
 	return c.drv.Send(ctx, canonical, values)
 }
 
-// InjectAt runs the descriptor's declared inject step for lifecycle moment at,
-// if it has one — see apidriver.Driver.InjectAt.
 func (c *APIConn) InjectAt(ctx context.Context, at string, values map[string]string) error {
 	return c.drv.InjectAt(ctx, at, values)
 }
 
-// StartAPIDriver completes a provider's declared handshake over serve's stdio
-// and returns a connection translating inbound frames into canonical events.
 func StartAPIDriver(
 	ctx context.Context, d *spec.Descriptor, stdio APIStdio, origin APISessionOrigin,
 ) (*APIConn, error) {

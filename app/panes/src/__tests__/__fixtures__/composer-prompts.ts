@@ -1,6 +1,5 @@
 import type { Value } from 'platejs'
 
-/** Prompts whose markdown escapes matter, as the composer would hold them. */
 const p = (text: string) => ({ type: 'p', children: [{ text }] })
 
 const typedTexts = [
@@ -92,8 +91,6 @@ export const promptCases: [string, Value][] = [
 
 type Doc = { text?: string; children?: Doc[]; [key: string]: unknown }
 
-/** Slate may split or pad text leaves anywhere; joining runs of identical marks
-    leaves only what a reader can see. */
 export function sameText(nodes: Value): Doc[] {
   const out: Doc[] = []
   for (const node of nodes as Doc[]) {

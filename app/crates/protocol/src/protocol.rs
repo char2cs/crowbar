@@ -8,14 +8,8 @@ use crate::control::SDK_VERSION;
 use crate::control::ShellFrame;
 use crate::error::{Error, Result};
 
-/// Largest control frame accepted, in bytes. Bulk data uses the custom protocol instead.
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 
-/// Encodes a frame as JSON text tagged with the SDK major version.
-///
-/// # Errors
-/// [`Error::Json`] when the frame cannot be serialized and [`Error::FrameTooLarge`] when the
-/// text exceeds [`MAX_FRAME_BYTES`].
 pub fn encode<T: Serialize>(frame: &T) -> Result<String> {
     let text = serde_json::to_string(&Envelope {
         sdk: SDK_VERSION.major(),
@@ -25,18 +19,10 @@ pub fn encode<T: Serialize>(frame: &T) -> Result<String> {
     Ok(text)
 }
 
-/// Decodes a frame a pane sent.
-///
-/// # Errors
-/// An [`Error`] when the text is too large, malformed, or speaks another SDK version.
 pub fn decode_pane_frame(text: &str) -> Result<PaneFrame> {
     decode(text)
 }
 
-/// Decodes a frame the shell sent.
-///
-/// # Errors
-/// An [`Error`] when the text is too large, malformed, or speaks another SDK version.
 pub fn decode_shell_frame(text: &str) -> Result<ShellFrame> {
     decode(text)
 }

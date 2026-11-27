@@ -10,11 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// compactableStubProviderDescriptorYAML declares compact_pre/compact_post —
-// streamStubProviderDescriptorYAML (regression_agent_message_stream_test.go)
-// does not, since the message-stream tests never need them. The map keys
-// mirror claude.yaml's own compact_pre/compact_post exactly (session_id,
-// trigger).
 const compactableStubProviderDescriptorYAML = `id: compactablestub
 events:
   session_start:
@@ -46,8 +41,6 @@ runtime:
     format: json
 `
 
-// The compaction hooks are recorded as markers on the chat's feed, and a turn
-// after compact_post starts as usual.
 func TestRegression_CompactPreAndPostAreRecordedOnTheFeed(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "compactablestub", compactableStubProviderDescriptorYAML)
@@ -73,8 +66,6 @@ func TestRegression_CompactPreAndPostAreRecordedOnTheFeed(t *testing.T) {
 	assert.Less(t, ended, turn, "compact_post leaves nothing wedged for the turn after it")
 }
 
-// A compaction the provider starts inside a turn never posts when it gives
-// up; the turn's end is then the compaction's, so the feed is not left compacting.
 func TestRegression_CompactionOpenedInATurnEndsWithTheTurn(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "compactablestub", compactableStubProviderDescriptorYAML)

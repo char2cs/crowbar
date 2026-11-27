@@ -26,7 +26,6 @@ const OPENABLE = [
   'tel:+15551234567',
 ]
 
-// A link's text can come from another host: only a web, mail or phone link leaves the app.
 const REFUSED = [
   'javascript:alert(1)',
   ' javascript:alert(1)',
@@ -63,7 +62,6 @@ describe('openExternalUrl in the desktop app', () => {
   })
 })
 
-// The phone app has no shell plugin, and a link opened in its one webview would replace the app.
 describe('openExternalUrl in the phone app', () => {
   it('refuses, opening nothing in or over the app', async () => {
     platform.mobile = true

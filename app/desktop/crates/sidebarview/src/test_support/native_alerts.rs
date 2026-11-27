@@ -1,5 +1,3 @@
-//! A native message dialog that remembers each request and answers with one button.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 

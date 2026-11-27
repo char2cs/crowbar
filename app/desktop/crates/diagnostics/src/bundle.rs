@@ -15,8 +15,6 @@ use crate::file_store::FileStore;
 
 const META_NAME: &str = "meta.txt";
 
-/// A diagnostics zip under construction: files and dumps go in, the manifest `meta.txt` says
-/// what is missing and why, so an incomplete bundle is still an honest one.
 #[derive(Debug)]
 pub struct Bundle {
     files: Arc<dyn FileStore>,
@@ -26,7 +24,6 @@ pub struct Bundle {
 }
 
 impl Bundle {
-    /// An empty bundle for the app `version`.
     #[must_use]
     pub fn new(version: &str) -> Self {
         Self::on(Arc::new(DiskFiles::default()), version)
@@ -44,7 +41,6 @@ impl Bundle {
         }
     }
 
-    /// Adds the file at `path` as `name`, or notes why it is absent.
     pub fn add_file(
         &mut self,
         name: &str,
@@ -56,7 +52,6 @@ impl Bundle {
         }
     }
 
-    /// Adds `bytes` as `name`.
     pub fn add_bytes(
         &mut self,
         name: &str,
@@ -68,7 +63,6 @@ impl Bundle {
         });
     }
 
-    /// Records in the manifest that `name` could not be included, and why.
     pub fn add_missing(
         &mut self,
         name: &str,
@@ -77,7 +71,6 @@ impl Bundle {
         self.notes.push(format!("{name} not included: {reason}"));
     }
 
-    /// Adds every regular file of `dir` as `<prefix>/<file name>`, skipping nothing silently.
     pub fn add_directory(
         &mut self,
         prefix: &str,
@@ -95,10 +88,6 @@ impl Bundle {
         }
     }
 
-    /// Writes `crowbar-diagnostics-<unix seconds>.zip` into `dir` and returns its path.
-    ///
-    /// # Errors
-    /// [`Error::Bundle`] when the directory or the zip cannot be written.
     pub fn write(
         &self,
         dir: &Path,

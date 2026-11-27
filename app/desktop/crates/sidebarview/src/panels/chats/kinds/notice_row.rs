@@ -1,5 +1,3 @@
-//! The unread notice above a space's tree.
-
 use gpui::{App, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px};
 use sidebar::{Command, Intent, Notice, ProjectId};
 use ui::{Button, ButtonSize, ButtonVariant, Icon, IconName, Surface, Theme};

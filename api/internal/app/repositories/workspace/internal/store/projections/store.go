@@ -1,6 +1,3 @@
-// Package projections holds the workspace read-side projections. store.go saves each event into
-// state/store/workspace.db (Forget deletes the row) before announcing it to a registered hub, so
-// no frame reaches a client before the read model holds it.
 package projections
 
 import (
@@ -19,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// workspaceRow is the durable read-model row persisted to state/store/workspace.db.
 type workspaceRow struct {
 	ID   string `gorm:"primaryKey;column:id"`
 	Data []byte `gorm:"column:data"`
@@ -29,8 +25,6 @@ func (workspaceRow) TableName() string {
 	return "read_workspaces"
 }
 
-// Store is the durable workspace read model at state/store/workspace.db. Each row
-// carries project_id/repo_id, so it doubles as the location index.
 type Store struct {
 	inner interface {
 		Save(ctx context.Context, row workspaceRow) error
@@ -38,23 +32,14 @@ type Store struct {
 		FindByKey(ctx context.Context, key string) (*workspaceRow, error)
 		FindAll(ctx context.Context) ([]workspaceRow, error)
 	}
-	// tombstoneWaiters are the AwaitTombstone callers parked on an id, woken by
-	// the save that persists that id's "deleted" row — and, once announcements
-	// are expected, by the hub frame that announces it.
-	mu               sync.Mutex
-	tombstoneWaiters map[string][]chan struct{}
-	// expectAnnouncements is set once a hub is registered: a tombstone is then ready
-	// for purge only once persisted and announced, because the frame is addressed
-	// through the owning chat the purge deletes.
+	mu                  sync.Mutex
+	tombstoneWaiters    map[string][]chan struct{}
 	expectAnnouncements bool
 	announced           map[string]struct{}
-	// announce broadcasts a saved event's frame; nil until RegisterHub.
-	announce   atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
-	unreadable serialize.Unreadable
+	announce            atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
+	unreadable          serialize.Unreadable
 }
 
-// NewStore builds the durable read-model store over the read-model DB
-// (state/store/workspace.db), auto-migrating the read_workspaces table.
 func NewStore(
 	db *gormdb.DB,
 ) (*Store, error) {
@@ -69,15 +54,12 @@ func NewStore(
 	}, nil
 }
 
-// ExpectAnnouncements makes AwaitTombstone also wait for each tombstone's hub
-// frame (see Store.expectAnnouncements). RegisterHub calls it.
 func (s *Store) ExpectAnnouncements() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.expectAnnouncements = true
 }
 
-// Announced records that ws's tombstone frame has been broadcast.
 func (s *Store) Announced(
 	ws domain.Workspace,
 ) {
@@ -90,8 +72,6 @@ func (s *Store) Announced(
 	s.wakeTombstoneWaiters(ws.ID)
 }
 
-// takeAnnouncement reports whether id's tombstone may be purged as far as the
-// hub is concerned, consuming the record.
 func (s *Store) takeAnnouncement(
 	id string,
 ) bool {
@@ -107,9 +87,6 @@ func (s *Store) takeAnnouncement(
 	return true
 }
 
-// AwaitTombstone blocks until id's "deleted" row is persisted (and, with a hub,
-// broadcast) and returns it, or until ctx ends. The waiter registers before it
-// reads, so a wake between the read and the wait is not lost.
 func (s *Store) AwaitTombstone(
 	ctx context.Context,
 	id string,
@@ -168,8 +145,6 @@ func (s *Store) wakeTombstoneWaiters(
 	}
 }
 
-// List returns every workspace in the read model; a row that will not decode
-// is answered by fromLog instead (nil leaves it out, an error fails the list).
 func (s *Store) List(ctx context.Context, fromLog func(context.Context, string) (*domain.Workspace, error)) ([]domain.Workspace, error) {
 	rows, err := s.inner.FindAll(ctx)
 	if err != nil {
@@ -192,8 +167,6 @@ func (s *Store) List(ctx context.Context, fromLog func(context.Context, string) 
 	return result, nil
 }
 
-// Get returns the workspace with the given id, or nil if the read model has no
-// such row.
 func (s *Store) Get(
 	ctx context.Context,
 	id string,
@@ -208,8 +181,6 @@ func (s *Store) Get(
 	return unmarshalWorkspace(row.Data)
 }
 
-// Fold persists ws into the durable read model. It exists for the lazy rebuild
-// (store.ListOrRebuild); live events arrive through the subscription instead.
 func (s *Store) Fold(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -244,8 +215,6 @@ func (s *Store) delete(
 	return s.inner.Delete(ctx, id)
 }
 
-// Drop deletes id's row directly — for a tombstone whose aggregate is already
-// Forgotten, which no projection event will ever reach again.
 func (s *Store) Drop(
 	ctx context.Context,
 	id string,
@@ -263,9 +232,6 @@ func unmarshalWorkspace(
 	return &ws, nil
 }
 
-// Subscriber registers st as a durable subscriber on the workspace builder: a
-// failed save is retried by asynx, and parks the aggregate, instead of being
-// logged and dropped. The Forget marker deletes the row; a missing row is no error.
 func Subscriber(
 	st *Store,
 ) func(*asynx.Builder[domain.Workspace]) {

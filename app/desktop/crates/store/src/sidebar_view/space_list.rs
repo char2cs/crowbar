@@ -1,5 +1,3 @@
-//! The spaces and hosts the sidebar lists, as the state holds them.
-
 use sidebar::{Host, HostChoice, HostId, Project, ScopeSync, SpaceList};
 
 use crate::reads;

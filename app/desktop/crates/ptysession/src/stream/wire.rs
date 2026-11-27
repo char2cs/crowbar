@@ -1,5 +1,3 @@
-//! Websocket messages to and from the terminal types.
-
 use terminal::{ClientMessage, DaemonFrame};
 use tokio_tungstenite::tungstenite::Message;
 

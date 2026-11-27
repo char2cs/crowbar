@@ -1,11 +1,8 @@
-//! What the modal reads from the backend when it opens.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::values::Values;
 use crate::values::choice::Choice;
 
-/// Values, platform capabilities and dynamic options, all known before the first paint.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Snapshot {
     pub(crate) values: Values,
@@ -14,7 +11,6 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// A snapshot holding `values`.
     pub fn new(values: Values) -> Self {
         Self {
             values,
@@ -22,7 +18,6 @@ impl Snapshot {
         }
     }
 
-    /// The platform offers `name`.
     #[must_use]
     pub fn with_capability(
         mut self,
@@ -32,7 +27,6 @@ impl Snapshot {
         self
     }
 
-    /// The backend lists `choices` for the provider `provider`.
     #[must_use]
     pub fn with_choices(
         mut self,

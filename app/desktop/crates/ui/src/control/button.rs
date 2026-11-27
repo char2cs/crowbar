@@ -1,5 +1,3 @@
-//! Text and icon buttons.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ClickEvent, Div, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement,
@@ -25,7 +23,6 @@ use crate::foundation::tokens::text_size;
 
 const DISABLED_OPACITY: f32 = 0.64;
 
-/// A button with an optional icon and label; with only an icon it is square.
 #[derive(IntoElement)]
 pub struct Button {
     id: ElementId,
@@ -53,7 +50,6 @@ pub use button_size::ButtonSize;
 pub use button_variant::ButtonVariant;
 
 impl Button {
-    /// A labelled button.
     pub fn new(
         id: impl Into<ElementId>,
         label: impl Into<SharedString>,
@@ -61,7 +57,6 @@ impl Button {
         Self::bare(id.into(), Some(label.into()), None)
     }
 
-    /// A square button showing only `icon`; defaults to the ghost variant.
     pub fn icon_only(
         id: impl Into<ElementId>,
         icon: IconName,
@@ -90,21 +85,18 @@ impl Button {
         }
     }
 
-    /// Disables the button: dimmed, no hover, no click.
     #[must_use]
     pub fn disabled(mut self) -> Self {
         self.disabled = true;
         self
     }
 
-    /// Hides the label behind a centred spinner and ignores clicks, as the React `loading` prop does.
     #[must_use]
     pub fn loading(mut self) -> Self {
         self.loading = true;
         self
     }
 
-    /// Tracks `focus`, so its owner can focus the button; a tab stop unless `focus` is not one.
     #[must_use]
     pub fn focus_handle(
         mut self,
@@ -114,7 +106,6 @@ impl Button {
         self
     }
 
-    /// Registers the activation handler.
     #[must_use]
     pub fn on_click(
         mut self,

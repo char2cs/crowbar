@@ -1,5 +1,3 @@
-//! Width, visibility and dock side of the sidebar column.
-
 use crate::frame::dock_side::DockSide;
 use crate::frame::metrics::{
     COLLAPSE_BELOW, DEFAULT_WIDTH, MAX_WIDTH, MIN_WIDTH, NARROW_BELOW, WINDOW_SHARE,
@@ -7,8 +5,6 @@ use crate::frame::metrics::{
 use crate::frame::presentation::Presentation;
 use crate::frame::visibility::Visibility;
 
-/// The sidebar column: open or closed, its remembered width and the edge it docks to.
-/// Window pressure narrows the drawn track but never the remembered width.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Panel {
     visibility: Visibility,
@@ -27,7 +23,6 @@ impl Default for Panel {
 }
 
 impl Panel {
-    /// A panel from stored preferences, with the width clamped to the allowed range.
     pub fn restore(
         visibility: Visibility,
         preferred: f32,
@@ -40,22 +35,18 @@ impl Panel {
         }
     }
 
-    /// Open or closed.
     pub fn visibility(self) -> Visibility {
         self.visibility
     }
 
-    /// The remembered width, used whenever the window has room for it.
     pub fn preferred(self) -> f32 {
         self.preferred
     }
 
-    /// The docked edge.
     pub fn side(self) -> DockSide {
         self.side
     }
 
-    /// Docks the sidebar to `side`, keeping its width.
     pub fn dock_to(
         &mut self,
         side: DockSide,
@@ -63,7 +54,6 @@ impl Panel {
         self.side = side;
     }
 
-    /// Opens a closed sidebar or closes an open one.
     pub fn toggle(&mut self) {
         self.visibility = self.visibility.flipped();
     }
@@ -74,8 +64,6 @@ impl Panel {
             .max(MIN_WIDTH)
     }
 
-    /// The width the column takes in a window `container` wide: 0 when closed, otherwise the
-    /// remembered width capped at the window's share.
     pub fn track_width(
         self,
         container: f32,
@@ -96,8 +84,6 @@ impl Panel {
         width.clamp(MIN_WIDTH, Self::max_width(container))
     }
 
-    /// Keeps the width a resize ended on: 0 or less closes the sidebar and keeps the old
-    /// width; any other width opens it and is remembered, rounded and clamped.
     pub fn commit(
         &mut self,
         width: f32,
@@ -110,8 +96,6 @@ impl Panel {
         self.preferred = width.round().clamp(MIN_WIDTH, MAX_WIDTH);
     }
 
-    /// How an open sidebar sits in a window `container` wide: over the content when the
-    /// window is narrow, docked beside it otherwise.
     pub fn presentation(container: f32) -> Presentation {
         if container < NARROW_BELOW {
             return Presentation::Overlay;

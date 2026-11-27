@@ -1,15 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-/// A rectangle in logical pixels on the desktop; `x` and `y` are its top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
-    /// Left edge.
     pub x: f32,
-    /// Top edge.
     pub y: f32,
-    /// Width.
     pub width: f32,
-    /// Height.
     pub height: f32,
 }
 

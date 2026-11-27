@@ -1,5 +1,3 @@
-//! The frame: sidebar column, separator and content, plus the narrow overlay and the peek card.
-
 pub(super) mod geometry;
 
 use gpui::prelude::FluentBuilder;

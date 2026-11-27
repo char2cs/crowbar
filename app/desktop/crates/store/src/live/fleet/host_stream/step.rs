@@ -1,5 +1,3 @@
-//! What a stream session woke up for.
-
 use tokio::sync::mpsc;
 
 use crate::live::fleet::stream_control::StreamControl;

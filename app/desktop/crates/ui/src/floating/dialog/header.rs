@@ -1,5 +1,3 @@
-//! Header strip of a dialog: icon, title, extra controls and the close button.
-
 use gpui::{
     AnyElement, App, ElementId, FocusHandle, IntoElement, ParentElement, Pixels, RenderOnce,
     SharedString, Styled, Window, div,

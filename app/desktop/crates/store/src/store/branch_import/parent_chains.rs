@@ -1,5 +1,3 @@
-//! What the open-PR chains say about which parents an import has to create.
-
 use std::collections::{HashMap, HashSet};
 
 pub(crate) struct ParentChains<'a> {

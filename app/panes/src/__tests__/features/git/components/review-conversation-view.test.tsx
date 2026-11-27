@@ -155,7 +155,6 @@ describe('ReviewConversationView', () => {
     expect(mocks.getReviewPatch).toHaveBeenCalledWith({ wsId: 'ws-1' }, 'src/a.ts')
   })
 
-  // The patch is addressed through the owning chat, which the sidebar records after a cold launch.
   it('reads the anchored code once the workspace’s owning chat is known', async () => {
     useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     renderView([thread({ id: 'a', lineNumber: 5, startLine: 5 })])

@@ -1,5 +1,3 @@
-//! The pointer moving over a pane's page, which GPUI cannot see over a native web view.
-
 use protocol::PaneId;
 use serde_json::json;
 

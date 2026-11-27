@@ -1,5 +1,3 @@
-//! Tailwind's breakpoints, asked of the app window as develop's single webview asks them.
-
 use gpui::{Window, px};
 
 const SM: f32 = 640.0;
@@ -7,24 +5,17 @@ const MD: f32 = 768.0;
 const LG: f32 = 1024.0;
 const XL: f32 = 1280.0;
 
-/// A Tailwind breakpoint (`sm`, `md`, `lg`, `xl`), cleared when the app window is at least as wide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Breakpoint {
-    /// 640px.
     Sm,
-    /// 768px.
     Md,
-    /// 1024px.
     Lg,
-    /// 1280px.
     Xl,
 }
 
 impl Breakpoint {
-    /// Every breakpoint, narrowest first.
     pub const ALL: [Self; 4] = [Self::Sm, Self::Md, Self::Lg, Self::Xl];
 
-    /// The narrowest window width that clears this breakpoint.
     pub fn min_width(self) -> f32 {
         match self {
             Self::Sm => SM,
@@ -34,7 +25,6 @@ impl Breakpoint {
         }
     }
 
-    /// The breakpoints a window `width` pixels wide clears.
     pub fn cleared_by(width: f32) -> Vec<Self> {
         Self::ALL
             .into_iter()
@@ -42,7 +32,6 @@ impl Breakpoint {
             .collect()
     }
 
-    /// Whether the app window `window` belongs to clears this breakpoint.
     pub fn is_cleared(
         self,
         window: &Window,
@@ -51,7 +40,6 @@ impl Breakpoint {
     }
 }
 
-/// The width of the app window, which dialogs and popups painted in it follow.
 pub fn app_window_width(window: &Window) -> f32 {
     f32::from(window.viewport_size().width.max(px(0.0)))
 }

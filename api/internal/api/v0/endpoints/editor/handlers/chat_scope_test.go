@@ -19,18 +19,6 @@ import (
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// This file pins the handler half of editor/LSP's move onto /v0/chats/:chatId
-// (spec §4.2's OWNED bucket, §8 step 5): WHICH worktree a handler resolves,
-// and WHICH key the LSP engine's per-session pool is addressed by.
-//
-// The LSP engine calls must NOT key a chat-scoped session by the resolved
-// workspace id — that would let a sibling chat sharing this worktree collide
-// with, or read, this chat's own LSP session, exactly the sharing spec law 5
-// exists to rule out.
-
-// recordingLSP embeds fakeLSP and records the owner id each call was made
-// with, so a test can assert the CHAT id reached the engine on the new mount
-// and the WORKSPACE id still does on the old one.
 type recordingLSP struct {
 	fakeLSP
 	seenOwner string
@@ -68,8 +56,6 @@ func (f *recordingLSP) DiagnosticsSnapshot(
 
 var _ handlers.LSPEngine = (*recordingLSP)(nil)
 
-// recordingGit embeds fakeGit and records the worktree path Blame was called
-// with.
 type recordingGit struct {
 	fakeGit
 	seenPath string
@@ -86,18 +72,10 @@ func (f *recordingGit) Blame(
 
 var _ handlers.GitEngine = (*recordingGit)(nil)
 
-// resolvedWorkspace is the workspace the chat group's resolveChatWorktree
-// middleware stashes for chat "chat-1". Its id and worktree path deliberately
-// differ from every chat id / old-mount fixture below, so a handler that
-// reached for the wrong source would fail these assertions rather than pass
-// them by coincidence.
 func resolvedWorkspace() domain.Workspace {
 	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path", Provisioning: domain.WorkspaceProvisioned}
 }
 
-// editorRouterForScopes wires editor's one live mount the way router.go
-// does, including the chat group's middleware — the piece that makes a
-// chat-scoped request resolvable at all.
 func editorRouterForScopes(
 	t *testing.T,
 	lsp handlers.LSPEngine,
@@ -138,10 +116,6 @@ func doEditorRequest(
 	return rec
 }
 
-// TestChatScopedBlame_ActsOnTheResolvedWorktree proves a git blame reached
-// through a chat operates on the WORKSPACE that chat resolves to — the same
-// shared-bucket-shaped resolution git/files use, since git blame has no
-// session of its own to own.
 func TestChatScopedBlame_ActsOnTheResolvedWorktree(t *testing.T) {
 	git := &recordingGit{}
 	r := editorRouterForScopes(t, &recordingLSP{}, git)
@@ -152,11 +126,6 @@ func TestChatScopedBlame_ActsOnTheResolvedWorktree(t *testing.T) {
 	assert.Equal(t, "/resolved/path", git.seenPath)
 }
 
-// TestChatScopedLSP_KeysTheSessionByTheChatIDNotTheWorkspace is the core
-// assertion this step exists for: a chat-scoped LSP call keys the engine's
-// session pool by the CHAT id, not the workspace it resolves to — so a
-// sibling chat sharing this worktree gets a different key and therefore its
-// own session (spec law 5).
 func TestChatScopedLSP_KeysTheSessionByTheChatIDNotTheWorkspace(t *testing.T) {
 	lsp := &recordingLSP{}
 	r := editorRouterForScopes(t, lsp, &recordingGit{})
@@ -172,9 +141,6 @@ func TestChatScopedLSP_KeysTheSessionByTheChatIDNotTheWorkspace(t *testing.T) {
 	assert.NotEqual(t, "ws-resolved", lsp.seenOwner, "the workspace id must not key an owned session")
 }
 
-// TestChatScopedDidOpen_KeysTheSessionByTheChatID covers the document-sync
-// notification path, which reads the same owner-id seam through a different
-// handler and so could have been missed by a partial re-key.
 func TestChatScopedDidOpen_KeysTheSessionByTheChatID(t *testing.T) {
 	lsp := &recordingLSP{}
 	r := editorRouterForScopes(t, lsp, &recordingGit{})
@@ -189,8 +155,6 @@ func TestChatScopedDidOpen_KeysTheSessionByTheChatID(t *testing.T) {
 	assert.Equal(t, "chat-1", lsp.seenOwner)
 }
 
-// TestChatScopedDiagnostics_KeysTheSnapshotByTheChatID covers the diagnostics
-// snapshot read, the third handler that keys an LSP engine call by owner id.
 func TestChatScopedDiagnostics_KeysTheSnapshotByTheChatID(t *testing.T) {
 	lsp := &recordingLSP{}
 	r := editorRouterForScopes(t, lsp, &recordingGit{})
@@ -201,9 +165,6 @@ func TestChatScopedDiagnostics_KeysTheSnapshotByTheChatID(t *testing.T) {
 	assert.Equal(t, "chat-1", lsp.seenOwner)
 }
 
-// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real:
-// the old /v0/workspaces/:wsId/... mount this handler set used to also serve
-// answers nothing on this router any more.
 func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 	r := editorRouterForScopes(t, &recordingLSP{}, &recordingGit{})
 

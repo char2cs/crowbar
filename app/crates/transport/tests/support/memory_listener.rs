@@ -7,13 +7,11 @@ use transport::Acceptor;
 const PIPE_BYTES: usize = 1024 * 1024;
 const BACKLOG: usize = 16;
 
-/// The relay's side of an in-memory network: every dial arrives as one end of a pipe.
 pub(crate) struct MemoryAcceptor {
     port: u16,
     incoming: mpsc::Receiver<DuplexStream>,
 }
 
-/// The pane's side: dials the relay through a pipe, so no test opens a socket.
 #[derive(Clone)]
 pub(crate) struct MemoryDialer {
     port: u16,
@@ -44,12 +42,10 @@ impl Acceptor for MemoryAcceptor {
 }
 
 impl MemoryDialer {
-    /// The port the relay claims to listen on.
     pub(crate) fn port(&self) -> u16 {
         self.port
     }
 
-    /// Opens a connection, refused once the relay stopped accepting.
     pub(crate) async fn connect(&self) -> io::Result<DuplexStream> {
         let (client, server) = duplex(PIPE_BYTES);
         self.outgoing

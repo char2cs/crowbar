@@ -7,7 +7,6 @@ import type { TerminalAddons } from './use-terminal-addons'
 
 function searchOptions(options: TerminalSearchOptions): ISearchOptions {
   const rootStyles = getComputedStyle(document.documentElement)
-  // xterm only accepts #rrggbb, so the token is resolved through the browser to hex.
   const selected = resolveCssVar('--primary') ?? '#3b82f6'
   const accent = rootStyles.getPropertyValue('--color-accent').trim() || '#60a5fa'
   const border = rootStyles.getPropertyValue('--color-border').trim() || '#4b5563'
@@ -26,7 +25,6 @@ function searchOptions(options: TerminalSearchOptions): ISearchOptions {
   }
 }
 
-/** The terminal's find bar: whether it is open, its match count, and its actions. */
 export function useTerminalSearch(terminal: Terminal | null, addons: TerminalAddons | null) {
   const [isVisible, setIsVisible] = useState(false)
   const [results, setResults] = useState({ current: 0, total: 0 })

@@ -1,5 +1,3 @@
-//! One line of a directory listing.
-
 use serde::Deserialize;
 
 use daemonapi::EntryKind;

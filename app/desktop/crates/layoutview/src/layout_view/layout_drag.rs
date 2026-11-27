@@ -30,8 +30,6 @@ impl LayoutView {
         self.hover(&subject, event.event.position, cx);
     }
 
-    /// A view tab dragged out of the tab strip is at `position`, in window coordinates: preview
-    /// where its chats would land.
     pub fn tab_dragged_over(
         &mut self,
         tab: TabId,
@@ -41,9 +39,6 @@ impl LayoutView {
         self.hover(&DragSubject::Tab(tab), position, cx);
     }
 
-    /// The view tab dragged out of the tab strip was released at `position`, in window
-    /// coordinates: ask to move its chats to the place under it, if any. The place is resolved
-    /// at the release, since this view's own mouse-up may already have cleared the preview.
     pub fn tab_dropped(
         &mut self,
         tab: TabId,
@@ -55,7 +50,6 @@ impl LayoutView {
         self.release(&subject, cx);
     }
 
-    /// The view tab drag ended without a drop here: clear its preview.
     pub fn tab_drag_cancelled(
         &mut self,
         cx: &mut Context<'_, Self>,

@@ -57,7 +57,6 @@ function renderBar(props: Partial<React.ComponentProps<typeof ProviderBar>> = {}
 
 const permission = { wsId: 'w1', chatId: 'c1', levels: ['guarded', 'trusted'] as const }
 
-// The footer line: model chip, permission chip (desktop only), and at the right the context pill.
 describe('ProviderBar', () => {
   it('passes onCompact through to the context pill’s Compact item', () => {
     const onCompact = vi.fn()
@@ -79,7 +78,6 @@ describe('ProviderBar', () => {
     expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^61%$/)
   })
 
-  // The phone's level choice lives in the model picker sheet instead.
   it('draws the permission chip on the desktop only', () => {
     renderBar({
       permission: { ...permission, levels: [...permission.levels] },
@@ -117,8 +115,6 @@ describe('ProviderBar', () => {
     expect(screen.queryByText('Compacting…')).not.toBeInTheDocument()
   })
 
-  // The board's footer never loses the pill: not while compacting, not under a failure, not
-  // before the provider's first report.
   it('keeps the context pill, unreported and warning, while compacting with no telemetry', () => {
     renderBar({ telemetry: null, compacting: true })
     const pill = screen.getByTestId('agent-context-gauge')
@@ -132,7 +128,6 @@ describe('ProviderBar', () => {
     expect(screen.getByTestId('agent-context-gauge')).toHaveTextContent(/^context$/)
   })
 
-  // The phone's controls are drawn at the composer's touch scale (composer-pill.css `[data-touch]`).
   it('draws the row at the touch scale on the phone only', () => {
     const desktop = renderBar().container.querySelector('.underbar')
     expect(desktop).not.toHaveAttribute('data-touch')

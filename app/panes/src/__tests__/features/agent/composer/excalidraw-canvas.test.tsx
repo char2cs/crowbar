@@ -6,22 +6,12 @@ import {
   type ExcalidrawCanvasHandle,
 } from '@/features/agent/composer/excalidraw-canvas'
 
-// The real `<Excalidraw>` mounts a canvas-rendering tree that jsdom cannot
-// host (it also pulls in a raw JSON import Vite's test transform doesn't
-// touch when the module is externalized) — mocked here so this file can
-// exercise `ExcalidrawCanvas`'s OWN glue (the imperative `save()` handle it
-// exposes, and the scene/PNG payload it hands to `onSave`) without depending
-// on the library's internals.
 const fakeApi = {
   getSceneElements: () => [{ id: 'el1' }],
   getAppState: () => ({ zoom: 1 }),
   getFiles: () => ({}),
 }
 
-// `vi.hoisted`, not a plain `const`: `vi.mock`'s factory below is hoisted
-// above ordinary top-level statements, and references it directly (not from
-// inside a closure, unlike `fakeApi` above) — a plain `const` would still be
-// in its temporal dead zone when the factory runs.
 const exportToBlobMock = vi.hoisted(() =>
   vi.fn(async () => new Blob(['png-bytes'], { type: 'image/png' })),
 )

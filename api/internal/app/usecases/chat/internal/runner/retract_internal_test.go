@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// signalTerm is a PTY that takes its quit signal and exits later, noting the
-// chat's last ledger row at the moment it was signalled.
 type signalTerm struct {
 	fakeTermForAttach
 	ledger *ledgerstore.Store
@@ -41,8 +39,6 @@ func (s *signalTerm) signalled() []ledger.Row {
 	return append([]ledger.Row(nil), s.at...)
 }
 
-// retracting is runner-1 live on chat-1 behind PTY pty-1, its quit signal
-// noted by the returned term.
 func retracting(t *testing.T) (*Runners, *signalTerm) {
 	t.Helper()
 	l := newTestLedger(t)
@@ -72,7 +68,6 @@ func appendRow[B any](t *testing.T, rs *Runners, kind ledger.Kind, turnID string
 	require.NoError(t, err)
 }
 
-// sent records a crowbar prompt r1 carried by runner-1 under delivery.
 func sent(t *testing.T, rs *Runners, delivery string) {
 	t.Helper()
 	appendRow(t, rs, ledger.KindUserMessage, "U-1", ledger.UserMessage{
@@ -80,14 +75,11 @@ func sent(t *testing.T, rs *Runners, delivery string) {
 	})
 }
 
-// took records runner-1 taking r1 as its running turn.
 func took(t *testing.T, rs *Runners) {
 	t.Helper()
 	appendRow(t, rs, ledger.KindTurnStarted, "T-1", ledger.TurnStarted{RequestID: "r1", RunnerID: "runner-1"})
 }
 
-// A CLI handed the prompt over its connection acts on it whatever the ledger
-// says, so the retract refuses rather than handing the text back.
 func TestRetract_APromptItsLiveCLIAlreadyHoldsIsAConflict(t *testing.T) {
 	for name, setup := range map[string]func(*testing.T, *Runners){
 		"pushed over the connection": func(t *testing.T, rs *Runners) {
@@ -134,7 +126,7 @@ func TestRetract_ARestartDeliveredPromptTerminatesTheRunnerItStarted(t *testing.
 	assert.Equal(t, ledger.KindPromptSettled, signalled[0].Kind, "the prompt settles before its CLI is signalled")
 	assert.Empty(t, retiredAs(t, rs), "Retract does not wait for the CLI's exit")
 
-	rs.reconcileRunnerExit(t.Context(), "runner-1") // the PTY's exit callback
+	rs.reconcileRunnerExit(t.Context(), "runner-1")
 	assert.Equal(t, domain.AgentExitRetracted, retiredAs(t, rs))
 }
 
@@ -212,8 +204,6 @@ func TestRetract_AnUnknownRequestIsNotFound(t *testing.T) {
 	assert.Empty(t, term.signalled())
 }
 
-// gapLock runs gap once, right after the lock's next holder lets go: the first
-// path to take the chat after that holder.
 type gapLock struct {
 	ChatLock
 	gap func()
@@ -229,14 +219,12 @@ func (g *gapLock) Lock(ctx context.Context, chatID string) (func(), error) {
 	return func() { unlock(); gap() }, nil
 }
 
-// A send that takes the chat the moment Retract lets go must find the
-// retracted prompt's CLI already ending, never deliver onto it.
 func TestRetract_ASendRightAfterARetractNeverLandsOnTheRetiringCLI(t *testing.T) {
 	rs, _ := retracting(t)
 	sent(t, rs, ledger.DeliveryRestart)
 	lock := &gapLock{ChatLock: rs.chatLock}
 	rs.chatLock = lock
-	lock.gap = func() { // what a send decides from: settledRunner's view
+	lock.gap = func() {
 		unlock, err := lock.Lock(t.Context(), "chat-1")
 		require.NoError(t, err)
 		defer unlock()
@@ -270,7 +258,6 @@ func TestRetract_ADeliveredPromptWhoseTurnClosedNeverEndsALaterTurn(t *testing.T
 	assert.Empty(t, term.signalled())
 }
 
-// Mid-displace the chat's live CLI is the outgoing one, not r1's carrier.
 func TestRetract_APromptWhoseCarrierIsNotLiveYetLeavesTheOutgoingCLIAlone(t *testing.T) {
 	rs, term := retracting(t)
 	appendRow(t, rs, ledger.KindUserMessage, "U-1", ledger.UserMessage{
@@ -302,7 +289,6 @@ func TestRetract_AnInterruptibleProviderEndsADeliveredTurnInPlace(t *testing.T) 
 	<-asked
 }
 
-// subagentOn records subagent scope live under turnID.
 func subagentOn(t *testing.T, rs *Runners, turnID, scope string) {
 	t.Helper()
 	row, err := ledger.NewRow(ledger.KindSubagent, turnID, scope, ledger.SubagentBody{Phase: ledger.SubagentStart, Type: "explorer"})

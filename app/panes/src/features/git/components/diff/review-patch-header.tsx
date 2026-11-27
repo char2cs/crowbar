@@ -2,11 +2,8 @@ import { ChatCircle } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 
-/** Why a file's header is showing something other than its diff. */
 export type PatchState = 'truncated' | 'loading' | 'failed'
 
-/** A file's thread count on its header: a thread in a placeholder file has no line to hang on,
- *  so the header shows it, and clicking loads the file and goes there. */
 export function FileThreadCount({
   path,
   count,
@@ -30,7 +27,6 @@ export function FileThreadCount({
   )
 }
 
-/** The per-file "Viewed" checkbox: a viewed file collapses to its header. */
 export function ViewedToggle({
   path,
   viewed,
@@ -48,8 +44,6 @@ export function ViewedToggle({
   )
 }
 
-/** What the header says when the body isn't the whole story: a single hunk over the cap arrives
- *  as a header-only patch, which must never read as "no changes". */
 export function PatchStateNotice({
   path,
   state,

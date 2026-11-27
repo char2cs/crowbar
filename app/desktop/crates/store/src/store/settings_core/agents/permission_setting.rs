@@ -1,5 +1,3 @@
-//! The default permission level: stored by the daemon, so a refusal puts the old value back.
-
 use std::sync::Arc;
 
 use daemonapi::Call;

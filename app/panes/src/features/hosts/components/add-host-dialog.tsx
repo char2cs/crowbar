@@ -20,17 +20,13 @@ import {
 interface AddHostDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** The host just paired, once it is saved; the dialog closes either way. */
   onPaired?: (hostId: string) => void
 }
 
 const focusOnMount = (element: HTMLElement | null) => element?.focus()
 
-// Full-width digits (an input method types them) read as the digits they are; the rest is dropped.
 const toAsciiDigits = (value: string) => value.normalize('NFKC').replace(/\D/g, '')
 
-// Base UI rewrites a slot and moves focus on every keystroke and input, which aborts an input
-// method's composition: the field sees none until compositionend replays the committed text.
 function holdWhileComposing(
   event: React.SyntheticEvent<HTMLDivElement, InputEvent | KeyboardEvent>,
 ) {
@@ -39,9 +35,6 @@ function holdWhileComposing(
 const replayCommittedText = (event: React.CompositionEvent<HTMLDivElement>) =>
   event.target.dispatchEvent(new Event('input', { bubbles: true }))
 
-/** Adds a host: probe its certificate, have the user confirm the fingerprint, then redeem a code
- *  from its `crowbar pair`. The code stage is reached only by that confirm, and pins exactly the
- *  fingerprint shown — never a re-probed one. */
 export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogProps) {
   const [pending, setPending] = useState<PairingPending>(null)
 
@@ -56,8 +49,6 @@ export function AddHostDialog({ open, onOpenChange, onPaired }: AddHostDialogPro
         <DialogHeader>
           <DialogTitle>Add remote host</DialogTitle>
         </DialogHeader>
-        {/* Lives as long as the popup, which unmounts once closed, and callers key the dialog per
-            opening (one during the close too): a confirmed fingerprint never reaches the next. */}
         <AddHostForm
           pending={pending}
           onPendingChange={setPending}
@@ -79,7 +70,6 @@ interface AddHostFormProps {
   onPaired: (hostId: string) => void
 }
 
-/** The pairing stages as a form. */
 function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFormProps) {
   const flow = usePairingFlow({ onPaired, pending, onPendingChange })
   const { stage, name, address, fingerprint, code, turnedAway, error } = flow
@@ -91,7 +81,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
   const pairRef = useRef<HTMLButtonElement>(null)
   const promptId = useId()
   const fingerprintId = useId()
-  // An entry past the sixth slot is kept (to be refused whole) but never shown.
   const shownCode = code.length > 6 ? '' : code
   const codeValid = /^\d{6}$/.test(code)
 
@@ -102,8 +91,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
 
   const codeSlots = () => Array.from(fieldRef.current?.querySelectorAll('input') ?? [])
 
-  // Base UI cuts an entry that runs past the sixth slot, leaving a wrong code that looks whole.
-  // Kept whole instead, it is no code: the slots empty and the correction says why.
   function refuseOverrun(event: React.SyntheticEvent<HTMLDivElement>, text: string) {
     if (pairing) return
     const slots = codeSlots()
@@ -115,8 +102,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
     flow.refuseCode(code.slice(0, at) + digits + code.slice(at + digits.length))
   }
 
-  // A pressed Pair button, or a click that focused nothing, is where focus is when a code fails:
-  // the user retypes from the first slot instead of from the page behind the dialog.
   function refocusCode() {
     const active = document.activeElement
     if (active === pairRef.current || active === document.body) codeSlots()[0]?.focus()
@@ -190,7 +175,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
             <p id={promptId} className="text-sm text-muted-foreground">
               Confirm this matches the fingerprint shown on that host:
             </p>
-            {/* Focused on arrival instead of Confirm: a stray or repeated Enter accepts nothing. */}
             <div
               ref={focusOnMount}
               id={fingerprintId}
@@ -231,7 +215,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
               validationType="none"
               inputMode="numeric"
               normalizeValue={toAsciiDigits}
-              // Not `disabled`: that would drop the focus the user is typing in.
               readOnly={pairing}
               onPasteCapture={(e) => refuseOverrun(e, e.clipboardData.getData('text/plain'))}
               onChangeCapture={(e) => refuseOverrun(e, (e.target as HTMLInputElement).value)}
@@ -251,8 +234,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
               <p id={codeHintId} className="text-muted-foreground">
                 The 6-digit code shown on the host.
               </p>
-              {/* Live from the first render, outside aria-describedby: a region inserted with its
-                  text may go unannounced, and a described-by change would be read twice. */}
               <p role="status" className="text-destructive">
                 {turnedAway && CODE_SHAPE_NOTICE}
               </p>
@@ -267,8 +248,6 @@ function AddHostForm({ pending, onPendingChange, onCancel, onPaired }: AddHostFo
             <Button variant="ghost" type="button" onClick={flow.back} disabled={pairing}>
               Back
             </Button>
-            {/* aria-disabled, not disabled: it keeps focus while a code is out, and a press before
-                the code is whole is answered instead of ignored. */}
             <Button
               ref={pairRef}
               type="submit"

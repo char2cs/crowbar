@@ -21,8 +21,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// ─── from wiring_internal_test.go ─────────────────────────────────────
-
 type wiringChats struct{ agentchat.EventStore }
 
 type wiringWorkspace struct{ WorkspaceReader }
@@ -35,8 +33,6 @@ type wiringPrefs struct {
 	store.Store[domain.AgentProviderPreference, string]
 }
 
-// screenReadingCommander is a PTY seam that can render a screen, which is the
-// production terminal engine's shape.
 type screenReadingCommander struct{}
 
 func (screenReadingCommander) CreateCommand(
@@ -55,24 +51,9 @@ func (screenReadingCommander) Screen(string, uint64) (string, uint64, bool) {
 	return "", 0, false
 }
 
-// constructorUnsetFields are the fields New is deliberately NOT responsible for,
-// keyed the way assertFieldWired names them: bare for a field of Usecase itself,
-// "component.field" for a field of one of the four it builds. Every other nilable
-// field must come back non-nil, so a field added to any of them is guarded the day
-// it is added; anything added here has to carry the reason it is legitimately nil
-// after construction.
 var constructorUnsetFields = map[string]string{}
 
-// sharedInstances are the pieces of in-flight state that MUST be one instance
-// across the components holding them, listed as the field each component knows
-// them by, so the sharing cannot be inferred from the field name and has to be
-// stated.
-//
-// A second instance of any of these does not fail to compile and does not fail a
-// test that exercises one path at a time. It puts two CLIs on one chat.
 var sharedInstances = map[string][]string{
-	// A hook and a user-initiated spawn on one chat are ordered by this one lock;
-	// a second would let a hook land inside the decision it contradicts.
 	"the chat locks":      {"ingress.locks", "runners.chatLock"},
 	"the telemetry store": {"conversations.telemetry", "recorder.telemetry"},
 	"the answer desk":     {"answers", "recorder.answers", "runners.answers"},
@@ -93,14 +74,6 @@ var nilableKinds = map[reflect.Kind]bool{
 	reflect.Slice:     true,
 }
 
-// newWiringFixture builds the usecase through the REAL New, over the cheapest
-// dependency that is still the production SHAPE of each port.
-//
-// Two choices are load-bearing. The commander renders screens, which the
-// production terminal engine also does, so the CLI lifecycle this fixture builds
-// gets its terminal-wait detector rather than the degraded no-detector shape.
-// And installed is passed as nil, exactly as the container does, so New's default
-// install probe is part of what is being checked.
 func newWiringFixture(t *testing.T) *Usecase {
 	t.Helper()
 	minter, err := agenttools.NewTokenMinter()
@@ -127,20 +100,12 @@ func newWiringFixture(t *testing.T) *Usecase {
 		Ledger:        chatLedger,
 		Minter:        minter,
 		Tools:         agenttools.Deps{},
-		// Folders/Nodes are ALWAYS wired in production (container.go, both
-		// unconditional) — mirrored here rather than left nil, exactly like
-		// every other port this fixture wires (see Installed's own doc for
-		// the one deliberate exception).
-		Folders:   mocks.NewFolderStore(),
-		Nodes:     mocks.NewNodePlacements(),
-		RepoRoots: mocks.NewAgentWorkspaceGitStatus(),
+		Folders:       mocks.NewFolderStore(),
+		Nodes:         mocks.NewNodePlacements(),
+		RepoRoots:     mocks.NewAgentWorkspaceGitStatus(),
 	})
 }
 
-// TestNew_LeavesNoConstructorOwnedFieldNil is the whole reason the shared state
-// is built in one place: none of it fails to compile when it is forgotten, and
-// none of it fails a test that exercises one path at a time. It wedges a switch
-// or doubles a CLI in production instead.
 func TestNew_LeavesNoConstructorOwnedFieldNil(t *testing.T) {
 	u := newWiringFixture(t)
 
@@ -154,12 +119,6 @@ func TestNew_LeavesNoConstructorOwnedFieldNil(t *testing.T) {
 	assertExcludedFieldsStillExist(t, u)
 }
 
-// walkable is the usecase and every component it builds, keyed by the name a
-// field of that component is qualified with.
-//
-// The components are walked as well as the face, and that is the point: moving a
-// port down into one of them would otherwise move it out of this guard at the
-// same time — which is exactly what a decomposition does, one field at a time.
 func walkable(u *Usecase) map[string]any {
 	return map[string]any{
 		"":              u,
@@ -197,8 +156,6 @@ func assertFieldWired(
 		name, name)
 }
 
-// assertExcludedFieldsStillExist stops an exclusion outliving its field. A stale
-// entry silently stops guarding whatever took the name's place.
 func assertExcludedFieldsStillExist(t *testing.T, u *Usecase) {
 	t.Helper()
 	owners := map[string]reflect.Type{}
@@ -224,10 +181,6 @@ func assertExcludedFieldsStillExist(t *testing.T, u *Usecase) {
 	}
 }
 
-// TestNew_SharesOneInstanceOfEachPieceOfInFlightState is the other half of the
-// constructor's contract. The nil check above proves each piece was BUILT; this
-// proves each was built ONCE and handed round, which is the part that wedges a
-// daemon when it is wrong.
 func TestNew_SharesOneInstanceOfEachPieceOfInFlightState(t *testing.T) {
 	u := newWiringFixture(t)
 
@@ -241,13 +194,6 @@ func TestNew_SharesOneInstanceOfEachPieceOfInFlightState(t *testing.T) {
 	}
 }
 
-// fieldPointer reads one "component.field" (or bare "field" of Usecase) as a raw
-// pointer. It reflects rather than reading the field, because the fields are
-// unexported: Pointer() is readable where Interface() would panic.
-//
-// A sibling port is held as an INTERFACE (each component declares its own), so an
-// interface field is unwrapped to the pointer inside it — otherwise two holders of
-// the same component would compare unequal for having named its type differently.
 func fieldPointer(t *testing.T, u *Usecase, path string) uintptr {
 	t.Helper()
 	prefix, field, _ := strings.Cut(path, ".")
@@ -291,37 +237,11 @@ func TestNew_WiresTheToolSurfaceBackToTheUsecase(t *testing.T) {
 			"not hold")
 }
 
-// ─── from invariants_internal_test.go ─────────────────────────────────
-
-// The load-bearing invariants of the in-flight tier (design spec §7).
-//
-// Every one of these was discovered by a production failure, and every one is
-// invisible to the compiler: inverting any of them leaves code that builds, passes
-// the rest of the suite, and breaks a live chat. They are gathered in one file so a
-// change to the machinery has one obvious place to check.
-//
-// Each test was verified to FAIL when its invariant was inverted; the inversion and
-// the message it produces are recorded in the comment above it.
-
-// §7.4 — a runner is ended with SIGTERM, never SIGKILL.
-//
-// Graceful matters twice: a well-behaved CLI flushes its native transcript on SIGTERM,
-// so neither the provider being switched out nor a runner EVICTED from a conversation
-// loses its last turn — and an evicted runner's conversation is about to be read by
-// the runner taking it over.
-//
-// The port declares exactly one way to end a CLI. Inverted (add a Kill/Terminate
-// method to TerminalCommander): this stops compiling, which is the guarantee.
 func TestInvariant_TheOnlyWayToEndARunnerIsGraceful(t *testing.T) {
 	t.Parallel()
-	// TerminalCommander must expose no forceful kill. Declaring the full interface
-	// here means adding one to the port breaks this file.
 	var _ TerminalCommander = terminalCommanderShape{}
 }
 
-// terminalCommanderShape is the complete set of ways this package may act on a PTY.
-// It compiles only while TerminalCommander has exactly these three methods, so a
-// forceful kill cannot be added to the port without this file objecting.
 type terminalCommanderShape struct{}
 
 func (terminalCommanderShape) CreateCommand(

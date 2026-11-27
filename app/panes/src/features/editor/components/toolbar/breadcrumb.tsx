@@ -12,8 +12,6 @@ import { Button } from '@/components/ui/button'
 import { FilePathBreadcrumb } from './file-path-breadcrumb'
 
 export interface BreadcrumbProps {
-  /** Resolve the active buffer for this pane (self-subscribing); omitted, the breadcrumb falls back
-   *  to `bufferId`, then to the globally active pane. */
   paneId?: string
   bufferId?: string
   editorViewKey?: string | null
@@ -23,7 +21,6 @@ export interface BreadcrumbProps {
   showDefaultActions?: boolean
   interactive?: boolean
   showPath?: boolean
-  /** Opens the editor's find widget; the search button shows only when set. */
   onFind?: () => void
 }
 
@@ -57,7 +54,6 @@ export default function Breadcrumb({
             path: buffer.path,
             name: buffer.name,
             type: buffer.type,
-            // A host document has no workspace to list or open its segments in.
             workspaceId:
               isEditorContent(buffer) && buffer.authority === 'host' ? null : buffer.workspaceId,
           }
@@ -84,7 +80,6 @@ export default function Breadcrumb({
       : null
     if (!fullActiveBuffer || !isEditorContent(fullActiveBuffer) || !fullActiveBuffer.path) return
 
-    // The preview belongs to the source document, whichever workspace is active.
     const source = documentRefOf(fullActiveBuffer)
     const preview = {
       name: `${fullActiveBuffer.name} (Preview)`,

@@ -18,8 +18,6 @@ describe('applyRow', () => {
     expect(feed.items.get('m:turn-1:m1')?.seq).toBe(3)
   })
 
-  // A provider may report a one-paragraph message only when its response ended: after
-  // the calls it made had started, and sometimes after they had ended.
   it('reads a message reported whole after its calls above them, a closing reply below', () => {
     const l = ledger()
     const tools = (id: string) => [l.tool('turn-1', id, 'pre'), l.tool('turn-1', id, 'post')]
@@ -44,8 +42,6 @@ describe('applyRow', () => {
     const turn1 = ['t:s0', 'm:turn-1:A', 't:s1', 'm:turn-1:B', 't:f', 't:z', 'm:turn-1:C']
     expect(feed.order).toEqual([...turn1, 'm:turn-2:D', 't:g', 't:h'])
     const m = ledger()
-    // Only a one-chunk message may have waited for its response's end; text
-    // streamed or completed after its calls ended was said after them.
     const streamed = applyRows(emptyFeed(), [
       ...[m.tool('turn-3', 'a', 'pre'), m.tool('turn-3', 'a', 'post')],
       m.text('turn-3', 'chunked', 0, 'first part'),
@@ -226,7 +222,6 @@ describe('applyRow', () => {
     expect(feed.facts.models).toEqual({ 'turn-1': 'model-a', 'turn-2': 'model-b' })
   })
 
-  // A launch records its prompt, then the CLI that carries it says what it switched to.
   it('reads a launch switch above the prompt that caused it', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
@@ -280,8 +275,6 @@ describe('applyRow', () => {
   })
 })
 
-// A replay folds thousands of rows before anyone reads the feed; copying the
-// item map, the order or a per-turn record per row made it quadratic.
 describe('FeedFold', () => {
   it('copies the item map, the order and the turn records once per replay', () => {
     const l = ledger()
@@ -295,8 +288,6 @@ describe('FeedFold', () => {
     ]
     for (const row of turn(0)) fold.apply(row)
     const first = fold.finish()
-    // Read now: the fold's facts object is itself reused, so a later read would
-    // see whatever record it holds by then.
     const { prompts, efforts, output } = first.facts
     for (let i = 1; i < 50; i++) for (const row of turn(i)) fold.apply(row)
     const last = fold.finish()

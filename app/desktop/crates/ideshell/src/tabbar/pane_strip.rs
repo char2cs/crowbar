@@ -19,7 +19,6 @@ use crate::toprow::row_button::RowButton;
 use crate::toprow::row_ink::RowInk;
 use crate::toprow::split_toggle::SplitToggle;
 
-/// The height of the tab bar row.
 pub const STRIP_HEIGHT: f32 = 42.0;
 const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 4.0;
@@ -29,29 +28,17 @@ const MORE_GLYPH: f32 = 14.0;
 
 type Shown = (PaneId, usize);
 
-/// The tab bar of one pane group: its editor tabs, the "+" and the overflow menu.
 #[derive(IntoElement)]
 pub struct PaneStrip {
-    /// The pane the bar's kept state is keyed by.
     pub key: PaneId,
-    /// The split toggle leading the row.
     pub toggle: SplitToggle,
-    /// The chat's entry before the editor tabs, when the group shows one view at a time.
     pub chat_tab: Option<ChatTab>,
-    /// The editor tabs, in order; with none, the row holds only the toggle.
     pub tabs: Vec<StripTab>,
-    /// The index of the shown tab.
     pub shown: usize,
-    /// What releasing a tab dragged along the bar does.
     pub reorder: TabMove,
-    /// What the "+" does.
     pub add: TabAction,
-    /// What a key pressed on the focused bar does.
     pub keys: StripKeys,
-    /// The rows of the overflow menu.
     pub overflow: Vec<OverflowEntry>,
-    /// What the "Review this branch" button ending the row does; `None` when the group's chat
-    /// has no branch to review, and the row has no such button.
     pub review: Option<TabAction>,
 }
 

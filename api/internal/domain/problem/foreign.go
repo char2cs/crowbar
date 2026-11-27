@@ -7,7 +7,6 @@ import (
 	asynxmodels "github.com/char2cs/asynx/models"
 )
 
-// foreign codes the errors Crowbar does not own and so cannot declare coded.
 var foreign = []struct {
 	err  error
 	code Code
@@ -15,15 +14,12 @@ var foreign = []struct {
 	{fs.ErrNotExist, NotFound},
 	{fs.ErrExist, Conflict},
 	{fs.ErrInvalid, InvalidArgument},
-	// The OS refused a file to the daemon's user: the client's to fix, never a daemon fault.
 	{fs.ErrPermission, Forbidden},
 	{asynxmodels.ErrNotFound, NotFound},
 	{asynxmodels.ErrValidation, Unprocessable},
 	{asynxmodels.ErrPipelineFailed, Conflict},
 	{asynxmodels.ErrQueueFull, Unavailable},
 	{asynxmodels.ErrShuttingDown, Unavailable},
-	// A parked aggregate refuses until the daemon restarts; one being forgotten
-	// is going away under a concurrent delete.
 	{asynxmodels.ErrDeliveryParked, Unavailable},
 	{asynxmodels.ErrForgetInProgress, Conflict},
 	{context.DeadlineExceeded, Timeout},

@@ -6,7 +6,6 @@ import {
   type MonacoEditorApi,
 } from '@/features/editor/lib/editor-manager'
 
-/** The open documents' models, as the registry hands them out. */
 function fakeDocuments(...uris: string[]) {
   const models = new Map(
     uris.map((uri) => [uri, { uri, dispose: vi.fn() } as unknown as IModelLike]),

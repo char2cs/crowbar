@@ -15,7 +15,6 @@ final class CrowbarIconRenderingTests: XCTestCase {
     }
   }
 
-  /// Every icon the web puts on a corner button resolves to a drawn path, including `</>`.
   func testCornerButtonIconsAreDrawn() throws {
     let json =
       #"""

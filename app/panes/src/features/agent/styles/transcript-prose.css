@@ -1,14 +1,8 @@
-/* ── an agent's prose ──────────────────────────────────── */
-/* Rendered by Plate, styled here. Unlayered, so it beats the registry's node
-   components' Tailwind (which lives in the `utilities` layer) without
-   `!important` — the same cascade trick markdown-editor.css uses. */
 .agent-chat .agent-prose {
   font-size: 14px;
   color: var(--foreground);
   outline: none;
 }
-/* Instrument Serif ships weight 400 only and stops reading as a headline below ~22px, so these
-   sizes clear it, staying the smallest of the surfaces that use it (a chat is the densest). */
 .agent-chat .agent-prose h1 {
   font-family: var(--font-heading);
   font-size: 24px;
@@ -27,9 +21,6 @@
   font-weight: 400;
   margin: 8px 0 4px;
 }
-/* Plate renders no `p`/`ul`/`ol`/`li`: a paragraph is `div.slate-p`, a list item the same node
-   with a `listStyleType` and a per-level indent class. `padding` is cleared because it replaces
-   Tailwind's `py-1`, which would otherwise double the gap. */
 .agent-chat .agent-prose .slate-p {
   margin: 0 0 8px;
   padding: 0;
@@ -43,14 +34,10 @@
 .agent-chat .agent-prose [class*='slate-listStyleType-']::marker {
   color: var(--muted-foreground);
 }
-/* A cell's paragraph is the cell. The canvas's 8px belongs between blocks. */
 .agent-chat .agent-prose th .slate-p,
 .agent-chat .agent-prose td .slate-p {
   margin: 0;
 }
-/* AFTER the block rules and tied with them on specificity, which is what makes
-   these win. The outer edges of a message have no gap to give — without this the
-   last paragraph pads the bottom of every bubble by 8px. */
 .agent-chat .agent-prose > :is(:first-child) {
   margin-top: 0;
 }
@@ -117,8 +104,6 @@
   background: var(--muted);
 }
 
-/* The payload is literal machine text: monospace/muted like markdown code spans, collapsed
-   behind <details> when long (as ChoiceSchema does in composer-requests.css). */
 .agent-chat .harness code {
   display: block;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -164,7 +149,6 @@
   color: var(--muted-foreground);
 }
 
-/* One message that failed to render: its text as written, scoped to it alone. */
 .agent-chat .message-error {
   display: flex;
   flex-wrap: wrap;
@@ -214,7 +198,6 @@
     font-size: 14px;
     position: relative;
   }
-  /* 44pt to the finger, 36pt to the eye. */
   .agent-chat .message-error-action::after {
     content: '';
     position: absolute;

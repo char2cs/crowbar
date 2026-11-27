@@ -1,5 +1,3 @@
-//! What the find bar asks of the terminal.
-
 use terminal::SearchQuery;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

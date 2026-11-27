@@ -1,6 +1,3 @@
-//! ctrl+s: formats the document first when Format on Save is on, then asks the owner to write it.
-//! Autosave never comes here, so it never formats.
-
 use gpui::{Context, Window};
 use gpui_kit::base::input::Rope;
 use serde_json::{Map, Value, json};

@@ -7,14 +7,10 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
-// TestSerializeReconcilesAltDesyncSetsDegraded forces the §4 "Mismatch handling"
-// path: the shadow alt-screen mirror drifts from the authoritative emulator value,
-// and Serialize must reconcile the shadow to the emulator AND latch Degraded().
 func TestSerializeReconcilesAltDesyncSetsDegraded(t *testing.T) {
 	m, s := New(20, 5, 100)
 	vm := m.(*vtModel)
 
-	// Emulator is on the primary buffer; force the shadow to claim alt-screen.
 	vm.shadow.altScreen = true
 	if vm.Degraded() {
 		t.Fatal("model must not be degraded before the desync is observed")
@@ -29,14 +25,11 @@ func TestSerializeReconcilesAltDesyncSetsDegraded(t *testing.T) {
 		t.Fatal("shadow.altScreen must be reconciled to the emulator value (primary)")
 	}
 
-	// Idempotent: a second serialize on a now-consistent model does not flip anything.
 	_ = s.Serialize(m)
 	if vm.shadow.altScreen {
 		t.Fatal("reconciled shadow must stay consistent across serializes")
 	}
 
-	// A SECOND, fresh desync still reconciles and keeps Degraded sticky, but takes the
-	// already-warned branch (no duplicate log spam) — exercised here for completeness.
 	vm.shadow.altScreen = true
 	_ = s.Serialize(m)
 	if vm.shadow.altScreen {
@@ -47,10 +40,6 @@ func TestSerializeReconcilesAltDesyncSetsDegraded(t *testing.T) {
 	}
 }
 
-// TestRoundTripScrollbackWithTrailingBlankRows pins the §6 boundary invariant for a
-// grid whose cursor is parked ABOVE the bottom row, leaving trailing blank grid rows.
-// If the serializer ever under-padded those trailing rows, the fresh emulator would
-// push a different number of physical lines into scrollback — caught here directly.
 func TestRoundTripScrollbackWithTrailingBlankRows(t *testing.T) {
 	const cols, rows = 20, 6
 	m, s := New(cols, rows, 1000)
@@ -60,8 +49,6 @@ func TestRoundTripScrollbackWithTrailingBlankRows(t *testing.T) {
 	for i := 0; i < 14; i++ {
 		in = append(in, []byte(fmt.Sprintf("history %d\r\n", i))...)
 	}
-	// Clear the visible screen, home, then write two short lines so rows 2..5 stay
-	// blank and the cursor parks on row 1 — above the bottom row.
 	in = append(in, []byte("\x1b[2J\x1b[H")...)
 	in = append(in, []byte("top one\r\ntop two")...)
 	m.Write(in)
@@ -87,9 +74,6 @@ func TestRoundTripScrollbackWithTrailingBlankRows(t *testing.T) {
 	}
 }
 
-// TestModelBytesAccountsGridAndScrollback verifies ModelBytes counts both the live
-// grid and the retained scrollback cells, so the engine memory ceiling is not
-// undercounted as a session accumulates history.
 func TestModelBytesAccountsGridAndScrollback(t *testing.T) {
 	m, _ := New(80, 24, 1000)
 

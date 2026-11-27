@@ -1,5 +1,3 @@
-//! A centred muted message filling an empty panel.
-
 use gpui::{AnyElement, App, IntoElement, ParentElement, Pixels, Styled, div, px};
 use ui::{Surface, Theme};
 

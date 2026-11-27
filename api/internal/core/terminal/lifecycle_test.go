@@ -18,10 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// blockingConn is a WSConn whose ReadMessage blocks until Close, so an Attach stays attached
-// (readPump parked) until the test releases it. wrote is a coalescing edge published on
-// every frame the engine sends: Attach's first act is the snapshot keyframe, so the first
-// edge proves the client is registered.
 type blockingConn struct {
 	closed chan struct{}
 	once   sync.Once
@@ -48,15 +44,13 @@ func (c *blockingConn) Close() error {
 	return nil
 }
 
-// TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone: a saved working directory that no
-// longer exists must not strand a suspended session — the restore falls back and succeeds.
 func TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	defer eng.Shutdown()
 	ctx := context.Background()
 
-	goneDir := filepath.Join(t.TempDir(), "deleted-worktree") // never created
+	goneDir := filepath.Join(t.TempDir(), "deleted-worktree")
 	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
 		SessionID: "ph-cwd", ChatID: "chat-1", CWD: goneDir, Shell: "/bin/sh",
 	}, nil))
@@ -67,9 +61,6 @@ func TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone(t *testing.T) {
 	_ = eng.Kill(ctx, "ph-cwd")
 }
 
-// TestRestore_BadShell_Removes: a suspended session that cannot be re-spawned (its shell
-// binary is gone) is Removed — registry entry, .buf and meta row all deleted — so an
-// Attach can never loop forever on a doomed restore.
 func TestRestore_BadShell_Removes(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
@@ -90,8 +81,6 @@ func TestRestore_BadShell_Removes(t *testing.T) {
 	assert.False(t, store.hasLiveRow("ph-bad"), "meta row must be deleted")
 }
 
-// TestAttach_ExitFrameOnSelfExit pins B4: a PTY exit reaches the attached client as an
-// explicit exit frame, carrying the exit code, before the conn closes.
 func TestAttach_ExitFrameOnSelfExit(t *testing.T) {
 	pinShell(t)
 	eng := terminal.New()
@@ -112,8 +101,6 @@ func TestAttach_ExitFrameOnSelfExit(t *testing.T) {
 	assert.Equal(t, 3, code)
 }
 
-// TestShutdown_NoExitFrameForPersistedShell: Shutdown persists a live shell for the next
-// boot — it did not exit, so its client must NOT be told it did (it reconnects instead).
 func TestShutdown_NoExitFrameForPersistedShell(t *testing.T) {
 	pinShell(t)
 	eng := terminal.New()
@@ -134,8 +121,6 @@ func TestShutdown_NoExitFrameForPersistedShell(t *testing.T) {
 	assert.False(t, ok, "a session persisted for restart must not report an exit")
 }
 
-// TestAttach_BoundedWhenClientStalls pins B6: a client that stops reading costs at most the
-// write deadline — Attach returns instead of parking forever behind a blocked write.
 func TestAttach_BoundedWhenClientStalls(t *testing.T) {
 	pinShell(t)
 	eng := terminal.NewWithWriteWaitForTest(50 * time.Millisecond)
@@ -154,7 +139,6 @@ func TestAttach_BoundedWhenClientStalls(t *testing.T) {
 	}
 }
 
-// stallConn never completes a write until its deadline passes, and never sends input.
 type stallConn struct {
 	mu       sync.Mutex
 	deadline time.Time
@@ -176,7 +160,7 @@ func (c *stallConn) WriteMessage(int, []byte) error {
 	d := c.deadline
 	c.mu.Unlock()
 	if d.IsZero() {
-		<-c.closed // a write with no deadline blocks for ever: the bug under test
+		<-c.closed
 		return io.ErrClosedPipe
 	}
 	select {
@@ -192,10 +176,6 @@ func (c *stallConn) Close() error {
 	c.once.Do(func() { close(c.closed) })
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// Maintenance ceiling
-// ---------------------------------------------------------------------------
 
 func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
 	pinShell(t)
@@ -239,7 +219,6 @@ func TestMaintenance_GlobalCeilingSuspendsOldestIdle(t *testing.T) {
 
 	sid1 := newReadyShell(t, eng, "chat-3a", store.dir)
 	sid2 := newReadyShell(t, eng, "chat-3a", store.dir)
-	// A ceiling at 3/4 of two fresh grids: cache drops cannot get under, one suspend can.
 	_, _, _, fresh, _, _ := eng.Stats()
 	restore := terminal.SetMaxTotalModelBytesForTest(eng, fresh*3/4)
 	defer restore()
@@ -264,7 +243,7 @@ func TestMaintenance_CacheDropResolvesCeiling(t *testing.T) {
 	eng.SetMetaStore(store)
 
 	sids := []string{newReadyShell(t, eng, "chat-cache", store.dir), newReadyShell(t, eng, "chat-cache", store.dir)}
-	terminal.RunMaintenanceOnceForTest(eng, ctx) // populate each session's cached blob
+	terminal.RunMaintenanceOnceForTest(eng, ctx)
 	_, _, _, total, _, _ := eng.Stats()
 	restore := terminal.SetMaxTotalModelBytesForTest(eng, total-1)
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
@@ -285,10 +264,6 @@ func TestMaintenanceLoop_TickerFlushes(t *testing.T) {
 	require.Eventually(t, func() bool { return bufExists(store.dir, sid) }, 5*time.Second, 5*time.Millisecond,
 		"the maintenance ticker must drive a cadence flush")
 }
-
-// ---------------------------------------------------------------------------
-// Stats
-// ---------------------------------------------------------------------------
 
 type degradedModel struct{ cols, rows int }
 
@@ -326,7 +301,6 @@ func TestStats_CountsDegraded(t *testing.T) {
 	assert.GreaterOrEqual(t, parsePanics, 7)
 }
 
-// exitFrameCode scans conn's received frames for the engine's exit frame.
 func exitFrameCode(conn *mockConn) (int, bool) {
 	for _, raw := range conn.allReceived() {
 		var msg struct {
@@ -340,8 +314,6 @@ func exitFrameCode(conn *mockConn) (int, bool) {
 	return 0, false
 }
 
-// A command session is never persisted, so its end touches no storage: the
-// chat it ran on may already be erased, as when a deleted chat's CLI is ended.
 func TestTerminate_ACommandSessionEndsWithoutTouchingStorage(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)

@@ -1,29 +1,20 @@
-//! The `ui-text-*` sizes that follow the UI font setting.
-
 use gpui::{Pixels, px};
 
 use crate::foundation::theme::Theme;
 use crate::foundation::tokens::text_size;
 
-/// The `ui-text-*` sizes, multiplied by `--app-ui-scale`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScaledText {
-    /// `ui-text-xs`, 11px at scale 1.
     Xs,
-    /// `ui-text-sm`, 12px at scale 1.
     Sm,
-    /// `ui-text-base`, 14px at scale 1.
     Base,
-    /// `ui-text-lg`, 16px at scale 1.
     Lg,
-    /// `ui-text-xl`, 20px at scale 1.
     Xl,
 }
 
 const SIZE_XS: f32 = 11.0;
 
 impl ScaledText {
-    /// Size in pixels under `theme`.
     pub fn size(
         self,
         theme: &Theme,

@@ -1,5 +1,3 @@
-//! A file pane's text reaching disk: saves, save-as, drafts, reloads.
-
 pub(crate) mod adoption;
 mod disk;
 mod drafting;

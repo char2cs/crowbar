@@ -8,7 +8,6 @@ import type { DiagramFence } from '@/features/agent/transcript/plate/streaming-m
 
 export type DiagramTarget = 'skeleton' | 'diagram' | 'code'
 
-/** The box a skeleton reserves; the diagram or code grows out of it. */
 const DIAGRAM_SKELETON_PX = 160
 const GROW_MS = 220
 
@@ -16,9 +15,6 @@ function reducedMotion(): boolean {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }
 
-// A reply's diagram fence: a skeleton while open and streaming, the diagram once closed, plain
-// code if the reply settled open. Mermaid keeps the skeleton until rendered, so the block changes
-// once and grows from the reserved box instead of snapping.
 export function DiagramBlock({
   kind,
   target,
@@ -29,7 +25,6 @@ export function DiagramBlock({
   kind: DiagramFence
   target: DiagramTarget
   source: string
-  /** A synchronously rendered diagram (excalidraw's preview). */
   preview?: ReactNode
   code: ReactNode
 }) {
@@ -44,7 +39,6 @@ export function DiagramBlock({
     previous.current = shown
     const el = ref.current
     if (from !== 'skeleton' || shown === 'skeleton' || !el || reducedMotion()) return
-    // jsdom and some older webviews have no Web Animations API.
     if (typeof el.animate !== 'function') return
     const to = el.getBoundingClientRect().height
     // react-doctor-disable-next-line no-layout-property-animation -- one block, once per diagram: the reserved box must grow to its content's real height; a transform would distort the diagram instead

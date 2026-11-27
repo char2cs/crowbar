@@ -26,16 +26,11 @@ import * as newTabView from '@/features/panes/components/new-tab-view'
 import * as tabBar from '@/features/tabs/components/tab-bar'
 import * as splitDropOverlay from '@/features/panes/components/split-drop-overlay'
 
-// Forces the sidebar closed without a real SidebarProvider (which needs matchMedia), so a pane
-// can sit against a REAL window edge; pane-container.tsx reads only `useSidebarOptional()?.open`.
 const sidebarOpenOverride = { current: true }
 vi.spyOn(sidebar, 'useSidebarOptional').mockImplementation(
   () => ({ open: sidebarOpenOverride.current }) as ReturnType<typeof sidebar.useSidebarOptional>,
 )
 
-// This file is about HOSTING: which surface PaneContainer mounts for a pane shape and which
-// pane actions it calls. Each heavy surface (PTY, Monaco/Plate, router) is a passive marker
-// recording the props threaded through; mount counters count EFFECT-mounts, as a PTY attach would.
 const terminalMountCount = { current: 0 }
 vi.spyOn(terminalPane, 'TerminalPane').mockImplementation(
   ({ sessionId, bufferId, isActive, isVisible }) => {
@@ -45,7 +40,6 @@ vi.spyOn(terminalPane, 'TerminalPane').mockImplementation(
     return createElement('div', {
       'data-testid': `terminal-marker-${bufferId}`,
       'data-session-id': sessionId ?? '',
-      // xterm gates its render loop on these: a hidden view's terminal must be told to stop.
       'data-active': String(isActive ?? ''),
       'data-visible': String(isVisible ?? ''),
     })
@@ -63,8 +57,6 @@ vi.spyOn(chatPaneGate, 'AgentChatPaneGate').mockImplementation(
     }),
 )
 
-// Proves the retained editor widget survives a switch to another tab and back, not just that
-// its marker looks the same afterwards.
 const editorMountCount = { current: 0 }
 vi.spyOn(editorPane, 'EditorPane').mockImplementation(({ bufferId, isActiveSurface }) => {
   useEffect(() => {
@@ -76,7 +68,6 @@ vi.spyOn(editorPane, 'EditorPane').mockImplementation(({ bufferId, isActiveSurfa
   })
 })
 
-// A light non-editor tab to switch to; lazily imported by the pane, so replaced at the module.
 vi.mock('@/features/git/components/branch-review-pane', () => ({
   BranchReviewPane: ({ wsId }: { wsId: string }) =>
     createElement('div', { 'data-testid': 'branch-review-marker', 'data-ws-id': wsId }),
@@ -90,13 +81,10 @@ vi.spyOn(newTabView, 'NewTabView').mockImplementation(({ paneId, wsId }) =>
   }),
 )
 
-// A marker, so a test can find WHERE in the tree the identity row lands relative to the content.
 vi.spyOn(tabBar, 'default').mockImplementation(() =>
   createElement('div', { 'data-testid': 'tab-bar-marker' }),
 )
 
-// Exposes the real onDrop handler (handleSplitDrop) via plain buttons, so a drop test skips the
-// overlay's zone geometry; `centerDropPayload` is set per test for the center zone's source.
 const centerDropPayload = {
   current: { bufferId: 'existing-tab', paneId: 'phantom-source-pane' },
 }
@@ -136,15 +124,11 @@ import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 
 function PaneHost({ position, showing }: { position?: PanePosition; showing?: boolean }) {
-  // Panes are window-level: read off windowPaneStore, not the workspace store.
   const pane = useStore(windowPaneStore, (s) => s.panes[ROOT_PANE_ID])
   if (!pane) return null
   return createElement(PaneContainer, { pane, position, showing })
 }
 
-// `position` picks which of the pane's edges are real window edges (default ROOT_PANE_POSITION).
-// EditorHostRegistry is a SIBLING of PaneHost, as in production: PaneContainer renders only a
-// portal target, and the registry portals the stubbed EditorPane into it.
 async function renderPane(
   store: ReturnType<typeof createWorkspaceStore>,
   position?: PanePosition,
@@ -164,8 +148,6 @@ async function renderPane(
   })
 }
 
-/** Seeds one editor-tab buffer directly and registers it on the pane via the real
- *  addEditorTabToPane, as buffer-slice.test.ts/pane-slice.test.ts seed tabs. */
 function seedEditorTab(
   _store: ReturnType<typeof createWorkspaceStore>,
   paneId: string,
@@ -194,8 +176,6 @@ function seedEditorTab(
   })
 }
 
-/** A terminal tab: an editor tab alone proves DOM survival, but a terminal is what loses
- *  live state (its PTY) on a spurious remount. */
 function seedTerminalTab(
   _store: ReturnType<typeof createWorkspaceStore>,
   paneId: string,
@@ -220,7 +200,6 @@ function seedTerminalTab(
   })
 }
 
-/** A branch-review tab: a non-editor buffer to switch a pane's active tab away to. */
 function seedBranchReviewTab(
   _store: ReturnType<typeof createWorkspaceStore>,
   paneId: string,
@@ -245,8 +224,6 @@ function seedBranchReviewTab(
   })
 }
 
-// Panes and buffers are a window-level singleton, never destroyed: reset it so one test's
-// seeded panes/tabs never leak into the next.
 beforeEach(() => {
   resetWindowPaneStoreForTests()
 })
@@ -266,17 +243,10 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chat).toHaveAttribute('data-runner-id', 'runner-1')
     expect(chat).toHaveAttribute('data-ws-id', 'w1')
     expect(chat).toHaveAttribute('data-visible', 'true')
-    // The editor region (and its NewTabView fallback) stays MOUNTED per spec
-    // §7.2 — "renders the chat, not NewTabView" means not SHOWING, not "isn't
-    // in the DOM at all". See the dedicated "keeps both mounted" test below
-    // for the mount-vs-visibility distinction spelled out explicitly.
     expect(screen.getByTestId('new-tab-marker')).not.toBeVisible()
     expect(chat).toBeVisible()
   })
 
-  // Chats/pane redesign: with zero editor tabs, there is no IDE sector at
-  // all — TabBar is replaced outright by ChatOnlyPaneHeader, which takes
-  // over its window-chrome (drag region) and right-pinned actions.
   it('replaces TabBar with ChatOnlyPaneHeader when the pane has a chat and zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
@@ -290,8 +260,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
   })
 
-  // The header's Open editor turns `editorOpen` on with zero tabs: the editor
-  // area then shows (empty), so the chat no longer fills the pane.
   it('shows the empty editor view when editorOpen is on with zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
@@ -308,10 +276,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chat.closest('[hidden]')).toBeNull()
   })
 
-  // The exact regression class this file's own render-tree comments obsess
-  // over (see pane-container.tsx's "ONE STABLE PARENT" note): swapping
-  // TabBar for ChatOnlyPaneHeader as tabs come and go must never touch the
-  // chat view's own position/identity — only the chrome around it.
   it('never remounts the chat when its pane crosses zero editor tabs in either direction', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
@@ -324,7 +288,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     })
     const chatWithOneTab = screen.getByTestId('chat-chat-1')
     expect(chatWithOneTab).toBe(chatWithZeroTabs)
-    // TabBar is back now that there's a tab to show.
     expect(screen.getByTestId('tab-bar-marker')).toBeInTheDocument()
 
     await act(async () => {
@@ -359,9 +322,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   it('renders both the chat and the editor tab when the pane holds both', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    // addEditorTabToPane sets pane.editorOpen = true as a side effect — the
-    // split-toggle state that gates whether the editor view shows alongside
-    // an existing chat (spec §7.1/§7.2).
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
     await renderPane(store)
@@ -373,12 +333,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   it('a pane with both a chat and editor tabs, split toggled off, keeps both mounted — the just-activated tab shows, the chat hides', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    // addEditorTabToPane activates the new tab as a side effect — in the
-    // collapsed presentation that means the TAB is what's selected (chats/
-    // pane redesign: the chat is "just another tab" here), not the chat.
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
-    // addEditorTabToPane also sets editorOpen = true — force the split back
-    // off so this test exercises the collapsed ('tabs') presentation.
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
       if (pane) pane.editorOpen = false
@@ -389,13 +344,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
     const chat = await screen.findByTestId('chat-chat-1')
     const editorMarker = await screen.findByTestId('editor-marker-tab-a')
-    // Both are MOUNTED regardless of which is showing (spec §7.2: "Both
-    // surfaces stay mounted"). The editor's marker is present in the DOM...
     expect(editorMarker).toBeInTheDocument()
-    // ...and, since a real tab is the one selected, IT shows — the chat's
-    // content-area ancestor is the one carrying the native `hidden`
-    // attribute (display:none via the UA stylesheet — not a Tailwind class,
-    // so this assertion needs no compiled CSS to be meaningful) instead.
     expect(editorMarker.closest('[hidden]')).toBeNull()
     expect(chat.closest('[hidden]')).not.toBeNull()
   })
@@ -410,20 +359,12 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       return state
     })
 
-    // Opening a SECOND file into the same pane, with the split still
-    // collapsed, must not force editorOpen back to true — regression for the
-    // bug where addEditorTabToPane unconditionally reopened the split on
-    // every file/terminal open, even when the pane already held a tab and
-    // the user had deliberately collapsed it.
     seedEditorTab(store, ROOT_PANE_ID, 'tab-b')
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(false)
 
     await renderPane(store)
 
-    // Still the collapsed ('tabs') presentation: the newly-opened tab shows,
-    // the chat hides — same as the single-tab case, just proving a second
-    // open didn't flip editorOpen back to true and switch to a real split.
     const chat = await screen.findByTestId('chat-chat-1')
     const editorMarker = await screen.findByTestId('editor-marker-tab-b')
     expect(editorMarker.closest('[hidden]')).toBeNull()
@@ -465,9 +406,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     })
 
     const chatAfter = screen.getByTestId('chat-chat-1')
-    // Same DOM node — switching which editor tab is active never remounts
-    // the chat region, which sits outside editorTabIds/activeEditorTabId
-    // entirely (it doesn't compete for "which one is active").
     expect(chatAfter).toBe(chatBefore)
   })
 
@@ -475,14 +413,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
 
-    // PaneContainer reads `windowPaneStore.getState().paneActions.<method>` fresh
-    // at call time (not a destructured closure captured at render), so swapping
-    // in a wrapped actions object before the click is observed by the real call
-    // site. Immer's autoFreeze deep-freezes the store's `paneActions` object the
-    // first time ANY `set()` runs against `windowPaneStore` (which the shared
-    // singleton's own reset in `beforeEach` already triggers) — patching a method
-    // in place on that frozen object throws, so replace the whole object via
-    // `setState` instead of reassigning one of its properties.
     const moveCalls: unknown[][] = []
     const activateCalls: unknown[][] = []
     const paneActions = windowPaneStore.getState().paneActions
@@ -507,14 +437,8 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    // The dropped payload names 'phantom-source-pane' as its origin — a pane
-    // other than the one rendered here — so this drop must be rejected
-    // outright: never moved, never activated into this pane.
     expect(moveCalls).toHaveLength(0)
     expect(activateCalls).toHaveLength(0)
-    // The old buffer-vocabulary actions this migration retired do not exist
-    // on the actions object at all — a regression reintroducing them (or
-    // pane-container calling them) would fail loudly, not silently no-op.
     const actions = windowPaneStore.getState().paneActions as unknown as Record<string, unknown>
     expect(actions.moveBufferToPane).toBeUndefined()
     expect(actions.activatePaneBuffer).toBeUndefined()
@@ -523,11 +447,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('a center-zone drop of a tab from a DIFFERENT pane is rejected — the tab stays exactly where it was', async () => {
     const store = getOrCreateWorkspaceStore('w1')
-    // The center zone routes through pane-drop-actions.ts's
-    // ensureBufferInPaneDropTarget, which reads the GLOBAL
-    // active-workspace-store ref (a separate registry from the
-    // WorkspaceStoreContext.Provider renderPane uses below) — the same setup
-    // pane-drop-actions.test.ts already needs for that helper.
     setActiveWorkspaceId('w1')
 
     const sourcePaneId = windowPaneStore
@@ -563,8 +482,6 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    // A cross-pane tab drop is not a supported gesture: the tab must never
-    // land in ROOT_PANE_ID, and must still be exactly where it started.
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []).not.toContain(
       'moved-tab',
     )
@@ -572,27 +489,11 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   })
 })
 
-// Bug: clicking into an inactive pane's chat/editor content sometimes never
-// changes focus. handlePaneMouseDownCapture (the onMouseDownCapture wired to
-// the pane's own root div) used `target.closest("button, input, textarea,
-// [role='button'], [role='menu']")` to skip setActivePane — but .closest()
-// walks the WHOLE ancestor chain, not just the literal mousedown target. Chat
-// message content, Monaco's toolbar/find-bar and Plate's toolbar all nest
-// real buttons throughout their content, so a mousedown anywhere inside one
-// of those ancestors — even far from the literal button — was silently
-// swallowed and the pane never activated. Separately, the dead
-// `isEditorTextarea` escape hatch checked for a class ('editor-textarea')
-// that is never applied anywhere — Monaco's own real input surface uses
-// 'inputarea' (textAreaEditContext.js) — so a direct click on Monaco's real
-// textarea was ALSO swallowed, unlike xterm's real helper textarea, whose
-// override ('xterm-helper-textarea') is wired correctly.
 describe('PaneContainer — mousedown-capture pane activation', () => {
   afterEach(() => {
     setActiveWorkspaceId(null)
   })
 
-  /** A second pane, so ROOT_PANE_ID can start inactive — same pattern the
-   *  active-pane accent ring suite above already uses. */
   function makeRootPaneInactive(): void {
     const other = windowPaneStore
       .getState()
@@ -607,9 +508,6 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
     await renderPane(store)
     expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
 
-    // Stand-in for a real button deep in pane content (a chat message's copy
-    // button, a Monaco/Plate toolbar icon, ...) — the literal mousedown
-    // TARGET is a child of the button, never the button element itself.
     const paneContainer = document.querySelector(`[data-pane-id="${ROOT_PANE_ID}"]`) as HTMLElement
     const nestedButton = document.createElement('button')
     const icon = document.createElement('span')
@@ -654,26 +552,6 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
     expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
   })
 
-  // Live bug report: "clicking on a full split tab (like monaco) in a split
-  // chat view that has another chat focused doesn't focus the chat that has
-  // that tab opened." The two tests above cover raw DOM nodes appended
-  // directly under `[data-pane-id]` — a reasonable proxy for a literal
-  // <textarea>, but NOT for the real EditorPane/Monaco widget, which is
-  // never a React DESCENDANT of PaneContainer at all: editor-host-registry.tsx
-  // portals it in from EditorHostRegistry, a REACT SIBLING of the whole pane
-  // tree (rendered alongside SplitViewRoot in workspace-layout-root.tsx). Its
-  // DOM node still lands inside this pane's own subtree (the portal TARGET
-  // div PaneContainer publishes via editor-portal-registry.ts), but React's
-  // synthetic event dispatch collects ancestor handlers by walking the FIBER
-  // tree, not the DOM tree — a portal's bubble path goes to the portal's
-  // React parent (EditorHostSlot), never to PaneContainer. That is why the
-  // OLD `onMouseDownCapture`/`onClick` React props on this pane's own root
-  // (still exercised above) never fired for a genuine click landing on
-  // Monaco, no matter how many explicit `setActivePane` calls got sprinkled
-  // into individual handlers elsewhere (tab-bar.tsx's tab-strip click, etc.)
-  // — none of them sit on the click's REAL path. `renderPane` mounts
-  // EditorHostRegistry as a true sibling here too, exactly like production,
-  // so these tests exercise the real portal boundary, not a stand-in for it.
   it('activates an inactive pane on a mousedown landing inside the PORTALED editor surface — side by side with the chat (the reported "full split tab" case)', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
@@ -692,10 +570,10 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
   it('activates an inactive pane on a mousedown landing inside the portaled editor surface when the tab fills the WHOLE pane (collapsed presentation, editor selected over the chat)', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-a') // addEditorTabToPane also selects the tab over the chat
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
-      if (pane) pane.editorOpen = false // collapses to the 'tabs' presentation
+      if (pane) pane.editorOpen = false
       return state
     })
     makeRootPaneInactive()
@@ -704,7 +582,6 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
     expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
 
     const editorMarker = await screen.findByTestId('editor-marker-tab-a')
-    // Sanity: this IS the surface actually on screen, not a hidden sibling.
     expect(editorMarker.closest('[hidden]')).toBeNull()
     fireEvent.mouseDown(editorMarker)
 
@@ -712,30 +589,10 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
   })
 })
 
-// The presentation's geometry math is use-chat-presentation.test.ts's; this is the WIRING: the
-// two DOM regions are arranged as the presentation says and survive every presentation change.
-/**
- * The active-pane ring is drawn by a childless overlay that fades its OPACITY,
- * never by animating a colour on the shared pane box itself.
- *
- * That box is large, rounded and painted in translucent `--chrome-bg` over the
- * window's real vibrancy, so WebKit re-blends all of it on every frame a colour
- * on it interpolates: with `transition-colors` fading its border, one focus
- * click bought a ~150ms train of 17-26ms frames. Measured live in the Tauri
- * app, three panes tiled in one workspace view, 12 focus clicks: 85fps with the
- * border-colour fade against 116fps with it suppressed, for identical React
- * work — and neither `contain: paint` (82.9fps) nor forcing a compositing layer
- * (67.8fps) recovered any of it. The accent had to come off that surface; the
- * fade itself must stay, because an untransitioned swap is the hard colour snap
- * around the tab row that was reported live as "the tabs flash with something"
- * on every pane click.
- */
 describe('PaneContainer — the active-pane accent ring', () => {
   const paneBox = () => document.querySelector('[data-pane-content]') as HTMLElement
   const accent = () => document.querySelector('[data-pane-accent]') as HTMLElement
 
-  /** A second pane, so the ring is worth drawing at all — with one pane on
-   *  screen there is nothing to distinguish it FROM (useVisiblePaneCount). */
   function splitSoTheRingApplies() {
     return windowPaneStore
       .getState()
@@ -756,7 +613,6 @@ describe('PaneContainer — the active-pane accent ring', () => {
       windowPaneStore.getState().paneActions.setActivePane(other)
     })
 
-    // The box NEVER swaps to --secondary — that swap is what repainted it.
     expect(paneBox().style.borderTop).toBe('1px solid var(--pane-border)')
   })
 
@@ -770,17 +626,12 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
     expect(accent().style.borderTop).toBe('var(--pane-accent-width) solid var(--pane-accent)')
     expect(accent().style.opacity).toBe('1')
-    // Geometry is the SAME computation the box uses, so the ring lands exactly
-    // on the neutral border it hides rather than beside it: the box's margins
-    // are the overlay's insets, and every corner radius matches.
     expect(accent().style.left).toBe(paneBox().style.marginLeft)
     expect(accent().style.top).toBe(paneBox().style.marginTop)
     expect(accent().style.right).toBe(paneBox().style.marginRight)
     expect(accent().style.bottom).toBe(paneBox().style.marginBottom)
     expect(accent().style.borderTopLeftRadius).toBe(paneBox().style.borderTopLeftRadius)
     expect(accent().style.borderBottomRightRadius).toBe(paneBox().style.borderBottomRightRadius)
-    // ...and it must be a transition, not a swap: an instant flip is the snap
-    // this whole arrangement exists to keep as a fade.
     expect(accent().className).toContain('transition-opacity')
 
     await act(async () => {
@@ -806,14 +657,10 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     setActiveWorkspaceId(null)
   })
 
-  /** jsdom reports 0 for every element's clientWidth/clientHeight (no layout
-   *  engine) — usePaneViewPresentation treats an unmeasured 0x0 pane as
-   *  side-by-side (see its own "flash" comment), so that is the size this
-   *  suite gets for free without overriding anything. */
   it('an unmeasured pane with the split on defaults to side by side: a divider, and the editor is not hidden', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    seedEditorTab(store, ROOT_PANE_ID, 'tab-a') // addEditorTabToPane sets editorOpen = true
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
     await renderPane(store)
 
@@ -824,9 +671,6 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical')
   })
 
-  // The actual bug this locks in: TabBar is the IDE SECTOR's own header —
-  // in side by side (and stacked), it must be confined to the editor's own
-  // box, never spanning over the chat's column/row too.
   it('confines TabBar to the editor’s own box in side-by-side — never spanning over the chat column too', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
@@ -843,15 +687,10 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(chatView.contains(tabBar)).toBe(false)
     expect(editorView.contains(chat)).toBe(false)
 
-    // And the chat gets ITS OWN header, confined to its own column, in the
-    // same box as the chat surface — not the editor's.
     expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
 
-    // The IDE sector reads as its own card next to the chat's: a border on
-    // the edge that actually touches the chat (left, in side-by-side), never
-    // rounded on any corner (buildInnerViewStyle).
     expect(editorView.style.borderLeft).toBe('1px solid var(--border)')
-    expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
+    expect(editorView.style.borderTopLeftRadius).toBe('0px')
     expect(editorView.style.borderBottomLeftRadius).toBe('0px')
     expect(editorView.style.borderTopRightRadius).toBe('0px')
     expect(editorView.style.borderBottomRightRadius).toBe('0px')
@@ -873,10 +712,6 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   })
 
-  /** Forces a genuinely portrait pane (narrow, tall) past jsdom's normal 0x0
-   *  by overriding the one measurement usePaneViewPresentation actually reads
-   *  — clientWidth/clientHeight — for the duration of the test. Everything
-   *  else about jsdom (no real layout) is untouched. */
   async function withPaneBox<T>(width: number, height: number, run: () => Promise<T>): Promise<T> {
     const widthDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
     const heightDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight')
@@ -908,10 +743,6 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       const editorMarker = await screen.findByTestId('editor-marker-tab-a')
       expect(chat.closest('[hidden]')).toBeNull()
       expect(editorMarker.closest('[hidden]')).toBeNull()
-      // PaneSash's aria-orientation is the OPPOSITE of its layout direction
-      // (same convention agent-chat-pane-split.test.tsx relies on for its own
-      // terminal split) — 'horizontal' here means the sash itself divides
-      // top from bottom, i.e. the views are stacked in a column.
       expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'horizontal')
     })
   })
@@ -934,30 +765,16 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       expect(editorView.contains(chat)).toBe(false)
       expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
 
-      // Stacked: the chat sits ABOVE the editor, so the border/rounding
-      // belongs on the TOP edge here, not the left.
       const outerRef = document.createElement('div')
       Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true))
       expect(editorView.style.borderTop).toBe('1px solid var(--border)')
-      // TL: facing (top) + left (shielded/interior for ROOT_PANE_POSITION
-      // with a left sidebar) -> squares. Stacked's own top seam never rounds
-      // its own two corners (doubling bug fix, pane-border.ts) — its left
-      // border already runs doubled against the outer box's identical one
-      // for the whole view's height here, so rounding away would read as a
-      // second, isolated corner rather than one line.
-      expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
-      // TR: facing (top) + right (a REAL window edge for ROOT_PANE_POSITION
-      // with a left sidebar) -> squares too, unchanged from before.
-      expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
+      expect(editorView.style.borderTopLeftRadius).toBe('0px')
+      expect(editorView.style.borderTopRightRadius).toBe('0px')
       expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
       expect(editorView.style.borderBottomRightRadius).toBe(outerRef.style.borderBottomRightRadius)
     })
   })
 
-  // The chat sits next to wherever the sidebar is — a sidebar on the right
-  // means the chat renders on the right too, so the two never end up on
-  // opposite edges of the window. The rounded, bordered edge of the IDE
-  // sector always faces the chat, whichever side that ends up being.
   describe('the chat follows the sidebar side (side by side)', () => {
     afterEach(() => {
       useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
@@ -977,13 +794,11 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       const chatView = document.querySelector('[data-chat-view]')!
       const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
 
-      // DOCUMENT_POSITION_FOLLOWING on chatView (from editorView's
-      // perspective) means editorView comes first in the DOM.
       expect(
         Boolean(editorView.compareDocumentPosition(chatView) & Node.DOCUMENT_POSITION_FOLLOWING),
       ).toBe(true)
       expect(editorView.style.borderRight).toBe('1px solid var(--border)')
-      expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
+      expect(editorView.style.borderTopRightRadius).toBe('0px')
       expect(editorView.style.borderBottomRightRadius).toBe('0px')
       expect(editorView.style.borderTopLeftRadius).toBe('0px')
       expect(editorView.style.borderBottomLeftRadius).toBe('0px')
@@ -1004,7 +819,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
         Boolean(chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING),
       ).toBe(true)
       expect(editorView.style.borderLeft).toBe('1px solid var(--border)')
-      expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
+      expect(editorView.style.borderTopLeftRadius).toBe('0px')
       expect(editorView.style.borderBottomLeftRadius).toBe('0px')
     })
 
@@ -1032,16 +847,8 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
           buildPaneContentStyle(ROOT_PANE_POSITION, 'right', false, true),
         )
         expect(editorView.style.borderTop).toBe('1px solid var(--border)')
-        // TL: facing (top) + left (a REAL window edge here — the sidebar
-        // moved to the right, so left is no longer shielded) -> squares.
-        expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
-        // TR: facing (top) + right (shielded/interior, sidebar now on the
-        // right) -> squares too now (doubling bug fix, pane-border.ts):
-        // stacked's own top seam never rounds its own two corners, since an
-        // interior other-edge here means this box's right border already
-        // runs doubled against the outer box's identical one for the whole
-        // view's height.
-        expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
+        expect(editorView.style.borderTopLeftRadius).toBe('0px')
+        expect(editorView.style.borderTopRightRadius).toBe('0px')
         expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
         expect(editorView.style.borderBottomRightRadius).toBe(
           outerRef.style.borderBottomRightRadius,
@@ -1067,11 +874,6 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     await withPaneBox(300, 200, async () => {
       const store = createWorkspaceStore('w1')
       windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-      // addEditorTabToPane activates the new tab — in the collapsed
-      // ('tabs') presentation this falls back to, that means the TAB is
-      // what's selected (chats/pane redesign), so the chat is the one that
-      // hides, not the editor — see the same shift documented on the
-      // "split toggled off" test above.
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
@@ -1117,8 +919,6 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
   })
 
-  // A `pane.chatId ? <A/> : <B/>` branch would reindex the editor view's DOM position and
-  // remount it (and a terminal's PTY) whenever a chat fills a pane that holds editor tabs.
   it('does not remount the editor view — including a live terminal — when a chat lands in the pane', async () => {
     terminalMountCount.current = 0
     const store = createWorkspaceStore('w1')
@@ -1129,19 +929,15 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     const terminalBefore = await screen.findByTestId('terminal-marker-term-a')
     expect(terminalMountCount.current).toBe(1)
 
-    // pane.chatId: null -> set, the transition that moves the editor view beside the chat view.
     await act(async () => {
       windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     })
 
     await screen.findByTestId('chat-chat-1')
     expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
-    expect(terminalMountCount.current).toBe(1) // still exactly one mount, ever
+    expect(terminalMountCount.current).toBe(1)
   })
 
-  // Unmounting EditorPane disposes the retained Monaco widget and its models while Monaco's own
-  // async work may still be in flight. EditorHostRegistry owns EditorPane outside PaneContainer,
-  // so a tab switch only toggles the portal target's visibility.
   it('does not remount the retained editor when the active tab switches to a non-editor buffer and back', async () => {
     editorMountCount.current = 0
     const store = createWorkspaceStore('w1')
@@ -1157,30 +953,25 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(editorMountCount.current).toBe(1)
     expect((editorBefore.parentElement as HTMLElement).style.visibility).not.toBe('hidden')
 
-    // Switch away to the non-editor tab.
     await act(async () => {
       windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'review-1')
     })
 
     await screen.findByTestId('branch-review-marker')
-    // Still the SAME node — never unmounted — just hidden.
     expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
     expect(editorMountCount.current).toBe(1)
     expect((editorBefore.parentElement as HTMLElement).style.visibility).toBe('hidden')
 
-    // Switch back to the editor tab.
     await act(async () => {
       windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-a')
     })
 
     expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
-    expect(editorMountCount.current).toBe(1) // never remounted, ever
+    expect(editorMountCount.current).toBe(1)
     expect((editorBefore.parentElement as HTMLElement).style.visibility).not.toBe('hidden')
   })
 })
 
-// The sidebar's drag arm (`useSidebarDrag`) hit-tests a pane by reading `PANE_DROP_ATTR` off
-// the DOM, so every pane carries ITS OWN id there for a drop to resolve to the right pane.
 describe('PaneContainer — pane drop target', () => {
   it('publishes its own pane id on PANE_DROP_ATTR, not a bare presence flag', async () => {
     const store = createWorkspaceStore('w1')
@@ -1217,8 +1008,6 @@ describe('PaneContainer — pane drop target', () => {
   })
 })
 
-// The identity row and the content share ONE background, with rounding/border/shadow enclosing
-// both; this lifts pane-border.test.ts's `buildPaneContentStyle` fixtures up to the DOM.
 describe("PaneContainer — the identity row shares the pane's background/rounding", () => {
   afterEach(() => {
     sidebarOpenOverride.current = true
@@ -1232,20 +1021,8 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     const sharedBox = document.querySelector('[data-pane-content]')!
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
-    // Chats/pane redesign feedback: the shared box paints the chat's own
-    // translucent `bg-pane-chrome-bg` — giving each non-opaque region (the
-    // chat view, the sash) its own copy of that fill left visible seams at
-    // every boundary a caller forgot to cover explicitly. The IDE sector
-    // still reads fully opaque: TabBar's real row paints `bg-pane-background`
-    // OVER this fill within its own bounds (tab-bar.test.tsx covers that
-    // directly; it's mocked away here). Distinct from `bg-chrome-bg` (body's
-    // own wash, which the sidebar shows through) since the two surfaces now
-    // carry different opacities.
     expect(sharedBox).toHaveClass('bg-pane-chrome-bg')
 
-    // The outer shell (drag/drop mechanics, the pane-hit ring, PANE_DROP_ATTR)
-    // paints no background of its own either — same reasoning as above, one
-    // level further out.
     const outer = document.querySelector('[data-pane-container]')!
     expect(outer.className).not.toMatch(/\bbg-/)
   })
@@ -1255,25 +1032,12 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     await renderPane(store, ROOT_PANE_POSITION)
 
     const sharedBox = document.querySelector('[data-pane-content]')! as HTMLElement
-    // sidebarPosition defaults to 'left' (default-settings.ts); no
-    // SidebarProvider wraps this tree, so useSidebarOptional falls back to
-    // `?? true` — matching pane-container.tsx's own fallback exactly.
     const expected = buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true)
     const reference = document.createElement('div')
     Object.assign(reference.style, expected)
     expect(sharedBox.getAttribute('style')).toBe(reference.getAttribute('style'))
 
-    // Named corners, so a regression here reads as "which corner broke," not
-    // just "some style string changed": left/top are shielded/never-edge and
-    // stay rounded; right/bottom are real window edges and square off — and
-    // the tab bar (inside sharedBox) is enclosed by all of it. Left sits
-    // flush against the sidebar (no gutter) even though it stays rounded —
-    // only top keeps its own inset.
     expect(sharedBox.style.borderTopLeftRadius).toBe('var(--radius-lg)')
-    // jsdom's CSSOM normalizes a bare '0' length to '0px' on read-back (the
-    // object buildPaneContentStyle returns, asserted unitless in
-    // pane-border.test.ts, is unaffected — this is purely how the DOM
-    // serializes it once assigned).
     expect(sharedBox.style.borderTopRightRadius).toBe('0px')
     expect(sharedBox.style.marginLeft).toBe('0px')
     expect(sharedBox.style.marginRight).toBe('0px')
@@ -1295,11 +1059,6 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     expect(sharedBox.style.marginBottom).toBe('1px')
   })
 
-  // The regression this whole style object exists to prevent: a rounded,
-  // shadowed corner composited against the window's own rounded vibrant edge
-  // measured 8ms -> 106ms frames in WKWebView. Moving WHERE this style
-  // attaches must not turn a real window edge into a rounded one — proven
-  // here at the DOM level, not just against the pure function.
   it('still flattens the corner at a REAL window edge once the sidebar collapses — not just the common shielded case', async () => {
     sidebarOpenOverride.current = false
     const store = createWorkspaceStore('w1')
@@ -1307,38 +1066,20 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
 
     const sharedBox = document.querySelector('[data-pane-content]')! as HTMLElement
     const expected = buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, false)
-    // Sanity on the fixture itself: a collapsed sidebar turns the left edge
-    // into a real window edge too.
     expect(expected.borderTopLeftRadius).toBe('0')
     expect(expected.marginLeft).toBe('0')
 
     const reference = document.createElement('div')
     Object.assign(reference.style, expected)
     expect(sharedBox.getAttribute('style')).toBe(reference.getAttribute('style'))
-    expect(sharedBox.style.borderTopLeftRadius).toBe('0px') // see the unit note above
-    // The longhand, not the `borderLeft` shorthand: jsdom's shorthand getter
-    // doesn't reliably reconstruct a `border-style: none` sub-value (reports
-    // the width instead) — borderLeftStyle is unambiguous, and the full-string
-    // getAttribute('style') comparison above already proves the two elements'
-    // serialized styles are byte-for-byte identical either way.
+    expect(sharedBox.style.borderTopLeftRadius).toBe('0px')
     expect(sharedBox.style.borderLeftStyle).toBe('none')
     expect(sharedBox.style.marginLeft).toBe('0px')
 
-    // And the row is inside that exact, now-square box — not a separately
-    // rounded sibling that would read as a still-detached header.
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
   })
 
-  // Reported live as "the tabs at the top flash with something for a
-  // moment" on every pane click: buildPaneContentStyle swaps this box's
-  // border between --border and --secondary as the active pane changes
-  // (the ring answering "which of these has focus"), written straight into
-  // `style`, and nothing gave that swap a transition — a same-frame color
-  // snap right around the tab row it encloses. `sharedBox` is the exact box
-  // the two `buildPaneContentStyle` DOM tests above prove carries that
-  // border, so this only needs to prove IT also carries the class that
-  // turns the snap into a fade.
   it("the shared box's active/inactive border swap is transitioned, not a same-frame snap", async () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
@@ -1348,14 +1089,6 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
   })
 })
 
-/**
- * A pane whose VIEW is parked stays mounted — that is the whole point, so
- * nothing it holds is torn down — but it must do no work. Hiding it without
- * telling the surfaces inside would be the cosmetic half of dormancy: the
- * xterm render loop keeps running against a `display: none` subtree, and the
- * chat pane's dormant-chat revive keeps thinking it is on screen and spawns a
- * vendor CLI for a view nobody is looking at.
- */
 describe('PaneContainer — a pane in a view that is not on screen', () => {
   it('tells the chat surface it is not visible, and not the active pane', async () => {
     const store = createWorkspaceStore('w1')
@@ -1365,8 +1098,6 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
 
     const chat = screen.getByTestId('chat-chat-1')
     expect(chat.getAttribute('data-visible')).toBe('false')
-    // `activePaneId` names one pane for the whole window; a view that is off
-    // screen has no claim on it however that field happens to read.
     expect(chat.getAttribute('data-active-pane')).toBe('false')
   })
 
@@ -1388,8 +1119,6 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
 
     await renderPane(store, undefined, false)
 
-    // Unmounting instead would dispose the xterm (blank on remount, scrollback
-    // gone) and refcount-release the Monaco models with their undo history.
     expect(screen.getByTestId('chat-chat-1')).toBeInTheDocument()
     expect(screen.getByTestId('terminal-marker-term-1')).toBeInTheDocument()
   })
@@ -1404,9 +1133,6 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
   })
 })
 
-// Panes are window-level, so a pane can hold ANY workspace's chat, but chat state and URLs are
-// workspace-keyed: the chat resolves against its own workspace's store, never the ambient
-// `WorkspaceStoreContext` (which would leave a cross-workspace chat blank).
 describe('PaneContainer — the chat’s own workspace, not the ambient one', () => {
   afterEach(() => {
     getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
@@ -1433,7 +1159,6 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
-    // Rendered under a DIFFERENT workspace's context — the one on screen.
     await renderPane(createWorkspaceStore('w-onscreen'))
 
     expect(await screen.findByTestId('chat-chat-1')).toHaveAttribute('data-ws-id', 'w-owner')
@@ -1450,9 +1175,6 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     )
   })
 
-  // ChatBranchHeader (the chat's own identity header, mounted alongside
-  // AgentChatPane) reads off the exact same resolved `chatStore` — this is
-  // the same cross-workspace-title bug class, now checked at its new home.
   it("shows the chat's own title in its header even while a DIFFERENT workspace is ambient", async () => {
     seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
@@ -1464,17 +1186,12 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     expect(await screen.findByTestId('chat-branch-header')).toHaveTextContent('chat-1')
   })
 
-  // Live-reported: "Review this branch" on an INACTIVE pane opened a DIFFERENT
-  // chat's review. The editor area's actions (Review Branch among them) create
-  // data, so they must be handed the chat's own workspace, never the ambient one.
   it("hands the editor area's actions the CHAT's own workspace, not the ambient one", async () => {
     seedChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
-    // Rendered under a DIFFERENT workspace's context — e.g. a split's other
-    // pane, or whichever WorkspaceView happens to be on screen.
     await renderPane(createWorkspaceStore('w-onscreen'))
 
     fireEvent.click(await screen.findByTestId('open-editor'))
@@ -1482,8 +1199,6 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     expect(await screen.findByTestId('new-tab-marker')).toHaveAttribute('data-ws-id', 'w-owner')
   })
 
-  // Skip rather than guess: while nothing names the chat's real workspace the
-  // editor cannot be opened and its actions get no workspace to act on.
   it("offers no editor actions while the chat's own owner is still unresolved", async () => {
     windowPaneStore.getState().paneActions.openChat('chat-unknown')
 

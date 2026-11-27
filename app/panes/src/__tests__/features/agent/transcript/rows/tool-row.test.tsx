@@ -58,7 +58,6 @@ describe('ToolRow', () => {
     )
   })
 
-  // Each outcome reads differently at a glance; a call that went well is a quiet check.
   it('gives running a spinner, ok a check, and each failure its own outcome', () => {
     const l = ledger()
     const call = (toolId: string, extra: Pick<ToolCallBody, 'phase'> & Partial<ToolCallBody>) =>
@@ -246,9 +245,6 @@ describe('ToolRow', () => {
     expect(screen.getByTestId('agent-tool-label')).toHaveTextContent('echo · shout')
   })
 
-  // A denied permission stops the tool before it runs, and no post/fail row
-  // follows: the answer to its ask is the only record of what happened.
-  // `refused` is the daemon answering on the person's behalf (an auto-deny).
   const denials = {
     'denied by the person': {
       resolution: 'answered',
@@ -319,7 +315,6 @@ describe('ToolRow', () => {
       },
       { turnId: 'turn-1' },
     )
-    // The daemon binds an ask only to a call already open: the call comes first.
     seed([started, call, ask])
     expect(chatStore.getState().feeds['chat-1']?.order).toEqual(['t:tool-1'])
     draw('t:tool-1')

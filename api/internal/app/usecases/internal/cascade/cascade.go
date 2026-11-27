@@ -1,16 +1,11 @@
-// Package cascade computes the deletion order for a workspace subtree: locked nodes
-// are omitted but their unlocked descendants are still included.
 package cascade
 
-// Node is a workspace entry in the hierarchy tree; Parent is "" for the root.
 type Node struct {
 	ID     string
 	Parent string
 	Locked bool
 }
 
-// Plan returns the deepest-first deletion order of the subtree rooted at rootID,
-// skipping locked nodes but descending into them; empty when rootID is not in all.
 func Plan(
 	rootID string,
 	all []Node,

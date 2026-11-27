@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The transport (`openExternalUrl`) is exercised for real elsewhere; here we
-// only care that the click handler ROUTES to it, so mock it to a spy.
 vi.mock('@/lib/external-open', () => ({
   openExternalUrl: vi.fn(async () => {}),
 }))
@@ -50,7 +48,6 @@ describe('handleMarkdownAnchorClick', () => {
     const e = fakeClick()
     handleMarkdownAnchorClick(e, 'https://example.com/docs', null)
 
-    // In the Tauri WKWebView a bare <a> click otherwise replaces the whole app.
     expect(e.preventDefault).toHaveBeenCalledOnce()
     expect(e.stopPropagation).toHaveBeenCalledOnce()
     expect(openExternalUrl).toHaveBeenCalledWith('https://example.com/docs')
@@ -78,7 +75,6 @@ describe('handleMarkdownAnchorClick', () => {
     expect(openExternalUrl).not.toHaveBeenCalled()
   })
 
-  // A chat or README in a workspace on another host that links its own localhost means that host.
   it('does not open a loopback link from a workspace on another host', () => {
     resetHostWorld()
     useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())

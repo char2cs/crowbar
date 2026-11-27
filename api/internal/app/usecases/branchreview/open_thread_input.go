@@ -2,7 +2,6 @@ package branchreview
 
 import "github.com/char2cs/crowbar/api/internal/domain"
 
-// OpenThreadInput carries a new review thread's anchor + first message.
 type OpenThreadInput struct {
 	WsID       string
 	FilePath   string

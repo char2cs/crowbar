@@ -1,5 +1,3 @@
-//! How mouse coordinates travel to the program.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MouseEncoding {
     Legacy,

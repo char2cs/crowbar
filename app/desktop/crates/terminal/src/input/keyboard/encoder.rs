@@ -1,5 +1,3 @@
-//! Turns key presses into the bytes a PTY expects.
-
 use crate::input::keyboard::cursor_keys::CursorKeys;
 use crate::input::keyboard::key_input::KeyInput;
 use crate::input::keyboard::named::named_sequence;
@@ -64,7 +62,6 @@ fn enter_sequence(modifiers: Modifiers) -> Vec<u8> {
     CARRIAGE_RETURN.to_vec()
 }
 
-// SPEC: https://github.com/xtermjs/xterm.js/blob/master/src/common/input/Keyboard.ts Ctrl+Shift sends only ^@ and ^_
 const SHIFTED_CONTROL_KEYS: [&str; 3] = ["@", "_", "2"];
 
 fn control_sequence(input: &KeyInput) -> Option<Vec<u8>> {

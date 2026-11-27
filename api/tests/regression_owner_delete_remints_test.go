@@ -12,10 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// Deleting the owning chat of a worktree other chats still work in (the
-// repo's default checkout, held by a thread in a root folder) purged the
-// owner and left the worktree ownerless; the next read then ELECTED the
-// untitled thread as owner and folded it into the header row.
 func TestRegression_DeleteSharedWorktreeOwnerRemintsAnOwner(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

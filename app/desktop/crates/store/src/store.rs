@@ -1,5 +1,3 @@
-//! The shell's daemon data: one stream per host feeding the sidebar, and the commands back.
-
 mod branch_import;
 mod chat_reads;
 mod dialogs;
@@ -43,7 +41,6 @@ use crate::live::{Dialled, relay_for, slot_for};
 use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_view::SidebarView;
 
-/// Owns the stream tasks; dropping it stops them.
 pub struct Store {
     pub(crate) hub: Arc<Hub>,
     pub(crate) commands: SidebarCommands,
@@ -65,9 +62,6 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
-    /// Follows `hosts` through `transport`'s relay, wired to the shell by `wiring`.
-    ///
-    /// A host whose id the transport cannot address is skipped and logged.
     pub fn start(
         handle: &Handle,
         transport: &Arc<dyn DaemonTransport>,
@@ -127,29 +121,23 @@ impl Store {
         }
     }
 
-    /// The sidebar's read side.
     pub fn view(&self) -> SidebarView {
         SidebarView::new(Arc::clone(&self.hub), self.settings.clone())
     }
 
-    /// The on-disk root of the workspace the Files panel follows; `None` when none is followed
-    /// or its host is another computer.
     pub fn workspace_root(&self) -> Option<std::path::PathBuf> {
         self.hub.read(crate::live::workspace_root::of)
     }
 
-    /// The project the sidebar considers current: the selected one, else the first listed.
     pub fn active_project(&self) -> Option<String> {
         self.hub
             .read(|state| crate::reads::active_project(state).map(|id| id.as_str().to_owned()))
     }
 
-    /// The sidebar's write side.
     pub fn commands(&self) -> SidebarCommands {
         self.commands.clone()
     }
 
-    /// Whether `command` is carried out here; the others are the shell's own.
     pub fn serves(command: &Command) -> bool {
         !matches!(
             command,
@@ -173,8 +161,6 @@ impl Store {
         )
     }
 
-    /// Follows the chat of the focused pane: the Files and Changes panels show its workspace.
-    /// Following the chat already followed does nothing.
     pub fn focus_chat(
         &self,
         chat: Option<&str>,
@@ -186,9 +172,6 @@ impl Store {
         panel_loader::followed_ask::ask(&self.hub, (&self.commands.handle, &self.commands.outcome));
     }
 
-    /// Watches the files of every chat an open tab shows, as develop holds the `files:` scope of
-    /// each open workspace, so a file open in a chat that is not focused hears its changes on
-    /// disk. Watching the chats already watched does nothing.
     pub fn watch_chats(
         &self,
         chats: std::collections::BTreeSet<String>,
@@ -229,7 +212,6 @@ mod tests {
         taken.ok_or_else(|| daemonapi::Error::Stream("used".into()))
     }
 
-    /// One connection, taken on the first dial.
     struct Once(Mutex<Option<Connection>>);
 
     impl Dial for Once {

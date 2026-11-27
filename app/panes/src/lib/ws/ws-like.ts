@@ -6,8 +6,6 @@ interface ErrorHandler {
   (event: unknown): void
 }
 
-/** The subset of the WebSocket surface the manager drives: the native `WebSocket`, the desktop
- *  `TauriWebSocket` shim and the shell relay all satisfy it, so the manager is transport-agnostic. */
 export interface WsLike {
   onopen: VoidFunction | null
   onmessage: MessageHandler | null

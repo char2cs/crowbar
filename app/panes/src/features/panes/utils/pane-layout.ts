@@ -48,8 +48,6 @@ export function getFirstLeafId(root: LayoutNode): string {
   return getFirstLeafId(root.first)
 }
 
-/** `leafId` re-homes an existing pane (movePane lifts it out first) instead of minting a new
- *  one, which would leave the original stranded. */
 export function splitLayout(
   root: LayoutNode,
   paneId: string,

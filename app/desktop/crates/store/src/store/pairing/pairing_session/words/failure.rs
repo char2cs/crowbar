@@ -1,6 +1,3 @@
-//! What a failed probe or pairing means for the user, in plain words: the transport's own text
-//! names sockets and OS errors, which are never shown.
-
 use crate::store::pairing::pairing_session::words::refusal::Refusal;
 
 const KEYCHAIN_MARK: &str = "could not be recorded (keychain: ";

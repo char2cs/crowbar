@@ -1,5 +1,3 @@
-//! The animated values of a toast: shake, pulse and fade.
-
 use crate::display::toast::phase::Phase;
 use crate::display::toast::toast_kind::ToastKind;
 use crate::foundation::Keyframes;

@@ -16,9 +16,6 @@ import { useFileExplorerGitignore } from './use-file-explorer-gitignore'
 
 const elapsedMs = (startedAt: number) => Math.round((performance.now() - startedAt) * 100) / 100
 
-/** The explorer's view of the workspace: the loaded tree minus always-hidden, user-hidden, dot
- *  and gitignored entries (per settings), plus each entry's git decoration. `isVisible` applies
- *  the same rules to a path read from disk ("Open All" walks the directory itself). */
 export function useFilteredFileTree({
   workspaceId,
   files,
@@ -123,8 +120,6 @@ export function useFilteredFileTree({
     return lookup
   }, [gitStatus, showGitStatus])
 
-  // Tree paths and git-status keys are both workspace-relative, so the lookup
-  // matches them directly and returns null for files with no change.
   const getGitStatusDecoration = useCallback(
     (file: FileEntry): FileTreeGitStatusDecoration | null =>
       getFileTreeEntryGitStatusDecoration(file, rootFolderPath, gitStatusDecorationLookup),

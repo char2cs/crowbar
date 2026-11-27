@@ -1,5 +1,3 @@
-//! What the shell's dialogs and panels are handed by the data layer.
-
 use std::sync::Arc;
 
 use sidebar::RowId;
@@ -22,11 +20,6 @@ use crate::store::system_check::SystemCheck;
 const NO_LOCAL_HOST: &str = "no local host is followed";
 
 impl Store {
-    /// The import dialog's data for the repository header or branch `row`; the dialog loads the
-    /// remote branches and calls `signal` as they arrive.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when `row` is not a repository of a followed host.
     pub fn branch_import(
         &self,
         row: &RowId,
@@ -36,16 +29,10 @@ impl Store {
         BranchImport::open(parts, row.as_str(), signal)
     }
 
-    /// How the folder of a new repository is chosen for the open space.
     pub fn folder_choice(&self) -> FolderChoice {
         self.hub.read(folder_choice::of)
     }
 
-    /// The remote folder picker's data for the host of the open space; the picker lists
-    /// directories as they are opened and calls `signal` as the answers arrive.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when no space is open.
     pub fn folder_browse(
         &self,
         signal: ChangeSignal,
@@ -53,10 +40,6 @@ impl Store {
         FolderBrowse::open((&self.hub, &self.commands.handle), signal)
     }
 
-    /// The remote folder picker's data for the paired host `host`, for a space not yet made.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when `host` is not followed.
     pub fn folder_browse_on(
         &self,
         host: &str,
@@ -65,12 +48,6 @@ impl Store {
         FolderBrowse::open_on((&self.hub, &self.commands.handle), host, signal)
     }
 
-    /// The settings the modal edits: the shell's file at `file`, and this computer's daemon,
-    /// behind an adapter for the UI thread.
-    ///
-    /// # Errors
-    /// [`Error::File`] or [`Error::Json`] when the settings file exists and cannot be read, and
-    /// [`Error::Stream`] when no local host is followed.
     pub fn settings(
         &self,
         file: std::path::PathBuf,
@@ -97,10 +74,6 @@ impl Store {
         Ok(SettingsAdapter::new(core))
     }
 
-    /// Probes git and the forge CLIs on this computer's daemon, signalling `signal` as each answers.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when no local host is followed.
     pub fn system_check(
         &self,
         signal: ChangeSignal,
@@ -116,11 +89,6 @@ impl Store {
         ))
     }
 
-    /// A one-time code for a device to pair with this computer's daemon, minted at once and
-    /// signalling `signal` when it is ready.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] when no local host is followed.
     pub fn device_offer(
         &self,
         signal: ChangeSignal,
@@ -136,12 +104,10 @@ impl Store {
         ))
     }
 
-    /// Whether this install follows a daemon of its own; a phone does not.
     pub fn has_local_host(&self) -> bool {
         self.hub.read(|state| state.local_client().is_some())
     }
 
-    /// A fresh attempt at pairing a host, signalling `signal` after each of its steps.
     pub fn pairing(
         &self,
         signal: ChangeSignal,

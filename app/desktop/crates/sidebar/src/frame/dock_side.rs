@@ -1,17 +1,12 @@
-//! Which window edge the sidebar docks to.
-
 use serde::{Deserialize, Serialize};
 
 const LEFT_SIGN: f32 = 1.0;
 const RIGHT_SIGN: f32 = -1.0;
 
-/// The edge of the window the sidebar sits against; `Left` is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DockSide {
-    /// Against the left edge.
     #[default]
     Left,
-    /// Against the right edge.
     Right,
 }
 

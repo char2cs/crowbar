@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
-// StepWorktreeReach gives back traverse, for group and others, on the way to
-// each checkout, which an earlier build's owner-only step took away, so another
-// uid reaches a worktree through the home again.
 const StepWorktreeReach = 13
 
 func planWorktreeReach(_ context.Context, env migrate.Env) (migrate.Plan, error) {
@@ -45,8 +42,6 @@ func reachWorktrees(_ context.Context, env migrate.Env, _ *migrate.Checkpoints) 
 	return migrate.Counts{"reachable": int64(len(dirs))}, nil
 }
 
-// unreachableWay names, once each, the directories on the way to a checkout
-// that others cannot traverse.
 func unreachableWay(home string) ([]string, error) {
 	checkouts, err := homeCheckouts(home)
 	if err != nil {
@@ -69,7 +64,6 @@ func unreachableWay(home string) ([]string, error) {
 	return out, nil
 }
 
-// homeCheckouts lists the checkouts under projects/, relative to home.
 func homeCheckouts(home string) (_ []string, err error) {
 	root, err := os.OpenRoot(home)
 	if err != nil {

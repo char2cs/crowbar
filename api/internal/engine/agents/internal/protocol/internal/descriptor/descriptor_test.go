@@ -17,18 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// TestRegression_NoShippedDescriptorContainsTheAlternationGlyph is the repo-
-// level backstop for docs/plans/2026-09-22-descriptor-channel-split.md 5.0: by
-// the end of P5 the `||` glyph must not appear in ANY descriptor, in ANY
-// position. The parser (spec.decodeExpr/WireRef.UnmarshalYAML) already
-// refuses it in an expression, but this scans the raw YAML NODE tree — every
-// scalar, key or value, anywhere in the document — so a reintroduction
-// outside a field this phase's parser rule happens to cover (or in a brand
-// new descriptor nobody wired the same check into) still fails the build.
-//
-// Walking yaml.Node rather than the raw text is what makes "outside a
-// comment" free: a YAML comment is never captured into a Node's Value at all,
-// so there is nothing to strip.
 func TestRegression_NoShippedDescriptorContainsTheAlternationGlyph(t *testing.T) {
 	matches, err := filepath.Glob("descriptors-v3/*.yaml")
 	require.NoError(t, err)
@@ -57,14 +45,6 @@ func assertNoAlternationGlyph(t *testing.T, path string, n *yaml.Node) {
 	}
 }
 
-// TestSurfaceGatedEvents_AreReportedLoudly is the conformance layer's own
-// visibility for design spec P6b's "visibility, not veto": a descriptor may
-// gate ANY event off ANY surface — there is no Crowbar-side policy veto, the
-// descriptor author decides (P6b, "NO CROWBAR-SIDE VETO") — but the
-// implication must be LOUD and greppable, the same as unverified: true. This
-// test never fails on what it finds; it only reports, the same way `grep
-// surfaces: descriptors-v3/*.yaml` would, but tied to the real parsed table
-// rather than a raw text match.
 func TestSurfaceGatedEvents_AreReportedLoudly(t *testing.T) {
 	matches, err := filepath.Glob("descriptors-v3/*.yaml")
 	require.NoError(t, err)
@@ -125,8 +105,6 @@ func TestLoad_AcceptsAMinimalDescriptor(t *testing.T) {
 	assert.Equal(t, "probe-cli", d.Spawn.Cmd)
 }
 
-// A provider with no instruction field leads its first prompt with the context document;
-// a lead that names no context has nothing to carry and does not load.
 func TestLoad_ReadsAPromptLeadAndRefusesOneThatNamesNoContext(t *testing.T) {
 	withLead := func(lead string) string {
 		return `
@@ -177,8 +155,6 @@ func TestLoad_RejectsADescriptorThatFailsARule(t *testing.T) {
 
 const unsafeIcon = `icon: '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><path d="M0 0"/></svg>'` + "\n"
 
-// An icon that is not plain SVG never takes its provider down: the descriptor
-// loads with the icon dropped, since the webview injects the icon as HTML.
 func TestLoad_DropsAnUnsafeIconAndKeepsTheProvider(t *testing.T) {
 	d, err := descriptor.Load([]byte(minimal + unsafeIcon))
 
@@ -187,7 +163,6 @@ func TestLoad_DropsAnUnsafeIconAndKeepsTheProvider(t *testing.T) {
 	assert.Empty(t, d.Icon)
 }
 
-// Every shipped provider keeps its plain-SVG icon through Load.
 func TestShippedIconsArePlainSVG(t *testing.T) {
 	shipped, err := descriptor.All(context.Background(), "", nil)
 	require.NoError(t, err)
@@ -216,12 +191,6 @@ func TestResolve_FallsBackToTheEmbeddedDefault(t *testing.T) {
 	assert.Equal(t, "claude", d.Spawn.Cmd)
 }
 
-// REGRESSION. Both shipped CLIs open a shell mode on a message whose FIRST
-// character is `!` — and Crowbar's own image-attachment encoding, `![alt](…)`,
-// puts one there whenever something is attached before anything is typed.
-// Measured on codex-cli 0.149.1: the message was RUN instead of sent. The
-// dispatch-time guard is driven entirely off this declaration, so a descriptor
-// that stops declaring it silently re-opens the hole.
 func TestRegression_ShippedDescriptorsDeclareTheirShellModeSigil(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		t.Run(id, func(t *testing.T) {
@@ -408,15 +377,6 @@ func TestShippedClaudeDeclaresHotswapTrue(t *testing.T) {
 		"session with hooks reporting alongside (design spec §3.5)")
 }
 
-// codex declares attach WITHOUT hotswap — confirmed live against codex-cli
-// 0.149.1 that the app-server's LIVE-attach mechanism (a second client on the
-// SAME connection, `codex resume {id} --remote`) does not work (fails
-// outright — "no rollout found for thread id" — before any turn has
-// completed) and is the wrong shape anyway (codex enforces one writer per
-// thread). What DOES work, confirmed live: a bare, ordinary `codex resume
-// {id}` — no --remote — once idle. So attach is idle-only sequential handoff
-// (SwitchToTerminal in runner/attach.go), never a live/concurrent view, which
-// is exactly what hotswap:false means. See codex.yaml's own comment.
 func TestCodexDescriptor_DeclaresAttachWithoutHotswap(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
@@ -425,9 +385,6 @@ func TestCodexDescriptor_DeclaresAttachWithoutHotswap(t *testing.T) {
 	assert.False(t, d.Runtime.Hotswap, "codex hands its live turn over, it never shares it")
 }
 
-// TestShippedClaudeDeclaresBothSurfacesStartHere: claude's terminal PTY IS
-// the CLI from the instant it spawns (hotswap: true, both faces live at
-// once), so a brand-new chat may land directly on either surface.
 func TestShippedClaudeDeclaresBothSurfacesStartHere(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude", nil)
 	require.NoError(t, err)
@@ -439,12 +396,6 @@ func TestShippedClaudeDeclaresBothSurfacesStartHere(t *testing.T) {
 	assert.True(t, d.SurfaceStartHere("terminal"))
 }
 
-// TestCodexDescriptor_BothSurfacesAreStartHere: codex's terminal surface is
-// fed by the HOOKS channel — the ordinary `codex` PTY every spawn already
-// forks, live from the fork and naming no session — so a brand-new chat may
-// land on it directly. The idle-only restriction belongs to `attach`
-// (SwitchToTerminal, runner/attach.go), which is the api channel's way back
-// onto an EXISTING session and is not involved in a birth.
 func TestCodexDescriptor_BothSurfacesAreStartHere(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
@@ -467,8 +418,6 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 	assert.NotEmpty(t, d.Runtime.API.Serve)
 	assert.NotEmpty(t, d.Runtime.Hooks.Format, "hooks stay declared — see codex.yaml's own comment on why")
 
-	// Only the TUI's hook relay reports these: they have a hooks: block and no
-	// api: block, so the api driver never resolves them.
 	start, _ := d.Events["subagent_pre"].WireEventFor(spec.ChannelAPI)
 	assert.False(t, start.Empty(), "multi-agent v2 reports a subagent's start over api too")
 	for _, name := range []string{"subagent_post", "session_end"} {
@@ -477,8 +426,6 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 		hooksWire, _ := d.Events[name].WireEventFor(spec.ChannelHooks)
 		assert.False(t, hooksWire.Empty(), "event %q is reported over hooks", name)
 	}
-	// A compaction's contextCompaction item rides the same item/started and
-	// item/completed stream as a tool's (live): see codex.yaml's own comment.
 	apiOnly := []string{
 		"session_start", "user_prompt", "turn_stop", "tool_pre", "tool_post",
 		"message_delta", "permission", "elicitation", "telemetry", "interrupt", "compact_start",
@@ -494,15 +441,6 @@ func TestExperimentalCodexAPIDescriptorIsGone(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "codex-api.yaml is merged into codex.yaml — it must not exist alongside it")
 }
 
-// REGRESSION. full-auto used to keep codex's workspace-write sandbox active
-// and only silence the approval prompt (--sandbox workspace-write
-// --ask-for-approval never), never reaching codex's real unrestricted tier —
-// the user's own complaint was that full-auto permissions "are not mapping
-// to the real full-access codex permissions". Confirmed live against a real
-// codex 0.154.0 binary: --ask-for-approval cannot be combined with
-// --dangerously-bypass-approvals-and-sandbox at all (clap rejects the argv
-// outright), so full-auto's apply list must REPLACE both prior pass_args
-// with this one flag, never add it alongside them.
 func TestCodexDescriptor_FullAutoLevelUsesTheRealBypassFlag(t *testing.T) {
 	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
@@ -519,13 +457,6 @@ func TestCodexDescriptor_FullAutoLevelUsesTheRealBypassFlag(t *testing.T) {
 	assert.NotContains(t, step.Args, "value",
 		"the bypass flag is a standalone boolean flag, never given a value")
 
-	// The api-transport equivalent (thread/start's sandbox/approvalPolicy
-	// params) — confirmed via `codex app-server generate-json-schema`:
-	// ThreadStartParams.sandbox is codex's own SandboxMode enum, which
-	// includes "danger-full-access", and setting sandbox=danger-full-access +
-	// approvalPolicy=never is exactly what --dangerously-bypass-approvals-
-	// and-sandbox resolves to internally (confirmed live: both produce an
-	// identical effective "approval: never / sandbox: danger-full-access").
 	assert.Equal(t, map[string]string{
 		"sandbox":        "danger-full-access",
 		"approvalPolicy": "never",

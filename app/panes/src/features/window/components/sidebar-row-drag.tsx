@@ -26,10 +26,8 @@ import { postToShell } from '@/lib/shell-page-bridge'
 import { cn } from '@/lib/utils'
 
 interface Held {
-  /** The draggable's id: a row's own, or the Active section's view of it. */
   id: string
   rowId: string
-  /** Only the menu is wanted; the row is not something to move. */
   menuOnly: boolean
   node: HTMLElement
 }
@@ -44,8 +42,6 @@ const DragContext = createContext<{ hit: Hit | null; claimed: boolean }>({
   claimed: false,
 })
 
-// The sensor activates after a hold even with a still finger, which is the menu's gesture;
-// rowTouch decides from there whether the touch becomes a drag or the row's menu.
 const HOLD = { delay: 250, tolerance: 6 }
 
 function pointerY(event: DragMoveEvent): number | null {
@@ -54,7 +50,6 @@ function pointerY(event: DragMoveEvent): number | null {
   return y === null || y === undefined ? null : y + event.delta.y
 }
 
-// The lifted copy and dnd-kit's wrapper around it are under the finger: the row beneath is the target.
 function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
   let el: HTMLElement | null = null
   for (const at of document.elementsFromPoint(x, y)) {
@@ -70,8 +65,6 @@ function hitAt(x: number, y: number, drop: NativeRowDrop | null): Hit | null {
   return mode ? { id, mode } : null
 }
 
-/** Phone chat-list reordering: the page draws the lift and indicator; the main webview, which
- *  knows the desktop's drop rules, answers where the row may land (`drop`) and moves it. */
 export function RowDragScope({
   drop,
   overlay,
@@ -79,7 +72,6 @@ export function RowDragScope({
   children,
 }: {
   drop: NativeRowDrop | null
-  /** The hold stayed put: the row's menu is wanted, anchored on the held element. */
   onMenu: (rowId: string, node: HTMLElement) => void
   overlay: (rowId: string) => ReactNode
   children: ReactNode
@@ -91,8 +83,6 @@ export function RowDragScope({
   const claimed = touch === 'drag'
   const [hit, setHit] = useState<Hit | null>(null)
   const startX = useRef(0)
-  // The shell's answer lands after the finger has moved on, or while it rests: the target is
-  // read again from where the finger is when the answer arrives.
   const finger = useRef<{ x: number; y: number } | null>(null)
   const state = useMemo(() => ({ hit, claimed }), [hit, claimed])
 
@@ -112,7 +102,6 @@ export function RowDragScope({
     return () => clearTimeout(dwell)
   }, [touch])
 
-  // The shell hears of the lift from here, for its haptic.
   useEffect(() => {
     if (!claimed || !dragged) return
     postToShell('sidebar', { type: 'rowDrag', active: true })
@@ -150,7 +139,6 @@ export function RowDragScope({
       }}
       onDragMove={(event) => {
         const moved = rowTouch(touch, { type: 'move', dx: event.delta.x, dy: event.delta.y })
-        // A view row never lifts: a moving finger ends its hold.
         const owner = held?.menuOnly && moved === 'drag' ? 'idle' : moved
         setTouch(owner)
         if (owner !== 'drag') return
@@ -176,7 +164,6 @@ export function RowDragScope({
   )
 }
 
-/** A row the user can hold and move, with the drop indicator drawn on it while it is the target. */
 export function DraggableRow({
   id,
   menuOnly,
@@ -184,9 +171,7 @@ export function DraggableRow({
   children,
 }: {
   id: string
-  /** A view over a row elsewhere: held for its menu, never lifted or dropped on. */
   menuOnly?: boolean
-  /** A row on its way out is held still: it is not something to move. */
   disabled?: boolean
   children: ReactNode
 }) {
@@ -197,7 +182,6 @@ export function DraggableRow({
   })
   const { hit, claimed } = use(DragContext)
   const mode = hit?.id === id ? hit.mode : null
-  // dnd-kit's role and tab stop would shadow the treeitem the row already is.
   const { role: _role, tabIndex: _tabIndex, ...aria } = attributes
   return (
     <div
@@ -221,7 +205,6 @@ export function DraggableRow({
         <div
           data-drop-indicator={mode}
           className={cn(
-            // The desktop's hairline and end-cap (components/layout/drop-indicator.tsx).
             'pointer-events-none absolute right-0.5 left-2 h-0.5 rounded-full bg-sidebar-drop-line',
             "before:absolute before:top-1/2 before:-left-1.5 before:size-1 before:-translate-x-0.5 before:-translate-y-1/2 before:rounded-full before:border-2 before:border-sidebar-drop-line before:content-['']",
             mode === 'before' ? 'top-0' : 'bottom-0',

@@ -1,5 +1,3 @@
-//! The three panels and their editors: chats, the Files explorer, changes, the create-space panel and inline edits.
-
 mod changes;
 mod chats;
 mod create_space;

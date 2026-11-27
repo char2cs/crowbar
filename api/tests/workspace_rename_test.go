@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// runGitOut is runGit's reading counterpart: it returns stdout so a test can
-// assert on what git reports rather than only that the command succeeded.
 func runGitOut(
 	t *testing.T,
 	dir string,
@@ -28,9 +26,6 @@ func runGitOut(
 	return string(out)
 }
 
-// renamedWorkspace reads one workspace's current state off the chat list. The
-// dedicated GET .../workspaces/:wsId detail route is gone (spec §8 step 6);
-// worktreeOf is where that answer lives now.
 func renamedWorkspace(
 	t *testing.T,
 	h *harness,
@@ -41,8 +36,6 @@ func renamedWorkspace(
 	return worktreeOf(t, h, imported, wsID)
 }
 
-// The agent chats tree lives beside the worktree inside the workspace root, so a
-// rename that moved only the worktree would orphan a workspace's chat history.
 func TestRegression_RenameWorkspaceBranch_CarriesAgentChats(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -64,15 +57,11 @@ func TestRegression_RenameWorkspaceBranch_CarriesAgentChats(t *testing.T) {
 	assert.Equal(t, "history", string(body))
 }
 
-// A locked workspace is a protected branch with its own managed worktree;
-// renaming it would desynchronise it from the provider, so it is refused.
 func TestRegression_RenameWorkspaceBranch_RefusesLockedWorkspace(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
-	// imported.workspaceID is the locked managed worktree for "main", owned by
-	// imported.chatID.
 	resp := h.raw(http.MethodPatch, repoBase+"/chats/"+imported.chatID+"/branch",
 		map[string]string{"branch": "renamed-main"}, http.StatusConflict)
 	_ = resp.Body.Close()
@@ -81,8 +70,6 @@ func TestRegression_RenameWorkspaceBranch_RefusesLockedWorkspace(t *testing.T) {
 	assert.Equal(t, "main", still.Branch, "a refused rename must change nothing")
 }
 
-// A rename onto a branch another workspace already holds must be refused before
-// anything moves, rather than colliding two workspaces onto one directory.
 func TestRegression_RenameWorkspaceBranch_RefusesBranchAlreadyHeld(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -100,17 +87,6 @@ func TestRegression_RenameWorkspaceBranch_RefusesBranchAlreadyHeld(t *testing.T)
 	assert.DirExists(t, after.LocalPath, "the workspace must stay where it was")
 }
 
-// TestRegression_RenameWorkspaceBranch_RenamesGitAndRecordAndMovesNothing pins
-// the bug this endpoint exists to fix, and the shape that replaced it.
-//
-// The sidebar's inline rename only ever rewrote local UI state, so the branch
-// snapped back on the next reload. Wiring it to the raw `git branch -m` endpoint
-// would have been just as wrong: that renames the branch and leaves the record
-// still carrying the old one.
-//
-// Both halves must move — and NOTHING ELSE may. The workspace directory is fixed
-// at creation and does not track the branch, which is what keeps a live worktree,
-// its git registration and every path recorded against it undisturbed.
 func TestRegression_RenameWorkspaceBranch_RenamesGitAndRecordAndMovesNothing(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -123,39 +99,20 @@ func TestRegression_RenameWorkspaceBranch_RenamesGitAndRecordAndMovesNothing(t *
 
 	var out map[string]any
 	h.patch(repoBase+"/chats/"+childChatID+"/branch", map[string]string{"branch": "feature/x"}, &out)
-	// The record update lands via an asynchronously-settling projection (same
-	// reason the sibling delete test below quiesces) — reading back before it
-	// settles intermittently caught the pre-rename branch under load.
 	h.QuiesceReactors()
 
-	// 1. The record carries the new branch and the SAME path.
 	after := renamedWorkspace(t, h, imported, childID)
 	assert.Equal(t, "feature/x", after.Branch, "the record must carry the new branch")
 	assert.Equal(t, before.LocalPath, after.LocalPath,
 		"the workspace must not move: its directory is fixed at creation")
 
-	// 2. The tree is untouched and still where it was.
 	assert.DirExists(t, before.LocalPath)
 
-	// 3. git agrees, and the worktree is still usable — a registration broken by a
-	//    move would fail this.
 	assert.Equal(t, "feature/x",
 		strings.TrimSpace(runGitOut(t, after.LocalPath, "branch", "--show-current")))
 	runGit(t, after.LocalPath, "status", "--porcelain")
 }
 
-// TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory pins the
-// data-loss chain a name-following rename left open.
-//
-// The old rename moved the workspace on disk without re-pointing the id→path
-// index the delete reactor resolves from, so the stale row still named the
-// PRE-rename directory — which a new workspace on the freed branch name then
-// occupied. Deleting the renamed workspace destroyed the NEW one's worktree and
-// chats, and orphaned its own tree forever.
-//
-// Nothing moves now, so the index cannot go stale. The freed BRANCH name is
-// reusable immediately; the directory it was created under is not, so the new
-// workspace is disambiguated onto its own and the two deletes cannot collide.
 func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -167,17 +124,11 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 
 	var out map[string]any
 	h.patch(repoBase+"/chats/"+renamedChatID+"/branch", map[string]string{"branch": "renamed"}, &out)
-	// The reuse below is legal only once "testing" is free, and the
-	// duplicate-branch guard answers from a projection that settles
-	// asynchronously — race it and the create is refused for a branch nothing
-	// holds any more.
 	h.QuiesceReactors()
 	after := renamedWorkspace(t, h, imported, renamedID)
 	require.Equal(t, "renamed", after.Branch)
 	require.Equal(t, before.LocalPath, after.LocalPath, "precondition: nothing moved")
 
-	// The branch name is free again; the directory is not, so the new workspace
-	// lands beside it rather than on top of it.
 	reuseID := createChildWorkspace(t, h, imported, "testing", imported.workspaceID)
 	reuse := renamedWorkspace(t, h, imported, reuseID)
 	require.Equal(t, "testing", reuse.Branch)
@@ -187,16 +138,6 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 	require.NoError(t, os.MkdirAll(chats, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(chats, "c1.json"), []byte("history"), 0o600))
 
-	// Deleting a workspace is DELETE on its OWNING CHAT now (spec §8 step 6): the
-	// cascade reaps the worktree the chat holds (worktree/hierarchy.DeleteCascade,
-	// run inline from DeleteChat's reap) before the 202, and the physical purge
-	// runs in the async delete reactor. renamedChatID still names the same chat:
-	// renaming a branch never changes which chat owns the worktree.
-	//
-	// The barrier is QuiesceReactors, not the status:"deleted" stream frame (that
-	// contract is pinned by TestRegression_WorkspaceDeleteBroadcastsDeletedStatus):
-	// a frame can be missed, a joined reactor cannot, and the read-back below is
-	// the proof the delete landed.
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+renamedChatID, nil, http.StatusOK)
 	_ = resp.Body.Close()
 	h.QuiesceReactors()

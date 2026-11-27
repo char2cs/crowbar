@@ -18,9 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// ledgerSrc is a fake ledger: each Attach replays rows after since, says
-// synced, then follows its own live channel until its hold ends. With linger
-// set, an ended hold still emits one frame, as a source slow to notice would.
 type ledgerSrc struct {
 	rows    int64
 	missing bool
@@ -63,7 +60,6 @@ func (l *ledgerSrc) Attach(ctx context.Context, _ string, since int64, emit func
 	}
 }
 
-// follow is the live channel of the next hold to reach its live frames.
 func (l *ledgerSrc) follow(t *testing.T) chan<- stream.Frame {
 	t.Helper()
 	select {
@@ -75,7 +71,6 @@ func (l *ledgerSrc) follow(t *testing.T) chan<- stream.Frame {
 	}
 }
 
-// ended waits for one Attach to return.
 func (l *ledgerSrc) ended(t *testing.T) {
 	t.Helper()
 	select {
@@ -98,8 +93,6 @@ func ledgerHub(src *ledgerSrc) *appstream.Hub {
 	}, nil)
 }
 
-// A replay past even the hard bound reaches a writer that holds still: the
-// replay waits for room instead of closing the connection.
 func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	rows := stream.HardQueueSize + stream.QueueSize
 	src := newLedgerSrc(int64(rows))
@@ -109,8 +102,6 @@ func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	served(t, hub, conn)
 
 	conn.send(t, stream.OpSub, "chat:c1")
-	// The writer holds still until the replay either waits for room or, had it
-	// not, overran the hard bound and closed the connection.
 	require.Eventually(t, func() bool { return replayWaits() || isClosed(conn) }, waitBound, time.Millisecond)
 	require.False(t, isClosed(conn), "the replay overran the queue instead of waiting")
 	go func() {
@@ -129,7 +120,6 @@ func TestHub_ALedgerReplayLargerThanTheQueueIsDelivered(t *testing.T) {
 	assert.Equal(t, 0, conn.closeCode())
 }
 
-// replayWaits says some goroutine is parked waiting for room in a connection's queue.
 func replayWaits() bool {
 	buf := make([]byte, 1<<22)
 	for _, g := range strings.Split(string(buf[:runtime.Stack(buf, true)]), "\n\n") {
@@ -149,14 +139,13 @@ func isClosed(conn *fakeConn) bool {
 	}
 }
 
-// Live ledger frames count toward the bound: a client that stops reading is told to resync.
 func TestHub_ALiveLedgerOverflowClosesWithResync(t *testing.T) {
 	src := newLedgerSrc(0)
 	hub := ledgerHub(src)
 	conn := newFakeConn()
 	conn.throttle = true
 	done := served(t, hub, conn)
-	conn.allow <- struct{}{} // the synced frame, then the writer holds still
+	conn.allow <- struct{}{}
 	conn.sub(t, "chat:c1")
 	live := src.follow(t)
 
@@ -183,7 +172,7 @@ func TestHub_ALedgerScopeFollowsLiveFramesBesideOtherScopes(t *testing.T) {
 	replay := conn.sub(t, "chat:c1")
 	require.Len(t, replay, 2)
 	assert.Equal(t, "chat:c1", replay[0].Scope)
-	conn.sub(t, "projects") // another scope is served while the ledger follows
+	conn.sub(t, "projects")
 	src.follow(t) <- stream.Frame{T: stream.FrameRow, Row: &ledger.Row{Seq: 3}}
 
 	live := conn.next(t)
@@ -206,7 +195,7 @@ func TestHub_ALedgerCloseEndsItsHoldOnly(t *testing.T) {
 	hub.Entity(stream.Projects, stream.KindOperation, "op1", "x", 0)
 	assert.Equal(t, "op1", conn.next(t).ID, "the projects scope still hears its frames")
 
-	conn.sub(t, "chat:c1") // a closed hold is a new hold on the next sub
+	conn.sub(t, "chat:c1")
 	assert.Equal(t, []int64{0, 0}, src.sinces())
 }
 
@@ -237,8 +226,6 @@ func TestHub_ASubOfAFollowedLedgerAttachesOnce(t *testing.T) {
 	assert.Equal(t, []int64{0}, src.sinces())
 }
 
-// A live frame of a hold let go of never reaches the client, even after it
-// subs the same ledger again.
 func TestHub_UnsubEndsTheFollowAndItsFrames(t *testing.T) {
 	src := newLedgerSrc(0)
 	src.linger = true
@@ -259,8 +246,6 @@ func TestHub_UnsubEndsTheFollowAndItsFrames(t *testing.T) {
 	assert.Len(t, seen, 1, "the hold let go of told the client nothing")
 }
 
-// Frames an unsub finds still queued are dropped: only the one the writer
-// already took can reach the client after it.
 func TestHub_UnsubDropsTheScopesQueuedFrames(t *testing.T) {
 	src := newLedgerSrc(int64(stream.QueueSize + 5))
 	hub := ledgerHub(src)

@@ -1,5 +1,3 @@
-//! Live relay connections and their cancellation.
-
 pub(crate) mod book;
 mod guard;
 mod live;

@@ -7,14 +7,10 @@ import { Label } from '@/components/ui/label'
 import { cn } from '@/utils/cn'
 import { IS_MOBILE } from '@/utils/platform'
 
-// Rows report whether they match the settings search, so a Section can hide its heading when
-// every row is filtered out. `visible: null` unregisters a row.
 const SectionRowVisibilityContext = React.createContext<
   ((rowId: string, visible: boolean | null) => void) | null
 >(null)
 
-/** The phone's inset grouped card: its rows divide into one rounded surface. Elsewhere a plain
- *  stack, as the desktop dialog draws it. */
 export function SettingsCard({
   children,
   className,
@@ -38,7 +34,6 @@ interface SectionProps {
   description?: string
   children: React.ReactNode
   className?: string
-  /** On the phone, leaves its content out of a card: it draws its own (the agents list). */
   plain?: boolean
 }
 
@@ -60,9 +55,6 @@ export default function Section({ title, description, children, className, plain
     setVisibleRowCount(count)
   }, [])
 
-  // While searching, hide the whole section (heading included) once every row
-  // inside it has been filtered out. Rows stay mounted (they render null), so
-  // the `hidden` attribute is used instead of unmounting the subtree.
   const isHiddenBySearch = isSearchActive && visibleRowCount === 0
 
   return (
@@ -79,8 +71,6 @@ export default function Section({ title, description, children, className, plain
         <div
           className={cn('settings-section-header', IS_MOBILE ? 'mb-1.5 px-4' : 'mb-2 px-1 py-1.5')}
         >
-          {/* Label defaults to `sm:text-sm/4`, which always applies here and which
-              tailwind-merge won't drop for an unprefixed size — so set `sm:` too. */}
           <Label
             className={cn(
               'font-heading',
@@ -112,8 +102,6 @@ interface SettingRowProps {
   onReset?: () => void
   canReset?: boolean
   resetLabel?: string
-  /** On the phone a row is one line, the control beside its label; `stacked` puts a control too
-   *  wide for that (a font picker, a long text field) under it, in the same row. */
   layout?: 'inline' | 'stacked'
 }
 
@@ -177,9 +165,6 @@ export function SettingRow({
     }
   }, [description, descriptionId, getPrimaryInteractive, labelId])
 
-  // Mouse-only: a row click forwards to its primary control unless it hit an interactive
-  // descendant (would double-fire). No keyboard twin: the control is tabbable and labelled via
-  // aria-labelledby, so a row tab stop would double every stop in Settings.
   const handleRowClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
 
@@ -236,14 +221,10 @@ export function SettingRow({
     firstInteractive.click()
   }
 
-  // Row-level search filtering: while a settings search query is active, only
-  // rows whose label/description match it render. Placed after all hooks.
   if (!matchesSearch) return null
 
   return (
     <div
-      // A mouse-only hit area around its real control (handleRowClick), which carries the
-      // accessible name and description, so the wrapper has no semantics of its own.
       role="presentation"
       data-setting-layout={IS_MOBILE ? layout : undefined}
       className={cn(

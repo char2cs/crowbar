@@ -10,21 +10,12 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// The anchor half: whether a review comment may sit where the agent asked, and what it is told if not.
-// It lives beside the renderers because both share the diff's hunk geometry and a refusal is agent text.
-
-// MaxBodyChars caps a body a model writes. Stored bodies are re-serialised in every later event of
-// their thread, so unbounded input would grow without limit.
 const MaxBodyChars = 4000
 
 const (
-	// maxAnchorRangesShown bounds how many changed ranges a rejected anchor is told about. A file may
-	// have a thousand hunks; eight is enough because the ranges shown are those nearest the attempt.
 	maxAnchorRangesShown = 8
 )
 
-// CheckBody gates every free-text body a model writes: non-empty and at most MaxBodyChars runes. The
-// refusal names the length and the limit because shortening and retrying is the model's only recovery.
 func CheckBody(tool, body string) error {
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("agenttools: %s: body must not be empty", tool)
@@ -60,9 +51,6 @@ func CheckRange(start, end int) error {
 	return nil
 }
 
-// Validate rejects an anchor outside every hunk of the current review on its side (right = branch,
-// left = base): a floating comment shows the user a finding with no code beside it. A file matches on
-// Path or OldPath (renames); a partial outline may refuse a valid anchor, which is the safe direction.
 func Validate(
 	outline []gitdomain.FileOutline,
 	path string,
@@ -84,8 +72,6 @@ func Validate(
 	)
 }
 
-// anchorInAnyHunk requires the whole range inside one hunk, inclusive at both ends. An absent side
-// (span 0) matches nothing, since CheckRange already established start <= end.
 func anchorInAnyHunk(
 	hunks []gitdomain.HunkShape,
 	start, end int,
@@ -103,8 +89,6 @@ func anchorInAnyHunk(
 	return false
 }
 
-// HunkRange is one changed range of a file on ONE side, in that side's own line
-// numbering, inclusive at both ends — the form a model has to anchor inside.
 type HunkRange struct {
 	lo int
 	hi int
@@ -114,9 +98,6 @@ func (r HunkRange) String() string {
 	return strconv.Itoa(r.lo) + "-" + strconv.Itoa(r.hi)
 }
 
-// anchorRejection is built from the file's own hunk geometry because a rejection is a recovery
-// instruction: it names the legal ranges, since get_review_scope reports no line numbers and the
-// commonest refusal (a range spanning two hunks) has both endpoints inside changed lines.
 func anchorRejection(
 	file gitdomain.FileOutline,
 	path string,
@@ -140,9 +121,6 @@ func anchorRejection(
 	)
 }
 
-// sidelessAnchorRejection answers a side with no changed lines: a file changed only on the other side
-// (a deletion) is one argument away from success, while one with no line diff at all (a binary) never
-// takes an anchored comment.
 func sidelessAnchorRejection(
 	file gitdomain.FileOutline,
 	path string,
@@ -171,8 +149,6 @@ func sidelessAnchorRejection(
 	)
 }
 
-// RangesOnSide reduces the hunks to the ranges a comment may anchor inside on one side, in git order.
-// A zero span (`@@ -1,2 +0,0 @@`) is dropped: "0--1" is not an anchorable range.
 func RangesOnSide(
 	hunks []gitdomain.HunkShape,
 	side domain.ReviewSide,
@@ -191,8 +167,6 @@ func RangesOnSide(
 	return out
 }
 
-// nearestRanges picks a contiguous window around the range closest to the attempt, and reports how
-// many it left out. A window keeps the list near the model's intent and in file order without a sort.
 func nearestRanges(
 	ranges []HunkRange,
 	start int,
@@ -211,9 +185,6 @@ func nearestRanges(
 	return ranges[lo : lo+maxAnchorRangesShown], len(ranges) - maxAnchorRangesShown
 }
 
-// closestRange is the index of the range nearest the attempted anchor, measured by
-// the gap between them — zero when they overlap, which is the case for every
-// endpoint of an anchor that spanned two hunks.
 func closestRange(
 	ranges []HunkRange,
 	start int,
@@ -253,8 +224,6 @@ func RenderRanges(
 	return strings.Join(out, ", ")
 }
 
-// rangesCaveat states what the list omits, since a model reads a short list as complete. hidden counts
-// ranges not printed; partial marks a file whose hunks were capped upstream, so some were never seen.
 func rangesCaveat(
 	hidden int,
 	partial bool,

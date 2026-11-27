@@ -17,54 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ─── from layering_test.go ────────────────────────────────────────────
-
-// featurePath is this feature's import path. Every edge the guard below judges is
-// an edge that starts and ends inside it.
 const featurePath = "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 
-// sharedTier is the one place a package may import outside its own subtree.
-//
-// Everything under it is VOCABULARY: a type or a piece of process-local state that
-// two or more components name. Nothing else may live there, and its members do not
-// know each other either — see rule 2 below.
 const sharedTier = "internal/shared"
 
-// components are the parts of the chat surface: the record, the hook ingress,
-// the CLI lifecycle and the provider table.
-//
-// They are peers, and the whole point of the decomposition is that they do not know
-// about each other. They call each other constantly — a purge retires CLIs, a hook
-// moves a runner, a switch waits on a turn — and every one of those calls goes
-// through an interface the CALLER declares, wired by New. An import between two of
-// them would put the cycle back and take the orchestrator's reason to exist with it.
 var components = []string{"conversation", "ingress", "runner", "provider"}
 
-// TestLayering_TheOnlyThingThatCrossesIsSharedVocabulary is the rule that makes the
-// decomposition real rather than cosmetic. In one sentence:
-//
-//	A package may import only its own descendants and internal/shared/*; a member of
-//	internal/shared may import only its own descendants; nothing under internal/
-//	imports the face.
-//
-// Each clause pays for itself. The first stops two components knowing each other,
-// which is what dissolved the cycle between them. The second keeps the shared tier
-// a flat vocabulary instead of a second architecture growing inside the first — a
-// shared package that reached sideways would be behaviour wearing a smaller name.
-// The third is the face's job description: it knows the components, and a component
-// that knew the face would be a cycle with an extra step.
-//
-// Inverted and OBSERVED to fail: adding `_ ".../internal/ingress"` to
-// internal/runner/runner.go fails with "internal/runner must not import
-// internal/ingress", and adding `_ ".../internal/shared/answerdesk"` to
-// internal/shared/telemetry/telemetry.go fails with "internal/shared/telemetry must
-// not import internal/shared/answerdesk".
-//
-// The third clause could not be observed the same way, and cannot be: every package
-// under internal/ is reachable from the face, so an import back to it is an import
-// cycle the compiler refuses before this test runs. It is stated anyway — a rule
-// that is currently unreachable is still the rule, and the day a package appears
-// that the face does not import, this is what stops it reaching back.
 func TestLayering_TheOnlyThingThatCrossesIsSharedVocabulary(t *testing.T) {
 	t.Parallel()
 
@@ -79,8 +37,6 @@ func TestLayering_TheOnlyThingThatCrossesIsSharedVocabulary(t *testing.T) {
 	}
 }
 
-// TestLayering_EveryComponentIsReachedFromTheFace stops the guard above from
-// passing vacuously. A rule about edges proves nothing if the edges have gone.
 func TestLayering_EveryComponentIsReachedFromTheFace(t *testing.T) {
 	t.Parallel()
 
@@ -99,9 +55,6 @@ func TestLayering_EveryComponentIsReachedFromTheFace(t *testing.T) {
 
 type importEdge struct{ from, to string }
 
-// featureImports parses every package in the feature and returns the edges that
-// stay inside it, both sides expressed relative to the feature root ("" for the
-// face itself).
 func featureImports(t *testing.T) []importEdge {
 	t.Helper()
 
@@ -114,9 +67,6 @@ func featureImports(t *testing.T) []importEdge {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
 			return err
 		}
-		// Test files are excluded on purpose: a test may reach for whatever it needs
-		// to build a fixture, and constraining that would only push fixtures into
-		// production code.
 		if strings.HasSuffix(p, "_test.go") {
 			return nil
 		}
@@ -160,31 +110,22 @@ func relativePackage(root, dir string) string {
 func allowedEdge(from, to string) bool {
 	switch {
 	case from == "":
-		// The face is the orchestrator: knowing every component is its job.
 		return true
 	case to == "":
-		// Nothing below may reach back up.
 		return false
 	case isDescendant(to, from):
-		// A package owns its own subtree.
 		return true
 	case isShared(from):
-		// A member of the shared tier has already had its descendants allowed above;
-		// anything else it reaches for is sideways.
 		return false
 	default:
 		return isShared(to)
 	}
 }
 
-// isDescendant reports whether child is strictly inside parent's subtree.
 func isDescendant(child, parent string) bool {
 	return parent != "" && strings.HasPrefix(child, parent+"/")
 }
 
-// isShared reports whether pkg is a member of the shared tier — one of its
-// top-level packages, not the tier directory itself and not something nested
-// deeper, which belongs to the member above it.
 func isShared(pkg string) bool {
 	return path.Dir(pkg) == sharedTier
 }
@@ -211,19 +152,8 @@ func layeringRule(from, to string) string {
 	}
 }
 
-// maxProductionFileLines is a hard ceiling, not a guideline. A production file
-// past it is a decomposition that has not happened yet.
-//
-// It counts PRODUCTION files only. A test file may be as long as its fixtures
-// need — capping them would push fixtures into production code, which is the
-// outcome this rule exists to prevent.
 const maxProductionFileLines = 500
 
-// TestLayering_NoProductionFileIsOversized keeps the size rule from rotting.
-//
-// Six files broke it when the rule was written and each was decomposed; without a
-// gate the seventh arrives silently, because a file grows one accepted diff at a
-// time and no single diff looks like the problem.
 func TestLayering_NoProductionFileIsOversized(t *testing.T) {
 	root, err := filepath.Abs(".")
 	require.NoError(t, err)
@@ -245,9 +175,6 @@ func TestLayering_NoProductionFileIsOversized(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		// Count as wc -l does: one per newline, plus one more only when the file
-		// ends without a trailing newline. Counting a phantom last line would put
-		// the real ceiling at 499 and reject a legal file.
 		n := bytes.Count(body, []byte("\n"))
 		if len(body) > 0 && body[len(body)-1] != '\n' {
 			n++
@@ -263,7 +190,6 @@ func TestLayering_NoProductionFileIsOversized(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Proven by inversion: raising a file past the ceiling fails here by name.
 	for _, o := range over {
 		t.Errorf(
 			"%s is %d lines, over the %d-line ceiling. Split it by responsibility — "+

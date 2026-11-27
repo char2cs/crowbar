@@ -1,13 +1,8 @@
-//! A number that glides to a new value over a fixed time.
-
 use std::time::{Duration, Instant};
 
 use crate::foundation::motion::Motion;
 use crate::foundation::motion::cubic_bezier::CubicBezier;
 
-/// A value that moves from where it is to a new target along an easing curve; ask it for the value
-/// at a point in time and whether it is still moving. Retargeting mid-flight starts from the
-/// current value, so nothing jumps.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Glide {
     from: f32,
@@ -18,7 +13,6 @@ pub struct Glide {
 }
 
 impl Glide {
-    /// A glide resting at `value` that takes `span` along `curve` for every later move.
     pub fn resting(
         value: f32,
         span: Duration,
@@ -33,12 +27,10 @@ impl Glide {
         }
     }
 
-    /// The target the glide is heading for.
     pub fn target(&self) -> f32 {
         self.to
     }
 
-    /// Starts moving toward `target` from the value shown at `now`; the same target is a no-op.
     pub fn go_to(
         &mut self,
         target: f32,
@@ -53,7 +45,6 @@ impl Glide {
         self.started = Some(now);
     }
 
-    /// Jumps to `value` without animating.
     pub fn snap(
         &mut self,
         value: f32,
@@ -63,7 +54,6 @@ impl Glide {
         self.started = None;
     }
 
-    /// The value at `now`.
     pub fn value(
         &self,
         now: Instant,
@@ -72,7 +62,6 @@ impl Glide {
         self.from + (self.to - self.from) * self.progress(now, motion)
     }
 
-    /// Whether the value is still on its way at `now`.
     pub fn is_running(
         &self,
         now: Instant,

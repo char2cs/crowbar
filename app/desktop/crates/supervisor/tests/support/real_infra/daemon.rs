@@ -23,8 +23,6 @@ pub(crate) fn fast_timings() -> Timings {
     }
 }
 
-/// A supervisor config whose `crowbar-api` is a script that runs the fake daemon in `mode`. The
-/// returned directory holds the socket, script and log and is removed when it is dropped.
 pub(crate) fn config(
     mode: &str,
     timings: Timings,
@@ -54,14 +52,12 @@ async fn first_matching(
     Ok(event)
 }
 
-/// `signal`, or an error when `EVENT_BUDGET` runs out first.
 pub(crate) async fn within_budget<T>(
     signal: impl Future<Output = T>
 ) -> Result<T, tokio::time::error::Elapsed> {
     tokio::time::timeout(EVENT_BUDGET, signal).await
 }
 
-/// The next event `wanted` accepts, or an error when the stream closes or `EVENT_BUDGET` runs out.
 pub(crate) async fn next_matching(
     events: &mut Receiver<DaemonEvent>,
     wanted: impl Fn(&DaemonEvent) -> bool,

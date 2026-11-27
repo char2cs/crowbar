@@ -1,5 +1,3 @@
-//! What a settings watcher logs when the shell closes before it hears of a change.
-
 use std::fmt;
 
 use journal::Level;

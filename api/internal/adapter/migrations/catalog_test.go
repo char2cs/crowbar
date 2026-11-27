@@ -37,9 +37,6 @@ func TestPlan_MarkerPresentIsAnAdoptionNotAWork(t *testing.T) {
 	}, planOf(t, h, StepChatTypes))
 }
 
-// An attempt stopped between recording an adoption and finishing the step has
-// deleted the marker already; the retry's plan still reads it as an adoption, so
-// no copy of state/ is taken for a step that only adopts.
 func TestPlan_AnAdoptionAStoppedAttemptRecordedIsStillAnAdoption(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/view.db", "rows")
@@ -69,8 +66,6 @@ func TestPlan_HookDeliveriesNeverRewritesState(t *testing.T) {
 	assert.False(t, planOf(t, h, StepHookDeliveries).RewritesState)
 }
 
-// A plan that cannot tell whether an older daemon finished the step fails: read
-// as "no marker", the step would run again over work already done.
 func TestPlan_AMarkerLocationThatCannotBeExaminedFailsThePlan(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("windows reports a path through a file as not found")
@@ -103,8 +98,6 @@ func TestPlan_AHomeWithoutLegacyRecordsHasNothingToDo(t *testing.T) {
 	assert.True(t, stepOf(t, StepChatLedger).Recurs, "a chat an older build adds later is still converted")
 }
 
-// The plan counts the legacy chats; legacy databases with no chat in them
-// leave nothing to convert.
 func TestPlan_LegacyRecordsAreOneConversionPerChat(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state/store/"+chatledger.ActivityDB, "")
@@ -123,8 +116,6 @@ func TestPlan_LegacyRecordsAreOneConversionPerChat(t *testing.T) {
 	assert.Equal(t, before, testutil.TreeSnapshot(t, h), "a plan writes nothing")
 }
 
-// A home this binary must not migrate is not an error: the session is live,
-// holds the home, and says why, so the daemon can report it.
 func TestBegin_ARefusedHomeIsALiveHaltedSession(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
@@ -140,8 +131,6 @@ func TestBegin_ARefusedHomeIsALiveHaltedSession(t *testing.T) {
 	assert.NoDirExists(t, h.MigrateDir())
 }
 
-// A step that fails on a damaged, full or read-only store halts in words the
-// user can act on; the driver's own text stays in the log.
 func TestBegin_AStoreFaultHaltsInPlainWords(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "chats/c1/"+chatledger.PromptsDir+"/r1.json",

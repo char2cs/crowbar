@@ -1,5 +1,3 @@
-//! The press that may turn into a drag.
-
 use gpui::{Pixels, Point};
 
 use sidebar::RowId;

@@ -2,7 +2,6 @@ import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, type ReactNode } from 'react'
 
-// Records every MOUNT (not render) of the Plate surface: the pane remounts it per buffer.
 const plateMounts: { bufferId: string }[] = []
 vi.mock('@/features/editor/markdown/plate/markdown-editor-pane', () => ({
   MarkdownEditorPane: (props: { bufferId: string }) => {
@@ -19,7 +18,6 @@ import { EditorPane } from '@/features/panes/components/editor-pane'
 import { getEditorHost, loadEditorHost } from '@/features/editor/host/editor-host'
 import { documentText, replaceDocumentText } from '@/features/editor/documents/document-text'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
-// The read a retry makes; every other caller reads through to the real one.
 const { readDocument } = vi.hoisted(() => ({ readDocument: vi.fn() }))
 vi.mock('@/lib/api/documents', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/documents')>()
@@ -48,7 +46,6 @@ function pane(bufferId: string) {
   return <EditorPane paneId={paneId} bufferId={bufferId} isActiveSurface />
 }
 
-/** The pane tree renders under some workspace's ambient store. */
 function inAmbient(node: ReactNode, ambientWsId = 'ws-ambient') {
   return (
     <WorkspaceStoreContext.Provider value={createWorkspaceStore(ambientWsId)}>
@@ -63,8 +60,6 @@ function monacoMounted(): boolean {
 }
 
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
-// A retry lazy-loads the restore module; transform it at collection, where no
-// test timeout runs, rather than inside the first retry's polling budget.
 await import('@/features/editor/documents/restore-documents')
 
 beforeEach(() => {
@@ -82,7 +77,6 @@ describe('EditorPane', () => {
       render(inAmbient(pane(id)))
 
       await waitFor(() => expect(monacoMounted()).toBe(true), { timeout: MONACO_LOAD_MS })
-      // The mount shows the active buffer in the same effect.
       const paneId = windowPaneStore.getState().activePaneId
       const shown = getEditorHost()?.manager.getEditor(paneId)?.getModel()
       expect(shown?.getValue()).toBe('A')
@@ -124,8 +118,6 @@ describe('EditorPane', () => {
     expect(monacoMounted()).toBe(false)
   })
 
-  // The retry cases open markdown: the document they reload lands on the mocked Plate surface
-  // instead of mounting Monaco, which none of them looks at.
   it('a tab whose document failed to load reads it again on request', async () => {
     const doc = workspaceRef('ws-buffer', 'untitled:Untitled-7.md')
     const id = windowPaneStore
@@ -206,9 +198,6 @@ describe('EditorPane', () => {
     expect(readDocument).toHaveBeenCalledTimes(1)
   })
 
-  // The pane tree renders the active buffer without a key, so a `.md` ->
-  // `.md` tab switch is a prop update. Plate parses its document once per
-  // mount; unkeyed, file A's document would stay live under B's id.
   it('remounts the Plate surface when the buffer changes', async () => {
     const one = await open('one.md')
     const two = await open('two.md')
@@ -221,7 +210,6 @@ describe('EditorPane', () => {
     expect(plateMounts.map((m) => m.bufferId)).toEqual([one, two])
   })
 
-  // Plate parses its document once per mount, so it must not mount before the text exists.
   it('mounts Plate for rich markdown only once the document has opened', async () => {
     const doc = workspaceRef('ws-buffer', 'late.md')
     const id = windowPaneStore
@@ -236,7 +224,6 @@ describe('EditorPane', () => {
     expect(documentText(doc)).toBe('# late')
   })
 
-  // M3: an edited preview tab promotes to permanent, from either surface.
   it('promotes a preview tab once its document is edited', async () => {
     const id = await open('one.md', { isPreview: true })
 

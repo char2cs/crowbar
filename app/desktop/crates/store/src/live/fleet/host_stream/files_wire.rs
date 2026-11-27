@@ -1,5 +1,3 @@
-//! What the `files:` hold reads from the shared state and says to the daemon.
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 

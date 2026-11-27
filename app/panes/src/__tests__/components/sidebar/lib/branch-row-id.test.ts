@@ -24,8 +24,6 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   }
 }
 
-// Neither direction of the translation depends on `Chat.type`: both read
-// `Repo.defaultOwningChatId`, else the type-agnostic `ownsWorktree` fallback.
 describe('owningChatIdOfWorkspace', () => {
   it('resolves a locked branch directly off Workspace.owningChatId', () => {
     const repo = makeTestRepo({
@@ -50,8 +48,6 @@ describe('owningChatIdOfWorkspace', () => {
   })
 
   it('never matches a legacy type: "branch"-less chat that merely shares the workspace id', () => {
-    // A thread carries its parent's workspaceId without owning it — no
-    // ownsWorktree, so it must never stand in as the home row's owner.
     const repo = makeTestRepo({
       defaultWorkspaceId: 'ws-home',
       chats: [makeTestChat({ id: 'unrelated-thread', title: '', workspaceId: 'ws-home' })],

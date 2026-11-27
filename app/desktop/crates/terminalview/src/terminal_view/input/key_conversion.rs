@@ -1,5 +1,3 @@
-//! Converts GPUI keystrokes to the terminal crate's key input.
-
 use gpui::Keystroke;
 use terminal::{KeyInput, Modifiers};
 

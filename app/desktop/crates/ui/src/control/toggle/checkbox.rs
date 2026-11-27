@@ -1,5 +1,3 @@
-//! The checkbox.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ElementId, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
@@ -26,7 +24,6 @@ const MARK: f32 = 12.0;
 const RADIUS: f32 = 4.0;
 const DISABLED_OPACITY: f32 = 0.64;
 
-/// A 16px checkbox; the owner stores the value and passes it back.
 #[derive(IntoElement)]
 pub struct Checkbox {
     id: ElementId,
@@ -38,7 +35,6 @@ pub struct Checkbox {
 }
 
 impl Checkbox {
-    /// A checkbox showing `checked`.
     pub fn new(
         id: impl Into<ElementId>,
         checked: impl Into<Pose>,
@@ -53,21 +49,18 @@ impl Checkbox {
         }
     }
 
-    /// Shows a dash for a group only partly checked; a click then asks for checked.
     #[must_use]
     pub fn indeterminate(mut self) -> Self {
         self.mixed = Pose::from(!self.checked);
         self
     }
 
-    /// Disables the checkbox.
     #[must_use]
     pub fn disabled(mut self) -> Self {
         self.disabled = true;
         self
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,
@@ -77,7 +70,6 @@ impl Checkbox {
         self
     }
 
-    /// Registers the handler receiving the requested value.
     #[must_use]
     pub fn on_change(
         mut self,

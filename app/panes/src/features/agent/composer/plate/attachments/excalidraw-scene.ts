@@ -3,8 +3,6 @@ export interface ParsedExcalidrawScene {
   appState: Record<string, unknown>
 }
 
-/** Structural only: `elements` is the signal. `appState` is optional because real
- *  `.excalidraw` files often omit it and `restore()` fills in defaults. */
 function parseExcalidrawSceneUncached(raw: string): ParsedExcalidrawScene | null {
   let parsed: unknown
   try {
@@ -22,8 +20,6 @@ function parseExcalidrawSceneUncached(raw: string): ParsedExcalidrawScene | null
   return { elements: obj.elements, appState: (obj.appState as Record<string, unknown>) ?? {} }
 }
 
-/** Keyed by source text so the scene reference is stable across unrelated
- *  re-renders: `ExcalidrawPreview` restarts its SVG export when it changes. */
 const sceneCache = new Map<string, ParsedExcalidrawScene | null>()
 
 export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null {
@@ -34,8 +30,6 @@ export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null 
   return scene
 }
 
-/** Lets `ExcalidrawPreview` reserve its footprint before the lazy engine loads, so
- *  the transcript doesn't resize a second time. `null` when nothing is measurable. */
 export function computeSceneAspectRatio(elements: unknown[]): number | null {
   let minX = Infinity
   let minY = Infinity

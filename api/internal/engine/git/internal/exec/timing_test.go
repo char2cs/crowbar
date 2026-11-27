@@ -51,10 +51,6 @@ func TestGit_SubcommandNameIgnoresFlags(t *testing.T) {
 	}
 }
 
-// TestGit_SubcommandNameSkipsNonDashCFlags extends
-// TestGit_SubcommandNameIgnoresFlags (which only covers the "-c" skip) to a
-// different leading flag, proving the general HasPrefix("-") skip branch also
-// works and not just the special-cased "-c value" pair.
 func TestGit_SubcommandNameSkipsNonDashCFlags(t *testing.T) {
 	dir := initRepo(t)
 	perf.Reset()
@@ -70,9 +66,6 @@ func TestGit_SubcommandNameSkipsNonDashCFlags(t *testing.T) {
 	assert.Contains(t, names, "git.status")
 }
 
-// TestGit_SubcommandNameAllFlagsFallsBackToUnknown covers subcommandName's
-// final fallback: an argument list containing nothing but flags never finds a
-// subcommand name to return.
 func TestGit_SubcommandNameAllFlagsFallsBackToUnknown(t *testing.T) {
 	dir := initRepo(t)
 	perf.Reset()
@@ -88,10 +81,6 @@ func TestGit_SubcommandNameAllFlagsFallsBackToUnknown(t *testing.T) {
 	assert.Contains(t, names, "git.unknown")
 }
 
-// TestClassifyTimeout_NoParentDeadline_ReportsDefaultTimeout covers the one
-// classifyTimeout branch a real subprocess cannot reach in test time: a
-// caller-supplied context with no deadline of its own (so classifyTimeout's
-// parentErr is nil) that still got killed by the internal 60s GitOpTimeout.
 func TestClassifyTimeout_NoParentDeadline_ReportsDefaultTimeout(t *testing.T) {
 	r := exec.ClassifyTimeout(context.DeadlineExceeded, nil, exec.Result{ExitCode: -1})
 

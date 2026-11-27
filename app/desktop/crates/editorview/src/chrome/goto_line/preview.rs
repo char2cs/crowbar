@@ -4,7 +4,6 @@ use ui::{Appearance, Theme};
 
 use super::GotoLine;
 
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/core/editorColorRegistry.ts (editorRangeHighlight)
 const DARK_LINE_HIGHLIGHT: u32 = 0xffff_ff0b;
 const LIGHT_LINE_HIGHLIGHT: u32 = 0xfdff_0033;
 

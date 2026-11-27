@@ -1,5 +1,3 @@
-//! Blink phase of the cursor.
-
 use std::time::Duration;
 
 pub(crate) const BLINK_INTERVAL: Duration = Duration::from_millis(530);

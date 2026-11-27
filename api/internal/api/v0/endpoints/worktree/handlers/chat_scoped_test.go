@@ -14,14 +14,8 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// The seven worktree lifecycle verbs, addressed by the CHAT that holds the
-// worktree instead of by the worktree (spec §4.3). Their :wsId twins are gone
-// (spec §8 step 6), so these are the whole surface.
-
 const chatBase = "/v0/projects/p1/repos/r1/chats/c1"
 
-// heldWorkspace is what the resolver answers for chat c1 throughout: the
-// workspace behind the worktree that chat reads and writes through.
 func heldWorkspace() *fakeWorktrees {
 	return &fakeWorktrees{ws: domain.Workspace{ID: "w1"}}
 }
@@ -42,8 +36,6 @@ func TestChatLock_LocksTheWorkspaceTheChatHolds(
 	assert.True(t, *reader.gotLocked)
 }
 
-// The lock override's third answer survives the re-keying: an omitted `locked`
-// still clears the override rather than reading as false.
 func TestChatLock_OmittedLockedStillHandsTheQuestionBackToTheProvider(
 	t *testing.T,
 ) {
@@ -57,8 +49,6 @@ func TestChatLock_OmittedLockedStillHandsTheQuestionBackToTheProvider(
 	assert.Nil(t, reader.gotLocked)
 }
 
-// A malformed body is refused BEFORE the chat is resolved: a body that cannot be
-// parsed is not a request about any particular chat yet.
 func TestChatLock_RejectsAMalformedBodyBeforeResolvingAnything(
 	t *testing.T,
 ) {
@@ -103,8 +93,6 @@ func TestChatMergeIntoParent_MergesTheWorkspaceTheChatHolds(
 	assert.Equal(t, gitdomain.MergeStrategySquash, hierarchy.gotStrategy)
 }
 
-// The synchronous guards travel with the verb: a merge with no strategy is
-// still refused on the request path, and still reaches no git.
 func TestChatMergeIntoParent_StillRefusesAMissingStrategy(
 	t *testing.T,
 ) {
@@ -117,12 +105,9 @@ func TestChatMergeIntoParent_StillRefusesAMissingStrategy(
 	assert.Empty(t, hierarchy.gotMergeID)
 }
 
-// deleteSource's post-merge fold is a side effect of the verb, not of the
-// route: a clean merge of a LEAF still cascades the child away when asked.
 func TestChatMergeIntoParent_StillFoldsAMergedLeafAway(
 	t *testing.T,
 ) {
-	// One workspace in the list and nothing parented under w1 — a leaf.
 	reader := &fakeReader{list: []domain.Workspace{{ID: "w1"}}}
 	hierarchy := &fakeHierarchy{deleteDone: make(chan struct{})}
 	r, _ := newChatRouter(reader, hierarchy, heldWorkspace())
@@ -200,13 +185,9 @@ func TestChatDetachHolder_DetachesTheWorkspaceTheChatHolds(
 	assert.Equal(t, "w1", hierarchy.gotDetachID)
 }
 
-// A chat that resolves to a workspace SHARED with its ancestors is served by
-// the workspace it resolves to, not by one it happens to own itself: a thread
-// hanging under a worktree-owning chat locks THAT worktree.
 func TestChatVerbs_ActOnTheAncestorsWorktreeAChatShares(
 	t *testing.T,
 ) {
-	// The resolver's whole job: c1 owns nothing, its ancestor owns ancestor-ws.
 	worktrees := &fakeWorktrees{ws: domain.Workspace{ID: "ancestor-ws"}}
 	hierarchy := &fakeHierarchy{retryDone: make(chan struct{})}
 	r, _ := newChatRouter(&fakeReader{}, hierarchy, worktrees)
@@ -218,9 +199,6 @@ func TestChatVerbs_ActOnTheAncestorsWorktreeAChatShares(
 	assert.Equal(t, "ancestor-ws", hierarchy.gotRetryID)
 }
 
-// A bubble hanging off nothing has no worktree for these verbs to act on. It is
-// answered 404 — the same answer the flat /chats/:chatId group's own middleware
-// gives — and never a panic, a 500, or a call keyed on an empty id.
 func TestChatVerbs_404WhenNoAncestorOwnsAWorktree(
 	t *testing.T,
 ) {
@@ -234,8 +212,6 @@ func TestChatVerbs_404WhenNoAncestorOwnsAWorktree(
 			worktrees := &fakeWorktrees{err: worktree.ErrNoWorktreeInAncestry}
 			r, ops := newChatRouter(reader, hierarchy, worktrees)
 
-			// Bodies that would otherwise pass their own validation, so the 404 is
-			// provably the resolve and not a body guard firing first.
 			rec := do(r, http.MethodPost, chatBase+"/"+verb,
 				`{"locked":true,"strategy":"squash","newParentId":"w9"}`)
 
@@ -252,9 +228,6 @@ func TestChatVerbs_404WhenNoAncestorOwnsAWorktree(
 	}
 }
 
-// Any other resolve failure answers the same 404 for the same reason: from the
-// caller's side a chat whose worktree cannot be resolved is indistinguishable
-// from a chat that does not exist.
 func TestChatVerbs_404WhenTheResolveFailsForAnyOtherReason(
 	t *testing.T,
 ) {
@@ -265,11 +238,6 @@ func TestChatVerbs_404WhenTheResolveFailsForAnyOtherReason(
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
-
-// The chat-keyed BRANCH rename (spec §5's missing half). The whole reason this
-// route exists rather than pointing a client at the raw PATCH
-// /v0/chats/:chatId/git/branches is that the raw one enforces none of these
-// guards and leaves domain.Workspace.Branch stale behind a bare `git branch -m`.
 
 func TestChatRenameBranch_RenamesTheBranchOfTheWorktreeTheChatHolds(
 	t *testing.T,
@@ -289,10 +257,6 @@ func TestChatRenameBranch_RenamesTheBranchOfTheWorktreeTheChatHolds(
 		"the answer names the CHAT — past law 1 a workspace has no id a client may hold")
 }
 
-// Every refusal guardRenameBranch makes — a locked branch, a repo-wide name
-// collision, an unprovisioned placeholder, an adopted checkout the user owns —
-// must arrive through the chat door. The guards all live below the handler, so
-// all this has to prove is that the handler still routes through them.
 func TestChatRenameBranch_CarriesEveryGuardTheUsecaseEnforces(
 	t *testing.T,
 ) {
@@ -314,8 +278,6 @@ func TestChatRenameBranch_CarriesEveryGuardTheUsecaseEnforces(
 	}
 }
 
-// A blank name never reaches the usecase, and it is refused for what is wrong
-// with it rather than for a chat lookup the request never got to.
 func TestChatRenameBranch_BlankBranchIsRefusedBeforeTheUsecase(
 	t *testing.T,
 ) {
@@ -328,9 +290,6 @@ func TestChatRenameBranch_BlankBranchIsRefusedBeforeTheUsecase(
 	assert.Empty(t, hierarchy.gotRenameID, "a blank name must never reach the usecase")
 }
 
-// A malformed body is refused BEFORE the chat is resolved, matching lock's own
-// order: a body that cannot be parsed is not yet a request about any particular
-// chat.
 func TestChatRenameBranch_BadJSONIsRefusedBeforeTheChatIsResolved(
 	t *testing.T,
 ) {
@@ -343,8 +302,6 @@ func TestChatRenameBranch_BadJSONIsRefusedBeforeTheChatIsResolved(
 	assert.Empty(t, worktrees.gotChat, "nothing was resolved for an unparseable request")
 }
 
-// A chat whose worktree cannot be resolved — an unknown id, or a bubble hanging
-// off nothing — is the same 404 every other chat-keyed verb answers.
 func TestChatRenameBranch_UnresolvableChatIs404(
 	t *testing.T,
 ) {

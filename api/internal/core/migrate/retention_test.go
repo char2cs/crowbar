@@ -18,9 +18,6 @@ func rewriting(
 	return planned(newStep(n, name, PreOpen, 0, 0), Plan{RewritesState: true})
 }
 
-// A completed migration supersedes the image the one before it restored to, so
-// the boot after it keeps the newest backup alone.
-// boot is one boot of b's home that runs impls and lets the home go.
 func boot(
 	tb testing.TB,
 	b *bench,
@@ -53,8 +50,6 @@ func TestBegin_KeepsOnlyTheNewestBackupOnceTheMigrationAfterItCompleted(t *testi
 	assert.FileExists(t, filepath.Join(b.home.MigrateDir(), backupsDirName, restoreNoteName))
 }
 
-// While the last run failed, was interrupted or never ended, an older backup
-// may be the only image a person can still go back to.
 func TestBegin_KeepsEveryBackupWhileTheLastRunDidNotComplete(t *testing.T) {
 	for name, end := range map[string][]record{
 		"failed":      {{Kind: kindRunEnd, At: minute(3), Run: "r2", To: intPtr(0), Outcome: outcomeFailed}},
@@ -100,8 +95,6 @@ func TestBegin_PrunesTheDirectoryBackupsOfEarlierBuildsToo(t *testing.T) {
 	assert.FileExists(t, filepath.Join(b.home.MigrateDir(), backupsDirName, "20261017T010203.000000000Z.tar.gz"))
 }
 
-// History answers from what the ledger held when the run began: the run in
-// progress has not completed, so only a later boot sees it as one that did.
 func TestHistory_CompletedAtSeesOnlyRunsThatEndedCompletedAtTheLayout(t *testing.T) {
 	var seen []bool
 	watch := newStep(2, "watch", PreOpen, 1, 1)

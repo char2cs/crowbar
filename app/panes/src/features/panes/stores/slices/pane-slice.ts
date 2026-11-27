@@ -16,56 +16,36 @@ import { commitViewWrite } from '@/features/panes/lib/view-ops'
 type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
 interface OpenChatOptions {
-  /** The chat's project; defaults to the active one. */
   projectId?: string
-  /** The chat's workspace, recorded on its pane (C3). */
   workspaceId?: string | null
   runnerId?: string | null
 }
 
-/** Only actions marked "row" add or remove a Recents row (a view record); every structural
- *  write goes through `lib/view-ops.ts`. */
 export interface PaneActions {
-  /** A chatless pane carved out of `paneId`'s share, in `paneId`'s view. */
   splitPane(
     paneId: string,
     direction: SplitDirection,
     bufferId?: string,
     placement?: SplitPlacement,
   ): string | null
-  /** Row: reveal the view holding `chatId`, else a new record (or the showing
-   *  stage, promoted). Never replaces what a pane shows. */
   openChat(chatId: string, opts?: OpenChatOptions): void
-  /** Row: fill a chatless pane or split the target — the chat joins the
-   *  target's view; an already-open chat is moved. */
   dropChatOnPane(
     chatId: string,
     paneId: string,
     zone: PaneDropZone,
     workspaceId?: string | null,
   ): void
-  /** Row: a group member becomes a record of its own, right after the group. */
   detachPane(paneId: string): void
-  /** Row: a view left without a chat is removed. */
   closePane(paneId: string): void
-  /** Row. */
   closeView(viewId: string): void
   reorderView(viewId: string, targetId: string, mode: 'before' | 'after'): void
-  /** Row: pinned views lead the band; the view moves to the edge of its new group. */
   setViewPinned(viewId: string, pinned: boolean): void
-  /** Row: the daemon deleted `chatId`. */
   forgetChat(chatId: string): void
-  /** Row: the runner in `paneId` walked into `chatId` (`moved` frame only). */
   retargetPane(paneId: string, chatId: string, runnerId: string | null): void
   setPaneRunner(paneId: string, runnerId: string | null): void
-  /** Row: where the chat a draft thread becomes is placed ('' is the panel root). */
   tagDraftThread(chatId: string, parentId: string): void
-  /** Row: the daemon's answer for restored members saved without a workspace —
-   *  `placed` fills it in, `gone` chats leave (their unsaved buffers stay). */
   placeRestoredMembers(placed: ReadonlyMap<string, string>, gone: ReadonlySet<string>): void
-  /** Row: a chat turned working with no pane — a background record, not shown. */
   adoptBackgroundChat(chatId: string, projectId: string, workspaceId?: string | null): void
-  /** Put a record on screen (another project's is only remembered). */
   activateView(viewId: string): void
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
@@ -73,7 +53,6 @@ export interface PaneActions {
   addEditorTabToPane(paneId: string, tab: EditorTabBase): void
   removeEditorTabFromPane(paneId: string, tabId: string): void
   moveEditorTabToPane(tabId: string, fromPaneId: string, toPaneId: string): void
-  /** Every pane showing `fromId` shows `toId` in its place, or only `toId` if it has both. */
   replaceEditorTab(fromId: string, toId: string): void
   setEditorTabPreview(paneId: string, tabId: string): void
   setEditorTabPinned(paneId: string, tabId: string, pinned: boolean): void
@@ -91,7 +70,6 @@ export interface PaneActions {
   switchToNextEditorTab(paneId: string): void
   switchToPreviousEditorTab(paneId: string): void
   navigateToPane(direction: 'left' | 'right' | 'up' | 'down'): void
-  /** The route's project changed. One writer: ide-shell's route effect. */
   setActiveProject(projectId: string): void
   closeViewsForProject(projectId: string): void
 }
@@ -106,8 +84,6 @@ export const createPaneSlice: StateCreator<
   [],
   PaneSlice
 > = (rawSet, get) => {
-  // Every pane write settles focus and releases the buffers it unlisted in the same `set` (C2),
-  // so no close strands a buffer (or its PTY) or leaves focus on a gone pane.
   const set: PaneSet = (recipe) => {
     let released: PaneContent[] = []
     rawSet((state) => {

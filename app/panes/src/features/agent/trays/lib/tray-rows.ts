@@ -1,19 +1,13 @@
-/** One line of the bottom tray: work the agent started that is still being tracked. */
 export interface TrayRow {
   id: string
   kind: 'subagent' | 'shell' | 'monitor'
   label: string
-  /** What it is doing now, or how it ended. */
   detail: string
-  /** Everything else known of it, for a tooltip. */
   hint?: string
   status: 'running' | 'done' | 'failed' | 'stopped'
-  /** A shell or monitor the agent was asked to end and has not yet. */
   stopping?: boolean
-  /** The provider's id of a shell or monitor, which a stop names. */
   shellId?: string
   startedAt: string
-  /** When it ended, so an ended row keeps how long it ran. */
   endedAt?: string
 }
 
@@ -21,13 +15,10 @@ type TrayEntry = { type: 'label'; id: string; text: string } | { type: 'row'; ro
 
 export interface TrayWindow {
   entries: TrayEntry[]
-  /** The grouped row standing in for the rows folded away. */
   more: { hidden: number; running: number } | null
-  /** Everything is showing and there was more than fits. */
   canCollapse: boolean
 }
 
-/** The tray never grows past this many rows, its group row included. */
 const MAX_ROWS = 4
 
 const GROUPS: { kind: TrayRow['kind']; label: string }[] = [
@@ -41,7 +32,6 @@ const GROUP_LABELS = Object.fromEntries(GROUPS.map((g) => [g.kind, g.label])) as
 >
 const rank = (row: TrayRow) => GROUPS.findIndex((g) => g.kind === row.kind)
 
-/** The rows to draw: subagents, then shells, then monitors, folded to fit unless `expanded`. */
 export function windowRows(rows: TrayRow[], expanded: boolean): TrayWindow {
   const ordered = [...rows].sort((a, b) => rank(a) - rank(b))
   const folds = ordered.length > MAX_ROWS && !expanded
@@ -72,7 +62,6 @@ const NOUNS: Record<TrayRow['kind'], [string, string]> = {
   monitor: ['monitor', 'monitors'],
 }
 
-/** What the tray holds in a line, for the phone's folded row: `3 subagents · 2 shells · 1 monitor`. */
 export function summarizeRows(rows: TrayRow[]): string {
   return GROUPS.flatMap(({ kind }) => {
     const n = rows.filter((row) => row.kind === kind).length

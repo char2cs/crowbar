@@ -1,5 +1,3 @@
-//! Opening a row: a checkout opens as its chat, a container folds.
-
 use gpui::Context;
 use sidebar::{Command, RowId};
 

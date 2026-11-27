@@ -5,9 +5,6 @@ import (
 	"log/slog"
 )
 
-// detachedParentHead is the commit the parent's checkout holds: a branchless
-// (detached) parent has nothing else to fork from, and FromParentHead asks for
-// it. Unresolved, it answers "" and the worktree add reports why.
 func (u *hierarchyUsecase) detachedParentHead(
 	ctx context.Context,
 	in CreateChildInput,

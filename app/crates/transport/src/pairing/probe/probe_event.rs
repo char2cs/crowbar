@@ -1,5 +1,3 @@
-//! What the unpinned fingerprint probe logs.
-
 use std::{fmt, io};
 
 use journal::Level;

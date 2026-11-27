@@ -8,7 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 )
 
-// Status is the outcome of one conformance step.
 type Status string
 
 const (
@@ -18,7 +17,6 @@ const (
 	StatusSkip Status = "skip"
 )
 
-// Step is one conformance check against the real CLI.
 type Step struct {
 	Name    string        `json:"name"`
 	Status  Status        `json:"status"`
@@ -26,13 +24,11 @@ type Step struct {
 	Elapsed time.Duration `json:"elapsedNs"`
 }
 
-// LiveReport is a descriptor's static report plus its live conformance steps.
 type LiveReport struct {
 	Report
 	Steps []Step `json:"steps"`
 }
 
-// OK reports whether nothing failed, statically or live.
 func (r LiveReport) OK() bool {
 	if !r.Report.OK() {
 		return false
@@ -45,25 +41,15 @@ func (r LiveReport) OK() bool {
 	return true
 }
 
-// LiveOptions tunes a conformance run.
 type LiveOptions struct {
-	// Cwd is the directory the CLI boots in; a fresh temporary one if empty.
-	Cwd string
-	// Turn runs one real model turn (one billed request) to prove the hook
-	// round trip for a provider that reports hooks only once a turn starts.
-	Turn bool
-	// Prompt is the turn's message.
-	Prompt string
-	// BootWindow is how long a TUI must stay up to count as booted.
-	BootWindow time.Duration
-	// ResumeWindow bounds how long an unknown-session resume may run.
+	Cwd          string
+	Turn         bool
+	Prompt       string
+	BootWindow   time.Duration
 	ResumeWindow time.Duration
-	// TurnTimeout bounds the model turn.
-	TurnTimeout time.Duration
-	// ServeWindow bounds runtime.api.serve's start and its handshake answer.
-	ServeWindow time.Duration
-	// Env is the CLI's base environment; the daemon's own if nil.
-	Env []string
+	TurnTimeout  time.Duration
+	ServeWindow  time.Duration
+	Env          []string
 }
 
 func (o LiveOptions) withDefaults() LiveOptions {
@@ -88,8 +74,6 @@ func (o LiveOptions) withDefaults() LiveOptions {
 	return o
 }
 
-// Conform validates raw and, when nothing static blocks it, runs it against
-// the real CLI: binary, version, flags, TUI boot, hooks, resume, api serve.
 func Conform(ctx context.Context, raw []byte, opts LiveOptions) LiveReport {
 	rep := LiveReport{Report: Validate(raw)}
 	if !rep.Report.OK() {

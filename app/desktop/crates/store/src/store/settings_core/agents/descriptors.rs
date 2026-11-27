@@ -1,5 +1,3 @@
-//! The agent descriptors a computer loads, and installing another.
-
 use daemonapi::Call;
 
 use crate::error::Result;

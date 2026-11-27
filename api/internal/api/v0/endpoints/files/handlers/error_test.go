@@ -47,7 +47,6 @@ func TestFileHandlers_ErrorPaths(
 	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodDelete, "/v0/workspaces/ws1/files?path=a.go", nil).Code)
 }
 
-// The fs engine hands up the os error itself; its errno alone makes it a 404.
 func TestFileHandlers_NotFoundError(
 	t *testing.T,
 ) {
@@ -57,10 +56,6 @@ func TestFileHandlers_NotFoundError(
 	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/files/tree?path=missing", nil).Code)
 }
 
-// TestFileHandlers_Create_DirectoryError proves a CreateDir failure is mapped
-// through fileError exactly like every other verb's failure, on the "dir"
-// type branch specifically (distinct from the default CreateFile branch
-// TestFileHandlers_ErrorPaths already covers).
 func TestFileHandlers_Create_DirectoryError(
 	t *testing.T,
 ) {

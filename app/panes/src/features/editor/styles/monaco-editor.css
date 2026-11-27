@@ -2,13 +2,6 @@
   --vscode-editor-background: var(--background);
 }
 
-/* Monaco's rounded-selection corner connectors (`.cslr.monaco-editor-background`)
-   erase a square corner into a curve by painting over it with `editor.background`,
-   which this theme sets transparent (define-theme.ts) — so the corner never gets
-   erased and shows as a sharp notch. Force it opaque here, scoped to just the
-   connector (not the main surface, which must stay transparent for the
-   translucent pane background). `!important`: Monaco's generated theme stylesheet sets this
-   element's color inline-equivalent and loads after this file. */
 .editor-container .monaco-editor .cslr.monaco-editor-background {
   background-color: var(--background) !important;
 }
@@ -55,7 +48,6 @@
   display: none !important;
 }
 
-/* ── Inline review-comment threads (Monaco view zones) ── */
 .diff-add-comment-glyph {
   cursor: pointer;
 }
@@ -73,13 +65,11 @@
   border-radius: 4px;
   background: color-mix(in oklch, var(--primary) 18%, transparent);
 }
-/* The view zone hosts a React-rendered thread/composer card. */
 .diff-comment-zone {
   z-index: 5;
   width: 100%;
 }
 
-/* Diff add/removed tint as whole-line decorations (zone-safe). */
 .diff-line-added {
   background: color-mix(in oklch, var(--git-added) 15%, transparent);
 }
@@ -87,7 +77,6 @@
   background: color-mix(in oklch, var(--git-deleted) 15%, transparent);
 }
 
-/* Diff-wide search hit highlights (range decorations over the matched text). */
 .diff-search-match {
   background: color-mix(in oklch, var(--warning) 40%, transparent);
   border-radius: 2px;

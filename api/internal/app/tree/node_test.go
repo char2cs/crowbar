@@ -35,8 +35,6 @@ func TestMembers_OrdersOnTheDenseIndexFirst(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c"}, ids(plan.Members("")))
 }
 
-// Every row a user has never dragged carries 0, so creation time is what keeps
-// an untouched level in a fixed sequence instead of reshuffling per request.
 func TestMembers_FallsBackToCreationTimeWhenIndicesTie(t *testing.T) {
 	plan := tree.New([]tree.Node{
 		{ID: "late", CreatedAt: at(9)},
@@ -56,8 +54,6 @@ func TestMembers_FallsBackToTheIDWhenTimestampsTie(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, ids(plan.Members("")))
 }
 
-// A caller with no creation time at all still gets a deterministic level: the
-// zero value ties among itself and falls straight through to the id.
 func TestMembers_SortsUndatedRowsAheadOfDatedOnes(t *testing.T) {
 	plan := tree.New([]tree.Node{
 		{ID: "dated", CreatedAt: at(1)},
@@ -67,9 +63,6 @@ func TestMembers_SortsUndatedRowsAheadOfDatedOnes(t *testing.T) {
 	assert.Equal(t, []string{"undated", "dated"}, ids(plan.Members("")))
 }
 
-// The sidebar draws a tied level folders, then branches, then chats, with a
-// project's repo headers after its home rows — a densify that counted chats
-// ahead of branches (or repos ahead of chats) put the first drop slots off.
 func TestMembers_BreaksATieByKindInTheSidebarsDrawnSequence(t *testing.T) {
 	plan := tree.New([]tree.Node{
 		{ID: "chat", Rank: tree.RankChat, CreatedAt: at(1)},

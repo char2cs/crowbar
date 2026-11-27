@@ -19,7 +19,6 @@ func (u *hierarchyUsecase) guardReparent(
 	if newParent.Provisioning == domain.WorkspacePlaceholder {
 		return ErrParentUnprovisioned
 	}
-	// A locked (protected) branch is a valid re-parent target: create already seeds children under one.
 	hasKids, err := u.childHasChildren(ctx, child.ID)
 	if err != nil {
 		return fmt.Errorf("reparent: leaf check: %w", err)
@@ -30,17 +29,12 @@ func (u *hierarchyUsecase) guardReparent(
 	if workingErr := u.guardNotWorking(ctx, child.ID); workingErr != nil {
 		return workingErr
 	}
-	// A row that owns a worktree cannot move across repos (a different checkout entirely); a row with no
-	// worktree of its own can.
 	if child.RepoID != newParent.RepoID && child.Provisioning.HasWorktree() {
 		return ErrCrossRepoWorktreeMove
 	}
 	return nil
 }
 
-// guardNotWorking refuses a move over a workspace subtree that owns a working
-// chat (invariant 5), walking the subtree with cascade.Plan as the chat tree
-// does. A nil chatObserver makes it a no-op, like TerminalReaper.
 func (u *hierarchyUsecase) guardNotWorking(
 	ctx context.Context,
 	rootID string,
@@ -64,8 +58,6 @@ func (u *hierarchyUsecase) guardNotWorking(
 	return nil
 }
 
-// anyChatWorkingIn reports whether any chat owned by workspaceID is currently
-// working.
 func (u *hierarchyUsecase) anyChatWorkingIn(
 	ctx context.Context,
 	workspaceID string,
@@ -86,8 +78,6 @@ func (u *hierarchyUsecase) anyChatWorkingIn(
 	return false, nil
 }
 
-// subtreeWorkspaceIDs returns rootID and every workspace below it. Unlike the delete cascade it never
-// skips a locked workspace, which can still own a working chat.
 func subtreeWorkspaceIDs(
 	rootID string,
 	all []domain.Workspace,
@@ -108,8 +98,6 @@ func (u *hierarchyUsecase) childHasChildren(
 		return false, err
 	}
 	for _, ws := range all {
-		// A self-loop (ws.ParentID == ws.ID) must not count the node as its own
-		// child, or a corrupted self-parented workspace becomes unreparentable.
 		if ws.ParentID == childID && ws.ID != childID {
 			return true, nil
 		}

@@ -1,6 +1,3 @@
-// Adapted from the Plate registry (transforms.json) for the slash menu and "Turn into", trimmed to
-// the registered kits' block kinds: importing unregistered plugins would fail with "plugin not
-// found". Deletes are plain `removeNodes` since SuggestionPlugin isn't registered either.
 'use client'
 
 import type { PlateEditor } from 'platejs/react'

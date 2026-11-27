@@ -19,8 +19,6 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
 
-// Real Monaco, no mocks: the host's whole job is the one model table every
-// pane shares.
 const mounted: string[] = []
 
 const open = (workspaceId: string, path: string, text: string) =>

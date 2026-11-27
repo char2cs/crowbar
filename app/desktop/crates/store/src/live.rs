@@ -1,5 +1,3 @@
-//! What the shell knows of its hosts right now, and what keeps it current: held data, state, the fleet of streams and the panel loaders.
-
 mod draft_thread;
 mod files;
 pub(crate) mod fleet;

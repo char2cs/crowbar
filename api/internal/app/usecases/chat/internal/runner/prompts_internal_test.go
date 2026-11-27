@@ -20,10 +20,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// stubConversationsForPromptRestart answers only ChatSelection — the one
-// call selectionRequiresRestart makes — panicking on anything else via the
-// embedded nil interface, same pattern stubConversationsForSpawn
-// (spawn_failure_internal_test.go) already uses.
 type stubConversationsForPromptRestart struct {
 	Conversations
 	desired engineagents.Selection
@@ -35,8 +31,6 @@ func (s stubConversationsForPromptRestart) ChatSelection(
 	return s.desired, nil
 }
 
-// restartOnChangeAgent answers SelectionRestart like a restart_tui model/effort
-// block (true whenever launched != desired), so the test never runs model discovery.
 type restartOnChangeAgent struct {
 	engineagents.Agent
 }
@@ -45,9 +39,6 @@ func (restartOnChangeAgent) SelectionRestart(launched, desired engineagents.Sele
 	return launched != desired
 }
 
-// A live api connection must not carry a prompt after the user changed model or
-// effort: handled is false so submitPromptLocked restarts the CLI with the new
-// selection instead of silently keeping the old one.
 func TestRegression_SubmitPromptOverAPI_ChangedSelectionRefusesTheLiveConnection(t *testing.T) {
 	live := engineagents.Runner{
 		ID: "runner-1", ProviderID: "codex",
@@ -71,10 +62,6 @@ func TestRegression_SubmitPromptOverAPI_ChangedSelectionRefusesTheLiveConnection
 		"a selection change the descriptor declares restart_tui for must refuse the live-connection shortcut, never silently push it to the stale process")
 }
 
-// TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection is the
-// companion property the fix must not break: an ordinary resend with nothing
-// staged must keep using the live connection, never pay for a restart it
-// never asked for.
 func TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection(t *testing.T) {
 	live := engineagents.Runner{
 		ID: "runner-1", ProviderID: "codex",
@@ -88,9 +75,6 @@ func TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection(t *tes
 	}
 	rs.apiConns.set(live.ID, &apiconn{})
 
-	// An unchanged selection must still reach dispatch (rs.ws, left nil here),
-	// which panics — the same "control flow got past the guard being tested"
-	// signal every other narrow stub in this package relies on.
 	assert.Panics(t, func() {
 		_, _, _ = rs.submitPromptOverAPI(
 			context.Background(), domain.Chat{ID: "chat-1"}, "",
@@ -99,9 +83,6 @@ func TestSubmitPromptOverAPI_UnchangedSelectionStillUsesTheLiveConnection(t *tes
 	}, "an unchanged selection must still reach dispatch, not stop at the restart guard")
 }
 
-// An api-driven runner forks no PTY, so its empty TerminalSession is no missing
-// identity: its delivery target is the live connection, and refusing it would
-// fail every api-dispatched prompt.
 func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
@@ -115,8 +96,6 @@ func TestRegression_CommitPromptSpawn_APTYLessRunnerIsNotAMissingIdentity(t *tes
 	assert.Empty(t, got.TerminalSessionID, "there is no PTY to name, and naming one would be a lie")
 }
 
-// A prompt failed for its lost session is settled as lost, not as a generic
-// failed delivery, whoever settles it.
 func TestFailPrompt_ALostSessionSettlesThePromptAsLost(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	_, err0 := h.rs.recordPrompt(t.Context(), "chat-1", "req-1", "hello", "", ledger.DeliveryRestart, "runner-1", nil)
@@ -132,10 +111,6 @@ func TestFailPrompt_ALostSessionSettlesThePromptAsLost(t *testing.T) {
 	assert.Equal(t, ledger.ReasonDeliveryFailed, promptReceipt(t, h.rs.ledger, "req-2").Reason)
 }
 
-// The refusal must SURVIVE for the case it was written for: a replacement
-// spawn that produced neither a PTY nor a connection has no delivery target
-// at all, and reporting success for it is how a prompt goes silently nowhere.
-// The prompt is settled, so it holds the chat busy for nobody.
 func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	require.NoError(t, h.rs.live.add(engineagents.Runner{ID: "runner-1", ProviderID: "codex", CurrentChatID: "chat-1"}))
@@ -152,8 +127,6 @@ func TestCommitPromptSpawn_ARunnerWithNeitherPTYNorConnectionIsStillRefused(t *t
 	assert.Equal(t, ledger.ReasonDeliveryFailed, got.Reason)
 }
 
-// A resend answers with its carrier's terminal session; a carrier it cannot
-// read is an error, never a success that names no session at all.
 func TestReplayPriorPrompt_ACarrierItCannotReadIsAnError(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	appendPrompt(t, h.rs.ledger, "req-1", "runner-gone")
@@ -168,8 +141,6 @@ func TestReplayPriorPrompt_ACarrierItCannotReadIsAnError(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoLiveRunner)
 }
 
-// A prompt whose carrier is still being launched by its own submission is not
-// orphaned: a second send in that window waits behind it, never displaces it.
 func TestReplayPriorPrompt_APromptWhoseCarrierIsStillLaunchingKeepsTheChatBusy(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.rs.live.launching.Store("runner-launching", true)
@@ -183,7 +154,6 @@ func TestReplayPriorPrompt_APromptWhoseCarrierIsStillLaunchingKeepsTheChatBusy(t
 		"the first prompt is still owed its delivery")
 }
 
-// appendPrompt records a pending prompt on chat-1, carried by carrier, straight into l.
 func appendPrompt(t *testing.T, l *ledgerstore.Store, requestID, carrier string) {
 	t.Helper()
 	row, err := ledger.NewRow(ledger.KindUserMessage, "T-"+requestID, "", ledger.UserMessage{
@@ -204,7 +174,6 @@ func promptReceipt(t *testing.T, l *ledgerstore.Store, requestID string) ledger.
 	return p
 }
 
-// newTestLedger is an in-memory chat ledger.
 func newTestLedger(tb testing.TB) *ledgerstore.Store {
 	tb.Helper()
 	db, err := storesqlite.OpenDB(":memory:")
@@ -214,8 +183,6 @@ func newTestLedger(tb testing.TB) *ledgerstore.Store {
 	return l
 }
 
-// A spawn refused for its lost session says so; a spawn that may have forked
-// still cannot tell whether the provider took the prompt.
 func TestSpawnFailure_ALostSessionIsSessionLost(t *testing.T) {
 	refused := fmt.Errorf("%w: %w", ErrSpawnSessionRefused, engineagents.ErrAPISessionLost)
 
@@ -227,8 +194,6 @@ func TestSpawnFailure_ALostSessionIsSessionLost(t *testing.T) {
 	assert.ErrorIs(t, spawnFailure(t.Context(), errors.New("fork failed")), ErrPromptOutcomeUnknown)
 }
 
-// A CLI that queues what is typed while it works takes every such prompt: each
-// waits for the turn's end in the order sent, and one that cannot queue still waits.
 func TestRegression_SubmitPrompt_PromptsSentWhileATurnRunsQueueBehindEachOther(t *testing.T) {
 	f := newTypedFixture(t, &typingTerm{screen: emptyComposer(t)})
 	running, err := ledger.NewRow(ledger.KindTurnStarted, "T-1", "", ledger.TurnStarted{RunnerID: f.live.ID})

@@ -1,5 +1,3 @@
-//! The shell-owned view state of the chats tree: folds, inline input and removal.
-
 mod deletion;
 mod editing;
 mod file_panel;
@@ -26,8 +24,6 @@ use crate::shell::Nesting;
 use crate::shell::Row;
 use crate::shell::RowId;
 
-/// The chats tree's view state owned by the shell: folded rows, the inline input, the Files
-/// panel and the removals in progress.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tree {
     pub(crate) folded: BTreeSet<RowId>,
@@ -44,12 +40,10 @@ impl Tree {
         }
     }
 
-    /// The rows whose children are folded away.
     pub fn folded(&self) -> impl Iterator<Item = &RowId> {
         self.folded.iter()
     }
 
-    /// Fold the row's children, or unfold them if already folded.
     pub fn toggle_fold(
         &mut self,
         row: &RowId,
@@ -59,7 +53,6 @@ impl Tree {
         }
     }
 
-    /// Forget holds and folds of rows no longer in `rows`; a gone row releases its hold.
     pub fn reconcile(
         &mut self,
         rows: &[Row],
@@ -69,9 +62,6 @@ impl Tree {
         self.folded.retain(exists);
     }
 
-    /// The rows to draw, in order. Children of folded or held rows are hidden, committed rows
-    /// and a repository or space waiting on its confirmation are dropped whole, and any other
-    /// held row keeps its slot as a countdown.
     pub fn visible(
         &self,
         rows: &[Row],

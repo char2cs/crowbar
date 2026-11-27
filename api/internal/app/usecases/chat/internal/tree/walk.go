@@ -10,8 +10,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// RepoRoots answers a repo's default checkout: where a row reaching the root through a repo-scoped folder
-// runs, since that folder's parent is the repo header. nil leaves such a row resolving nothing.
 type RepoRoots interface {
 	DefaultWorkspaceOf(
 		ctx context.Context,
@@ -19,9 +17,6 @@ type RepoRoots interface {
 	) (string, error)
 }
 
-// cwdWalk answers where rowID's CLI runs: the nearest ancestor-or-self with a
-// WorkspaceID, walking past an unprovisioned row. With none it reports the repo
-// of the outermost repo-scoped folder crossed, for the RepoRoots fallback.
 func cwdWalk(
 	t tree.Tree,
 	chats map[string]domain.Chat,
@@ -47,8 +42,6 @@ func cwdWalk(
 	return "", repoID, false
 }
 
-// repoRootFallback finishes a walk that found no workspace but crossed a
-// repo-scoped folder: the answer is that repo's default checkout.
 func repoRootFallback(
 	ctx context.Context,
 	roots RepoRoots,
@@ -64,18 +57,13 @@ func repoRootFallback(
 	return id, true
 }
 
-// errNoNodes is readNodeTable's answer when no Node port is wired.
 var errNoNodes = errors.New("tree: no node port wired")
 
-// nodeTable is one read of the Node table, indexed by id and by parent: each read decodes every row, and a
-// walk asks about every level.
 type nodeTable struct {
 	byID     map[string]dtree.Node
 	byParent map[string][]dtree.Node
 }
 
-// readNodeTable reads the table once; a nil port reads as an error so the walk
-// skips its folder and anchor augmentation, as it does with no port wired.
 func readNodeTable(
 	ctx context.Context,
 	nodes Nodes,
@@ -98,9 +86,6 @@ func readNodeTable(
 	return t, nil
 }
 
-// CwdWorkspaceIDs answers the cwd walk for every row in one pass over one forest, omitting rows whose
-// ancestry owns no workspace. Reachable folders and anchors are folded in first so a walk passes through
-// them; either port may be nil, which skips that augmentation.
 func CwdWorkspaceIDs(
 	ctx context.Context,
 	folders Folders,
@@ -122,8 +107,6 @@ func CwdWorkspaceIDs(
 	return out
 }
 
-// buildForest folds every reachable folder and workspace-anchor row into rows
-// and builds the tree plus id->row map every walk here needs.
 func buildForest(
 	ctx context.Context,
 	folders Folders,
@@ -145,8 +128,6 @@ func buildForest(
 	return tree.New(treeNodes), byID
 }
 
-// workspaceAnchorsReachable renders every workspace anchor Node some row hangs off, directly or through
-// other anchors: a row placed under a chatless workspace would otherwise walk into an unknown id.
 func workspaceAnchorsReachable(
 	table nodeTable,
 	rows []domain.Chat,
@@ -170,9 +151,6 @@ func workspaceAnchorsReachable(
 	return found
 }
 
-// freshForest builds the forest a Resolve* walk needs from every row, with rowID's own row taken from the
-// log fold: it may have been placed moments ago, so the projection can still be stale or missing it.
-// Reachable folders and anchors are folded in; a nil Folders or Nodes port skips that.
 func freshForest(
 	ctx context.Context,
 	chats Chats,
@@ -192,8 +170,6 @@ func freshForest(
 	return t, byID, nil
 }
 
-// ResolveForkParent is the cwd walk started one row up, over freshForest's read, for a caller with no
-// snapshot of its own to walk (own_worktree.go).
 func ResolveForkParent(
 	ctx context.Context,
 	chats Chats,
@@ -217,8 +193,6 @@ func ResolveForkParent(
 	return id, ok, nil
 }
 
-// ResolveCwdWorkspaceID is cwdWalk over freshForest's log-corrected
-// read — the spawn path's own read+build step, alongside ResolveForkParent's.
 func ResolveCwdWorkspaceID(
 	ctx context.Context,
 	chats Chats,

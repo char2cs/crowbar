@@ -1,5 +1,3 @@
-//! The crowbar:// router: the pane protocol, its policy, the grants a page reads another host's answers by, routes, authorization, origin table, assignments and status codes.
-
 mod access;
 mod menu;
 mod origin_table;

@@ -1,10 +1,3 @@
-// app/panes/scripts/check-knip.mjs — dead-code gate over knip (full + --production).
-//
-// knip.json's `ignoreIssues` / `ignoreDependencies` are the baseline of
-// findings that predate the gate. This script runs knip WITHOUT them and
-// fails on (a) any finding the baseline does not list and (b) any baseline
-// entry that no longer has a finding, so the baseline can only shrink.
-// Fix a finding by deleting the dead code, then drop its baseline entry.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 
@@ -31,14 +24,13 @@ function run(extra) {
       maxBuffer: 64 * 1024 * 1024,
     })
   } catch (err) {
-    // knip exits 1 when it has findings; the JSON is still on stdout.
     if (!err.stdout) throw err
     out = err.stdout
   }
   return JSON.parse(out).issues
 }
 
-const found = new Map() // "file\0type" -> names
+const found = new Map()
 const foundDeps = new Set()
 try {
   for (const issues of [run([]), run(['--production'])]) {

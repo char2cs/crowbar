@@ -3,37 +3,29 @@ import { FileExplorerIcon } from '@/features/file-explorer/components/file-explo
 import { commandGroup } from '@/features/agent/hooks/use-slash-catalog'
 import { cn } from '@/lib/utils'
 
-/** One completion the picker offers: a command or skill, or a workspace path after an `@`. */
 export interface PickerItem {
   id: string
   insertText: string
   description: string
-  /** Running it opens a dialog only the CLI's terminal shows. */
   terminal?: boolean
   kind?: 'skill' | 'builtin' | 'command'
-  /** A path completion: its name, the folder it is in, and whether it is one. */
   name?: string
   dir?: string
   isDir?: boolean
 }
 
 interface ComposerSlashPickerProps {
-  /** What the list is of: commands after a leading `/`, or files after an `@`. */
   variant?: 'commands' | 'files'
   items: PickerItem[]
   selected: number
-  /** What has been typed after the trigger, marked where it matches. */
   query?: string
-  /** What the file list is of: the repo or project the chat is in. */
   scope?: string
-  /** How many commands the provider has before the query narrowed them. */
   total?: number
   onSelect: (item: PickerItem) => void
 }
 
 const GROUPS = ['Commands', 'Runs in the terminal', 'Skills']
 
-/** `text` with the first match of `query` underlined; the part up to `through` is a namespace. */
 function marked(text: string, query: string, through = 0): ReactNode {
   const at = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1
   const edges =
@@ -83,8 +75,6 @@ function FileRow({ item, query }: { item: PickerItem; query: string }) {
   )
 }
 
-/** Nothing at all over no match: the catalogue is partial by declaration, so an empty list must
- *  not claim the provider has no such command. */
 export function ComposerSlashPicker({
   variant = 'commands',
   items,

@@ -13,8 +13,6 @@ import { workspaceRef } from '@/lib/api/documents'
 
 const references = [{ path: '.gitignore', directoryPath: '' }]
 
-// The tree shows one workspace; its ignore rules come from THAT workspace's files,
-// not from whichever other workspace happens to be in view.
 describe('useFileExplorerGitignore', () => {
   beforeEach(() => {
     vi.clearAllMocks()

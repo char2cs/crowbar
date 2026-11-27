@@ -1,5 +1,3 @@
-//! The Agents page: edits, records, artwork, descriptors and their reports and findings, and permission settings.
-
 mod artwork;
 mod descriptor_finding;
 pub(crate) mod descriptor_records;

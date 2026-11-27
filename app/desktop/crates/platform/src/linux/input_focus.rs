@@ -12,31 +12,17 @@ use x11rb::rust_connection::RustConnection;
 use crate::error::Error;
 use crate::linux::focus_change::FocusChange;
 
-/// The X server's keyboard focus, moved over a connection of its own.
-///
-/// X sends a key to the focus window, or to the window under the pointer when that one lies
-/// inside the focus window. A web view lives in its own child window of the shell's window, so
-/// it takes keys wherever the pointer is only while it holds the focus itself.
 #[derive(Debug)]
 pub struct InputFocus {
     connection: RustConnection,
 }
 
 impl InputFocus {
-    /// Connects to the X server named by `DISPLAY`.
-    ///
-    /// # Errors
-    /// [`Error::X11Connect`] when no X server answers.
     pub fn connect() -> Result<Self, Error> {
         let (connection, _screen) = RustConnection::connect(None)?;
         Ok(Self { connection })
     }
 
-    /// Gives the keyboard to `window` and waits until the server has done it. When the window
-    /// is unmapped later, the focus falls back to its parent.
-    ///
-    /// # Errors
-    /// [`Error::Focus`] when the window is gone or not viewable, or the connection broke.
     pub fn give_to(
         &self,
         window: u32,
@@ -48,11 +34,6 @@ impl InputFocus {
             .map_err(|source| Error::Focus { window, source })
     }
 
-    /// Reports through [`Self::changes`] when `window` gains or loses the keyboard, whoever
-    /// moves it: this client, the window manager or another application.
-    ///
-    /// # Errors
-    /// [`Error::Follow`] when the window is gone or the connection broke.
     pub fn follow(
         &self,
         window: u32,
@@ -65,9 +46,6 @@ impl InputFocus {
             .map_err(|source| Error::Follow { window, source })
     }
 
-    /// The focus changes of followed windows that have arrived, oldest first, without waiting.
-    /// Read them when [`AsRawFd::as_raw_fd`] turns readable and after [`Self::give_to`], which
-    /// queues the changes it causes.
     #[must_use]
     pub fn changes(&self) -> Vec<FocusChange> {
         std::iter::from_fn(|| {
@@ -81,11 +59,6 @@ impl InputFocus {
         .collect()
     }
 
-    /// Waits for the next focus change of a followed window, the way a thread of its own
-    /// follows the keyboard.
-    ///
-    /// # Errors
-    /// [`Error::FocusWait`] when the connection broke.
     pub fn next_change(&self) -> Result<FocusChange, Error> {
         std::iter::repeat_with(|| self.connection.wait_for_event())
             .find_map(|event| event.map(|event| FocusChange::of(&event)).transpose())

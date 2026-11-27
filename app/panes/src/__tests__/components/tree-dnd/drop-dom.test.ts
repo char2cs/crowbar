@@ -1,18 +1,3 @@
-/**
- * The registry: a tree publishes its own row attributes and gets the same hit
- * test everyone else uses.
- *
- * Two invented trees are wired up here — 'notes' and 'cards' — and neither is
- * the sidebar. That is the whole point: the sidebar's own hit test is covered
- * against its real attributes in `sidebar/hooks/use-sidebar-drag.test.ts`, so
- * what is left to prove is that a tree the core has never heard of gets
- * identical behaviour by handing in a table, and that two such trees on one
- * page cannot see each other's rows.
- *
- * jsdom has neither `elementsFromPoint` nor real layout, so both are stubbed.
- * The geometry IS the input, so stating it explicitly is what makes the band
- * arithmetic assertable at all.
- */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ALL_MODES,
@@ -32,7 +17,6 @@ import {
   type DropZone,
 } from '@/components/tree-dnd/drop-dom'
 
-/** A tree with two kinds, a scope, a label and the two structural flags. */
 interface NoteRow extends DropTargetBase {
   kind: 'note' | 'group'
   boardId?: string
@@ -46,13 +30,11 @@ const NOTE_SPEC: DropRowSpec = {
   flags: { expanded: 'data-note-expanded', hasChildren: 'data-note-children' },
 }
 
-/** A second tree, so the mutual-invisibility claim has something to be tested against. */
 const CARD_SPEC: DropRowSpec = { kinds: { card: 'data-card-drop' }, parentAttr: 'data-card-parent' }
 
 const notes = createDropRowDom<NoteRow>(NOTE_SPEC)
 const cards = createDropRowDom<DropTargetBase>(CARD_SPEC)
 
-/** Everything may go anywhere, except onto a row that is being dragged. */
 const notePolicy: DropPolicy<DragSubjectBase, NoteRow> = {
   allowedModes: (subjects, target): AllowedModes =>
     subjects.length > 0 && !subjects.some((s) => s.id === target.id) ? ALL_MODES : NO_MODES,
@@ -62,7 +44,6 @@ const notePolicy: DropPolicy<DragSubjectBase, NoteRow> = {
 const ROW_TOP = 100
 const ROW_HEIGHT = 40
 
-/** Mount an element carrying exactly what one of these trees publishes. */
 function mount(props: Record<string, string | undefined>, top = ROW_TOP): HTMLElement {
   const el = document.createElement('div')
   for (const [key, value] of Object.entries(props)) {
@@ -74,12 +55,10 @@ function mount(props: Record<string, string | undefined>, top = ROW_TOP): HTMLEl
   return el
 }
 
-/** Point the stubbed hit test at a stack of elements, topmost first. */
 function stackAt(...els: Element[]): void {
   document.elementsFromPoint = vi.fn(() => els) as typeof document.elementsFromPoint
 }
 
-/** A y coordinate at `ratio` down the row. */
 const at = (ratio: number) => ROW_TOP + ROW_HEIGHT * ratio
 
 afterEach(() => {
@@ -126,10 +105,6 @@ describe('what a tree publishes about its rows', () => {
     expect(cards.read(el)).toEqual({ kind: 'card', id: 'c1', parentId: 'c0' })
   })
 
-  // A row assembled by hand — or one whose container attribute React dropped
-  // because the value was undefined — still reads back as a rooted row rather
-  // than as a row with no container at all, which every caller would then have
-  // to remember to ground for itself.
   it('grounds a row that carries an id but no container', () => {
     const el = document.createElement('div')
     el.setAttribute('data-note-drop', 'n1')
@@ -148,8 +123,6 @@ describe('what a tree publishes about its rows', () => {
     expect(notes.read(document.createElement('div'))).toBeNull()
   })
 
-  // The isolation property the registry exists for: two trees can share a page
-  // because neither can even see the other's rows, let alone decide about them.
   it('is invisible to the other tree, in both directions', () => {
     const note = mount(notes.props({ kind: 'note', id: 'n1' }))
     const card = mount(cards.props({ kind: 'card', id: 'c1' }))
@@ -231,7 +204,6 @@ describe('the hit test, bound to a table and a policy', () => {
     document.body.appendChild(strip)
     stackAt(row)
 
-    // The row is 200 wide and 40 tall, with y held mid-row throughout.
     expect(findNote(20, at(0.5), [dragged])).toMatchObject({ axis: 'x', row: { mode: 'before' } })
     expect(findNote(100, at(0.5), [dragged])).toMatchObject({ row: { mode: 'into' } })
     expect(findNote(180, at(0.5), [dragged])).toMatchObject({ row: { mode: 'after' } })
@@ -240,7 +212,6 @@ describe('the hit test, bound to a table and a policy', () => {
   it('uses the narrower band on the kind the policy calls a container', () => {
     stackAt(mount(notes.props({ kind: 'group', id: 'g1' })))
 
-    // 0.25 reorders on a note row and nests on a group row.
     expect(findNote(0, at(0.25), [dragged])).toMatchObject({ row: { mode: 'into' } })
   })
 
@@ -268,8 +239,6 @@ describe('the hit test, bound to a table and a policy', () => {
     expect(findNote(0, at(0.5), [dragged])).toBeNull()
   })
 
-  // A refused row is the answer, not a reason to keep looking: drawing an
-  // indicator on whatever sits behind it would be the indicator lying.
   it('stops at a refusing row rather than falling through to the one behind', () => {
     const refusing = mount(notes.props({ kind: 'note', id: 'dragged' }))
     const behind = mount(notes.props({ kind: 'note', id: 'n2' }))
@@ -286,17 +255,6 @@ describe('the hit test, bound to a table and a policy', () => {
     expect(findNote(0, 0, [dragged])).toBeNull()
   })
 
-  // Reported live: dragging a chat onto a folder consistently resolved as a
-  // sibling reorder rather than nesting into it. `drag-ghost.tsx`'s
-  // `cloneGhostRows` deep-clones the DRAGGED row's own DOM — drop attributes
-  // and all — onto a floating overlay (`data-drag-ghost`) that tracks the
-  // cursor, so it sits exactly where a drop is being aimed; a clone carrying
-  // the dragged row's own kind+id is exactly the shape of thing that could
-  // turn a hit-testing quirk into a silently wrong target. This pins the hit
-  // test refusing to treat anything inside that overlay as a row, ghost
-  // clone or not, and falling through to whatever real row is underneath —
-  // never stopping (see "stops at a refusing row" above) on the ghost the
-  // way it correctly stops on a real refusing row.
   it('never resolves to the drag ghost, and falls through to the real row underneath it', () => {
     const ghostWrap = document.createElement('div')
     ghostWrap.setAttribute('data-drag-ghost', '')
@@ -329,8 +287,6 @@ describe('a whole-region drop zone', () => {
   const TRASH_ATTR = 'data-note-trash'
   const findWithTrash = createDropHitTest(notes, notePolicy, {
     attr: TRASH_ATTR,
-    // Only a leaf may be thrown away; a group is refused, which is a stand-in
-    // for any rule a tree wants to attach to its own region.
     hit: (subjects) =>
       subjects.every((s) => s.kind === 'note') ? ({ kind: 'trash' } as const) : null,
   })
@@ -361,10 +317,6 @@ describe('a whole-region drop zone', () => {
   })
 })
 
-// Addendum §2's own blocker: the pane zone (use-sidebar-drag.ts's own
-// `paneZone`) already occupied `createDropHitTest`'s one `zone` slot before
-// a second whole-region target (the file explorer card's trash surface)
-// needed one too.
 describe('several whole-region drop zones at once', () => {
   const dragged: DragSubjectBase = { kind: 'note', id: 'dragged' }
   const ZONE_A_ATTR = 'data-zone-a'

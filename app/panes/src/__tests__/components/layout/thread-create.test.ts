@@ -1,4 +1,3 @@
-/** THE thread create: a local operation whose row stands in until the chat lands. */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const { createChat, createChatWithOwnWorktree, toastError } = vi.hoisted(() => ({
@@ -57,8 +56,6 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 })
 
 afterEach(() => {
-  // A GLOBAL store — a leaked 'terminal' default would silently arm every
-  // later create in this file with a surface its own assertions never named.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
   }))
@@ -67,11 +64,9 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks()
   resetEntities()
-  // A draft pane left by an earlier test would be promoted by the next create.
   resetWindowPaneStoreForTests()
   treeUiStore.setState(treeUiStore.getInitialState(), true)
   resetOperations()
-  // A create needs a provider, read from the global store: there is no workspace yet to scope by.
   useAgentProvidersStore.setState({ status: 'ready', providers: [], remote: {} })
 })
 
@@ -82,7 +77,6 @@ function confirmArmedBranchName(name = 'typed-branch'): void {
   confirmCreateDraft(name, vi.fn())
 }
 
-/** The chat id the client minted for the last thread create. */
 function mintedChatId(): string {
   return (createChat.mock.calls.at(-1) as unknown as [string])[0]
 }
@@ -125,7 +119,6 @@ describe('starting a thread on an empty folder', () => {
   })
 })
 
-// Settings → Providers sets up only this computer: a remote host's providers are its own.
 describe('starting a thread on a remote host with no provider enabled', () => {
   afterEach(() => resetHostWorld())
 
@@ -145,8 +138,6 @@ describe('starting a thread on a remote host with no provider enabled', () => {
 describe('starting a thread on a real workspace', () => {
   it('creates a chat with the first enabled provider', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
-    // The GLOBAL provider list — providers are machine-level, and a
-    // per-workspace copy only exists once that workspace has been mounted.
     useAgentProvidersStore.setState({
       status: 'ready',
       providers: [{ id: 'claude', enabled: true }] as never,
@@ -157,8 +148,6 @@ describe('starting a thread on a real workspace', () => {
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'ws-a', 'chat')
   })
 
-  // One new chat can land on Terminal without flipping the global default: handleCreate presets
-  // its surface before opening it, the seam an in-pane pick uses.
   it('presets the new chat onto Terminal when asked for one', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
@@ -177,8 +166,6 @@ describe('starting a thread on a real workspace', () => {
     )
   })
 
-  // The draft's first prompt is a chat prompt: on Terminal it would wait unsent. An agent that
-  // cannot start on a terminal drafts, whatever the default.
   it('lands a draft on Chat, where its first prompt is sent, for an agent with no terminal', async () => {
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
     useAgentProvidersStore.setState({
@@ -226,7 +213,6 @@ describe('starting a thread on a real workspace', () => {
     const chatId = mintedChatId()
     expect(opRows()).toMatchObject([{ id: chatId, kind: 'chat', parentId: 'ws-a', working: true }])
 
-    // Opened on the daemon's answer, before the chat's row has arrived.
     await vi.waitFor(() =>
       expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe(chatId),
     )
@@ -250,7 +236,6 @@ describe('starting a thread on a real workspace', () => {
     expect(opRows()).toEqual([])
   })
 
-  // A started thread becomes the thing on screen, as a project-home thread already does.
   it('opens the new thread into a pane immediately when its workspace is already active', async () => {
     resetWindowPaneStoreForTests()
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
@@ -270,8 +255,6 @@ describe('starting a thread on a real workspace', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
-  // The project bootstrap can commit after a thread opened its own view; it must not swap that
-  // thread out for a persisted pointer (pane-slice.project-scope.test.ts §8, end to end here).
   it('a thread opened while an existing chat occupies the pane survives a delayed project bootstrap', async () => {
     resetWindowPaneStoreForTests()
     seedRepos([repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })])
@@ -280,12 +263,7 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     setActiveWorkspaceId('ws-a')
-    // The chat the user is already "in" — the new thread must open as a
-    // row of its own, never into this pane.
     windowPaneStore.getState().paneActions.openChat('existing-chat')
-    // hydrate.ts's own answer for last session, landed before ide-shell.tsx's
-    // bootstrap effect has run even once this session — `activeProjectId` is
-    // still null at this point, exactly as it is right after hydrate.
     windowPaneStore.setState((s) => ({
       views: { ...s.views, [ROOT_PANE_ID]: { ...s.views[ROOT_PANE_ID], projectId: 'p1' } },
       activeViewByProject: { ...s.activeViewByProject, p1: ROOT_PANE_ID },
@@ -306,12 +284,8 @@ describe('starting a thread on a real workspace', () => {
     expect(newPane).toBeDefined()
     expect(windowPaneStore.getState().activeViewId).toBe(newPane!.viewId)
 
-    // The route resolves and ide-shell.tsx's effect finally fires — the
-    // first `setActiveProject` call this session.
     windowPaneStore.getState().paneActions.setActiveProject('p1')
 
-    // The thread that was already, correctly, on screen must still be
-    // showing — not silently reverted to the existing chat.
     expect(windowPaneStore.getState().activeViewId).toBe(newPane!.viewId)
     const activePane = windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]
     expect(activePane?.chatId).toBe(mintedChatId())
@@ -341,8 +315,6 @@ describe('starting a thread on a real workspace', () => {
   })
 })
 
-// A bubble's `Chat.workspaceId` names the GROUND workspace it borrows from its ancestor, so its
-// Fork/Thread resolve through that workspace; with none, neither has a target.
 describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', () => {
   const forkRepo = () =>
     repo({
@@ -379,8 +351,6 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'claude', 'c1', undefined)
   })
 
-  // With no surface named, Thread must create on the user's default landing surface: otherwise
-  // the provider's own default (codex: no PTY) leaves the pane's terminal view uncreated.
   it("Thread derives Terminal from the user's default when the caller names no surface", async () => {
     useSettingsStore.setState((state) => ({
       settings: { ...state.settings, chatIsDefaultPresentation: false },
@@ -397,7 +367,6 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     await Promise.resolve()
 
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'ws-a', 'codex', 'c1', 'terminal')
-    // Created on the terminal ⇒ lands on it.
     await vi.waitFor(() =>
       expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith(
         mintedChatId(),
@@ -406,8 +375,6 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     )
   })
 
-  // The gate holds on this path too: a provider that never declared its
-  // terminal a landing surface creates exactly as it did before.
   it('Thread still names no surface for a provider that cannot start on its terminal', async () => {
     useSettingsStore.setState((state) => ({
       settings: { ...state.settings, chatIsDefaultPresentation: false },
@@ -449,10 +416,6 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     )
   })
 
-  // The ground can ALSO be the repo's own home workspace, which — unlike an
-  // ordinary fork — is never in `repo.workspaces` for an `owningChatId` to
-  // be read off. Exercises the same `resolveHomeOwnerId` fallback a direct
-  // click on the home row itself already resolves to.
   it('a bubble grounded in the repo HOME workspace resolves through the home row’s own id', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',

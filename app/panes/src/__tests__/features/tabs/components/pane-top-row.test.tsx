@@ -18,13 +18,6 @@ function renderRow(overrides: Partial<React.ComponentProps<typeof PaneTopRow>> =
   )
 }
 
-// The shared shell TabBar, ChatOnlyPaneHeader, and the side-by-side/stacked
-// chat header all render through — one place owning the window-chrome
-// contract (drag region, macOS traffic-light inset) so it can never drift
-// between "kinds" of pane top row. Edge geometry is a PROP, not measured
-// internally, so a caller that already has its own `usePaneTopRowEdges()`
-// call (TabBar's `useTabBarScroll`) never ends up with two observers on the
-// same element.
 describe('PaneTopRow', () => {
   it('carries the window drag region', () => {
     renderRow()
@@ -50,9 +43,6 @@ describe('PaneTopRow', () => {
     expect(screen.getByTestId('pane-top-row')).toHaveClass('shrink-0')
   })
 
-  // variant="opaque" (default) — the IDE sector's own look: a flat,
-  // fully-opaque fill, sitting normally in flex flow above whatever it
-  // heads (nothing needs to render "behind" it).
   describe('variant="opaque" (default)', () => {
     it('paints the opaque pane-background fill', () => {
       renderRow()
@@ -70,9 +60,6 @@ describe('PaneTopRow', () => {
     })
   })
 
-  // variant="chat-blur" — the chat's own glass: no fill of its own, steals
-  // the composer's own progressive-blur "dissolve" so scrolled-behind text
-  // blurs and fades instead of being clipped by a hard edge.
   describe('variant="chat-blur"', () => {
     it('paints no opaque fill of its own', () => {
       renderRow({ variant: 'chat-blur' })
@@ -85,18 +72,12 @@ describe('PaneTopRow', () => {
       expect(screen.getByText('content')).toBeInTheDocument()
     })
 
-    // TabBar's own row uses chat-blur's LOOK without `overlay` — it sits
-    // outside the chat/editor split entirely, so floating it would resize
-    // that split's container out from under it, not just change its look.
     it('stays in normal flex flow by default — overlay is a SEPARATE, opt-in prop', () => {
       renderRow({ variant: 'chat-blur' })
       expect(screen.getByTestId('pane-top-row')).not.toHaveClass('absolute')
     })
   })
 
-  // overlay — floats the row free of flex flow so a caller that lives
-  // INSIDE the box whose content should show through (ChatColumnHeader,
-  // ChatOnlyPaneHeader) can let that content fill the full box behind it.
   describe('overlay', () => {
     it('floats as an absolute overlay pinned to the top edge', () => {
       renderRow({ overlay: true })

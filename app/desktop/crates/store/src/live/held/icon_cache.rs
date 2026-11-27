@@ -1,5 +1,3 @@
-//! The images of spaces fetched from the daemon, kept as files the sidebar can draw.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 

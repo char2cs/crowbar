@@ -1,5 +1,3 @@
-//! The funnel button beside the Files panel's search box.
-
 use gpui::{
     App, ClickEvent, InteractiveElement, IntoElement, MouseButton, ParentElement, RenderOnce,
     StatefulInteractiveElement, Styled, Window, div, px,

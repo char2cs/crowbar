@@ -15,8 +15,6 @@ import { viewMembers } from '@/features/panes/lib/view-state'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { releaseClosedChat } from '@/features/panes/lib/release-closed-chat'
 
-/** Record-carried identity: C1 (views change only on gestures) and C3
- *  (a member's project and workspace are fixed at open). */
 describe('view records carry their members’ identity', () => {
   let store: WindowPaneStore
   const actions = () => store.getState().paneActions

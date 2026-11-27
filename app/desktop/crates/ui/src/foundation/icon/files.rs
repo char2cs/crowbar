@@ -1,5 +1,3 @@
-//! The embedded icon files; generated from the Phosphor assets in `assets/icons`.
-
 use crate::foundation::icon::file::File;
 use crate::foundation::icon::icon_name::IconName;
 use crate::foundation::icon::icon_weight::IconWeight;

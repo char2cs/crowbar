@@ -11,11 +11,8 @@ import { toAnnotationSide } from './use-review-annotations'
 import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 import type { ReviewAnnotation } from './use-review-annotations'
 
-// Threads are the surface's only annotation, so CodeView's `LAnnotation` is ReviewThread.
 type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread, undefined>['getInstance']>
 
-/** What a path holds right now. `failed` is remembered rather than forgotten so
- *  the planner does not refetch a broken path on every frame. */
 interface HeldPatch {
   token: number
   state: 'loading' | 'ready' | 'failed'
@@ -29,15 +26,12 @@ interface ReviewPatchWindowOptions {
   items: CodeViewItem<ReviewThread>[]
   paths: string[]
   lineCounts: Record<string, number>
-  /** Paths marked viewed: collapsed to a header, never fetched, evicted if held. */
   viewedPaths: ReadonlySet<string>
   signature: string
   annotationsByPath: ReadonlyMap<string, ReviewAnnotation[]>
   surfaceRef?: Ref<ReviewCodeViewHandle>
 }
 
-/** The review surface's patch window: fetches a file's patch as the reader nears it, evicts it
- *  to its placeholder once past, and reveals (materialise, flush, scroll) threads, lines, files. */
 export function useReviewPatchWindow({
   wsId,
   commit,
@@ -57,7 +51,6 @@ export function useReviewPatchWindow({
   const tokenRef = useRef(0)
   const versionRef = useRef(0)
 
-  // Read inside imperative callbacks, never during render.
   const placeholdersRef = useRef(placeholders)
   const pathsRef = useRef(paths)
   const lineCountsRef = useRef(lineCounts)
@@ -71,11 +64,8 @@ export function useReviewPatchWindow({
   activeRef.current = isActivePane
   annotationsRef.current = annotationsByPath
 
-  /** The last fileDiff published per path, so a header repaint can reuse it. */
   const publishedRef = useRef(new Map<string, FileDiffMetadata>())
 
-  // An update replaces the whole item, so annotations ride along on every publish or that
-  // file's threads silently drop.
   const publishItem = useCallback((path: string, fileDiff: FileDiffMetadata) => {
     publishedRef.current.set(path, fileDiff)
     handleRef.current?.updateItem({
@@ -99,8 +89,6 @@ export function useReviewPatchWindow({
         else next[path] = state
         return next
       })
-      // The library caches header HTML, so a state change alone never repaints the notice;
-      // republishing with a bumped version invalidates it.
       if (!changed) return
       const current = publishedRef.current.get(path) ?? placeholdersRef.current.get(path)
       if (current != null) publishItem(path, current)
@@ -121,21 +109,13 @@ export function useReviewPatchWindow({
   const runWindowRef = useRef<() => void>(() => {})
 
   const materialize = useCallback(
-    // `replan` is off only when the caller is about to move the viewport itself
-    // (see `revealThread`): re-planning against the OLD scroll position would
-    // evict the very file that is being navigated to.
     async (path: string, maxLines?: number, replan = true) => {
-      // The one choke point: reveal, expand and retry all land here, and a
-      // viewed file is never fetched on their behalf.
       if (viewedRef.current.has(path)) return
       const token = ++tokenRef.current
       heldRef.current.set(path, { token, state: 'loading' })
       try {
         const { patch, truncated } = await getReviewPatch({ wsId, commit }, path, maxLines)
-        // The path may have scrolled out of the window while the request was in
-        // flight; the eviction that dropped it already replaced the item.
         if (heldRef.current.get(path)?.token !== token) return
-        // Marked viewed while the request was in flight: drop the result.
         if (viewedRef.current.has(path)) {
           evictPath(path)
           return
@@ -153,12 +133,9 @@ export function useReviewPatchWindow({
         setPatchState(path, truncated ? 'truncated' : undefined)
       } catch {
         if (heldRef.current.get(path)?.token !== token) return
-        // Kept in the held map on purpose: a forgotten failure is refetched on
-        // the very next frame, forever.
         heldRef.current.set(path, { token, state: 'failed' })
         setPatchState(path, 'failed')
       } finally {
-        // Materialising changed the item's height, so the window moved.
         if (replan) runWindowRef.current()
       }
     },
@@ -187,14 +164,11 @@ export function useReviewPatchWindow({
   const expandTruncated = useCallback(
     (path: string) => {
       setPatchState(path, 'loading')
-      // maxLines <= 0 is the engine's "unlimited" — the uncapped refetch.
       void materialize(path, 0)
     },
     [materialize, setPatchState],
   )
 
-  // A retry re-runs the CAPPED request. Retrying uncapped would answer a failed
-  // fetch of an ordinary file by asking for the most expensive thing available.
   const retryPatch = useCallback(
     (path: string) => {
       setPatchState(path, 'loading')
@@ -203,15 +177,12 @@ export function useReviewPatchWindow({
     [materialize, setPatchState],
   )
 
-  // Revealing a viewed file lands on its collapsed header and fetches nothing.
   const scrollToViewedHeader = useCallback((path: string): boolean => {
     if (!viewedRef.current.has(path)) return false
     handleRef.current?.scrollTo({ type: 'item', id: path, align: 'start' })
     return true
   }, [])
 
-  // Materialise first: a placeholder has no lines, so a line scrollTo against it silently
-  // does nothing.
   const revealThread = useCallback(
     async (thread: ReviewThread) => {
       const path = thread.filePath
@@ -220,8 +191,6 @@ export function useReviewPatchWindow({
         setPatchState(path, 'loading')
         await materialize(path, undefined, false)
       }
-      // updateItem only queues a render while scrollTo resolves eagerly; unflushed, it would
-      // aim at the replaced placeholder and find no line.
       handleRef.current?.getInstance()?.render(true)
       handleRef.current?.scrollTo({
         type: 'line',
@@ -234,8 +203,6 @@ export function useReviewPatchWindow({
     [materialize, scrollToViewedHeader, setPatchState],
   )
 
-  /** The same materialise → flush → scroll dance, addressed by line rather
-   *  than by thread, for callers outside this component (find-in-diff). */
   const revealLine = useCallback(
     async (path: string, lineNumber: number, side: 'old' | 'new') => {
       if (scrollToViewedHeader(path)) return
@@ -258,9 +225,6 @@ export function useReviewPatchWindow({
   const revealFile = useCallback(
     async (path: string) => {
       if (scrollToViewedHeader(path)) return
-      // Materialise first: a placeholder's reserved height is an ESTIMATE, so
-      // scrolling to it and then letting the real patch resize it would leave
-      // the reader somewhere near the file rather than at it.
       if (heldRef.current.get(path)?.state !== 'ready') {
         setPatchState(path, 'loading')
         await materialize(path, undefined, false)
@@ -284,14 +248,11 @@ export function useReviewPatchWindow({
     [revealLine, revealFile],
   )
 
-  // A changed file list remounts CodeView (its viewKey), discarding every item, so the held map
-  // goes too or the planner never fetches those paths again.
   useEffect(() => {
     heldRef.current.clear()
     setPatchStates((prev) => (Object.keys(prev).length === 0 ? prev : {}))
   }, [signature])
 
-  // A worktree patch is stale after any git change, so it re-fetches in place; a commit's never.
   useEffect(() => {
     if (commit) return
     return onGitStatusChanged(wsId, () => {
@@ -301,8 +262,6 @@ export function useReviewPatchWindow({
     })
   }, [wsId, commit, materialize])
 
-  // Same files, new geometry (± counts moved on a git-status tick) is no remount: republish
-  // files still on a placeholder; a materialised file's height is measured, not estimated.
   useEffect(() => {
     const handle = handleRef.current
     if (handle == null) return
@@ -320,8 +279,6 @@ export function useReviewPatchWindow({
     }
   }, [placeholders, publishItem])
 
-  // Threads stream in independently of the diff; annotations are part of the item, so a changed
-  // thread is republished onto whatever the file shows, keeping its geometry.
   useEffect(() => {
     const handle = handleRef.current
     if (handle == null) return
@@ -341,8 +298,6 @@ export function useReviewPatchWindow({
     }
   }, [annotationsByPath])
 
-  // Viewed is the library's own `collapsed` flag: the file keeps its fileDiff, so the header's ±
-  // counts survive, and only the paths whose flag moved are touched.
   const collapsedRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
     const handle = handleRef.current
@@ -358,8 +313,6 @@ export function useReviewPatchWindow({
     }
   }, [viewedPaths])
 
-  // The band is re-planned whenever the layout it depends on can have moved:
-  // on mount, when the file list changes, and on every scroll.
   useEffect(() => {
     runWindow()
   }, [runWindow, items, isActivePane])
@@ -372,7 +325,6 @@ export function useReviewPatchWindow({
   return { handleRef, patchStates, runWindow, expandTruncated, retryPatch, revealThread }
 }
 
-/** Value-compare two annotation lists; they are rebuilt on every thread tick. */
 function sameAnnotations(
   a: readonly ReviewAnnotation[] | undefined,
   b: readonly ReviewAnnotation[] | undefined,
@@ -390,10 +342,6 @@ function sameAnnotations(
   })
 }
 
-// ── Viewport geometry ───────────────────────────────────────────────
-
-/** The inclusive index range on screen, from item tops (binary search) rather than the render
- *  range: onScroll fires before the next render, so that would plan one frame behind. */
 function visibleBand(
   viewer: NonNullable<CodeViewInstance>,
   paths: readonly string[],
@@ -404,7 +352,6 @@ function visibleBand(
   return { first, last: Math.max(first, lastIndexAbove(viewer, paths, scrollTop + viewportHeight)) }
 }
 
-/** Index of the last file whose top edge is at or above `y`. */
 function lastIndexAbove(
   viewer: NonNullable<CodeViewInstance>,
   paths: readonly string[],

@@ -1,5 +1,3 @@
-// Editor logging with levels; can be disabled in production.
-
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 interface LoggerConfig {
@@ -17,7 +15,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 class EditorLogger {
   private config: LoggerConfig = {
-    enabled: import.meta.env.DEV, // Only enabled in development
+    enabled: import.meta.env.DEV,
     minLevel: 'warn',
     prefix: '[Editor]',
   }

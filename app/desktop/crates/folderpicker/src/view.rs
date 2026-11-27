@@ -1,5 +1,3 @@
-//! The dialog: a tree of the host's folders, one of which is chosen.
-
 mod actions;
 mod muted;
 mod panels;
@@ -20,7 +18,6 @@ use crate::look::{GAP, TITLE};
 use crate::picker_event::PickerEvent;
 use crate::view::muted::muted;
 
-/// The remote folder picker; it emits a [`PickerEvent`] when a folder is chosen or it is dismissed.
 pub struct View {
     pub(crate) source: Rc<dyn FolderSource>,
     pub(crate) expanded: BTreeSet<String>,
@@ -75,7 +72,6 @@ impl Requests for Arc<FolderBrowse> {
 }
 
 impl View {
-    /// A picker over the folders of `browse`'s host.
     pub fn new(browse: Arc<FolderBrowse>) -> Self {
         Self::over(Rc::new(browse))
     }

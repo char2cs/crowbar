@@ -1,9 +1,3 @@
-// Builds and registers a Monaco theme from the live CSS tokens (theme.css), resolved off <html> at
-// call time so it matches whichever .dark / [data-theme] is applied.
-
-// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
-// editor singleton as the bare 'monaco-editor' specifier, without eagerly
-// bundling all built-in language contributions.
 import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import {
@@ -14,7 +8,6 @@ import {
 } from '@/features/editor/theme/resolve-css-color'
 import { SEMANTIC_TOKEN_RULES } from './semantic-tokens-legend'
 
-/** Monaco token scope → our syntax palette key. */
 const TOKEN_MAP: Array<[monacoToken: string, syntaxKey: SyntaxTokenKey]> = [
   ['comment', 'comment'],
   ['keyword', 'keyword'],
@@ -66,7 +59,6 @@ interface MonacoThemeData {
   colors: Record<string, string>
 }
 
-/** Pure: turn resolved palettes into Monaco theme data. */
 function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
   const { isDark, syntax, ui } = input
 
@@ -75,8 +67,6 @@ function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
     return color ? [{ token, foreground: stripHash(color) }] : []
   })
 
-  // Semantic tokens are colored by matching their legend type (and modifiers)
-  // against theme rules, bound here to the same CSS-first palette.
   for (const [token, key] of SEMANTIC_TOKEN_RULES) {
     const color = syntax[key]
     if (color) rules.push({ token, foreground: stripHash(color) })
@@ -87,8 +77,6 @@ function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
     inherit: true,
     rules,
     colors: {
-      // Transparent: CSS bg-pane-background on the content div is the single
-      // source. Painting a JS background on top stacks opacity incorrectly.
       'editor.background': '#00000000',
       'editor.foreground': ui.foreground,
       'editorCursor.foreground': ui.foreground,
@@ -97,8 +85,6 @@ function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editor.findMatchBackground': ui.selection,
       'editor.findMatchHighlightBackground': ui.border,
       focusBorder: ui.ring,
-      // `ui.border` is an opaque hairline token: at full strength the cursor line would be a
-      // solid grey block, not a wash. Only sticky scroll's widgetBackground below fully covers.
       'editor.lineHighlightBackground': withAlpha(ui.border, 0.08),
       'editorLineNumber.foreground': ui.subtle,
       'editorLineNumber.activeForeground': ui.foreground,
@@ -108,8 +94,6 @@ function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorWidget.background': ui.widgetBackground,
       'editorWidget.foreground': ui.foreground,
       'editorWidget.border': ui.border,
-      // Both default to `editor.background`, transparent above so the pane's CSS background shows
-      // through; sticky scroll's header floats over scrolled content, so it needs an opaque one.
       'editorStickyScroll.background': ui.widgetBackground,
       'editorStickyScrollGutter.background': ui.widgetBackground,
       'editorSuggestWidget.background': ui.widgetBackground,
@@ -119,8 +103,6 @@ function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'input.background': ui.widgetBackground,
       'input.foreground': ui.foreground,
       'input.border': ui.border,
-      // Bracket pair colorization is on by default with a loud stock rainbow; mute it to the
-      // punctuation tone so brackets read like other delimiters. Unmatched ones are still flagged.
       'editorBracketHighlight.foreground1': ui.subtle,
       'editorBracketHighlight.foreground2': ui.subtle,
       'editorBracketHighlight.foreground3': ui.subtle,
@@ -128,9 +110,6 @@ function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorBracketHighlight.foreground5': ui.subtle,
       'editorBracketHighlight.foreground6': ui.subtle,
       'editorBracketHighlight.unexpectedBracket.foreground': ui.error,
-      // Ensure all Monaco sub-areas match the pane background.
-      // Without these, minimap, gutter, and overview ruler default to slightly
-      // different shades and create a visible inconsistency.
       'editorGutter.background': '#00000000',
       'minimap.background': '#00000000',
       'minimapSlider.background': ui.border,
@@ -166,8 +145,6 @@ function toMonacoThemeName(isDark: boolean): string {
   return isDark ? 'crowbar-dark' : 'crowbar-light'
 }
 
-/** Resolve the live token layer, (re)define the Monaco theme, and return its id. `themeId` only
- *  seeds the dark/light decision when no .dark class is present. */
 export function defineMonacoTheme(themeId: string): string {
   const isDark =
     typeof document !== 'undefined'

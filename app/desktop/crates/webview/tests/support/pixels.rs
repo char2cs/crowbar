@@ -1,5 +1,3 @@
-//! What a window shows on screen, read back from the X server.
-
 use std::time::Instant;
 
 use x11rb::protocol::xproto::{ConnectionExt as _, ImageFormat};
@@ -11,11 +9,9 @@ const ALL_PLANES: u32 = !0;
 const BYTES_PER_PIXEL: usize = 4;
 const LIT: u8 = 0x80;
 
-/// Script that paints the page black and answers `dark` once the paint reached the screen.
 pub(crate) const DARK_PAGE: &str = "document.documentElement.style.background = 'black';
 requestAnimationFrame(() => requestAnimationFrame(() => window.ipc.postMessage('dark')))";
 
-/// A rectangle of a window: x, y, width, height.
 pub(crate) type Region = (i16, i16, u16, u16);
 
 fn lit_pixels(
@@ -45,7 +41,6 @@ fn lit_pixels(
     Ok(lit)
 }
 
-/// Whether the count of bright pixels in `region` meets `wanted` before `deadline`.
 pub(crate) fn shows_before(
     connection: &RustConnection,
     (window, region): (u32, Region),

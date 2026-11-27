@@ -1,5 +1,3 @@
-//! A file pane's language servers: the daemon's LSP routes for the pane's chat, through the store.
-
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Task};

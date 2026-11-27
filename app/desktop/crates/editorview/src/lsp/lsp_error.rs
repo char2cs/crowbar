@@ -1,4 +1,3 @@
-/// Why a language server request failed: the daemon refused it or could not be reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LspError(pub String);
 

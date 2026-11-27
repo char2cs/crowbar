@@ -3,7 +3,6 @@ import type { SettingsTab } from '@/features/window/stores/ui-state-store'
 import { useSurfaceThemeColor } from '@/features/window/hooks/use-surface-theme-color'
 import { receiveShellSnapshots } from '@/lib/shell-page-bridge'
 
-// Each tab loads when first opened, so the sheet boots without the others' code.
 const PHONE_TABS = {
   appearance: lazy(() =>
     import('./tabs/appearance-settings').then((m) => ({ default: m.AppearanceSettings })),
@@ -12,7 +11,6 @@ const PHONE_TABS = {
     import('./tabs/terminal-settings').then((m) => ({ default: m.TerminalSettings })),
   ),
   git: lazy(() => import('./tabs/git-settings').then((m) => ({ default: m.GitSettings }))),
-  // No IPC and no daemon here: Agents draws the main webview's snapshot.
   providers: lazy(() =>
     import('./mobile-agents-settings').then((m) => ({ default: m.MobileAgentsSettings })),
   ),
@@ -29,8 +27,6 @@ function PhoneTabContent({ tab }: { tab: SettingsTab }) {
   )
 }
 
-/** One desktop settings tab for a screen the phone's native Settings pushes; the title, back
- *  button and list that lead here are native. Blank until the shell names the tab. */
 export function MobileSettingsPage() {
   useSurfaceThemeColor()
   const [tab, setTab] = useState<SettingsTab | null>(null)

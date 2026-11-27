@@ -23,7 +23,6 @@ const feed = (chatId = 'chat-1') => chatStore.getState().feeds[chatId]
 const push = (frame: object, scope = SCOPE) => streamDaemon.deliver({ scope, ...frame })
 const subs = (scope = SCOPE) => streamDaemon.sent.filter((r) => r.op === 'sub' && r.scope === scope)
 const held: (() => void)[] = []
-// The scope is held once the cache read settles, so a view's first sub is awaited here.
 const attachFeed = async (chatId: string) => {
   const detach = attachReal('local', chatId)
   held.push(detach)
@@ -34,16 +33,16 @@ const attachFeed = async (chatId: string) => {
 beforeEach(async () => {
   globalThis.indexedDB = new IDBFactory()
   chatStore.setState({ feeds: {} })
-  streamDaemon.answer = () => [] // each test writes what the daemon sends
+  streamDaemon.answer = () => []
   streamDaemon.deliver({ t: 'ready', epoch: 'e1' })
-  await settled() // a new run's forget of the previous test's host must land before this one stores
+  await settled()
   streamDaemon.sent.length = 0
   vi.mocked(readRow).mockReset()
   vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
 })
 afterEach(async () => {
   held.splice(0).forEach((detach) => detach())
-  forgetEntities('chat', ['chat-1', 'chat-2']) // a kept feed would answer the next test's attach
+  forgetEntities('chat', ['chat-1', 'chat-2'])
   resetHostWorld()
   await settled()
   vi.useRealTimers()
@@ -180,7 +179,6 @@ describe('attachFeed', () => {
   it('a resubscribe sends since = the last applied seq', async () => {
     await attachFeed('chat-1')
     const l = ledger()
-    // A turn's start adds no item, so the seq is not the item count.
     push({ t: 'row', row: l.prompt('r1', 'hi') })
     push({ t: 'row', row: l.start('turn-1', 'r1') })
     push({ t: 'synced', seq: 2 })
@@ -218,7 +216,6 @@ describe('attachFeed', () => {
     expect(subs().at(-1)).toEqual({ op: 'sub', scope: SCOPE, since: 3, bytes: PAGE_BYTES })
     const [r4, r5, r6] = [l.prompt('r4', 'r4'), l.prompt('r5', 'r5'), l.prompt('r6', 'r6')]
 
-    // The old sub's row 5 was still in flight when the new sub went out.
     push({ t: 'row', row: r5 })
     for (const row of [r4, r5, r6]) push({ t: 'row', row })
     push({ t: 'synced', seq: 6 })

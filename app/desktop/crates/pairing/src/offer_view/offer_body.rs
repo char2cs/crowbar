@@ -1,5 +1,3 @@
-//! What the Add a device dialog shows: the code, where to reach this computer, the fingerprint.
-
 use gpui::{AnyElement, Div, IntoElement, ParentElement, SharedString, Styled, div, px};
 use store::{Offer, OfferState};
 use ui::Palette;
@@ -7,7 +5,6 @@ use ui::Palette;
 use crate::look::{FINGERPRINT_PAD, FINGERPRINT_TINT, LABEL_GAP, TEXT};
 use crate::stage_widgets::muted;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-device-dialog.tsx
 const LEAD: &str = "In Crowbar on the device, add a host with the address, check the fingerprint matches, then enter the code.";
 const MINTING: &str = "Making a code…";
 const FAILED: &str = "Couldn’t make a code. Check that device connections are on, then try again.";

@@ -10,24 +10,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
-// PerfData is the response payload for the /system/perf routes: the ring's
-// arming state plus its contents, oldest sample first.
 type PerfData struct {
 	Enabled bool          `json:"enabled"`
 	Samples []perf.Sample `json:"samples"`
 }
 
-// PerfHandler exposes the daemon's timing ring so a capture run can read it from outside the
-// process. It is stateless (the ring is package-level in perf).
 type PerfHandler struct{}
 
-// NewPerfHandler returns a handler for the /system/perf routes.
 func NewPerfHandler() *PerfHandler {
 	return &PerfHandler{}
 }
 
-// Get is the GET /system/perf gin handler. It answers the ring's contents even
-// while disarmed, so a reader can tell "armed and quiet" from "never armed".
 func (h *PerfHandler) Get(
 	c *gin.Context,
 ) {
@@ -37,9 +30,6 @@ func (h *PerfHandler) Get(
 	})
 }
 
-// Set is the POST /system/perf?enabled=true|false gin handler. Arming clears the ring so no
-// sample from a previous scenario is attributed to this one. An unparseable value is a 400
-// rather than a silent disarm that would leave an operator reading back an empty ring.
 func (h *PerfHandler) Set(
 	c *gin.Context,
 ) {
@@ -57,8 +47,6 @@ func (h *PerfHandler) Set(
 	})
 }
 
-// samplesOrEmpty keeps an empty ring serialising as [] rather than null, so a
-// reader can index the result without a nil check.
 func samplesOrEmpty() []perf.Sample {
 	samples := perf.Snapshot()
 	if samples == nil {

@@ -14,14 +14,12 @@ import { runOperation, type OperationReply } from '@/core/entities/run-operation
 import { resetEntities, seedHomeTree, seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-// `resolveHomeRowScope` (home-tree.ts) reads this; its fetch is not under test.
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
 }))
 
-/** Record `chatId` as the chat owning `ws-1`'s worktree — what lets it re-parent. */
 function recordOwnerOfWs1(chatId: string): void {
   seedRepos(
     readSelect(selectRepos).map((r) =>
@@ -53,12 +51,10 @@ function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
 
 describe('SIDEBAR_DROP_POLICY', () => {
   beforeEach(() => {
-    // Module state outliving a test would refuse a later drag for no reason it set up.
     resetChatStore()
     resetOperations()
     vi.clearAllMocks()
     resetEntities()
-    // repo-1 and repo-2 share proj-1; repo-3 is a different project entirely.
     seedRepos([
       {
         id: 'repo-1',
@@ -69,7 +65,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
         defaultWorkspaceId: 'home-1',
         workspaces: [
           { id: 'ws-1', branch: 'feature-a', age: '' },
-          // A protected branch — develop — sitting alongside ws-1 under home-1.
           { id: 'ws-locked', branch: 'develop', age: '', status: 'locked' },
         ],
         folders: [{ id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 }],
@@ -101,7 +96,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
   })
 
-  // Drop A under B, then A under C before B settled: the second move must wait.
   it('a workspace whose move is still running allows no second drop', async () => {
     const subject = makeRow({ id: 'ws-1' })
     const target = makeRow({ id: 'home-1' })
@@ -119,15 +113,15 @@ describe('SIDEBAR_DROP_POLICY', () => {
   })
 
   it('cross-project drag is refused', () => {
-    const subject = makeRow({ id: 'ws-1' }) // repo-1, proj-1
-    const target = makeRow({ id: 'home-3' }) // repo-3, proj-2
+    const subject = makeRow({ id: 'ws-1' })
+    const target = makeRow({ id: 'home-3' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
   })
 
   it('cross-repo is legal only for a row owning no worktree', () => {
     const subjectNoWorktree = makeRow({ id: 'ws-1', ownsWorktree: false })
     const subjectWithWorktree = makeRow({ id: 'ws-1', ownsWorktree: true })
-    const target = makeRow({ id: 'ws-2' }) // repo-2, same project as ws-1's repo-1
+    const target = makeRow({ id: 'ws-2' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([subjectNoWorktree], target)).not.toEqual(NO_MODES)
     expect(SIDEBAR_DROP_POLICY.allowedModes([subjectWithWorktree], target)).toEqual(NO_MODES)
   })
@@ -144,11 +138,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([row], row)).toEqual(NO_MODES)
   })
 
-  // The repo-scoped half of the same bug the home-folder case below catches:
-  // `resolveRowRepo` is deliberately chat-blind (a DRAGGED chat is exempt
-  // from the same-repo rule), but that exemption has nothing to do with a
-  // FOLDER reordering past a plain repo CHAT sibling — the two share one
-  // sibling order space same as in a project's home tree.
   it('allows a repo folder to reorder/file relative to a plain CHAT in the same repo', () => {
     seedRepos(
       readSelect(selectRepos).map((r) =>
@@ -162,13 +151,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([folder], chat)).toEqual(ALL_MODES)
   })
 
-  // The golden rule's finer grain (spec §2.6, `nearestBranchAnchor`): a
-  // folder may reorder freely within whatever branch's subtree it already
-  // sits in, but never jump to a DIFFERENT branch's — the coarser same-repo
-  // check above would allow it (both live in repo-1), but the backend's own
-  // `checkFolderContextMove` refuses it with `ErrCrossContext`, pinned by
-  // `TestMove_RefusesBranchToDifferentBranchContext`. This is the frontend
-  // side of that same invariant.
   describe('a folder may not cross into a different branch’s own context', () => {
     beforeEach(() => {
       seedRepos(
@@ -178,7 +160,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
                 ...r,
                 folders: [
                   ...(r.folders ?? []),
-                  // Nested under ws-1's own context — a real fork, not locked.
                   {
                     id: 'folder-in-ws-1',
                     repoId: 'repo-1',
@@ -186,7 +167,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
                     parentId: 'ws-1',
                     order: 0,
                   },
-                  // Nested under the locked branch's own context.
                   {
                     id: 'folder-in-locked',
                     repoId: 'repo-1',
@@ -291,11 +271,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
   })
 
   it('a locked (protected-branch) row reorders among its own siblings but cannot re-parent', () => {
-    // ws-locked and ws-1 both sit under home-1 (same parent).
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     const sibling = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
-    // A folder nested under ws-1's own fork space — a REAL lineage change
-    // for a bare-root row like ws-locked, unlike the same-anchor cases below.
     seedRepos(
       readSelect(selectRepos).map((r) =>
         r.id === 'repo-1'
@@ -326,12 +303,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherLineage)).toEqual(NO_MODES)
   })
 
-  // Anchors are compared, not raw `parentId`s: any folder at the row's fork anchor (here the bare
-  // root) is a legal destination, not only its current neighbour.
   it('a locked row may be filed into ANY same-anchor folder, not just its current neighbour', () => {
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
-    // folder-1 lives in the same repo, at the bare repo root — a DIFFERENT
-    // physical container than 'home-1', but the identical (root) fork anchor.
     const sameAnchorFolder = makeRow({
       id: 'folder-1',
       kind: 'folder',
@@ -342,9 +315,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sameAnchorFolder)).toEqual(ALL_MODES)
   })
 
-  // Filing a locked branch into a FOLDER beside it is a pure folder-edge write
-  // (`PlaceWorkspace`: "unconditional on lock status") that changes no lineage,
-  // so only a FOLDER sibling gets the extra `into`; a branch sibling reorders.
   it('a locked row may still be filed INTO a folder sitting right beside it — no lineage change', () => {
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     const siblingFolder = makeRow({
@@ -373,14 +343,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // A fork whose owning chat is not recorded yet (its row is id'd by the
-  // workspace) cannot be reparented — that verb is chat-addressed and would
-  // only throw — so it reorders among its own siblings, like a locked row.
   it('a fork with no owning chat recorded reorders among its siblings but cannot re-parent', () => {
     const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
     const sibling = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
-    // A folder nested under ws-locked's own fork space — a REAL lineage
-    // change for a bare-root row like ws-1.
     seedRepos(
       readSelect(selectRepos).map((r) =>
         r.id === 'repo-1'
@@ -411,9 +376,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherLineage)).toEqual(NO_MODES)
   })
 
-  // Same anchor-not-literal-parent relaxation as the locked-row case above:
-  // a chatless fork may be filed into any folder sharing its own anchor, not
-  // only the one already beside it.
   it('a fork with no owning chat recorded may be filed into ANY same-anchor folder', () => {
     const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
     const sameAnchorFolder = makeRow({
@@ -426,8 +388,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sameAnchorFolder)).toEqual(ALL_MODES)
   })
 
-  // Same fix as the locked-row case above, for the other row this branch
-  // covers: a chatless fork may still be filed into a folder beside it.
   it('a fork with no owning chat recorded may still be filed INTO a folder sitting right beside it', () => {
     const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
     const siblingFolder = makeRow({
@@ -450,9 +410,7 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
   it('a folder row resolves through the folders array, not workspaceId', () => {
     const subject = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
-    const target = makeRow({ id: 'ws-1' }) // same repo (repo-1)
-    // Reorder is legal (both sit at the bare repo root); nesting INTO ws-1 crosses into its
-    // branch context, refused by the golden rule (§2.6) as TestMove_RefusesRootToBranchContext.
+    const target = makeRow({ id: 'ws-1' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(REORDER_MODES)
   })
 
@@ -463,9 +421,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.edgeBandFor('workflow')).toBe(EDGE_BAND_HEAVY)
   })
 
-  // A chat is workspace-scoped for placement, and §8.3 makes cross-repo drag
-  // legal for a row that owns no worktree, so the same-repo rule would refuse
-  // what the spec allows.
   describe('chat rows are workspace-scoped, not repo-scoped', () => {
     const chatRow = (id: string, over: Partial<SidebarRow> = {}) =>
       makeRow({ id, kind: 'chat', ownsWorktree: false, workspaceId: 'ws-1', ...over })
@@ -482,7 +437,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
     })
 
-    // A working chat's move waits for its turn to end; within its workspace the daemon refuses it.
     const ws1Branch = () => makeRow({ id: 'ws-1', parentId: 'home-1' })
     const leavesOnly = { before: true, after: true, into: false }
 
@@ -491,7 +445,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       expect(SIDEBAR_DROP_POLICY.allowedModes([subject], ws1Branch())).toEqual(leavesOnly)
     })
 
-    // A tree chat row carries `working: false`; the ChatStore holds the live flag.
     it('reads a tree chat row as working off its entity, despite its row saying false', () => {
       setChatWorking('chat-a', true)
       const subject = chatRow('chat-a', { working: false })
@@ -508,9 +461,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(ALL_MODES)
     })
 
-    // A chat the ChatStore has never seen has no live answer to give. It must
-    // stay draggable — the server refuses it if it is genuinely mid-turn — not
-    // be refused on the absence of information.
     it('allows a chat the ChatStore does not know about', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
@@ -526,7 +476,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       )
     })
 
-    // A branch row is a container a chat can run in: into it, or beside it on its parent's level.
     it('threads a chat into a branch row of another workspace', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
@@ -574,7 +523,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       })
     })
 
-    // A folder row is one aggregate in the unified model, the same one planChatDrop targets.
     it('allows a chat onto a folder row — filing it in is a real move now', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
@@ -591,7 +539,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // Project-home folders ride no repo, so resolveRowRepo never sees them.
   describe('project-home folders are project-scoped, not repo-scoped', () => {
     const homeFolderRow = (id: string, over: Partial<SidebarRow> = {}) =>
       makeRow({ id, kind: 'folder', workspaceId: null, ...over })
@@ -635,8 +582,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(NO_MODES)
     })
 
-    // Folders and chats share one sibling order, so a home folder may reorder past a home chat:
-    // the chat-subject block must not catch a folder subject dropped on a chat target.
     it('allows filing/reordering a home folder relative to a home CHAT in the SAME project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {
@@ -665,8 +610,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(NO_MODES)
     })
 
-    // A home chat as the subject and a home folder as the target: the chat must nest, not
-    // land as a sibling. Every other case in this block drags the folder.
     it('allows filing a home CHAT into a home folder in the SAME project', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {
@@ -680,9 +623,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(ALL_MODES)
     })
 
-    // A repo's own header row shares the home root with a home folder — a
-    // real sibling to reorder past (the reverse drag already was), never a
-    // container to file into.
     describe('relative to a repo header row', () => {
       const repoHeader = (id: string, projectId: string, repoId: string) =>
         makeRow({
@@ -728,8 +668,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // A repo header's placement lives on the Repository aggregate, so it is scoped to its
-  // project's home rather than the same-repo walk (resolveRowRepo never resolves a repo's id).
   describe('a repo header row is project-home-scoped, not repo-scoped', () => {
     const repoRow = (
       id: string,
@@ -801,9 +739,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(ALL_MODES)
     })
 
-    // Reordering a repo past a home folder nested in a chat would file the repo under that chat
-    // (the daemon refuses with 400). It is the folder's container that disqualifies the reorder,
-    // so nesting INTO the folder stays legal.
     it('refuses to reorder past a home folder that is itself nested inside a CHAT — but still allows nesting INTO it', () => {
       getHomeWorkspaceId.mockReturnValue('home-ws-1')
       seedHomeTree('proj-1', {
@@ -840,8 +775,6 @@ describe('SIDEBAR_DROP_POLICY', () => {
     })
   })
 
-  // The band spans every repo and workspace of a project, and a workspace-owning row
-  // wears `kind: 'branch'` there, so the tree's scope rules must not apply to it.
   describe('a target in the Recents band (spec §8.1)', () => {
     const recentsRow = (id: string, over: Partial<SidebarRow> = {}) =>
       ({

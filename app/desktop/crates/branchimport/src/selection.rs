@@ -1,5 +1,3 @@
-//! Which branches are picked, and which of them come in locked.
-
 use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]

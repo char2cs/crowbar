@@ -1,5 +1,3 @@
-//! Turning placed nodes into the rows the sidebar draws.
-
 use std::collections::HashMap;
 
 use sidebar::{Operation, OperationPhase, Row, RowKind, Worktree};

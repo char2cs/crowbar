@@ -10,12 +10,6 @@ import {
   chatValueToMarkdown,
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 
-/**
- * Helper to verify a round-trip: builder -> markdown -> parsed value -> serialized back.
- * This verifies that the content survives parsing without corruption or truncation.
- * For safety, we check that re-serializing includes the original content AND
- * the correct language tag, proving the code block was parsed correctly.
- */
 function expectRoundTripPreservesContent(
   markdown: string,
   originalContent: string,
@@ -23,17 +17,13 @@ function expectRoundTripPreservesContent(
 ) {
   const parsed = chatMarkdownToValue(markdown)
 
-  // Verify that parsing succeeded (has at least one node)
   expect(parsed.length).toBeGreaterThan(0)
 
-  // Re-serialize and verify the output contains the original content
-  // and the correct language tag
   const reserialized = chatValueToMarkdown(parsed)
 
   expect(reserialized).toContain(originalContent)
   expect(reserialized).toContain(expectedLanguageTag)
 
-  // Verify the fence structure is intact
   expect(markdown).toMatch(/^`{3,}/)
 }
 
@@ -55,13 +45,11 @@ describe('textAttachmentMarkdown', () => {
   })
 
   it('CRITICAL: handles standalone backtick fence line within content (would corrupt without escalation)', () => {
-    // This is the bug case: content with a line that is ONLY backticks
     const dangerous = 'before\n```javascript\nconst x = 1;\n```\nafter'
     const md = textAttachmentMarkdown('abc123', dangerous)
 
     expectRoundTripPreservesContent(md, dangerous, 'text-attachment:abc123')
 
-    // Extra assertion: verify the fence was escalated (not 3 backticks)
     const fence = md.split('\n')[0].match(/^`+/)?.[0]
     expect(fence?.length).toBeGreaterThan(3)
   })
@@ -214,8 +202,6 @@ describe('excalidrawMarkdown', () => {
   })
 
   it('CRITICAL: handles scene JSON that could encode standalone fence line', () => {
-    // Even though JSON.stringify typically wouldn't create a newline + backticks line,
-    // we test defensively: a raw scene JSON could potentially have this structure
     const sceneJson = '{"text":"line1\\n```\\nline2"}'
     const md = excalidrawMarkdown('id2', sceneJson)
     expectRoundTripPreservesContent(md, sceneJson, 'excalidraw:id2')

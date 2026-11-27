@@ -22,7 +22,6 @@ describe('AlertDialog backdrop', () => {
     expect(backdrops()).toHaveLength(1)
   })
 
-  // A confirmation raised from inside a dialog must still dim the dialog behind it.
   it('renders its own backdrop for an alert dialog opened inside a dialog', async () => {
     render(
       <Dialog open>

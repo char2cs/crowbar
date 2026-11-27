@@ -1,5 +1,3 @@
-//! Single-child folder chains that share one row when "compact folders" is on.
-
 mod shifts;
 
 use crate::explorer::folder_chain::shifts::Shifts;
@@ -61,8 +59,6 @@ fn next_row<'a>(
 }
 
 impl FileRow {
-    /// The rows with every chain of open single-child folders joined into one row named
-    /// `a/b/c`; the rows below a chain move up by the folders it absorbed.
     pub fn compacted(rows: &[FileRow]) -> Vec<FileRow> {
         let mut shifts = Shifts::default();
         let mut rest = rows;

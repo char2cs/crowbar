@@ -1,4 +1,3 @@
-// Package handlers holds the gin handlers backing the repos endpoint.
 package handlers
 
 import (
@@ -18,8 +17,6 @@ import (
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
-// Store is the full surface the repos handlers need over the repository GORM
-// table: list every repo, fetch one by id, persist a new one, and remove one.
 type Store interface {
 	FindAll(
 		ctx context.Context,
@@ -38,21 +35,15 @@ type Store interface {
 	) error
 }
 
-// BranchProviderEngine is the provider surface the Branches and PullRequests
-// handlers need.
 type BranchProviderEngine interface {
 	ProtectedBranches(ctx context.Context, repoPath string) ([]string, error)
 	OpenPullRequests(ctx context.Context, repoPath string) ([]providertypes.PRLink, error)
 }
 
-// WorkspaceReader is the workspace surface the Branches handler needs.
 type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
-// RepoDeleter removes a repo and everything it owns through the one delete
-// lifecycle (project.DeleteUsecase.DeleteRepo): workspaces retired first, then
-// the row, its Node row and its entity directory. The handler only binds HTTP.
 type RepoDeleter interface {
 	BeginRepoDelete(
 		ctx context.Context,
@@ -66,37 +57,28 @@ type RepoDeleter interface {
 	) error
 }
 
-// RemoteRefresher is the git surface the Branches handler uses to list the remote as it is now.
-// It goes through the git engine so the fetch takes the same per-clone lock as every git operation.
 type RemoteRefresher interface {
 	FetchPrune(ctx context.Context, repoPath string) error
 	Branches(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
 }
 
-// BranchEntry is one item in the GET /v0/projects/:projectId/repos/:repoId/branches response.
 type BranchEntry struct {
 	Name         string `json:"name"`
 	IsProtected  bool   `json:"isProtected"`
 	HasWorkspace bool   `json:"hasWorkspace"`
 }
 
-// AvatarBytesFetcher downloads the repo owner's avatar image bytes plus the
-// response content-type, best-effort: (nil, "", nil) on absence.
 type AvatarBytesFetcher func(
 	ctx context.Context,
 	repoPath string,
 ) ([]byte, string, error)
 
-// RepoImporter imports one repo path under an existing project: it persists the Repository, writes
-// its icon, and adopts the default/protected branches as workspaces.
 type RepoImporter interface {
 	ImportRepo(
 		ctx context.Context,
 		in project.RepoImport,
 		progress project.RepoProgress,
 	) (domain.Repository, error)
-	// CheckRepoImportable refuses a folder another project has already added. Create runs it
-	// before the 202 so the refusal answers the request.
 	CheckRepoImportable(
 		ctx context.Context,
 		projectID string,
@@ -104,8 +86,6 @@ type RepoImporter interface {
 	) error
 }
 
-// RepoUpdater applies a partial repository update — display name (and its
-// derived avatar), sidebar order, owning project.
 type RepoUpdater interface {
 	UpdateRepo(
 		ctx context.Context,
@@ -114,7 +94,6 @@ type RepoUpdater interface {
 	) error
 }
 
-// Operations runs the work a create or a delete hands off after answering 202.
 type Operations interface {
 	Start(
 		ctx context.Context,
@@ -124,9 +103,6 @@ type Operations interface {
 	libs.Replayer
 }
 
-// Handlers serves the /v0/repos routes from the repository GORM store. A
-// create or a delete checks what it can, answers 202 with its operation, and
-// delivers the resulting RepoDTO on the Repos stream.
 type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
@@ -142,9 +118,6 @@ type Handlers struct {
 	ops         Operations
 }
 
-// New builds the repos Handlers from the repository GORM store and the
-// crowbar-home resolver the icon handlers store and serve through, which is
-// required.
 func New(
 	store Store,
 	crowbarHome func() (string, error),
@@ -161,9 +134,6 @@ func New(
 	return h
 }
 
-// NewWithDeps builds Handlers with the optional provider + workspace deps
-// needed for the Branches endpoint, the operations service create and delete
-// run under, and the app's one position read (nil puts every repo at the root).
 func NewWithDeps(
 	store Store,
 	prov BranchProviderEngine,
@@ -180,7 +150,6 @@ func NewWithDeps(
 	return h
 }
 
-// WithRepoDeleter wires the delete lifecycle DeleteRepo runs.
 func (h *Handlers) WithRepoDeleter(
 	deleter RepoDeleter,
 ) *Handlers {
@@ -188,8 +157,6 @@ func (h *Handlers) WithRepoDeleter(
 	return h
 }
 
-// WithRemoteRefresher wires the git surface the Branches handler uses to refresh origin before
-// listing. A nil arg leaves the handler serving the clone's cached remote-tracking refs.
 func (h *Handlers) WithRemoteRefresher(
 	remote RemoteRefresher,
 ) *Handlers {
@@ -199,9 +166,6 @@ func (h *Handlers) WithRemoteRefresher(
 	return h
 }
 
-// WithImporter wires the repo-import usecase Create runs in the background, which adopts the
-// default/protected-branch workspaces and seeds the avatar. A nil arg leaves Create on a bare
-// buildRepo+Save.
 func (h *Handlers) WithImporter(
 	importer RepoImporter,
 ) *Handlers {
@@ -211,8 +175,6 @@ func (h *Handlers) WithImporter(
 	return h
 }
 
-// WithUpdater wires the repo-update usecase the Patch handler calls to change a repo's name,
-// sidebar order or owning project. A nil arg leaves PATCH answering 500.
 func (h *Handlers) WithUpdater(
 	updater RepoUpdater,
 ) *Handlers {
@@ -222,8 +184,6 @@ func (h *Handlers) WithUpdater(
 	return h
 }
 
-// WithStat overrides the filesystem stat used to validate the create path
-// synchronously. Intended for tests; a nil arg leaves os.Stat in place.
 func (h *Handlers) WithStat(
 	stat func(string) (os.FileInfo, error),
 ) *Handlers {
@@ -233,9 +193,6 @@ func (h *Handlers) WithStat(
 	return h
 }
 
-// placementOf resolves repoID's own sidebar position. With no position read
-// wired, or no row yet (a repo created through the bare buildRepo+Save fallback
-// never gets one), it is the root's first slot; a failed read is the caller's.
 func (h *Handlers) placementOf(
 	ctx context.Context,
 	repoID string,
@@ -250,7 +207,6 @@ func (h *Handlers) placementOf(
 	return p, nil
 }
 
-// placementsOf is every listed repo's position; see dto.Placements.
 func (h *Handlers) placementsOf(
 	ctx context.Context,
 	repos []domain.Repository,
@@ -261,8 +217,6 @@ func (h *Handlers) placementsOf(
 	return h.placements.Of(ctx, repos)
 }
 
-// List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional
-// projectId query parameter filters the result to one project's repos.
 func (h *Handlers) List(
 	c *gin.Context,
 ) {
@@ -271,8 +225,6 @@ func (h *Handlers) List(
 		libs.Fail(c, err)
 		return
 	}
-	// The hierarchical route carries the project as a path parameter; the query form is the
-	// flat-route fallback. Without either, every project would list every repo.
 	projectID := c.Param("projectId")
 	if projectID == "" {
 		projectID = c.Query("projectId")
@@ -281,8 +233,6 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placementsOf(c.Request.Context(), repos)))
 }
 
-// Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO with the
-// repo fields only (no workspace tree).
 func (h *Handlers) Detail(
 	c *gin.Context,
 ) {
@@ -303,8 +253,6 @@ func (h *Handlers) Detail(
 	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo, placement))
 }
 
-// filterByProject keeps only the repos whose ProjectID matches projectID; an
-// empty projectID returns the input unchanged.
 func filterByProject(
 	repos []domain.Repository,
 	projectID string,

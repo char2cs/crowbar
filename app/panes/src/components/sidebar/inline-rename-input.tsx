@@ -3,25 +3,15 @@ import { cn } from '@/lib/utils'
 
 interface InlineRenameInputProps {
   defaultValue: string
-  /** Branch rows draw their label monospace (sidebar-row.tsx); match it so
-   *  the editor doesn't change typeface under the cursor. */
   mono?: boolean
-  /** Shows only while the value is empty, so it hints a create; a rename seeds a real name. */
   placeholder?: string
-  /** Replaces the row-label text style (size, weight, family). */
   className?: string
-  /** A promise keeps the input open until it settles; a rejection leaves it open to edit again. */
   onConfirm: (value: string) => void | Promise<void>
   onCancel: () => void
-  /** Leaving the input drops the edit instead of confirming it. */
   cancelOnBlur?: boolean
-  /** The id of the message saying why the last value was refused. */
   errorId?: string
 }
 
-// The row's label replaced in place by a focused, pre-selected input. Enter confirms, Escape
-// cancels, blur confirms (or cancels) — `handledRef` keeps blur and a second Enter from firing
-// again after Enter/Escape, until a refused confirm hands the input back.
 export function InlineRenameInput({
   defaultValue,
   mono,
@@ -40,8 +30,6 @@ export function InlineRenameInput({
     if (!input) return
     input.focus()
     input.select()
-    // The editor may mount away from the gesture (a Recents rename draws on the tree copy, or a
-    // row scrolled out of view), and focus() alone leaves the caret off-screen.
     input.scrollIntoView({ block: 'nearest' })
   }, [])
 

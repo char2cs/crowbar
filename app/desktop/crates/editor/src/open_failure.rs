@@ -4,7 +4,6 @@ const TOO_LARGE: u16 = 413;
 const HOST_DOCUMENT_TRANSPORT: &str = "host_document_requires_local_transport";
 const DAEMON_STATE_DOCUMENT: &str = "daemon_state_document";
 
-/// Why a document could not be read, in develop's words (`openFailure` in `open-document.ts`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenFailure {
     title: String,
@@ -12,8 +11,6 @@ pub struct OpenFailure {
 }
 
 impl OpenFailure {
-    /// The failure the daemon's answer `status` (0 when it could not be asked) and problem `code`
-    /// mean for the document at `path`.
     #[must_use]
     pub fn of(
         path: &str,
@@ -41,13 +38,11 @@ impl OpenFailure {
         }
     }
 
-    /// The headline: "File not found".
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
-    /// The line under it: the file's path or name, or the reason.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message

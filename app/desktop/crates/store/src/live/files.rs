@@ -1,5 +1,3 @@
-//! The files of the machine the shell runs on, as the shell data layer sees them.
-
 mod adapters;
 
 pub(crate) use adapters::DiskFiles;

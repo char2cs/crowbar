@@ -1,5 +1,3 @@
-//! The palette colour of a [`Tone`].
-
 use gpui::Hsla;
 use ui::Palette;
 

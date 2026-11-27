@@ -8,11 +8,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
-// A classic controlled Suspense "resource": renders nothing until resolved,
-// then THROWS the pending promise (which React's nearest Suspense boundary
-// catches) rather than resolving asynchronously on its own. This lets the test
-// hold the lazy BranchReviewPane in a suspended state for as long as it wants and
-// resolve it on command — no timers, no sleeps.
 const { reviewResource } = vi.hoisted(() => {
   function createDeferredResource<T>() {
     let status: 'pending' | 'resolved' = 'pending'
@@ -36,13 +31,6 @@ const { reviewResource } = vi.hoisted(() => {
   return { reviewResource: createDeferredResource<true>() }
 })
 
-// The pane content registry lazy-loads the branch review pane. Vitest/Vite
-// mocks key off the resolved absolute module id, so mocking the SAME file via
-// its '@/...' alias here intercepts it — the pattern already relied on by
-// agent-chat-pane.test.tsx for sibling relative
-// imports. The mocked module resolves immediately; suspension is instead
-// driven by `reviewResource.read()` inside the component body below, so the
-// test controls exactly when the lazy pane stops suspending.
 vi.mock('@/features/git/components/branch-review-pane', () => ({
   BranchReviewPane: () => {
     reviewResource.read()
@@ -50,18 +38,11 @@ vi.mock('@/features/git/components/branch-review-pane', () => ({
   },
 }))
 
-// TerminalPane is a heavy PTY-attached component (xterm, WebSocket attach).
-// This test is about DOM-node identity across a sibling suspension, not
-// terminal behavior — stub it to a passive marker element, mirroring how
-// agent-chat-pane.test.tsx stubs XtermTerminal for the same reason.
 vi.mock('@/features/panes/components/terminal-pane', () => ({
   TerminalPane: ({ sessionId }: { sessionId?: string }) =>
     createElement('div', { 'data-testid': 'terminal-marker', 'data-session-id': sessionId ?? '' }),
 }))
 
-// TabBar drags in SidebarProvider/dnd-kit machinery that has nothing to do
-// with the question this test asks (does a sibling lazy suspension unmount
-// the always-mounted terminal pane) — stub it out entirely.
 vi.mock('@/features/tabs/components/tab-bar', () => ({
   default: () => null,
 }))
@@ -69,7 +50,6 @@ vi.mock('@/features/tabs/components/tab-bar', () => ({
 import { PaneContainer } from '@/features/panes/components/pane-container'
 
 function PaneHost() {
-  // Panes are window-level: read off windowPaneStore, not WorkspaceStoreContext.
   const panes = useStore(windowPaneStore, (s) => s.panes)
   const pane = panes[ROOT_PANE_ID]
   if (!pane) return null
@@ -77,9 +57,6 @@ function PaneHost() {
 }
 
 function seedStore() {
-  // PaneContainer still reads `workspaceId` off the per-workspace
-  // WorkspaceStoreContext (for AgentChatPane's wsId prop) — panes/buffers
-  // themselves come from the window-level singleton instead.
   const store = createWorkspaceStore('w1')
   const { openContent } = windowPaneStore.getState().bufferActions
   const terminalId = openContent({
@@ -88,7 +65,6 @@ function seedStore() {
     name: 'Terminal 1',
     workspaceId: 'w1',
   })
-  // Opened AFTER the terminal, so it — the lazy pane — is the active tab.
   const reviewId = openContent({ type: 'branchReview', wsId: 'w1', name: 'Branch Review' })
   return { store, terminalId, reviewId }
 }
@@ -107,20 +83,15 @@ describe('PaneContainer Suspense boundary', () => {
       )
     })
 
-    // The review buffer's lazy chunk is suspended; the always-mounted TerminalPane must sit outside
-    // that Suspense boundary, so getBy (not queryBy) is the assertion.
     const terminalBefore = screen.getByTestId('terminal-marker')
     expect(terminalBefore).toHaveAttribute('data-session-id', 'pty-1')
     expect(screen.queryByTestId('review-pane-content')).not.toBeInTheDocument()
 
-    // Resolve the lazy pane's chunk.
     await act(async () => {
       reviewResource.resolve(true)
     })
 
     expect(await screen.findByTestId('review-pane-content')).toHaveTextContent('Review Loaded')
-    // Same DOM node — the terminal was never unmounted/remounted by the
-    // sibling's suspend-then-resolve cycle.
     expect(screen.getByTestId('terminal-marker')).toBe(terminalBefore)
   })
 })

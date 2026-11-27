@@ -6,13 +6,11 @@ import {
   DEFAULT_APPEARANCE_BOOTSTRAP_CACHE,
 } from '@/features/settings/lib/appearance-bootstrap'
 
-// Colours are CSS-first (theme.css): a theme is metadata plus a `dataTheme` selector, so adding
-// one is a `[data-theme="<id>"]` (+ .dark) block and an entry here.
 const BUILTIN_THEMES: ThemeDefinition[] = [
   {
     id: 'crowbar',
     name: 'Crowbar',
-    isDark: true, // default mode; actual type follows the current Theme Mode
+    isDark: true,
     type: 'dark',
     category: 'Dark',
   },
@@ -54,8 +52,6 @@ class ThemeRegistry {
     this.notifyListeners()
   }
 
-  /** Colours come from CSS (`data-theme` + `.dark`, toggled just before by applyThemeMode); this
-   *  sets the selector and notifies Monaco/xterm to rebuild from the current CSS vars. */
   applyTheme(themeId: string): void {
     const known = this.themes.get(themeId)
     const resolvedId = known ? themeId : 'crowbar'
@@ -67,8 +63,6 @@ class ThemeRegistry {
         ? document.documentElement.classList.contains('dark')
         : !themeId.includes('light')
 
-    // The resolved theme's flag: a fallback for an unknown id must report the mode on screen, not
-    // BUILTIN_THEMES' stale seed value.
     const resolved = known ?? this.themes.get(resolvedId)
     if (resolved) {
       this.themes.set(resolvedId, { ...resolved, isDark })

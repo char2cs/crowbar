@@ -4,20 +4,10 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { getOwningChatId } from '@/lib/workspace-scope'
 
-// ensurePaneChatThenOpen resolves the workspace's real owning chat through
-// this — the same read every other workspace-scoped surface uses (lsp-
-// client.ts, terminal.tsx, branch-review-pane.tsx, ...). Mocked here so each
-// test controls exactly what "this workspace's owning chat" resolves to,
-// without needing a live sidebar/route to populate the real registry.
 vi.mock('@/lib/workspace-scope', () => ({
   getOwningChatId: vi.fn(),
 }))
 
-// Every workspace already has a real owning chat, minted by the daemon
-// (deriveRows). These lock the actual bug fix in: a pane that hasn't
-// been told its workspace's chat yet must REUSE that real chat, never mint a
-// second, redundant one — and must do nothing at all when no owning chat can
-// be resolved, rather than silently creating one.
 describe('ensurePaneChatThenOpen', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
@@ -77,7 +67,6 @@ describe('ensurePaneChatThenOpen', () => {
   })
 })
 
-// An inactive pane's review button must open the review in that pane, not the active one.
 describe('openBranchReviewForWorkspace', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
@@ -89,18 +78,14 @@ describe('openBranchReviewForWorkspace', () => {
     const paneActions = windowPaneStore.getState().paneActions
     const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     if (!otherPaneId) throw new Error('split failed')
-    // The user is looking at ROOT_PANE_ID; the review shortcut clicked lives
-    // on otherPaneId.
     paneActions.setActivePane(ROOT_PANE_ID)
 
     const bufferId = openBranchReviewForWorkspace('ws-1', otherPaneId)
 
     expect(bufferId).not.toBeNull()
-    // Lands in the named pane without needing (or moving) focus.
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
     expect(windowPaneStore.getState().panes[otherPaneId]?.editorTabIds).toContain(bufferId)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(bufferId)
-    // The review belongs to the workspace it was asked for, whichever is in view.
     const opened = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
     expect(opened?.workspaceId).toBe('ws-1')
   })

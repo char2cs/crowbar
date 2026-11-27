@@ -6,23 +6,14 @@ import { IdbViewedOwner } from '@/features/git/lib/idb-viewed-owner'
 import { installViewedOwner } from '@/features/git/lib/viewed-owner'
 import { installAppEditor } from '@/features/editor/host/app-editor'
 
-// main.tsx calls this once at real app boot — stores that keep a Set/Map in
-// Immer state (e.g. file-explorer-tree-store's expandedPathsByWorkspace)
-// throw "[Immer] The plugin for 'MapSet' has not been loaded" without it. A
-// test that renders through main.tsx's own module graph never notices; one
-// that imports a store directly (unit-testing it in isolation) does.
 enableMapSet()
 
-// app-main installs the IndexedDB owner and its editor; a test that needs the shell's installs
-// that one. The editor is installed at once too: some tests open documents as they load.
 installAppEditor()
 beforeEach(() => {
   installViewedOwner(new IdbViewedOwner())
   installAppEditor()
 })
 
-// Node 25 exposes a native localStorage that lacks .clear()/.removeItem() etc.
-// Replace it with a proper in-memory implementation so tests can use the full Web Storage API.
 function makeLocalStorage() {
   let store: Record<string, string> = {}
   return {
@@ -49,19 +40,12 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 })
 
-// jsdom has no Worker, so Monaco runs its worker code inline; Bun's native one
-// leaks into the environment and fails to load Vite's `?worker` URLs.
 delete (globalThis as { Worker?: unknown }).Worker
 
-// jsdom does not implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = () => {}
-// Nor a Range's rects, which Plate's floating toolbars position themselves from.
 Range.prototype.getBoundingClientRect = () => DOMRect.fromRect()
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList
 
-// jsdom does not implement ResizeObserver. Inert stub: jsdom has no layout engine, so
-// it could never report a real size change anyway — components that observe elements
-// just need construction not to throw.
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -73,10 +57,6 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   configurable: true,
 })
 
-// jsdom does not implement DataTransfer at all — no constructor exists. A real
-// OS file drop never reaches this object anyway on the Tauri desktop build
-// (see useTauriFileDrop); this stub only unblocks tests that construct one
-// directly to exercise the browser-DataTransfer code path.
 if (typeof globalThis.DataTransfer === 'undefined') {
   class DataTransferStub {
     dropEffect = 'none'
@@ -106,24 +86,8 @@ if (typeof globalThis.DataTransfer === 'undefined') {
   })
 }
 
-// jsdom does not implement the Web Animations API, and this stub is load-bearing
-// BECAUSE of the ResizeObserver one directly above.
-//
-// Base UI's ScrollAreaViewport opens with `if (typeof ResizeObserver === 'undefined')
-// return`. While jsdom had no ResizeObserver, that guard short-circuited the whole
-// effect. Stubbing ResizeObserver satisfied the guard and un-gated the rest of it —
-// which schedules a 0ms timer that calls `viewport.getAnimations({subtree: true})`.
-//
-// That call throws AFTER the test that rendered the ScrollArea has already finished, so
-// it surfaces as an unhandled error with no owning test and fails the ENTIRE run while
-// every assertion still reports green. Stubbing one hole in jsdom exposed the next one.
-//
-// An empty list is the honest answer, not a lie to keep quiet: jsdom runs no animations,
-// so there are none to wait for, and Base UI early-returns on `animations.length === 0`.
 window.Element.prototype.getAnimations = () => []
 
-// jsdom does not implement canvas getContext("2d") — provide a minimal stub so
-// tests that indirectly call canvas text-measurement code don't crash.
 HTMLCanvasElement.prototype.getContext = function () {
   return {
     font: '',
@@ -137,11 +101,6 @@ HTMLCanvasElement.prototype.getContext = function () {
   } as unknown as CanvasRenderingContext2D
 } as unknown as typeof HTMLCanvasElement.prototype.getContext
 
-// jsdom does not implement the (deprecated) document.queryCommand* / execCommand
-// APIs. Monaco's clipboard contribution calls document.queryCommandSupported at
-// import time; the resulting throw prevents the ENTIRE monaco module — and any
-// test file that imports an editor module — from loading under jsdom. Stubbing
-// them lets those suites load and run (e.g. editor-api, pane-*, workspace-store).
 if (typeof document !== 'undefined') {
   const doc = document as Document & {
     queryCommandSupported?: (commandId: string) => boolean
@@ -153,14 +112,6 @@ if (typeof document !== 'undefined') {
   if (typeof doc.execCommand !== 'function') doc.execCommand = () => false
 }
 
-// jsdom does not implement matchMedia. Monaco's StandaloneThemeService reads it
-// (for the OS high-contrast-scheme listener) as soon as the standalone editor
-// services / any basic-languages contribution's shared editor/contrib chain is
-// evaluated — for some import paths that happens at MODULE IMPORT time, before
-// any per-test shim assigned after an `import` statement would run (ES module
-// imports are hoisted ahead of sibling top-level statements in the same file,
-// so a same-file shim can lose this race). A global stub here runs before every
-// test file's module graph loads. Inert: never matches, no listeners fire.
 if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   window.matchMedia = ((query: string) => ({
     matches: false,
@@ -174,21 +125,6 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   })) as typeof window.matchMedia
 }
 
-// jsdom implements CSSStyleSheet but not CONSTRUCTABLE stylesheets: `new
-// CSSStyleSheet()` yields an object with no replace/replaceSync, and
-// `adoptedStyleSheets` is absent. @pierre/diffs' web component builds its
-// shadow root's styles that way in its constructor, so without these shims it
-// throws `sheet.replaceSync is not a function` at element-creation time.
-//
-// Measured, so the reason is precise rather than assumed: the component
-// RECOVERS — a retry renders the diff correctly and every assertion passes
-// either way. What the shim actually buys is the exit code. React surfaces the
-// throw as an unhandled error, and vitest exits 1 on that even with a fully
-// green suite, so without this CI fails on passing tests.
-//
-// Text-only shims: they store what was set so styling assertions could read it
-// back, and never parse CSS. Nothing here evaluates styles, so a real cascade
-// is neither needed nor faked.
 if (typeof CSSStyleSheet !== 'undefined') {
   const proto = CSSStyleSheet.prototype as CSSStyleSheet & {
     replaceSync?: (text: string) => void
@@ -230,9 +166,6 @@ if (typeof ShadowRoot !== 'undefined' && !('adoptedStyleSheets' in ShadowRoot.pr
   })
 }
 
-// jsdom has no async clipboard, yet its user agent says AppleWebKit, so once Monaco's
-// services exist its WebKit clipboard workaround writes a ClipboardItem on every click.
-// The browser's clipboard.write settles each item's data; these stubs settle it too.
 if (typeof globalThis.ClipboardItem === 'undefined') {
   class ClipboardItemStub {
     readonly #data: Record<string, Promise<unknown>>
@@ -269,10 +202,6 @@ if (typeof navigator !== 'undefined' && !navigator.clipboard) {
   })
 }
 
-// No daemon answers a test: each host's `/v0/stream` is its fake in `__fixtures__/stream-daemon`,
-// which answers every sub with its synced unless the test says otherwise, so a chat's ledger
-// scope replays nothing and shows what the test seeded into chatStore. Every other endpoint keeps
-// the real manager.
 const setupManager = vi.hoisted(() => ({ current: null as unknown }))
 vi.mock('@/core/stream/ws-manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/core/stream/ws-manager')>()
@@ -313,8 +242,6 @@ vi.mock('@/core/stream/ws-manager', async (importOriginal) => {
   return { ...actual, wsManager }
 })
 
-// The stream starts when a file first uses it, as main.tsx starts it, unless the file fakes the
-// socket manager itself.
 vi.mock('@/core/stream/stream', async (importOriginal) => {
   const stream = await importOriginal<typeof import('@/core/stream/stream')>()
   const { wsManager } = await import('@/core/stream/ws-manager')

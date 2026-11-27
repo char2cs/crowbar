@@ -15,8 +15,6 @@ import { PathBreadcrumb } from './path-breadcrumb'
 
 interface FilePathBreadcrumbProps {
   filePath: string
-  /** The shown file's own workspace: segments list and open there. Null for a
-   *  host document, whose segments are plain text. */
   workspaceId: string | null
   interactive?: boolean
   className?: string

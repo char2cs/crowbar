@@ -109,8 +109,6 @@ func TestRedeem_IsSingleUse(t *testing.T) {
 	}
 }
 
-// TestRedeem_TokenIs32RandomBytes pins the bearer token's strength: 64 hex
-// characters (32 bytes from crypto/rand), never repeated across redeems.
 func TestRedeem_TokenIs32RandomBytes(t *testing.T) {
 	u := New(&fakeClientStore{})
 	seen := map[string]bool{}
@@ -135,9 +133,6 @@ func TestRedeem_TokenIs32RandomBytes(t *testing.T) {
 	}
 }
 
-// TestRedeem_WrongGuessesBurnTheCode proves maxFailedRedeems wrong guesses,
-// however they are spread across callers, burn the outstanding code: the right
-// code no longer redeems, so a brute force gets maxFailedRedeems tries per code.
 func TestRedeem_WrongGuessesBurnTheCode(t *testing.T) {
 	u := New(&fakeClientStore{})
 	now := time.Now()
@@ -156,8 +151,6 @@ func TestRedeem_WrongGuessesBurnTheCode(t *testing.T) {
 	}
 }
 
-// TestRedeem_FewerWrongGuessesLeaveTheCode proves a guess short of the burn
-// threshold does not lock the operator out, and a fresh mint resets the count.
 func TestRedeem_FewerWrongGuessesLeaveTheCode(t *testing.T) {
 	u := New(&fakeClientStore{})
 	now := time.Now()

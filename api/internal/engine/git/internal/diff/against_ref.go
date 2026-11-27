@@ -7,8 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// AgainstRef returns `git diff -M <ref> --`: committed changes since ref plus uncommitted
-// tracked modifications, with zero commit metadata. Untracked files surface via status.
 func AgainstRef(
 	ctx context.Context,
 	repoPath string,

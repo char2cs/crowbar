@@ -121,19 +121,14 @@ class Placements {
 
 const placements = new Placements()
 
-/** Reads the stored placements, replacing what is held; an unreadable store reads as empty. */
 export function hydrateHostPlacements(): Promise<void> {
   return placements.hydrate()
 }
 
-/** The one host that held `id` when last listed, or null: unknown, or held by several. */
 export function persistedHostOf(kind: Placed, id: string): string | null {
   return placements.hostOf(kind, id)
 }
 
-/** Writes each workspace and chat a daemon lists, and drops the ones it stops listing (a host
- *  whose list lands answers for everything it held); returns the stop. Reads nothing: a cold
- *  start's `hydrateHostPlacements` does. A removed host's placements go with it. */
 export function startHostPlacementCache(): () => void {
   const sync = (s: EntityState, prev: EntityState) => placements.sync(s, prev)
   sync(entityStore.getState(), entityStore.getInitialState())

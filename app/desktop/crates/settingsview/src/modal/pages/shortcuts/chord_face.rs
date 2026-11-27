@@ -1,5 +1,3 @@
-//! What a chord button reads: its text and its look.
-
 use gpui::{FocusHandle, SharedString};
 
 use crate::modal::pages::shortcuts::chord_look::ChordLook;

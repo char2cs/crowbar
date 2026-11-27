@@ -1,5 +1,3 @@
-//! The placement the pointer currently selects.
-
 use sidebar::{DropMode, DropModes, FolderTarget, Nesting, Row, RowId, RowKind};
 
 use crate::sidebar::DragPoint;

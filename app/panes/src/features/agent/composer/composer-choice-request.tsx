@@ -9,8 +9,6 @@ const SIGN: Record<NonNullable<CodeLine['tone']>, string> = { del: '−', add: '
 const countTone = (code: CodeLine[], tone: CodeLine['tone']) =>
   code.filter((line) => line.tone === tone).length
 
-/** What a permission is about, under its title: an MCP call's server and tool, an edit's path
- *  and how many lines it adds and removes. Null for a command, which is its own body. */
 export function ChoiceRequestHead({ view }: { view: RequestView }) {
   if (!view.server && !view.head) return null
   const added = countTone(view.code, 'add')
@@ -37,7 +35,6 @@ export function ChoiceRequestHead({ view }: { view: RequestView }) {
   )
 }
 
-/** An MCP call's arguments as the labelled rows they are: a name opens each, its lines follow. */
 function argRows(code: CodeLine[]): { key: string; lines: CodeLine[] }[] {
   const rows: { key: string; lines: CodeLine[] }[] = []
   for (const line of code) {
@@ -58,7 +55,6 @@ function Lines({ lines }: { lines: CodeLine[] }) {
   ))
 }
 
-/** The operators of a command are dimmed, as the board draws them. */
 function Command({ line }: { line: CodeLine }) {
   return line.text.split(/( && | \|\| )/).map((part, i) =>
     i % 2 === 1 ? (
@@ -73,7 +69,6 @@ function Command({ line }: { line: CodeLine }) {
   )
 }
 
-/** A diff line's text, the span that changed in a `<mark>`. */
 function Marked({ line }: { line: CodeLine }) {
   if (!line.mark) return <Visible text={line.text} />
   const [from, to] = line.mark
@@ -138,7 +133,6 @@ function CodeBody({
     )
   }
   return (
-    // Unfolded it scrolls inside its own bound, so the answers stay in reach.
     <pre
       className="choice-request-code"
       data-shell={view.shell || undefined}
@@ -160,7 +154,6 @@ function CodeBody({
   )
 }
 
-/** What the permission would let run, by the kind of call it gates. */
 export function ChoiceRequest({
   view,
   expanded,
@@ -177,7 +170,6 @@ export function ChoiceRequest({
     <div className="choice-request" data-testid="agent-choice-request">
       {view.code.length > 0 && <CodeBody shown={shown} view={view} expanded={expanded} />}
       {view.markdown && (
-        // It scrolls inside its own bound, so the answers stay in reach.
         <div className="choice-request-markdown">
           <MarkdownMessageStatic variant="chat">{view.markdown}</MarkdownMessageStatic>
         </div>

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// The manager must pick the TauriWebSocket shim when running under Tauri
-// (the crowbar:// unix-socket scheme has no native WebSocket) and the native
-// WebSocket otherwise. Both satisfy the same onopen/onmessage/onclose/onerror/
-// send/close surface, so the manager stays transport-agnostic.
-
 const isTauri = vi.fn(() => false)
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri }))
 
@@ -67,7 +62,6 @@ const { destroyHostRuntime, getOrCreateHostRuntime } =
   await import('@/features/hosts/stores/host-runtime-registry')
 const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
 
-// Only a paired host is dialled: the remote hosts these tests reach are paired ones.
 beforeEach(() => {
   pairRemoteHost('h1')
   pairRemoteHost('h2')
@@ -144,8 +138,6 @@ describe('WSManager host routing', () => {
     expect(tauriInstances[0].options).toEqual({ hostId: 'h1', idleTimeoutMs: 60_000 })
   })
 
-  // The daemon pings every stream each 30 s, but a network change or sleep can leave a remote
-  // socket half-open: silent, never closed. The local daemon's unix socket has no such hop.
   it('has a remote stream silent for two pings closed and reopened, its subscribers caught up', () => {
     vi.useFakeTimers()
     isTauri.mockReturnValue(true)
@@ -160,7 +152,6 @@ describe('WSManager host routing', () => {
     ])
     tauriInstances.forEach((s) => s.onopen?.())
 
-    // The bridge's read-idle timeout: the shim reports it as the daemon closing the stream.
     tauriInstances[0].onclose?.()
     vi.advanceTimersByTime(1_000)
     tauriInstances[2].onopen?.()
@@ -321,8 +312,6 @@ describe('WSManager remote stream failures', () => {
     expect(useConnectionStore.getState().status).toBe('idle')
   })
 
-  // The host's status, not the socket, says whether it is worth dialling: a host that needs
-  // repair refuses every attempt, so its channels wait for it rather than redial.
   it('opens nothing for a host that needs repair, and reopens every channel once it is up', () => {
     const h1 = getOrCreateHostRuntime('h1').getState()
     h1.setStatus('up')
@@ -348,7 +337,6 @@ describe('WSManager remote stream failures', () => {
       ['/v0/projects/p/repos', 'h1'],
       ['/v0/chats/c/ws', 'h1'],
     ])
-    // A reopened channel tells its subscribers to catch up, as after any outage.
     tauriInstances[2].onopen?.()
     tauriInstances[3].onopen?.()
     expect(projects).toHaveBeenCalledWith({ reconnected: true })
@@ -383,8 +371,6 @@ describe('WSManager remote stream failures', () => {
     expect(tauriInstances).toHaveLength(0)
   })
 
-  // Something may hold a removed host's channel a while longer (a view not yet unmounted):
-  // it must not keep dialling a host nobody has paired.
   it('never dials a host that is not configured, however long its channel is held', () => {
     const h1 = getOrCreateHostRuntime('h1').getState()
     h1.setStatus('up')

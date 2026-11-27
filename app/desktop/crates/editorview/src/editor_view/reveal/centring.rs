@@ -1,5 +1,3 @@
-//! Bringing a line to the middle, over gpui-kit's public scroll and layout reads.
-
 use gpui::Context;
 use gpui_kit::base::input::{BufferPoint, RopeExt as _};
 use gpui_kit::component::input::EditorState;

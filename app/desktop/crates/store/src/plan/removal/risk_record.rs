@@ -1,5 +1,3 @@
-//! One workspace a delete was refused over, as the daemon's refusal names it.
-
 use serde::Deserialize;
 use serde_json::Value;
 use sidebar::WorkAtRisk;

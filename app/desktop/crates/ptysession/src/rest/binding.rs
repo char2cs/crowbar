@@ -1,17 +1,10 @@
-//! Whether a session is made for the view or already exists.
-
 use crate::error::Result;
 use crate::rest::Rest;
 use crate::rest::session_paths::SessionPaths;
 
-/// How a terminal view is bound to a daemon session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Binding {
-    /// A new session is made for the view, reported as [`Report::Bound`](crate::Report::Bound)
-    /// and killed when the view goes.
     Create,
-    /// The session the view was bound to before, attached if the daemon still lists it, else
-    /// reported as [`Report::Gone`](crate::Report::Gone); killed when the view goes.
     Saved(String),
 }
 

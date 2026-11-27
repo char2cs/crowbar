@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// enclosingRepo builds the shape that makes this whole file necessary: a real
-// git repository with a plain directory nested inside it, the way .crowbar/
-// nests inside a Crowbar checkout.
 func enclosingRepo(
 	t *testing.T,
 ) (string, string) {
@@ -35,9 +32,6 @@ func enclosingRepo(
 	return outer, inner
 }
 
-// The ceiling is one of the two fences. Removing it must fail a test, so this
-// one drives git with nothing but fenceEnv's output and asserts it cannot see
-// the repository one directory up.
 func TestFenceEnvStopsGitFromWalkingUpOutOfTheDirectory(t *testing.T) {
 	outer, inner := enclosingRepo(t)
 
@@ -53,9 +47,6 @@ func TestFenceEnvStopsGitFromWalkingUpOutOfTheDirectory(t *testing.T) {
 	}
 }
 
-// The toplevel check is the other fence, and it is the one that still holds
-// when the ceiling does not apply — a symlinked path, an inherited override.
-// Handing it an unfenced environment is exactly that situation.
 func TestVerifyToplevelRefusesADirectoryThatResolvesToAnEnclosingRepository(t *testing.T) {
 	outer, inner := enclosingRepo(t)
 	resolved, err := realPath(inner)
@@ -79,9 +70,6 @@ func TestVerifyToplevelRefusesADirectoryThatResolvesToAnEnclosingRepository(t *t
 	}
 }
 
-// fenceEnv drops inherited GIT_* overrides. GIT_DIR in particular makes cmd.Dir
-// irrelevant, which would hand every seed git command to whatever repository
-// the caller's environment happened to name.
 func TestFenceEnvDropsInheritedGitOverrides(t *testing.T) {
 	outer, inner := enclosingRepo(t)
 	t.Setenv("GIT_DIR", filepath.Join(outer, ".git"))
@@ -119,9 +107,6 @@ func ceilingOf(
 	return ceiling
 }
 
-// openRepo is where both fences are wired together, so the end-to-end refusal
-// is asserted too: no seed run may obtain an invoker for a directory that is
-// not itself a repository.
 func TestOpenRepoRefusesADirectoryNestedInAnotherRepository(t *testing.T) {
 	outer, inner := enclosingRepo(t)
 
@@ -150,9 +135,6 @@ func TestOpenRepoAcceptsTheRepositoryItIsPointedAt(t *testing.T) {
 	}
 }
 
-// A fixture generated inside another repository must still be its own: the
-// escape this package exists to prevent is the seed committing its throwaway
-// sources into the checkout that encloses CROWBAR_HOME.
 func TestEnsureFixtureInsideAnotherRepositoryStaysItsOwnRepository(t *testing.T) {
 	outer, _ := enclosingRepo(t)
 	repoPath := filepath.Join(outer, ".crowbar", "seed", seedRepoName)

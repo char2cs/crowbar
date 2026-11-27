@@ -8,7 +8,6 @@ import type { FileEntry } from '@/features/file-system/types/app'
 import { useSettingsStore } from '@/features/settings/store'
 
 interface UseFileExplorerVisibleRowsOptions {
-  /** The active workspace — expanded-folder state is scoped per workspace. */
   wsId: string
   files: FileEntry[]
   activePath?: string
@@ -39,8 +38,6 @@ export function useFileExplorerVisibleRows({
     estimateSize: () => rowHeight,
     getScrollElement: () => containerRef.current,
     overscan: 8,
-    // Suppress ResizeObserver callbacks during sidebar/pane drag to prevent 120fps re-renders.
-    // On drag end, pane-resize-end event flushes the last deferred measurement.
     observeElementRect: (instance, cb) => {
       const element = instance.scrollElement
       if (!element) return

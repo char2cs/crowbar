@@ -1,23 +1,16 @@
-//! The row pitch of the Files panel.
-
 const COMPACT_HEIGHT: f32 = 20.0;
 const DEFAULT_HEIGHT: f32 = 26.0;
 const COMFORTABLE_HEIGHT: f32 = 30.0;
 
-/// How tall the Files rows are, from the `fileTreeDensity` setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FileDensity {
-    /// 20px rows.
     Compact,
-    /// 26px rows.
     #[default]
     Standard,
-    /// 30px rows.
     Comfortable,
 }
 
 impl FileDensity {
-    /// The density a stored setting names; anything unknown is the standard one.
     pub fn from_setting(text: &str) -> Self {
         match text {
             "compact" => Self::Compact,
@@ -26,7 +19,6 @@ impl FileDensity {
         }
     }
 
-    /// The height of one row in pixels.
     pub fn row_height(self) -> f32 {
         match self {
             Self::Compact => COMPACT_HEIGHT,

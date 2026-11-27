@@ -1,16 +1,3 @@
-/**
- * The Color Theme picker must never display a value that is absent from its own
- * menu. `Theme` is a bare `string`, so a persisted id can name a theme that no
- * longer exists ('zen' was removed); the picker's "ensure the current
- * theme appears" fallback bails out for an id the registry doesn't know, leaving
- * the trigger showing a dead id while the app really paints Crowbar.
- *
- * The guarantee is upheld at the store's normalisation seam (a read-time
- * fallback, never a migration), so this drives the REAL `updateSetting` path.
- *
- * The trigger shows the chosen option's label, so it is mapped back to the theme
- * id it names before being checked against the registry.
- */
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AppearanceSettings } from '@/features/settings/components/tabs/appearance-settings'

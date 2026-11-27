@@ -57,8 +57,6 @@ async function openAsPreview(doc: DocumentRef): Promise<void> {
   await openDocument(doc, { preview: true })
 }
 
-/** Gives the app (not a shell pane) its Monaco editor: the host it builds on first need, and the
- *  preview tab it opens itself. Both load lazily, so a page that never edits never pays for it. */
 export function installAppEditor(): void {
   installEditorHostBuild(buildHost)
   installPreviewOpener(openAsPreview)

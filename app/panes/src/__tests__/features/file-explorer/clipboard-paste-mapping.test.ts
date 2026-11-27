@@ -1,9 +1,5 @@
 import { test, expect } from 'vitest'
 
-// Isolated test of the bridge-to-local mapping logic.
-// Bridge PastedEntry: { path: string; success: boolean }  (no is_dir — future backend API gap)
-// Local PastedEntry needs: { source_path, destination_path, is_dir, success }
-
 type BridgeResult = { path: string; success: boolean }
 type LocalEntry = {
   source_path: string
@@ -13,11 +9,9 @@ type LocalEntry = {
 }
 
 function mapBridgeResult(r: BridgeResult): LocalEntry {
-  // This is the CORRECT mapping expected after the fix
   return {
     source_path: r.path,
     destination_path: r.path,
-    // TODO: bridge does not return is_dir — add when real backend is wired
     is_dir: false,
     success: r.success,
   }

@@ -1,11 +1,9 @@
 use std::fmt;
 
-/// Identifies one web view of a [`Host`](crate::Host) for its whole life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Id(pub(crate) u64);
 
 impl Id {
-    /// Parses the text form produced by [`Display`](fmt::Display).
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         text.strip_prefix("wv-")?.parse().ok().map(Self)

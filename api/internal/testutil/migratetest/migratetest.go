@@ -1,5 +1,3 @@
-// Package migratetest holds test doubles and ledger readers for the migration
-// engine. It is apart from testutil because the engine's own tests use that.
 package migratetest
 
 import (
@@ -17,8 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// NoPostOpen is the post-open runner of an app a test builds without a
-// migration session: it runs none of the steps it is handed.
 func NoPostOpen() migrate.PostOpenRunner {
 	return noPostOpen{}
 }
@@ -32,8 +28,6 @@ func (noPostOpen) RunPostOpen(
 	return nil
 }
 
-// Applied returns, by step number, the counts of every step.done record in
-// h's ledger in the order they were written; none when there is no ledger.
 func Applied(
 	tb testing.TB,
 	h home.Home,
@@ -48,7 +42,6 @@ func Applied(
 	return out
 }
 
-// Notes returns, by step number, the latest note under each key in h's ledger.
 func Notes(
 	tb testing.TB,
 	h home.Home,

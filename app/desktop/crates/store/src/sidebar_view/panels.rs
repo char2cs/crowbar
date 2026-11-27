@@ -1,5 +1,3 @@
-//! The sidebar view's answers about the Files and Changes panels.
-
 use sidebar::{
     Changes, ChangesSource, FileAccess, FileRow, FilesSource, FolderPhase, FolderSource,
 };

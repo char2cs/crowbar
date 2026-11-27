@@ -1,7 +1,3 @@
-//! A chat filed somewhere else, moving to the workspace its new container runs in.
-//!
-//! Spec: develop `web/src/components/sidebar/lib/drop-plan.ts` (`planChatDrop`).
-
 use daemonapi::{Call, Route};
 use serde_json::{Map, Value, json};
 use sidebar::{Row, RowKind, RowTree};

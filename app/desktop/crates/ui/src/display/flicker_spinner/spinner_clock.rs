@@ -1,6 +1,3 @@
-//! The one tick every visible spinner steps on, so any number of spinners costs one redraw per
-//! step.
-
 use std::time::{Duration, Instant};
 
 use gpui::{App, EntityId, Global, Task};

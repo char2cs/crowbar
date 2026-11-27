@@ -1,5 +1,3 @@
-//! The desktop's own context menu, which the shell installs at start.
-
 mod entries;
 mod menu_edge;
 mod native_entry;
@@ -22,14 +20,10 @@ use crate::floating::menu::menu_item::MenuItem;
 use crate::floating::menu::native_menu::entries::{action_at, entries};
 use crate::foundation::opaque_debug;
 
-/// The chosen entry: its index in the menu, then its index in each submenu it lies in.
 pub type MenuPath = Vec<usize>;
 
-/// Pops a [`NativeRequest`] up over a window; its task ends with the chosen entry, none when
-/// the menu is dismissed.
 pub type PopupMenu = Rc<dyn Fn(NativeRequest, &Window, &mut App) -> Task<Option<MenuPath>>>;
 
-/// The installed native menu, a global; menus open nothing until one is installed.
 #[derive(Clone)]
 pub struct NativeMenu(PopupMenu);
 
@@ -38,19 +32,16 @@ opaque_debug!(NativeMenu);
 impl Global for NativeMenu {}
 
 impl NativeMenu {
-    /// A native menu that pops up with `popup`.
     #[must_use]
     pub fn new(popup: PopupMenu) -> Self {
         Self(popup)
     }
 
-    /// The installed native menu, if the shell installed one.
     #[must_use]
     pub fn installed(cx: &App) -> Option<Self> {
         cx.try_global::<Self>().cloned()
     }
 
-    /// Pops `request` up over `window`; the task ends with the chosen entry.
     pub fn popup(
         &self,
         request: NativeRequest,
@@ -60,7 +51,6 @@ impl NativeMenu {
         (self.0)(request, window, cx)
     }
 
-    /// Pops `items` up with `edge` at `at` in the installed menu and runs the chosen row's action.
     pub fn open(
         items: &Rc<[MenuItem]>,
         anchor: (Point<Pixels>, MenuEdge),
@@ -94,8 +84,6 @@ pub(crate) fn trigger_probe() -> (Rc<Cell<Bounds<Pixels>>>, impl IntoElement) {
     (laid_out, probe.absolute().top_0().left_0().size_full())
 }
 
-/// Calls `open` with the pointer when `element` is right-clicked: on release for a GTK menu, on
-/// press otherwise.
 pub fn on_context_click<E: InteractiveElement>(
     element: E,
     open: impl Fn(Point<Pixels>, &mut Window, &mut App) + 'static,

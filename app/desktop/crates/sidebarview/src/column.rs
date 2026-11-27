@@ -1,5 +1,3 @@
-//! The sidebar column: header, switcher, mode bar, the shown panel and the foot spacer.
-
 mod header;
 mod label_visibility;
 mod mark_view;

@@ -27,16 +27,12 @@ type EditorTabActions = Pick<
   | 'switchToPreviousEditorTab'
 >
 
-/** A chatless pane may lose its last tab only when a sibling takes its place. */
 function paneCanSafelyLoseLastTab(state: WindowPaneState, paneId: string): boolean {
   if (state.panes[paneId]?.chatId) return true
   const home = homeOf(state, paneId)
   return !!home && getAllLeafIds(layoutOf(state, home)).length > 1
 }
 
-/** Seat `tabId` in `paneId` as its shown tab (false: no such pane). Pure over the draft so
- *  openContent creates and seats a buffer in one `set`. A held `replaces` tab gives up its
- *  slot; the caller releases its buffer (C2). */
 export function placeTab(
   state: WindowPaneState,
   paneId: string,
@@ -46,7 +42,6 @@ export function placeTab(
 ): boolean {
   const pane = state.panes[paneId]
   if (!pane) return false
-  // A tab id always names a buffer (C2); slice-only stores carry no list.
   if (Array.isArray(state.buffers) && !state.buffers.some((b) => b.id === tabId)) return false
   const hadEditorTabs = pane.editorTabIds.length > 0
   const slot = replaces && replaces !== tabId ? pane.editorTabIds.indexOf(replaces) : -1
@@ -56,7 +51,6 @@ export function placeTab(
   }
   if (slot >= 0) pane.editorTabIds = pane.editorTabIds.filter((id) => id !== replaces)
   pane.activeEditorTabId = tabId
-  // Respect a split the user already toggled off.
   if (!hadEditorTabs) pane.editorOpen = true
   pane.chatSelected = false
   if (preview && Array.isArray(state.buffers)) {
@@ -67,9 +61,7 @@ export function placeTab(
   return true
 }
 
-/** The editor tabs a pane holds beside its chat. */
 export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabActions {
-  // No host means Monaco never loaded, so no pane holds a model to release.
   const releaseEditorTabModel = (paneId: string, tabId: string) => {
     const buf = get().buffers?.find((b) => b.id === tabId)
     if (!buf || !isEditorContent(buf) || !buf.path) return
@@ -80,8 +72,6 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
     activateEditorTabInPane(paneId, tabId) {
       set((state) => {
         const pane = state.panes[paneId]
-        // Only a tab the pane HOLDS: an id outside `editorTabIds` renders an
-        // empty pane under a populated tab strip.
         if (!pane || !pane.editorTabIds.includes(tabId)) return
         pane.activeEditorTabId = tabId
         pane.chatSelected = false
@@ -94,7 +84,6 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
       set((state) => {
         const pane = state.panes[paneId]
         if (!pane || !pane.chatId) return
-        // Leaves `activeEditorTabId` alone so switching back never remounts it.
         pane.chatSelected = true
         state.activePaneId = paneId
         touchPane(state, paneId)
@@ -152,7 +141,6 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
         )
         syncSoleEditorTabCloseability(state, toPaneId, paneCanSafelyLoseLastTab(state, toPaneId))
       })
-      // After the set, so the destination already holds the model and it survives.
       if (!get().panes[fromPaneId]?.editorTabIds.includes(tabId)) {
         releaseEditorTabModel(fromPaneId, tabId)
       }

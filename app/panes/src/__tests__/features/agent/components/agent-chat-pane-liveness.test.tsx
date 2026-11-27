@@ -31,7 +31,6 @@ vi.mock(
 )
 
 describe('AgentChatPane liveness and lifecycle', () => {
-  // ── Liveness is the daemon's answer; the pane never infers or revives ──
   describe('liveness', () => {
     it('symptom 5: the composer accepts a prompt while the runner is spawning', async () => {
       const store = seedWorkspace([startingChat({ id: 'c1' })])
@@ -45,16 +44,13 @@ describe('AgentChatPane liveness and lifecycle', () => {
     })
 
     it('never revives from the pending state (the chat list has not landed)', async () => {
-      const store = seedWorkspace([]) // the seed is still in flight
+      const store = seedWorkspace([])
       const paneId = openChatPane(store, 'c1', 'r1')
       await renderPane(store, paneId)
 
-      // "Not known" is not "dormant". Reviving here would spawn a SECOND CLI onto a
-      // chat that may well already have one.
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
 
-      // ...and the moment the list lands with the chat LIVE, it attaches — no revive.
       await act(async () => {
         seedChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       })
@@ -66,8 +62,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
-      // c1 is now dormant — but its runner is not dead, it walked into c2, and the pane
-      // walks with it. A dormant chat NOBODY IS LOOKING AT must not be revived.
       await act(async () => {
         seedChats([dormantChat({ id: 'c1' }), liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' })])
       })
@@ -76,9 +70,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
       expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
     })
 
-    // An api-transport runner is live with an empty terminalSessionId until switched to its
-    // TUI. Only liveRunnerId may mean "no runner"; reviving here would race a healthy runner and
-    // a failed second resume would latch the chat into `idle: failed`.
     it('does not revive a live runner that simply has no terminal to attach', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
@@ -89,8 +80,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
       expect(screen.queryByTestId('xterm')).toBeNull()
     })
 
-    // The terminal surface's own placeholder for this same state, visible once the
-    // user actually looks at the terminal view for a runner with nothing attached.
     it('shows a plain placeholder, never Resume, in the terminal view of a live runner with no terminal', async () => {
       landOnTerminal()
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
@@ -101,12 +90,9 @@ describe('AgentChatPane liveness and lifecycle', () => {
       expect(screen.getByText(/no terminal view attached/i)).toBeTruthy()
     })
 
-    // The fixture default is hotswap, which never calls the endpoint; a non-hotswap
-    // provider must ask the daemon for its terminal view.
     it('calls switchToTerminal (never a direct presentation flip) when an idle non-hotswap provider is asked for its terminal', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       setProviders([providers[0], { ...providers[1], hotswap: false }])
-      // The daemon's snapshot frame carries the forked PTY; the pane reads nothing back.
       switchToTerminalFn.mockImplementation(async () => {
         await Promise.resolve()
         writeChat(
@@ -123,8 +109,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
 
       fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
 
-      // Not a synchronous flip like the hotswap case — the tab does not read
-      // selected until the switch actually resolves.
       expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
         'aria-selected',
         'false',
@@ -139,8 +123,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
       )
     })
 
-    // A refused switch (a turn still in flight: attach.go's ErrTurnInProgress)
-    // must say so; a click that does nothing visible reads as broken.
     it('toasts when switchToTerminal is refused, instead of silently doing nothing', async () => {
       const store = seedWorkspace([liveChatNoTerminal({ id: 'c1', runnerId: 'r1' })])
       setProviders([providers[0], { ...providers[1], hotswap: false }])
@@ -208,11 +190,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
       expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('50px')
     })
 
-    // The transcript needs to clear the header's FULL EdgeDissolve zone
-    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 98px Mac), not just the 50px
-    // click-target the banners above clear — text left resting between the
-    // two still renders visibly blurred by the dissolve's own mask layers.
-    // See CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx.
     it('hands the transcript its OWN, larger clearance — the full dissolve zone, not the banner click-target', async () => {
       chatStore.setState({ feeds: {} })
 
@@ -249,9 +226,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
     })
   })
 
-  // ── The "second input box" shape ────────────────────────────────────
-  // The signpost wears ComposerSignpost's `.pill.halted` shape (as AgentComposer does once the
-  // chat has messages): one truncated line, so it cannot wrap into the handle below it.
   describe('reviving signpost shape', () => {
     it('renders the reviving banner in the same pill shape', async () => {
       chatStore.setState({ feeds: {} })
@@ -264,11 +238,7 @@ describe('AgentChatPane liveness and lifecycle', () => {
     })
   })
 
-  // ── Keep-alive: a hidden tab stays mounted and spawns nothing ──────
   describe('hidden keep-alive tab', () => {
-    // isVisible=false is the hidden tab; isActivePane=true proves the gate is on
-    // VISIBILITY, not pane focus — a dormant chat sitting hidden inside the active pane
-    // still must not spawn a CLI (Risk #4: the two flags are distinct).
     it('does not revive a hidden dormant chat', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
       const paneId = openChatPane(store, 'c1', '')
@@ -289,15 +259,11 @@ describe('AgentChatPane liveness and lifecycle', () => {
         )
       })
 
-      // Nothing spawned, and no spinner offering to — the chat just waits, hidden.
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(screen.queryByText(/resuming this chat/i)).not.toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).toBeNull()
     })
 
-    // Keep-alive's other half: an ALREADY-ATTACHED chat keeps its live PTY while hidden.
-    // It has a sessionId, so it never reaches the revive gate — it seeds/attaches as
-    // usual, just not focused and not visible.
     it('keeps an attached chat mounted while hidden (no revive, terminal stays)', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       const paneId = openChatPane(store, 'c1', 'r1')
@@ -326,7 +292,6 @@ describe('AgentChatPane liveness and lifecycle', () => {
     })
   })
 
-  // ── The daemon owns the lifecycle; the pane only sends intents ──────
   describe('server-owned lifecycle', () => {
     it('never resumes a dormant chat on open, and still takes a message', async () => {
       const store = seedWorkspace([dormantChat({ id: 'c1' })])

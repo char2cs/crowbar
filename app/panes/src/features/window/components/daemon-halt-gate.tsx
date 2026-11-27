@@ -2,8 +2,6 @@ import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
-// A halt replaces `children` and is told only here: the toast viewport lives inside the routes it
-// replaces, so a toast would never be seen.
 export function DaemonHaltGate({ children }: { children: ReactNode }) {
   const message = useDaemonHaltStore((state) => state.message)
   if (message === null) return <>{children}</>

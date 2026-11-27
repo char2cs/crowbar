@@ -35,17 +35,12 @@ vi.mock('@/features/git/api/review-api', async (importOriginal) => ({
   getReview: mocks.getReview,
 }))
 
-// The real ReviewDiffTab is lazy and drives a web-component diff surface that
-// jsdom cannot host; what is under test here is the load()/owning-chat-id
-// wiring above it, not the diff renderer.
 vi.mock('@/features/git/components/review-diff-tab', () => ({
   ReviewDiffTab: ({ lineRequest }: { lineRequest?: LineRequest }) => (
     <div data-testid="diff-tab" data-line={lineRequest ? lineRequest.lineNumber : ''} />
   ),
 }))
 
-// The Conversation view has its own test file; here it is only the thing the
-// pane switches to and the source of a "Jump to line" request.
 const JUMP_THREAD: ReviewThread = {
   id: 't1',
   filePath: 'src/a.ts',
@@ -91,8 +86,6 @@ beforeEach(() => {
   mocks.getReview.mockResolvedValue(review())
 })
 
-// The route records a scope with no chat id (the sidebar attaches it later), and getReview
-// throws without one: the pane must wait for the id rather than settle into 'error'.
 describe('BranchReviewPane — owning-chat-id race', () => {
   it('does not fetch the review before an owning chat id is recorded', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
@@ -125,7 +118,6 @@ describe('BranchReviewPane — owning-chat-id race', () => {
 
     await waitFor(() => expect(store.getState().branchReview.description).toBe('hello world'))
     expect(mocks.getReview).toHaveBeenCalledWith('ws-race')
-    // The race, not a real failure — the error status must never have been set.
     expect(store.getState().branchReview.diffStatus).not.toBe('error')
   })
 
@@ -151,8 +143,6 @@ describe('BranchReviewPane — owning-chat-id race', () => {
   })
 })
 
-// The failed fetch below would land on a permanent 'error' status, so a paired
-// install must not ask before the project list says whose daemon holds the review.
 describe('BranchReviewPane — host not yet known', () => {
   beforeEach(() => {
     resetHostWorld()
@@ -183,8 +173,6 @@ function openReviewBuffer(wsId: string): string {
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
 }
 
-// The registry's own rendering: the persisted `view` on the buffer is what the pane renders,
-// and the tab the user picks is written back to it.
 function PersistedViewPane({ bufferId, wsId }: { bufferId: string; wsId: string }) {
   const buffer = useStore(
     windowPaneStore,
@@ -206,7 +194,6 @@ async function renderPersisted(wsId: string, bufferId: string) {
       <PersistedViewPane bufferId={bufferId} wsId={wsId} />
     </WorkspaceStoreContext.Provider>,
   )
-  // The registry loads the pane lazily.
   await screen.findByRole('tab', { name: /Conversation/ })
   return { ...utils, store }
 }

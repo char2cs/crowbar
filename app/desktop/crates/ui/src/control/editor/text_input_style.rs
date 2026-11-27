@@ -1,5 +1,3 @@
-//! Size and finish of a [`crate::TextInput`].
-
 use gpui::{FontWeight, Pixels, px};
 
 use crate::foundation::ControlScale;
@@ -20,30 +18,20 @@ const STANDARD_PADDING: f32 = 10.0;
 const COMPACT_PADDING: f32 = 9.0;
 const STEPPER_PADDING: f32 = 8.0;
 
-/// How tall and how finished a text field is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum TextInputStyle {
-    /// 32px field with the control radius.
     #[default]
     Standard,
-    /// 28px field for rows of controls (the `sm` input).
     Compact,
-    /// 24px centred field on the muted fill, used between a stepper's buttons.
     Stepper,
-    /// Frameless 13px medium field that replaces a row label while it is renamed.
     Bare,
-    /// [`Self::Bare`] in the mono family, for a branch name.
     BareMono,
-    /// [`Self::Standard`] framed in the foreground colour without a focus ring, as develop's
-    /// Files-tree name field (`border-foreground`, focused by script so never focus-visible).
     Outlined,
-    /// Frameless field in the heading face of the space name, so renaming never changes it.
     Title,
 }
 
 impl TextInputStyle {
-    /// Outer height including the border.
     pub fn height(self) -> Pixels {
         px(match self {
             Self::Standard | Self::Outlined => STANDARD_HEIGHT,

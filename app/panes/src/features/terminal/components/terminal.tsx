@@ -24,36 +24,22 @@ import '../styles/terminal.css'
 
 export interface TerminalFocusHandle {
   focus: () => void
-  /** Types `data` into the session as if from the keyboard (the phone's key bar). */
   send: (data: string) => void
 }
 
 interface XtermTerminalProps {
   sessionId: string
-  /** The workspace this terminal belongs to, never the active one: hidden workspaces keep their
-   *  terminals mounted, so a transport drop can land while another is active. */
   workspaceId: string
-  /** The chat owning this PTY when known directly (an agent pane's CLI session). Unset for a
-   *  shell tab, owned by the chat that owns the workspace's worktree. */
   chatId?: string
-  /** The pane this terminal is shown in; a link opened from it lands there. */
   paneId?: string
   isActive: boolean
   isVisible?: boolean
-  /** Focus handle for an owner that moves the keyboard here (the agent pane). */
   ref?: Ref<TerminalFocusHandle>
-  /** The shell tab's session ended (exit frame, or gone from the daemon); a tab never spawns a
-   *  replacement for it. */
   onTerminalExit?: (sessionId: string) => void
   initialCommand?: string
   workingDirectory?: string
-  /** A view onto one existing PTY (the agent pane's CLI) that never spawns a shell. Changing
-   *  sessionId re-points the same xterm at another PTY. */
   attachOnly?: boolean
-  /** Attach-only onTerminalExit. Carries the sessionId it is for, so an owner can tell an
-   *  outgoing PTY's death from the incoming one's. */
   onSessionGone?: (goneSessionId: string) => void
-  /** Drop the shell tabs' 16px left inset; the agent pane's frame supplies the surface. */
   flush?: boolean
 }
 
@@ -72,8 +58,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   onSessionGone,
   flush = false,
 }) => {
-  // The container as state (hooks rebuild on it) and as a ref (Tauri's drop
-  // hit-test reads it), both set by one stable callback ref.
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const attachContainer = useCallback((node: HTMLDivElement | null) => {
@@ -85,15 +69,12 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const getSession = useTerminalStore((s) => s.getSession)
   const { getTerminalTheme } = useTerminalTheme()
 
-  // A never-shown tab builds nothing and attaches nothing until it is looked at.
-  // Latched during render, so the first visible render already builds.
   const [activated, setActivated] = useState(isVisible)
   if (isVisible && !activated) setActivated(true)
 
   const owningChatId = useOwningChatId(workspaceId)
   const chatScopeReady = Boolean(chatId) || owningChatId !== null
 
-  // Where a new shell starts, recorded for the tab label and link resolution.
   useEffect(() => {
     if (workingDirectory) updateSession(sessionId, { currentDirectory: workingDirectory })
   }, [sessionId, updateSession, workingDirectory])
@@ -104,8 +85,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     onSessionGoneRef.current = onSessionGone
     onTerminalExitRef.current = onTerminalExit
   }, [onSessionGone, onTerminalExit])
-  // The one place a session's end is routed to its owner: the agent view's
-  // "ended" state, or the shell tab's close.
   const handleSessionEnded = useCallback(
     (endedSessionId: string) => {
       if (attachOnly) onSessionGoneRef.current?.(endedSessionId)
@@ -123,8 +102,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     onEnded: handleSessionEnded,
   })
 
-  // Input the xterm instance itself produces goes through the I/O hook's write,
-  // which exists only after the hooks below are called: bridge it with a ref.
   const writeRef = useRef<(data: string, origin: string) => void>(() => {})
   const writeFromTerminal = useCallback(
     (data: string, origin: string) => writeRef.current(data, origin),
@@ -176,9 +153,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     [focusTerminal, write],
   )
 
-  // Focus follows the active pane. The effect runs after React commits the
-  // visibility change, so the textarea is focusable: one call, no retries.
-  // Not on the phone: focus raises the keyboard there, so only a tap may.
   useEffect(() => {
     if (isActive && isVisible && terminal && !IS_MOBILE) terminal.focus()
   }, [isActive, isVisible, terminal])

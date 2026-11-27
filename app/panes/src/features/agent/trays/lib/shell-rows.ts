@@ -23,10 +23,8 @@ function hint(shell: ShellItem): string {
     .join('\n')
 }
 
-/** A background command or monitor as a tray row; once ended it says how and shows no clock. */
 export function shellRow(shell: ShellItem): TrayRow {
   const running = shell.status === 'running'
-  // Unlabelled, the name is the command, so the line says whose it is (the cwd rides the hint).
   const where = shell.label ? shell.command : 'opened by the agent, still managed'
   const detail = running
     ? shell.stopping

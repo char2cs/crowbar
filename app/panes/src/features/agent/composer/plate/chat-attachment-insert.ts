@@ -3,9 +3,6 @@ import type { PlateEditor } from 'platejs/react'
 import { CodeBlockPlugin } from '@platejs/code-block/react'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 
-/** An empty paragraph's path, so an insert goes at that index (the empty line
- *  trails the new content) instead of splitting it into two empty halves;
- *  null for real text, where an attachment lands inline at the caret. */
 function emptyParagraphPathAt(
   editor: PlateEditor,
   at: Point | Path | TRange | undefined,
@@ -17,8 +14,6 @@ function emptyParagraphPathAt(
   return NodeApi.string(node) === '' ? path : null
 }
 
-/** Leaves the caret on one empty line after the attachment, so typing can go
- *  on; an already-empty last paragraph is reused, never stacked behind each. */
 function ensureTrailingEditableLine(editor: PlateEditor): void {
   const last = editor.children.at(-1)
   const alreadyEmpty = !!last && last.type === 'p' && NodeApi.string(last) === ''
@@ -31,24 +26,18 @@ function ensureTrailingEditableLine(editor: PlateEditor): void {
   if (end) editor.tf.select(end)
 }
 
-/** Inside a fence the insert goes after the whole code block: at the raw point
- *  it would split the fence and drop the new node. Only code blocks: walking
- *  to the highest block would split a table whose cell holds the caret. */
 function attachmentInsertionPath(editor: PlateEditor): Path | Point | TRange | undefined {
   const at = editor.selection ?? editor.api.end([])
   const codeBlock = editor.api.above({ at, match: { type: CodeBlockPlugin.key } })
   return codeBlock ? PathApi.next(codeBlock[1]) : (emptyParagraphPathAt(editor, at) ?? at)
 }
 
-/** Inserts markdown through the composer's own codec, as a paste of it would. */
 export function insertAttachmentMarkdownInto(editor: PlateEditor, markdown: string): void {
   const nodes = chatMarkdownToValue(markdown)
   editor.tf.insertNodes(nodes, { at: attachmentInsertionPath(editor) })
   ensureTrailingEditableLine(editor)
 }
 
-/** A preview at a local object URL before the upload starts. A raw node, not
- *  markdown, so a filename holding `]` or `)` can never misparse. */
 export function insertPendingImageInto(editor: PlateEditor, objectUrl: string, alt: string): void {
   const node = {
     type: 'img',
@@ -60,9 +49,6 @@ export function insertPendingImageInto(editor: PlateEditor, objectUrl: string, a
   ensureTrailingEditableLine(editor)
 }
 
-/** Settles a pending image, found by its object URL since the person may have typed on: the
- *  real ref replaces it in place, `null` (a failed upload) removes it. Revokes the URL either way.
- */
 export function settlePendingImageInto(
   editor: PlateEditor,
   objectUrl: string,
@@ -85,8 +71,6 @@ export function settlePendingImageInto(
       if (finalNode?.url) {
         editor.tf.setNodes({ url: finalNode.url }, { at: path })
       } else {
-        // The server sniffed a non-image: a void img pointing at it would block
-        // Send, so the placeholder gives way to whatever it resolved to.
         editor.tf.withoutNormalizing(() => {
           editor.tf.removeNodes({ at: path })
           editor.tf.insertNodes(nodes, { at: path })

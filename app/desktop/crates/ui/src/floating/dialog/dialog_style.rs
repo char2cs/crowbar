@@ -1,5 +1,3 @@
-//! The dialog looks of the React app.
-
 use gpui::{Pixels, Stateful, Styled, px};
 
 use crate::foundation::Palette;
@@ -8,19 +6,15 @@ use crate::foundation::tokens::radius;
 use crate::foundation::tokens::spacing;
 use crate::foundation::tokens::text_size;
 
-/// Which React dialog a [`crate::Dialog`] reproduces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum DialogStyle {
-    /// `AppDialog`: 14px rounded corners, 14px title, ruled header with a close button inline.
     #[default]
     App,
-    /// The plain `Dialog`: 18px corners, hairline border, 20px title, padded header.
     Plain,
 }
 
 impl DialogStyle {
-    /// Font size of the title.
     pub fn title_size(self) -> Pixels {
         match self {
             Self::App => text_size::SM,
@@ -28,7 +22,6 @@ impl DialogStyle {
         }
     }
 
-    /// Line height of the title; the plain title has `leading-none`.
     pub fn title_line(self) -> Pixels {
         match self {
             Self::App => spacing::STEP_3_5,
@@ -36,7 +29,6 @@ impl DialogStyle {
         }
     }
 
-    /// Corner radius of the popup.
     pub fn corner(self) -> Pixels {
         match self {
             Self::App => radius::XL,
@@ -44,7 +36,6 @@ impl DialogStyle {
         }
     }
 
-    /// Horizontal and vertical padding of the header.
     pub fn header_padding(self) -> (Pixels, Pixels) {
         match self {
             Self::App => (spacing::STEP_4, spacing::STEP_3),
@@ -52,7 +43,6 @@ impl DialogStyle {
         }
     }
 
-    /// Horizontal and vertical padding of the footer.
     pub fn footer_padding(self) -> (Pixels, Pixels) {
         match self {
             Self::App => (spacing::STEP_4, spacing::STEP_3),
@@ -60,7 +50,6 @@ impl DialogStyle {
         }
     }
 
-    /// Alpha of the muted footer wash.
     pub fn footer_wash(self) -> f32 {
         match self {
             Self::App => 0.5,
@@ -68,7 +57,6 @@ impl DialogStyle {
         }
     }
 
-    /// Rounds `frame` and, for the plain dialog, gives it the hairline border.
     pub fn frame(
         self,
         frame: Stateful<gpui::Div>,
@@ -81,7 +69,6 @@ impl DialogStyle {
         }
     }
 
-    /// Padding the dialog puts around its body; plain bodies bring their own.
     pub fn body_padding(self) -> Pixels {
         match self {
             Self::App => spacing::STEP_4,

@@ -14,7 +14,6 @@ func TestScopeFlags_IncludesHome(t *testing.T) {
 	}
 }
 
-// A callback dials the address the daemon bound, not one it derives from --home.
 func TestScopeFlags_HandsCallbacksTheDaemonAddress(t *testing.T) {
 	for host, want := range map[string]string{
 		"unix:///tmp/crowbar-abc.sock": "--project=p1 --workspace=w1 --home=/Users/x/.crowbar --host=unix:///tmp/crowbar-abc.sock",
@@ -39,8 +38,6 @@ func TestScopeFlags_QuotesADaemonSocketWithASpace(t *testing.T) {
 	}
 }
 
-// The relay's identity and token file name nothing of the runner, the workspace or the
-// chat's placement: a provider pins the block they render into for the session's life.
 func TestRelayVars_RenderTheBindingsIdentityAndTokenFile(t *testing.T) {
 	c := TemplateCtx{
 		RelayID: "R1", RelayDir: "/crow/chats/c1/relay", RelayToken: "TOK",
@@ -79,8 +76,6 @@ func TestReplacer_ExpandsCrowbarHome(t *testing.T) {
 	}
 }
 
-// Scope flags run through a shell: a home under a directory with a space must
-// still arrive as one word.
 func TestHookCommandValues_SurviveAShell(t *testing.T) {
 	c := TemplateCtx{
 		ProjectID: "p1", WorkspaceID: "w1",
@@ -96,8 +91,6 @@ func TestHookCommandValues_SurviveAShell(t *testing.T) {
 	}
 }
 
-// A hook posts to the runner-keyed route under the same project/repo scope the
-// relay's path was built from: a repo-less project home takes the home branch.
 func TestHookURL_ScopesToTheRunnerLikeTheRelayDid(t *testing.T) {
 	base := TemplateCtx{
 		HookBase: "http://127.0.0.1:4242", ProjectID: "p1", Segid: "seg-1", Provider: "claude",
@@ -125,8 +118,6 @@ func TestReplacer_ExpandsTheHookURL(t *testing.T) {
 	}
 }
 
-// A CLI that can only run a command posts through curl, reading its credential from a
-// file under the runner's own temp dir so the token never sits in argv for `ps`.
 func TestHookCurl_ReadsItsCredentialFromAFileNotArgv(t *testing.T) {
 	c := TemplateCtx{Tmp: "/var/folders/Jo Smith/T/run-1", RunnerToken: "secret-token"}
 	got := c.Replacer().Replace("{hook_curl}")

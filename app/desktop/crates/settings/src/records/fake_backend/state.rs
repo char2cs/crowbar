@@ -1,5 +1,3 @@
-//! The data behind a [`crate::FakeBackend`].
-
 use std::collections::BTreeMap;
 
 use crate::records::Records;

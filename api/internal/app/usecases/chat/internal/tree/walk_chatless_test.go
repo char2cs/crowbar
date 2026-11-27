@@ -10,15 +10,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// A fork created under a CHATLESS workspace row: the frontend's
-// handleCreate('workspace') resolves no owningChatId for it and sends the
-// workspace's own id as parentId (space-content-actions.ts placementParentId
-// -> resolveHomeOwnerId -> homeId). checkNewChatParent accepts that id
-// (workspaceAnchorType via nodes.GetNode), placeChat files the new chat
-// under it, and then SpawnChatWithOwnWorktree's ResolveForkParent walks a
-// forest built from chats + folder Nodes only -- the workspace anchor Node
-// is never in it, so the walk dead-ends and the create fails with
-// ErrNoForkParent even though the parent is a real, provisioned workspace.
 func TestRegression_ResolveForkParent_ParentIsAChatlessWorkspaceAnchorNode(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "self", Type: domain.ChatTypeChat, ParentID: "ws-main"},
@@ -39,18 +30,12 @@ func TestRegression_ResolveForkParent_ParentIsAChatlessWorkspaceAnchorNode(t *te
 	}
 }
 
-// stubRepoRoots answers tree.RepoRoots from a fixed repo->default-workspace map.
 type stubRepoRoots map[string]string
 
 func (s stubRepoRoots) DefaultWorkspaceOf(_ context.Context, repoID string) (string, error) {
 	return s[repoID], nil
 }
 
-// A repo-ROOT folder's Node sits at ParentID "" with no workspace-owning row
-// above it (row-actions.ts root-normalises a folder started on the repo
-// header), so a fork filed inside it walked to "" and was refused. The folder
-// applies its parent's logic: its parent is the repo header, i.e. the repo's
-// default checkout.
 func TestRegression_ForkUnderRepoRootFolderForksTheDefaultWorkspace(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "owner", Type: domain.ChatTypeChat, WorkspaceID: "ws-main"},

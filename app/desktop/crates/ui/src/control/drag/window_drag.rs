@@ -1,5 +1,3 @@
-//! Moving the window from the areas that stand in for its title bar.
-
 use gpui::{
     App, Div, InteractiveElement as _, MouseButton, MouseDownEvent, Styled as _, Window, div, px,
 };
@@ -8,7 +6,6 @@ const fn zooms(clicks: usize) -> bool {
     clicks >= 2
 }
 
-/// A press on a title bar area: the first moves the window, a second zooms it.
 // PLATFORM: macos the app owns its title bar, so AppKit moves and zooms nothing by itself.
 pub fn drag_window(
     event: &MouseDownEvent,
@@ -22,7 +19,6 @@ pub fn drag_window(
     window.start_window_move();
 }
 
-/// A strip of `height` across the top of its parent that moves the window.
 pub fn window_drag_strip(height: f32) -> Div {
     div()
         .debug_selector(|| "window-grip".into())

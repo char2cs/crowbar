@@ -75,14 +75,12 @@ fn visible(shell: &ShellState) -> Vec<VisiblePane> {
     })
 }
 
-/// Mounts every pane of the active tab, as a frame of the window would.
 pub(crate) fn synced_chat(rig: &mut ShellRig) -> PaneId {
     open_chat(&mut rig.shell, "t1");
     resync(rig);
     rig.shell.showing().unwrap().pane_ids()[0].clone()
 }
 
-/// Drives every visible pane of the rig's layout, as a frame does.
 pub(crate) fn resync(rig: &mut ShellRig) {
     sync_shown(&mut rig.shell);
 }

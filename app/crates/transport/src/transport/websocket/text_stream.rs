@@ -13,7 +13,6 @@ use crate::transport::websocket::upstream_request::UpstreamRequest;
 const MEBIBYTE: usize = 1 << 20;
 const MAX_FRAME: usize = 16 * MEBIBYTE;
 
-/// A WebSocket to the local daemon that carries text frames, for the shell's own use.
 pub struct TextStream {
     socket: UpstreamSocket,
 }
@@ -32,8 +31,6 @@ impl TextStream {
         Self { socket }
     }
 
-    /// The next text frame; `None` once the connection has ended. Other frame kinds are not
-    /// frames of this stream and are skipped.
     pub async fn recv(&mut self) -> Option<String> {
         let mut flow = ControlFlow::Continue(());
         while flow.is_continue() {
@@ -42,10 +39,6 @@ impl TextStream {
         flow.break_value().flatten()
     }
 
-    /// Sends one text frame.
-    ///
-    /// # Errors
-    /// [`Error::WebSocket`] when the connection has ended.
     pub async fn send(
         &mut self,
         text: String,
@@ -70,11 +63,6 @@ fn classify(frame: Option<Result<Message, WsError>>) -> ControlFlow<Option<Strin
 }
 
 impl Transport {
-    /// Opens the daemon's WebSocket at `path` as the shell itself, not on behalf of a pane.
-    ///
-    /// # Errors
-    /// [`Error::NoSocket`] or [`Error::LocalSocket`] while the local daemon is not reachable,
-    /// [`Error::WebSocket`] when the daemon refuses the upgrade.
     pub async fn open_text_stream(
         &self,
         path: &str,

@@ -12,7 +12,6 @@ import { applySettingSideEffect } from '@/features/settings/lib/settings-effects
 import { defaultSettings } from '@/features/settings/config/default-settings'
 import type { Settings } from '@/features/settings/types/settings'
 
-// Applying a theme is fire-and-forget behind the settings side effect, so a test waits on its result.
 function applyTheme(theme: Settings['theme'], themeMode: Settings['themeMode'] = 'light'): void {
   const settings: Settings = { ...defaultSettings, theme, themeMode }
   applySettingSideEffect('theme', theme, () => settings)
@@ -21,8 +20,6 @@ function applyTheme(theme: Settings['theme'], themeMode: Settings['themeMode'] =
 describe('applyTheme with a persisted theme id the registry no longer knows', () => {
   beforeEach(() => {
     bridge.setMacOSWindowAppearance.mockClear()
-    // A real install can still hold a removed theme id ('terra', 'zen').
-    // Theme Mode = Light has already toggled .dark off by this point.
     document.documentElement.classList.remove('dark')
     localStorage.clear()
   })

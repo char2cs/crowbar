@@ -1,5 +1,3 @@
-//! What the dialog needs of a pairing attempt.
-
 use std::sync::Arc;
 
 use store::{PairingSession, PairingState};

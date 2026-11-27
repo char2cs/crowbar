@@ -11,23 +11,16 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// defaultSearchLimit and maxSearchLimit bound every search. SearchOpts reads Limit <= 0 as
-// unlimited, which an HTTP caller's one-letter query would turn into a hit per line, so
-// out-of-range values are clamped rather than disabling the bound.
 const (
 	defaultSearchLimit = 200
 	maxSearchLimit     = 1000
 )
 
-// searchResponse is the data payload of GET /review/search.
 type searchResponse struct {
 	Hits      []gitdomain.SearchHit `json:"hits"`
 	Truncated bool                  `json:"truncated"`
 }
 
-// SearchDiff handles GET /v0/chats/:chatId/review/search?q=&regex=&case=&limit=: server-side
-// find-in-diff, since the client holds only a window of the patch. It returns match locations and
-// whether the limit cut them short; an empty q is an empty result.
 func (h *Handlers) SearchDiff(
 	ctx *gin.Context,
 ) {
@@ -75,8 +68,6 @@ func searchOpts(
 	}, nil
 }
 
-// searchFlag reads a boolean query parameter: absent is false, unparseable is a 400 rather than a
-// silent "false" that would answer a different search.
 func searchFlag(
 	raw string,
 	name string,

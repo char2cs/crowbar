@@ -15,5 +15,5 @@ func TestWorkspaceKindConstants(t *testing.T) {
 
 func TestWorkspaceKindDefaultsToGit(t *testing.T) {
 	ws := domain.Workspace{}
-	require.Equal(t, domain.WorkspaceKind(""), ws.Kind) // zero value; caller sets it
+	require.Equal(t, domain.WorkspaceKind(""), ws.Kind)
 }

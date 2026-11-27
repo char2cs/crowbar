@@ -1,5 +1,3 @@
-//! What opening the daemon log from a startup screen tells the log.
-
 use std::fmt;
 
 use journal::Level;

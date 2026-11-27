@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// openTree builds a Tree instance over SQLite stores in dir; a second call on
-// the same dir is the same home after a restart.
 func openTree(t *testing.T, dir string) asynx.Asynx[tree.Tree] {
 	t.Helper()
 	es, err := eventsqlite.NewEventStore(filepath.Join(dir, "tree.db"))

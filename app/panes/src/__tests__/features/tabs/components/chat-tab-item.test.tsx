@@ -21,7 +21,6 @@ beforeEach(() => {
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
 
-// The chat's own entry in the IDE sector's tab strip: never closable or draggable.
 describe('ChatTabItem', () => {
   it('renders the chat title', () => {
     writeChat({ id: 'chat-1', title: 'My Chat' })

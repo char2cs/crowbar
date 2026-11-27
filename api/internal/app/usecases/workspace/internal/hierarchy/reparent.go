@@ -43,8 +43,6 @@ func (u *hierarchyUsecase) Reparent(
 	return u.replayAndReparent(ctx, child, newParentID, tip, base)
 }
 
-// parentBranch is the branch of child's current parent: "" for a root, and for
-// a parent row that is gone, so an orphaned child can still be moved.
 func (u *hierarchyUsecase) parentBranch(
 	ctx context.Context,
 	child domain.Workspace,
@@ -62,9 +60,6 @@ func (u *hierarchyUsecase) parentBranch(
 	return parent.Branch, nil
 }
 
-// replayBase is where a rebase of child starts: its merge-base with the parent's
-// branch (with fallback when it has none or it no longer resolves), never the
-// recorded fork point. It drops nothing the parent lacks; it may replay more.
 func (u *hierarchyUsecase) replayBase(
 	ctx context.Context,
 	child domain.Workspace,
@@ -91,9 +86,6 @@ func (u *hierarchyUsecase) mergeBase(
 	return base, nil
 }
 
-// replayAndReparent rebases the child onto the new parent's tip, then settles the move.
-// A conflict is aborted back to a clean worktree, but the child still moves and is marked
-// pr-conflicts until the user runs RebaseOntoParent.
 func (u *hierarchyUsecase) replayAndReparent(
 	ctx context.Context,
 	child domain.Workspace,
@@ -103,19 +95,14 @@ func (u *hierarchyUsecase) replayAndReparent(
 ) (domain.Workspace, error) {
 	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, base, child.Branch)
 	if rebaseErr == nil {
-		// Clean: the branch is genuinely based on the new parent's tip now.
 		return u.settleReparent(ctx, child, newParentID, tip, false)
 	}
 	if !errors.Is(rebaseErr, enginegit.ErrConflict) {
 		return domain.Workspace{}, fmt.Errorf("reparent: rebase onto: %w", rebaseErr)
 	}
-	// Conflict: abort the rebase so the worktree returns to clean (never the stuck
-	// mid-rebase mess), but keep the move.
 	if abortErr := u.git.OperationAbort(ctx, child.WorktreePath); abortErr != nil {
 		return domain.Workspace{}, fmt.Errorf("reparent: abort after conflict: %w", abortErr)
 	}
-	// Fork point = merge-base of the branch and the new parent, so diffs/summaries
-	// read against the new parent's lineage until a clean rebase finalizes it.
 	onPaper, baseErr := u.git.MergeBase(ctx, child.WorktreePath, tip, child.Branch)
 	if baseErr != nil {
 		return domain.Workspace{}, fmt.Errorf("reparent: merge-base: %w", baseErr)
@@ -123,9 +110,6 @@ func (u *hierarchyUsecase) replayAndReparent(
 	return u.settleReparent(ctx, child, newParentID, onPaper, true)
 }
 
-// settleReparent persists the child's new parent + fork point and resyncs its
-// working-tree summary so the diff stats reflect the new base. The resync is
-// best-effort unless the rebase conflicted: that is the user's only signal.
 func (u *hierarchyUsecase) settleReparent(
 	ctx context.Context,
 	child domain.Workspace,
@@ -149,9 +133,6 @@ func (u *hierarchyUsecase) settleReparent(
 	return ws, nil
 }
 
-// RebaseOntoParent finishes a moved-but-conflicting child's move by rebasing it onto its
-// current parent's tip, keeping a conflicting rebase in progress for the user to resolve.
-// The parent tip is persisted as fork point up front so the branch reads right once resolved.
 func (u *hierarchyUsecase) RebaseOntoParent(
 	ctx context.Context,
 	childID string,
@@ -180,15 +161,11 @@ func (u *hierarchyUsecase) RebaseOntoParent(
 	}
 	rebaseErr := u.git.RebaseOnto(ctx, child.WorktreePath, tip, base, child.Branch)
 	if rebaseErr == nil {
-		// Clean: the child is genuinely integrated onto the parent.
 		return u.settleReparent(ctx, child, child.ParentID, tip, false)
 	}
 	if !errors.Is(rebaseErr, enginegit.ErrConflict) {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: %w", rebaseErr)
 	}
-	// Conflict: KEEP the rebase in progress (the user resolves it with the
-	// standard conflict tooling). Persist the intended fork point now so the
-	// branch reads correctly once resolved, and surface the conflict via status.
 	if _, err := u.workspaces.Reparent(ctx, child.ID, child.ParentID, tip, u.now()); err != nil {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: persist: %w", err)
 	}

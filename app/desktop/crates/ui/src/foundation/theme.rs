@@ -1,5 +1,3 @@
-//! The active theme: palette selection, mode and OS appearance.
-
 mod appearance;
 mod color_mix;
 mod focus_ring;
@@ -25,7 +23,6 @@ use gpui::{App, Global};
 
 use crate::foundation::tokens::font::{HEADING_FAMILY, MONO_FAMILY, UI_FAMILY};
 
-/// Global holding the theme every component reads; switching it repaints all windows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
     pub(crate) id: ThemeId,
@@ -56,12 +53,10 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// The installed theme.
     pub fn of(cx: &App) -> &Self {
         cx.global::<Self>()
     }
 
-    /// Replaces the installed theme and repaints every window.
     pub fn install(
         self,
         cx: &mut App,
@@ -70,42 +65,34 @@ impl Theme {
         cx.refresh_windows();
     }
 
-    /// Theme id.
     pub fn id(&self) -> ThemeId {
         self.id
     }
 
-    /// Light/dark preference.
     pub fn mode(&self) -> ThemeMode {
         self.mode
     }
 
-    /// The appearance after applying the mode to the OS appearance.
     pub fn appearance(&self) -> Appearance {
         self.mode.resolve(self.system)
     }
 
-    /// `--app-ui-scale`: UI font size divided by 15.
     pub fn ui_scale(&self) -> f32 {
         self.ui_scale
     }
 
-    /// Family of the UI text: the chosen one, else the embedded [`UI_FAMILY`].
     pub fn ui_family(&self) -> &'static str {
         self.ui_family.unwrap_or(UI_FAMILY)
     }
 
-    /// Family of headings: the chosen one, else the embedded [`HEADING_FAMILY`].
     pub fn heading_family(&self) -> &'static str {
         self.heading_family.unwrap_or(HEADING_FAMILY)
     }
 
-    /// Family of code and keyboard hints: the chosen one, else the embedded [`MONO_FAMILY`].
     pub fn mono_family(&self) -> &'static str {
         self.mono_family.unwrap_or(MONO_FAMILY)
     }
 
-    /// Palette for a region of the window.
     pub fn palette(
         &self,
         surface: Surface,

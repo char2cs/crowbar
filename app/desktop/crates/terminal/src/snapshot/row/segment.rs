@@ -1,24 +1,15 @@
-//! A stretch of consecutive cells shaped as one piece of text.
-
 use crate::snapshot::row::style_span::StyleSpan;
 
-/// Text that starts at `column` and advances one cell per character (two for a wide glyph).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Segment {
-    /// First column of the text.
     pub column: usize,
-    /// Cells the text occupies.
     pub columns: usize,
-    /// Cells each glyph spans: 1, or 2 for a wide glyph.
     pub glyph_columns: usize,
-    /// The characters, zero-width marks included.
     pub text: String,
-    /// Styles, in order, covering `text` end to end.
     pub spans: Vec<StyleSpan>,
 }
 
 impl Segment {
-    /// Removes plain trailing spaces; true when nothing is left.
     pub fn trim_blanks(&mut self) -> bool {
         while self.text.ends_with(' ') && self.last_span_is_plain() {
             self.text.pop();

@@ -1,5 +1,3 @@
-//! Device connections: read from the daemon, and changed only by its answer.
-
 use std::sync::Arc;
 
 use daemonapi::Call;
@@ -13,7 +11,6 @@ const ACCESS_PATH: &str = "/v0/access";
 const FORBIDDEN: u16 = 403;
 const ACCESS_VALUES: usize = 3;
 const REFUSED_TITLE: &str = "Couldn't change device connections";
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/hooks/use-device-access.ts
 const NOT_THE_OWNER: &str =
     "Device connections can only be changed on the computer this instance runs on.";
 

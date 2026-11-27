@@ -1,6 +1,3 @@
-//! Terminal emulation for the Crowbar shell: an alacritty grid fed by the daemon's PTY frames, read as
-//! render snapshots, with selection, search, links and key, mouse and paste encoding. No GPUI.
-
 mod error;
 mod find;
 mod hyperlink;

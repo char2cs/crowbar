@@ -1,18 +1,12 @@
-// Package chatledger reads what the pre-ledger daemon recorded about a chat
-// and restates it as ledger rows at the upgrade boot. Nothing writes these
-// tables any more.
 package chatledger
 
 import "time"
 
-// The databases, under the home's store directory, the legacy tables live in.
 const (
 	RunnerDB   = "agent_runner.db"
 	ActivityDB = "agent_activity.db"
 )
 
-// The legacy tables as the old daemon's ORM created them; a DATETIME column is
-// what lets the driver read a timestamp back as a time.
 const (
 	ConversationsDDL = `CREATE TABLE agent_chat_conversations (
 	chat_id TEXT, session_id TEXT, workspace_id TEXT, provider_id TEXT,
@@ -55,35 +49,25 @@ const (
 	resolved_at DATETIME, resolution TEXT, auto_approved NUMERIC, answered_option_ids TEXT)`
 )
 
-// PromptsDir is the directory, under each chat's directory in the home's
-// chats directory, the old daemon journalled its prompt deliveries in.
 const PromptsDir = "prompt-requests"
 
-// providerSwitched is the interruption kind whose detail names the provider
-// the chat was switched to.
 const providerSwitched = "provider_switched"
 
-// placed is one legacy row read as the provider it names on a chat, and when.
 type placed struct {
 	ChatID, ProviderID string
 	At                 time.Time
 }
 
-// LegacyRunner is a CLI the pre-ledger daemon still held running on a chat:
-// one it never saw exit. StartedAt is zero when the row holds no readable time.
 type LegacyRunner struct {
 	ID, ChatID, ProviderID string
 	StartedAt              time.Time
 }
 
-// LegacyConversation is an agent_chat_conversations row: a provider session
-// the chat ran on.
 type LegacyConversation struct {
 	ChatID, ProviderID, SessionID string
 	FirstSeenAt, LastActiveAt     time.Time
 }
 
-// LegacyTurn is an agent_turns row: one message of the transcript.
 type LegacyTurn struct {
 	ID, ChatID, Role, ProviderID, RunnerID, SessionID, Text, Effort, Status, Diff, Plan string
 	Seq, DisplayOrder                                                                   int64
@@ -92,7 +76,6 @@ type LegacyTurn struct {
 	EndedAt                                                                             *time.Time
 }
 
-// LegacyTool is an agent_tool_calls row.
 type LegacyTool struct {
 	ID, TurnID, ChatID, Name, Kind, Locations, Target, RequestRef, ResultRef, Diff, Status, Error, SubagentID string
 	Seq                                                                                                       int64
@@ -101,7 +84,6 @@ type LegacyTool struct {
 	EndedAt                                                                                                   *time.Time
 }
 
-// LegacySubagent is an agent_subagents row; Messages is its JSON-encoded replies.
 type LegacySubagent struct {
 	ID, TurnID, ChatID, AgentType, Messages string
 	Seq                                     int64
@@ -109,7 +91,6 @@ type LegacySubagent struct {
 	EndedAt                                 *time.Time
 }
 
-// LegacyInterruption is an agent_interruptions row.
 type LegacyInterruption struct {
 	ID, TurnID, ChatID, Kind, Detail string
 	Seq, DisplayOrder                int64
@@ -117,7 +98,6 @@ type LegacyInterruption struct {
 	ResolvedAt                       *time.Time
 }
 
-// LegacyChoice is an agent_choices row; its JSON columns are kept as text.
 type LegacyChoice struct {
 	ID, TurnID, ChatID, Kind, PromptID, ToolID, ToolName, Title, Question, Mode string
 	Options, Questions, Schema, Resolution, AnsweredOptionIDs                   string
@@ -127,7 +107,6 @@ type LegacyChoice struct {
 	ResolvedAt                                                                  *time.Time
 }
 
-// LegacyPrompt is one prompt-requests/<id>.json record, in its on-disk names.
 type LegacyPrompt struct {
 	RequestID  string    `json:"requestId"`
 	Text       string    `json:"text"`
@@ -137,9 +116,6 @@ type LegacyPrompt struct {
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
-// LegacyChat is everything the old daemon recorded about one chat. Unreadable
-// names each record, or part of one, the reader could not decode, with why:
-// the chat converts without it.
 type LegacyChat struct {
 	ChatID        string
 	Conversations []LegacyConversation
@@ -151,7 +127,5 @@ type LegacyChat struct {
 	Prompts       []LegacyPrompt
 	Runners       []LegacyRunner
 	Unreadable    []string
-	// Partial names each record kept without a part the reader could not
-	// decode: a conversation whose times are unreadable keeps its session.
-	Partial []string
+	Partial       []string
 }

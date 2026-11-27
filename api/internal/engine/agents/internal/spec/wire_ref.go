@@ -7,18 +7,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// wireRefField is the Field an AlternationGlyphError reports for a bad in:/ask:/out:
-// — WireRef's own UnmarshalYAML is shared by all three and does not know which one it
-// is decoding, so it names the mechanism rather than guessing a tag.
 const wireRefField = "in/ask/out"
 
-// WireRef is the provider's wire name(s) for one canonical event: a plain string, or a
-// YAML list when one fact spans several wire methods (the vocabulary is closed, so
-// there is no event per namespace). An unlisted name would leave the CLI blocked.
 type WireRef []string
 
-// UnmarshalYAML accepts a plain scalar (one wire name) or a YAML list (several wire
-// names for one canonical event).
 func (w *WireRef) UnmarshalYAML(node *yaml.Node) error {
 	switch node.Kind { //nolint:exhaustive // default rejects every other node kind with the same error.
 	case yaml.ScalarNode:
@@ -51,7 +43,6 @@ func (w *WireRef) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// Names is every wire name the event answers to, in declared order.
 func (w WireRef) Names() []string {
 	var out []string
 	for _, part := range w {
@@ -64,8 +55,6 @@ func (w WireRef) Names() []string {
 	return out
 }
 
-// Name is the first declared wire name: what a caller with room for exactly one uses,
-// since an outbound call names a single method and a label wants a single word.
 func (w WireRef) Name() string {
 	names := w.Names()
 	if len(names) == 0 {
@@ -74,7 +63,6 @@ func (w WireRef) Name() string {
 	return names[0]
 }
 
-// Has reports whether wireMethod is one of the names this event answers to.
 func (w WireRef) Has(wireMethod string) bool {
 	for _, name := range w.Names() {
 		if name == wireMethod {
@@ -84,7 +72,6 @@ func (w WireRef) Has(wireMethod string) bool {
 	return false
 }
 
-// Empty reports whether the event names nothing in this direction.
 func (w WireRef) Empty() bool {
 	return w.Name() == ""
 }

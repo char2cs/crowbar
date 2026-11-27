@@ -1,23 +1,16 @@
-//! What a device needs to pair: the code, where to reach this computer and what to compare.
-
 use serde::Deserialize;
 
 use crate::store::pairing::local_dates;
 
 const CODE_GROUP: usize = 3;
 
-/// A minted code as the Add a device dialog shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Offer {
-    /// The code, grouped as develop shows it: `123 456`.
     pub code: String,
-    /// When the code stops working, in this computer's time: `1:05 AM`.
     #[serde(rename = "expiresAt")]
     pub until: String,
-    /// Where the device dials; empty when the daemon knows none of its own.
     pub addresses: Vec<String>,
-    /// The daemon's certificate fingerprint.
     #[serde(rename = "serverFingerprint")]
     pub fingerprint: String,
 }

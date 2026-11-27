@@ -1,5 +1,3 @@
-//! The matches of the active search.
-
 use std::ops::RangeInclusive;
 
 use alacritty_terminal::event::EventListener;

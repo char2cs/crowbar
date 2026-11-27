@@ -1,5 +1,3 @@
-//! Sizes and strings of the branch import dialog.
-
 use gpui::{Pixels, px};
 
 pub(crate) const ROW_HEIGHT: Pixels = px(30.0);

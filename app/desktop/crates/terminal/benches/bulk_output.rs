@@ -1,7 +1,3 @@
-//! Throughput of the hot paths: feeding bulk output through the emulator and building render snapshots.
-//!
-//! Run with `cargo bench -p terminal --bench bulk_output`.
-
 mod adapters;
 
 use std::hint::black_box;

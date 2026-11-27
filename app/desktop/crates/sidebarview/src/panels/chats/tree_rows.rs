@@ -1,5 +1,3 @@
-//! Turning the visible rows of one space into elements.
-
 use std::rc::Rc;
 use std::time::Instant;
 

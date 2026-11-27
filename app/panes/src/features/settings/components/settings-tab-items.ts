@@ -37,8 +37,6 @@ const SHARED_TAB_ITEMS: SettingsTabItem[] = [
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'terminal', label: 'Terminal', icon: TerminalWindow },
   { id: 'browser', label: 'Browser', icon: Globe },
-  // USER-FACING RENAME ONLY (spec §11). The tab is called Agents; its id stays
-  // `providers` because it is a persisted key and a route into the dialog.
   { id: 'providers', label: 'Agents', icon: Robot },
   { id: 'active-sessions', label: 'Active sessions', icon: Pulse },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
@@ -46,7 +44,6 @@ const SHARED_TAB_ITEMS: SettingsTabItem[] = [
 
 export const SETTINGS_TAB_ITEMS: SettingsTabItem[] = [
   ...SHARED_TAB_ITEMS,
-  // Remote hosts dial through the Tauri bridge, so a browser tab has nothing to show here.
   ...(isTauri() ? [HOSTS_TAB, DEVICES_TAB] : []),
   ...(import.meta.env.DEV
     ? [{ id: 'developer' as SettingsTabItem['id'], label: 'Developer', icon: Bug }]

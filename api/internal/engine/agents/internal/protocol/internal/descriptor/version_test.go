@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// renamedTitle is a throwaway schema 1 in which display_name is spelled title:
-// it maps its documents onto the same model by way of the schema 0 reader.
 type renamedTitle struct{}
 
 func (renamedTitle) Read(raw []byte) (*spec.Descriptor, error) {
@@ -27,8 +25,6 @@ func asV0(raw []byte) []byte {
 	return []byte(strings.Replace(doc, "\ntitle: ", "\ndisplay_name: ", 1))
 }
 
-// A new schema version is a reader registered beside the old one: both load,
-// into one model, through the same Load, with nothing else changed.
 func TestParse_ASecondSchemaVersionLoadsBesideTheFirst(t *testing.T) {
 	descriptor.RegisterReader(t, 1, renamedTitle{})
 	v0 := minimal + "display_name: Probe\n"
@@ -43,7 +39,6 @@ func TestParse_ASecondSchemaVersionLoadsBesideTheFirst(t *testing.T) {
 	assert.Equal(t, "Probe", next.DisplayName)
 }
 
-// A version with no reader is refused, naming what this build reads.
 func TestParse_AVersionWithNoReaderIsRefused(t *testing.T) {
 	_, err := descriptor.Load([]byte("schema_version: 7\n" + minimal))
 	require.ErrorIs(t, err, descriptorschema.ErrUnsupported)

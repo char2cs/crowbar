@@ -60,8 +60,6 @@ interface FileExplorerTreeItemProps {
   fileFeedback?: Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
 }
 
-// Reserves the same leading slot on every row (file or folder) so icons line
-// up in one column — only directories draw a caret into it, rotated 90° open.
 export function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpanded: boolean }) {
   return (
     <span

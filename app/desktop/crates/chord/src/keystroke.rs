@@ -6,14 +6,10 @@ pub use modifier::Modifier;
 pub use modifiers::Modifiers;
 pub use physical_key::PhysicalKey;
 
-/// One key press as the shell's windowing layer reports it, free of any toolkit type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keystroke {
-    /// The modifier keys held down with the key.
     pub modifiers: Modifiers,
-    /// The key as the toolkit names it, for example `t`, `left` or `enter`.
     pub key: String,
-    /// Where the key sits on the keyboard, when the windowing layer reports it.
     pub physical: Option<PhysicalKey>,
 }
 
@@ -24,8 +20,6 @@ const CHORD_NAMES: [(Modifier, &str); 3] = [
 ];
 
 impl Keystroke {
-    /// The canonical chord text (`mod+shift+t`), the notation of the keybindings settings and
-    /// of the pane script; `None` for a modifier pressed alone or an empty key.
     #[must_use]
     pub fn chord(&self) -> Option<String> {
         let key = dom_key(&self.key)?;

@@ -5,7 +5,6 @@ use crate::control::editor::text_area::render::text_area_condition::TextAreaCond
 use crate::control::editor::text_area::render::text_area_size::TextAreaSize;
 
 impl TextArea {
-    /// Sets the minimum height and the padding.
     #[must_use]
     pub fn size(
         mut self,
@@ -15,7 +14,6 @@ impl TextArea {
         self
     }
 
-    /// Stops growing at `height` (border included) and scrolls beyond it.
     #[must_use]
     pub fn max_height(
         mut self,
@@ -25,21 +23,18 @@ impl TextArea {
         self
     }
 
-    /// Starts disabled.
     #[must_use]
     pub fn disabled(mut self) -> Self {
         self.condition = TextAreaCondition::Disabled;
         self
     }
 
-    /// Starts flagged invalid.
     #[must_use]
     pub fn invalid(mut self) -> Self {
         self.condition = TextAreaCondition::Invalid;
         self
     }
 
-    /// Changes how the field presents itself.
     pub fn set_condition(
         &mut self,
         condition: TextAreaCondition,

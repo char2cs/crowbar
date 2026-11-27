@@ -18,8 +18,6 @@ func load(t *testing.T) schema.Vocabulary {
 
 func TestLoad_CarriesEveryCanonicalEvent(t *testing.T) {
 	v := load(t)
-	// The full set the Go constants declared before this table existed, plus the two
-	// compaction events and the three outbound ones.
 	for _, name := range []string{
 		"session_start", "user_prompt", "turn_stop", "turn_failed",
 		"tool_pre", "tool_post", "tool_fail",
@@ -46,8 +44,6 @@ func TestLoad_EveryEventDeclaresADirection(t *testing.T) {
 	}
 }
 
-// These three are the rules rules/hook_vocabulary.go enforced in Go. They must survive
-// the move to data or descriptors silently lose their required fields.
 func TestValidate_CarriesTheThreeRulesThatWereInGo(t *testing.T) {
 	v := load(t)
 	for _, tc := range []struct{ event, missing string }{
@@ -92,8 +88,6 @@ func TestValidate_UnknownFieldWithinAKnownEvent_IsRejected(t *testing.T) {
 	}
 }
 
-// The relay vars may ride a prompt's session call; the relay token may not, since a
-// request body is logged.
 func TestValidate_PromptAdmitsTheRelayVarsButNotTheRelayToken(t *testing.T) {
 	v := load(t)
 	prompt := func(field string) error {
@@ -111,8 +105,6 @@ func TestValidate_PromptAdmitsTheRelayVarsButNotTheRelayToken(t *testing.T) {
 	}
 }
 
-// suggestion_label.* is a PREFIX FAMILY: its keys are the provider's own machine names
-// for a broader grant, which Go must never enumerate.
 func TestValidate_PrefixFamilyAcceptsAnyMemberButNotAnUnrelatedField(t *testing.T) {
 	v := load(t)
 	ok := map[string]map[string][]string{"permission": {
@@ -133,7 +125,6 @@ func TestValidate_PrefixFamilyAcceptsAnyMemberButNotAnUnrelatedField(t *testing.
 	}
 }
 
-// Capability is key-presence: declaring no telemetry is legal, not an error.
 func TestValidate_APartialProviderIsAccepted(t *testing.T) {
 	v := load(t)
 	if err := v.Validate("acme", map[string]map[string][]string{
@@ -144,8 +135,6 @@ func TestValidate_APartialProviderIsAccepted(t *testing.T) {
 	}
 }
 
-// Telemetry's canonical names are DOTTED (context.used_tokens). If the validator split
-// on dots it would reject every real telemetry mapping.
 func TestValidate_DottedCanonicalFieldsAreAccepted(t *testing.T) {
 	v := load(t)
 	if err := v.Validate("acme", map[string]map[string][]string{
@@ -158,8 +147,6 @@ func TestValidate_DottedCanonicalFieldsAreAccepted(t *testing.T) {
 	}
 }
 
-// The same descriptor must produce the same error every run, or the test that asserts
-// on it is flaky.
 func TestValidate_ErrorIsDeterministic(t *testing.T) {
 	v := load(t)
 	in := map[string]map[string][]string{

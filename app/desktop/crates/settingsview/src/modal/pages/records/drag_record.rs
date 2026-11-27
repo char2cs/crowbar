@@ -1,5 +1,3 @@
-//! A record lifted by its grip to be dropped at another place of its list.
-
 use gpui::{App, Window};
 
 use crate::intent::Intent;

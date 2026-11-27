@@ -22,9 +22,6 @@ func trimNewline(
 	return strings.TrimRight(s, "\r\n")
 }
 
-// writeStubGit is a stand-in git that runs script whatever argv it is handed, so
-// a test can tell from the output — or from a side effect the script leaves
-// behind — which file was exec'd and how often.
 func writeStubGit(
 	t *testing.T,
 	script string,
@@ -45,10 +42,6 @@ func readFile(
 	return string(data)
 }
 
-// vanishedResolver models the exact production sequence for a git binary that
-// disappeared under a running daemon: the cached path no longer exists, and the
-// re-resolution behind RecoverGit lands on the bare name — binpath's own final
-// fallback, which the OS then finds on PATH.
 type vanishedResolver struct {
 	current  atomic.Value
 	recovers atomic.Int64
@@ -73,9 +66,6 @@ func (r *vanishedResolver) recover() bool {
 	return true
 }
 
-// TestGit_FallsBackToPathWhenTheResolvedBinaryIsGone is the safety proof for
-// the whole change. Resolution is forced to hand back a path that does not
-// exist; the git call must still succeed, through PATH, with the right answer.
 func TestGit_FallsBackToPathWhenTheResolvedBinaryIsGone(t *testing.T) {
 	dir := initRepo(t)
 	writeAndCommit(t, dir, "a.txt", "one\n")
@@ -89,9 +79,6 @@ func TestGit_FallsBackToPathWhenTheResolvedBinaryIsGone(t *testing.T) {
 	assert.Equal(t, int64(1), resolver.recovers.Load(), "recovery must be attempted exactly once")
 }
 
-// TestGitStream_FallsBackToPathWhenTheResolvedBinaryIsGone covers the streaming
-// seam, which builds its pipes before starting and therefore has to rebuild the
-// whole invocation rather than retry a started one.
 func TestGitStream_FallsBackToPathWhenTheResolvedBinaryIsGone(t *testing.T) {
 	dir := initRepo(t)
 	writeAndCommit(t, dir, "a.txt", "one\n")
@@ -110,10 +97,6 @@ func TestGitStream_FallsBackToPathWhenTheResolvedBinaryIsGone(t *testing.T) {
 	assert.Equal(t, int64(1), resolver.recovers.Load())
 }
 
-// TestGit_OrdinaryFailureNeverTouchesTheResolver keeps the recovery path off
-// the ordinary error path. A git command that ran and said no is not evidence
-// that anything is wrong with the binary, and re-resolving on it would put a
-// second spawn behind every failed call in the daemon.
 func TestGit_OrdinaryFailureNeverTouchesTheResolver(t *testing.T) {
 	dir := initRepo(t)
 	var recovers atomic.Int64
@@ -128,10 +111,6 @@ func TestGit_OrdinaryFailureNeverTouchesTheResolver(t *testing.T) {
 	assert.Zero(t, recovers.Load(), "a non-zero exit is git's answer, not a broken binary")
 }
 
-// TestGit_MissingWorkingDirectoryIsNotAMissingBinary pins the distinction the
-// stat-driven recovery exists to make. A deleted repo directory fails at
-// fork/exec with the same "no such file or directory" as a deleted binary, and
-// must not invalidate a perfectly good resolution.
 func TestGit_MissingWorkingDirectoryIsNotAMissingBinary(t *testing.T) {
 	good := initRepo(t)
 	writeAndCommit(t, good, "a.txt", "one\n")
@@ -145,13 +124,6 @@ func TestGit_MissingWorkingDirectoryIsNotAMissingBinary(t *testing.T) {
 	assert.Equal(t, 0, exec.Git(context.Background(), good, "rev-parse", "HEAD").ExitCode)
 }
 
-// TestGit_ACommandThatRanIsNeverRunTwice is the guard on the retry, and the
-// reason its predicate is cmd.Process rather than cmd.ProcessState. Retrying is
-// only ever safe for an invocation that did not start; re-running one that did
-// would run a `commit` or a `worktree add` a second time. The stub records every
-// execution and exits non-zero, and the resolver offers a recovery on every
-// failure — so a retry gated on anything but "no process exists" shows up here
-// as two recorded runs.
 func TestGit_ACommandThatRanIsNeverRunTwice(t *testing.T) {
 	ledger := filepath.Join(t.TempDir(), "runs")
 	stub := writeStubGit(t, "echo ran >> "+ledger+"\nexit 3\n")
@@ -171,8 +143,6 @@ func TestGit_ACommandThatRanIsNeverRunTwice(t *testing.T) {
 	assert.Equal(t, "ran", trimNewline(readFile(t, ledger)), "the command must have run exactly once")
 }
 
-// TestGit_UsesTheResolvedBinary proves the seam is actually wired: point it at
-// a stand-in and the stand-in is what runs.
 func TestGit_UsesTheResolvedBinary(t *testing.T) {
 	stub := writeStubGit(t, "echo stub-git-ran")
 	defer exec.SetGitResolverForTest(

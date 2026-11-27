@@ -1,5 +1,3 @@
-//! The icon of a space as the daemon holds it: an emoji, a fetched image or none.
-
 use sidebar::{Mark, ProjectId, SpaceIcon};
 
 use crate::live::ProjectRecord;

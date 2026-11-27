@@ -9,7 +9,6 @@ import { createParkedHosts } from './parked-hosts'
 import type { WsHostPorts } from './ws-host-ports'
 import type { WsManager } from './ws-manager'
 
-/** A socket manager that asks `ports` about hosts, so lib/ needs no host-layer import. */
 export function createWSManager(ports: WsHostPorts): WsManager {
   const channels = new Map<string, Channel>()
   const ctx: ChannelContext = {

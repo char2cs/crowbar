@@ -1,5 +1,3 @@
-//! What a native message dialog asks: its words and the buttons that answer it.
-
 mod alert_button;
 mod alert_request;
 mod alert_role;

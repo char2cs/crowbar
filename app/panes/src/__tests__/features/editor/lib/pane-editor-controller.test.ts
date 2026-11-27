@@ -7,8 +7,6 @@ import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-c
 import { documentUri } from '@/features/editor/documents/document-ref'
 import { workspaceRef } from '@/lib/api/documents'
 
-/** Fake manager: every document but `closed` is open; getRawEditor exposes the
- *  current model so applyActiveBuffer can read it for the published context. */
 function fakeManager(closed?: string) {
   let currentUri: string | null = null
   const models = new Map<string, { uri: string; getValue: () => string }>()
@@ -29,7 +27,6 @@ function fakeManager(closed?: string) {
   return manager
 }
 
-// The registry is a window singleton; a fresh module instance per test isolates it.
 let freshRegistry: ActiveEditorRegistry
 beforeEach(async () => {
   vi.resetModules()
@@ -78,14 +75,13 @@ describe('applyActiveBuffer', () => {
     })
 
     const cb = vi.fn()
-    registry.subscribe('p1', cb) // immediate call (1)
+    registry.subscribe('p1', cb)
     expect(cb).toHaveBeenCalledTimes(1)
 
-    // Same path again — showBuffer is uri-deduped and registry.set is uri-deduped.
     applyActiveBuffer({ manager, registry }, 'p1', {
       doc: workspaceRef('w1', '/a.ts'),
     })
-    expect(cb).toHaveBeenCalledTimes(1) // no re-notify
+    expect(cb).toHaveBeenCalledTimes(1)
   })
 
   it('returns undefined (and does not publish) when no raw editor/model is available', () => {

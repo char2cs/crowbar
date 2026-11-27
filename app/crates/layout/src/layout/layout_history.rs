@@ -10,21 +10,10 @@ use crate::layout::undo_step::UndoStep;
 mod adopt;
 mod withdraw;
 
-/// Most undo steps kept; the oldest is forgotten first.
 pub const MAX_UNDO_STEPS: usize = 64;
 
-/// Most closed panes history keeps alive across all steps. A pane holds at most 64 KiB of
-/// state, so this bounds history memory at 16 MiB however large the layout is.
 pub const MAX_PARKED_PANES: usize = 256;
 
-/// A [`Layout`] with undo and redo of structural commands.
-///
-/// A step stores the arrangement it returns to and the panes that command closed, never a copy
-/// of the layout: applying a command costs no more than the command itself, and sending pane
-/// state (an editor on every keystroke) neither copies nor records anything. Undo restores the
-/// arrangement but keeps the latest state of every pane that is still open, so undoing a close
-/// never rolls back work; a pane that was closed comes back with the state it had when it
-/// closed. Sizes of splits come back as they were at the step.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LayoutHistory {
     current: Layout,
@@ -33,7 +22,6 @@ pub struct LayoutHistory {
 }
 
 impl LayoutHistory {
-    /// Starts a history at `layout`.
     #[must_use]
     pub fn new(layout: Layout) -> Self {
         Self {
@@ -43,29 +31,21 @@ impl LayoutHistory {
         }
     }
 
-    /// The current layout.
     #[must_use]
     pub fn layout(&self) -> &Layout {
         &self.current
     }
 
-    /// Whether [`LayoutHistory::undo`] has something to do.
     #[must_use]
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
-    /// Whether [`LayoutHistory::redo`] has something to do.
     #[must_use]
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
 
-    /// Applies a command. A structural command that changed something becomes one undo step
-    /// and clears redo.
-    ///
-    /// # Errors
-    /// The [`Error`](crate::Error) that refused the command; history is unchanged then.
     pub fn apply(
         &mut self,
         command: Command,
@@ -130,7 +110,6 @@ impl LayoutHistory {
             .is_some()
     }
 
-    /// Steps back one structural change. Returns whether anything changed.
     pub fn undo(&mut self) -> bool {
         let Some(step) = self.undo.pop_back() else {
             return false;
@@ -143,7 +122,6 @@ impl LayoutHistory {
         true
     }
 
-    /// Steps forward again. Returns whether anything changed.
     pub fn redo(&mut self) -> bool {
         let Some(step) = self.redo.pop_back() else {
             return false;

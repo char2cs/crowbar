@@ -6,14 +6,11 @@ import { seatTab } from '@/__tests__/__fixtures__/view-state'
 
 describe('pane buffer actions', () => {
   beforeEach(() => {
-    // The window pane store is a never-destroyed singleton; reset it per test.
     resetWindowPaneStoreForTests()
   })
 
   it('adds a missing buffer to an existing pane', async () => {
     const { ensureBufferInPane } = await import('@/features/panes/utils/pane-buffer-actions')
-    // addEditorTabToPane only registers a REFERENCE (see the comment on
-    // ensureBufferInPane) — the buffer itself must already exist.
     windowPaneStore.setState((state) => {
       state.buffers.push({
         id: 'buffer-a',

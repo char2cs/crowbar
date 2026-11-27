@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// createErrEngine fails Create, exercising CreateSession's own error branch
-// (distinct from the unresolved-workspace 500 handlers_test already covers).
 type createErrEngine struct {
 	stubEngine
 }
@@ -29,8 +27,6 @@ func (createErrEngine) Create(
 	return "", errors.New("spawn failed")
 }
 
-// killErrEngine fails Kill with a generic error, distinct from
-// engineterminal.ErrSessionNotFound (already covered by notFoundEngine).
 type killErrEngine struct {
 	stubEngine
 }
@@ -42,9 +38,6 @@ func (killErrEngine) Kill(
 	return errors.New("pty wedged")
 }
 
-// vanishedStateEngine reports two sessions from ListSessionsForChat, the second
-// of which StateOf then reports gone — the race ListSessions' own comment
-// describes ("session vanished between List and StateOf").
 type vanishedStateEngine struct {
 	stubEngine
 }
@@ -106,9 +99,6 @@ func TestListSessions_SkipsASessionThatVanishedBetweenListAndStateOf(t *testing.
 		"a session reported by List but gone by the time StateOf runs must be skipped, not raced")
 }
 
-// TestCreateSession_UnresolvableProfileIsIgnoredNotFatal proves resolveProfile
-// swallows a profile-store lookup failure into "no profile" rather than
-// failing the whole session create over an optional lookup.
 func TestCreateSession_UnresolvableProfileIsIgnoredNotFatal(t *testing.T) {
 	r := gin.New()
 	h := handlers.New(stubEngine{}, errProfiles{})

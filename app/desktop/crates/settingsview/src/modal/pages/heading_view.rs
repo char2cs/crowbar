@@ -1,5 +1,3 @@
-//! A page heading.
-
 use gpui::{App, InteractiveElement as _, IntoElement};
 use settings::Heading;
 

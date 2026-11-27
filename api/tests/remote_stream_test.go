@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// pairedHarness is a daemon reached as a paired remote host reaches it: over
-// TLS with a bearer. The plaintext server beside it is the daemon's own socket.
 type pairedHarness struct {
 	*harness
 	tls      *httptest.Server
@@ -25,8 +23,6 @@ type pairedHarness struct {
 	clientID string
 }
 
-// newPairedHarness boots a daemon, mints a code over plaintext as the local
-// socket would, and redeems it over TLS.
 func newPairedHarness(t *testing.T) *pairedHarness {
 	t.Helper()
 	h := bootHarness(t, t.TempDir(), "SHA256:test-daemon")
@@ -54,7 +50,6 @@ func newPairedHarness(t *testing.T) *pairedHarness {
 	return &pairedHarness{harness: h, tls: tlsSrv, token: env.Data.Token, clientID: env.Data.ClientID}
 }
 
-// A paired client over TLS holds the same scopes the local socket does.
 func TestRemoteStream_ServesProjectsAndWorkspaceScopes(t *testing.T) {
 	h := newPairedHarness(t)
 	imported := importWritableWorkspace(t, h.harness)
@@ -85,7 +80,6 @@ func TestRemoteStream_RefusesWithoutABearer(t *testing.T) {
 	}
 }
 
-// A host document is the local socket's alone, even for a paired client.
 func TestRemoteStream_RefusesADocScope(t *testing.T) {
 	h := newPairedHarness(t)
 	c, _ := dialStreamAs(t, h, h.token)
@@ -119,8 +113,6 @@ func TestRemoteStream_RevokingTheClientClosesTheStream(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, status, "a revoked token upgrades no more")
 }
 
-// Two daemons are two version spaces: each projects snapshot carries only its
-// own rows, and restarting one changes only its epoch.
 func TestTwoDaemons_IdsAndEpochsAreIndependent(t *testing.T) {
 	local, remote := newHarness(t), newPairedHarness(t)
 	onLocal := importWritableWorkspace(t, local)

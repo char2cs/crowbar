@@ -1,5 +1,3 @@
-//! The drop line as one mark that slides between slots.
-
 use std::time::{Duration, Instant};
 
 use ui::{CubicBezier, Glide, Motion};

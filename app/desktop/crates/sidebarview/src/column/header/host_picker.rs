@@ -1,5 +1,3 @@
-//! The host switcher in the header, shown when two or more hosts exist.
-
 use std::rc::Rc;
 
 use gpui::{

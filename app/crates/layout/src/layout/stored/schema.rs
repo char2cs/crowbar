@@ -10,8 +10,6 @@ const ACTIVE_KEY: &str = "active";
 const NO_SPACE: &str = "";
 const V3: u64 = 3;
 
-/// The version of the stored layout format this build writes. It reads this one and upgrades
-/// version 3, whose tabs had no space; any other version loads as the default layout.
 pub const SCHEMA_VERSION: u32 = 4;
 
 pub(crate) fn current(mut document: Value) -> Result<Option<Value>> {

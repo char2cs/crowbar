@@ -73,7 +73,6 @@ const EMPTY: NativeSidebar = {
   readout: null,
 }
 
-// The desktop renames inline; the phone's list page can't, so it asks natively.
 async function renameNatively(row: SidebarRow) {
   const name = await nativePrompt({
     title: 'Rename',
@@ -86,7 +85,6 @@ async function renameNatively(row: SidebarRow) {
   if (trimmed && trimmed !== row.label) await performRenameRow(row.id, trimmed)
 }
 
-// The desktop names a fork inline under its parent; the phone asks for the name first.
 async function forkNatively(row: SidebarRow, navigate: RowMenuHandlers['navigate']) {
   const name = await nativePrompt({
     title: 'New branch',
@@ -99,8 +97,6 @@ async function forkNatively(row: SidebarRow, navigate: RowMenuHandlers['navigate
   if (trimmed) await handleCreate(row.id, 'workspace', navigate, undefined, trimmed)
 }
 
-// The desktop names the branch in place on the thread's row; the phone asks, and asks again
-// with the daemon's reason while the name it typed cannot be taken.
 async function branchOutNatively(row: SidebarRow) {
   const wsId = row.workspaceId
   if (!wsId) return
@@ -134,9 +130,6 @@ const NOUN: Record<SidebarRow['kind'], string> = {
   workflow: 'workflow',
 }
 
-// Remove holds the row in the removal tray; the phone asks first, where the desktop's X doesn't.
-// The name sits in the message, not between quotes in the title, which a name may contain.
-// Delete Repo's question is the tray's own, asked natively there.
 function confirmFor(id: RowMenuActionId, row: SidebarRow): NativeRowAction['confirm'] {
   if (id !== 'remove') return null
   return {
@@ -150,7 +143,6 @@ const CANCEL_MOVE = 'cancel-move'
 
 type Running = ReadonlyMap<string, ActiveSession>
 
-/** The rows with an agent running, as the desktop's Active section picks them. */
 function activeRows(rows: readonly SidebarRow[], running: Running) {
   return rows.filter((r) => r.kind !== 'folder' && !r.operation && running.has(r.id))
 }
@@ -159,21 +151,21 @@ function nativeRowActions(rows: SidebarRow[], running: Running, moving: Readonly
   const actions: Record<string, NativeRowAction[]> = {}
   for (const row of rows) {
     const locked = row.kind === 'branch' && rowIsLocked(row.id)
-    // A row not yet created has no menu.
     if (row.operation) {
       actions[row.id] = []
       continue
     }
-    actions[row.id] = // The phone has no terminal threads.
-      rowVerbs(row, { locked, canStartOnTerminal: false, movePending: moving.has(row.id) }).map(
-        (action) => ({
-          id: action.id,
-          title: action.label,
-          icon: action.nativeIcon,
-          destructive: action.destructive,
-          confirm: confirmFor(action.id, row),
-        }),
-      )
+    actions[row.id] = rowVerbs(row, {
+      locked,
+      canStartOnTerminal: false,
+      movePending: moving.has(row.id),
+    }).map((action) => ({
+      id: action.id,
+      title: action.label,
+      icon: action.nativeIcon,
+      destructive: action.destructive,
+      confirm: confirmFor(action.id, row),
+    }))
     if (moving.has(row.id)) {
       actions[row.id].push({
         id: CANCEL_MOVE,
@@ -199,13 +191,9 @@ function nativeRowActions(rows: SidebarRow[], running: Running, moving: Readonly
 
 const closeChatList = () => useMobileScreenStore.getState().setChatListOpen(false)
 
-// A failed create is toasted in the shell, and a removal confirmed on the phone commits at once:
-// neither leaves a row behind the way the desktop tree draws one. The phone names a fork first,
-// so no naming input is drawn either.
 const drawnNatively = (row: SidebarRow) =>
   !row.removal && !row.draft && row.operation?.state !== 'failed'
 
-/** The active project's rows, from the same deriver the desktop tree draws. */
 function useActiveProjectRows(projectId: string | null): SidebarRow[] {
   const inputFor = useTreeInput()
   return useMemo(
@@ -222,7 +210,6 @@ export function projectIconUrl(project: Pick<Project, 'id' | 'avatarUrl'>): stri
   return projectAssetURL(project.id, project.avatarUrl)
 }
 
-/** Repo and project icons as data the list page can draw: it cannot reach their daemon. */
 function useIconsAsData(rows: readonly SidebarRow[], projects: readonly Project[]) {
   const rowUrls = rows.flatMap((r) =>
     isImageUrl(r.repoIcon?.avatarURL) ? [r.repoIcon.avatarURL] : [],
@@ -245,7 +232,6 @@ function useIconsAsData(rows: readonly SidebarRow[], projects: readonly Project[
   }
 }
 
-/** Re-renders when any listed host's status changes. */
 function useHostStatusVersion(hostIds: readonly string[]): number {
   const [version, setVersion] = useState(0)
   const hostKey = hostIds.join('\n')
@@ -260,7 +246,6 @@ function useHostStatusVersion(hostIds: readonly string[]): number {
   return version
 }
 
-/** The rows whose chat is mid-turn, the live fact the desktop tree subscribes per row. */
 function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
   const key = useSelect((s) => {
     const working: string[] = []
@@ -271,7 +256,6 @@ function useWorkingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
   return useMemo(() => new Set(key.split('\n')), [key])
 }
 
-/** The rows whose chat waits to move to another workspace after its turn. */
 function useMovingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
   const key = useSelect((s) => {
     const moving: string[] = []
@@ -282,8 +266,6 @@ function useMovingRowIds(rows: readonly SidebarRow[]): ReadonlySet<string> {
   return useMemo(() => new Set(key.split('\n')), [key])
 }
 
-/** Keeps the phone's native chat list showing the sidebar and carries out its intents. The list
- *  holds no state: every push is the whole snapshot. */
 export function useNativeSidebar({
   activeProjectId,
   projects,
@@ -335,7 +317,6 @@ export function useNativeSidebar({
       })),
       rows: rows.map((row) => ({
         ...icons.row(row),
-        // The page that draws these rows watches nothing: the live facts are resolved here.
         working: row.working || workingIds.has(row.id),
         hasView: row.id === focusedChatId,
       })),
@@ -418,7 +399,6 @@ export function useNativeSidebar({
           return
         }
         const actionId = intent.actionId as RowMenuActionId
-        // Detach opens its sheet, and a new thread its draft, over the chat — not under the list.
         if (actionId === 'detach' || actionId === 'new-thread') closeChatList()
         runRowMenuAction(actionId, row, handlers)
         return
@@ -440,7 +420,6 @@ export function useNativeSidebar({
         useUIState.getState().setIsHostPickerOpen(true)
         return
       case 'addHost':
-        // Pairing is its own screen with its own native sheet: the sheets over it go first.
         useUIState.getState().setIsHostPickerOpen(false)
         useUIState.getState().setIsSettingsDialogVisible(false)
         void navigate({ to: '/add-host' })

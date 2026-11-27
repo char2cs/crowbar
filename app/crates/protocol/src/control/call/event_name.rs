@@ -7,11 +7,7 @@ fn validate(value: &str) -> Result<()> {
     })
 }
 
-string_id!(
-    /// An event name declared in an extension manifest, for example `review.updated`.
-    EventName,
-    validate
-);
+string_id!(EventName, validate);
 
 #[cfg(test)]
 mod tests {

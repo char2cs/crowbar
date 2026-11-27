@@ -18,10 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestNew_RegistersStoreProjection proves the reworked store.New wires the
-// save-only projection onto the singleton axWorkspace and does NO eager reconcile
-// (the List reflects only what the projection saved). SendWait is used only to
-// make the projection deterministic in-test.
 func TestNew_RegistersStoreProjection(t *testing.T) {
 	ctx := context.Background()
 
@@ -42,7 +38,6 @@ func TestNew_RegistersStoreProjection(t *testing.T) {
 
 	st := store.New(pst, es, ax)
 
-	// Empty before any event — no reconcile ran.
 	all, err := st.List(ctx)
 	require.NoError(t, err)
 	require.Empty(t, all)

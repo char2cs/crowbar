@@ -92,7 +92,6 @@ func dial(t *testing.T, url string) *websocket.Conn {
 	return conn
 }
 
-// readEnds reads until the server ends the socket, and returns how.
 func readEnds(t *testing.T, conn *websocket.Conn) error {
 	t.Helper()
 	ended := make(chan error, 1)
@@ -113,7 +112,6 @@ func readEnds(t *testing.T, conn *websocket.Conn) error {
 	}
 }
 
-// A half-open peer is found by its missing pongs, not left holding a queue.
 func TestStream_APeerThatNeverPongsIsClosed(t *testing.T) {
 	conn := dial(t, serve(t, handlers.KeepAlive{Ping: 10 * time.Millisecond, Pong: 100 * time.Millisecond, Write: time.Second}))
 	conn.SetPingHandler(func(string) error { return nil })

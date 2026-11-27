@@ -4,7 +4,6 @@ const (
 	DeliveryRestartTUI = "restart_tui"
 )
 
-// InputKeys types a prompt as keystrokes, not as a paste the CLI may rewrite.
 const InputKeys = "keys"
 
 const (
@@ -48,11 +47,6 @@ type PromptSubmitSpec struct {
 	Type          *PromptTypeSpec    `yaml:"type"`
 }
 
-// PromptTypeSpec types a prompt into an idle CLI's composer instead of
-// restarting it. A message opening with a SkipPrefixes entry keeps its meaning
-// as keystrokes (a command, a mode switch), and one ending in a SkipSuffixes entry
-// has its submit key swallowed by the CLI, so both restart instead. A CLI that
-// reads a burst as a paste is fed at most ChunkBytes per write, ChunkIntervalMS apart.
 type PromptTypeSpec struct {
 	Input           string             `yaml:"input"`
 	Submit          string             `yaml:"submit"`
@@ -63,56 +57,41 @@ type PromptTypeSpec struct {
 	Composer        PromptComposerSpec `yaml:"composer"`
 }
 
-// PromptComposerSpec: the composer is empty when the cursor sits right after
-// RowPrefix and the rest of its row is blank or drawn as Ghost (a suggestion).
 type PromptComposerSpec struct {
 	RowPrefix string `yaml:"row_prefix"`
 	Ghost     string `yaml:"ghost"`
 }
 
-// GhostFaint is a suggestion drawn faint (SGR 2).
 const GhostFaint = "faint"
 
-// SteerSpec lets a mid-turn message ride the CLI's turn-end hook instead of a
-// restart: Frame wraps {message}, Reply is the hook stdout with {message_json}.
-// A message opening with a SkipPrefixes entry is a command and is never steered.
 type SteerSpec struct {
 	SkipPrefixes []string `yaml:"skip_prefixes"`
 	Frame        string   `yaml:"frame"`
 	Reply        string   `yaml:"reply"`
 }
 
-// LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture when
-// first in a message, and the escape that makes one text. promptsigil applies it
-// only where Crowbar's attachment encoding, not a person, put the sigil.
 type LeadingSigilsSpec struct {
 	Chars  []string `yaml:"chars"`
 	Escape string   `yaml:"escape"`
 }
 
 type SlashCatalogSpec struct {
-	Completeness   CatalogCompleteness `yaml:"completeness"`
-	TimeoutMS      int                 `yaml:"timeout_ms"`
-	MaxStdoutBytes int                 `yaml:"max_stdout_bytes"`
-	MaxStderrBytes int                 `yaml:"max_stderr_bytes"`
-	MaxItems       int                 `yaml:"max_items"`
-	Pipeline       CatalogPipelineSpec `yaml:"pipeline"`
-	// Builtins are the CLI's own commands, which no probe reports.
-	Builtins []CatalogBuiltin `yaml:"builtins"`
-	// Workspace names the directories, inside the workspace, the CLI reads commands from.
-	Workspace []CatalogWorkspaceDir `yaml:"workspace"`
+	Completeness   CatalogCompleteness   `yaml:"completeness"`
+	TimeoutMS      int                   `yaml:"timeout_ms"`
+	MaxStdoutBytes int                   `yaml:"max_stdout_bytes"`
+	MaxStderrBytes int                   `yaml:"max_stderr_bytes"`
+	MaxItems       int                   `yaml:"max_items"`
+	Pipeline       CatalogPipelineSpec   `yaml:"pipeline"`
+	Builtins       []CatalogBuiltin      `yaml:"builtins"`
+	Workspace      []CatalogWorkspaceDir `yaml:"workspace"`
 }
 
-// CatalogBuiltin is one command the CLI ships. Terminal marks one that opens a
-// dialog only the CLI's own terminal can answer.
 type CatalogBuiltin struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Terminal    bool   `yaml:"terminal"`
 }
 
-// CatalogWorkspaceDir is a directory of commands relative to the workspace root:
-// each *.md file is one, or with Entry, each subdirectory holding that file is a skill.
 type CatalogWorkspaceDir struct {
 	Dir    string `yaml:"dir"`
 	Entry  string `yaml:"entry"`

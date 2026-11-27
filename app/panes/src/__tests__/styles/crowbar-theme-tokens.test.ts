@@ -3,14 +3,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-// See theme-tokens.test.ts: derive the directory from import.meta.url first, then
-// join — vite rewrites `new URL('<literal>', import.meta.url)` into an asset URL
-// that jsdom resolves to http://localhost/..., which fileURLToPath rejects.
 const here = dirname(fileURLToPath(import.meta.url))
 const themeCss = readFileSync(join(here, '../../styles/theme.css'), 'utf8')
 const crowbarCss = readFileSync(join(here, '../../styles/crowbar.css'), 'utf8')
 
-/** Custom-property declarations inside the first rule whose selector matches. */
 function declarations(css: string, selector: RegExp): Record<string, string> {
   const match = css.match(selector)
   if (!match || match.index === undefined) {
@@ -59,7 +55,6 @@ const crowbarIosSidebarPage = declarations(
   /^\[data-theme='crowbar'\]\[data-platform='ios'\]\[data-chrome-page\]:not\(\.dark\)\s*\{/m,
 )
 
-/** Every selector of the rule that holds the dark palette (`.dark` and its light-mode twins). */
 const darkPaletteSelectors = (
   themeCss.replace(/\/\*[\s\S]*?\*\//g, '').match(/([^{}]*)\{\s*--background: #1c1c1a;/)?.[1] ?? ''
 )

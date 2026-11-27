@@ -1,6 +1,3 @@
-// Package store owns the reviewthread read model (state/store/review_thread.db): the save-only
-// durable projection beside the live hub one (hub.go). Boot does no eager reconcile; List heals
-// a lost model on first access by replaying every id in the event log.
 package store
 
 import (
@@ -17,49 +14,32 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// eventKeyPrefix is the namespace asynx prepends to an aggregate's event key.
-// AggregateLister returns raw keys (events: and snapshots:), so rebuild keeps
-// only events keys and strips this prefix; asynx.Replay re-prepends it.
 const eventKeyPrefix = "events:"
 
-// Store is the ReviewThread read model: a projected, queryable view of the
-// aggregate. Per-id aggregate reads fold from the event log via axReviewThread.Get
-// in the repo; this surface serves the projected List/Get.
 type Store interface {
-	// List returns every thread in the read model, first rebuilding it when it is
-	// empty but the event log still holds aggregates.
 	List(
 		ctx context.Context,
 	) ([]domain.ReviewThread, error)
-	// ListByWorkspace returns the threads for wsID, healing the read model the same
-	// way List does before filtering.
 	ListByWorkspace(
 		ctx context.Context,
 		wsID string,
 	) ([]domain.ReviewThread, error)
-	// Get returns the read-model row for id, or nil when absent.
 	Get(
 		ctx context.Context,
 		id string,
 	) (*domain.ReviewThread, error)
 }
 
-// service is the reviewthread read model over the durable store projection. It
-// holds es (the event log's serialize.AggregateLister source) and ax (for Replay)
-// so List can rebuild a lost read model on demand.
 type service struct {
 	storage storage
 	es      asynxModels.Store
 	ax      asynx.Asynx[domain.ReviewThread]
 }
 
-// Projection is the read model's write side. It is opened before
-// axReviewThread so it can be that instance's durable subscriber.
 type Projection struct {
 	storage storage
 }
 
-// Open opens the read model over db (state/store/review_thread.db).
 func Open(
 	db *gormdb.DB,
 ) (*Projection, error) {
@@ -70,9 +50,6 @@ func Open(
 	return &Projection{storage: st}, nil
 }
 
-// New builds the read model over p, whose instance ax was built with
-// Subscriber(p), and registers the hub projection on ax. es is the log ax
-// wraps, kept so List can rebuild a lost model.
 func New(
 	p *Projection,
 	es asynxModels.Store,
@@ -85,8 +62,6 @@ func New(
 	return &service{storage: p.storage, es: es, ax: ax}, nil
 }
 
-// List returns the durable read model, first healing it via a whole-model lazy
-// Replay repair when the model is empty but the event log still holds aggregates.
 func (s *service) List(
 	ctx context.Context,
 ) ([]domain.ReviewThread, error) {
@@ -103,7 +78,6 @@ func (s *service) List(
 	return s.storage.FindAll(ctx)
 }
 
-// ListByWorkspace heals the read model (via List) then filters to wsID.
 func (s *service) ListByWorkspace(
 	ctx context.Context,
 	wsID string,
@@ -115,8 +89,6 @@ func (s *service) ListByWorkspace(
 	return filterByWorkspace(all, wsID), nil
 }
 
-// Get returns the read-model row for id (nil when absent). It never rebuilds — a
-// per-id aggregate read folds directly from the event log in the repo.
 func (s *service) Get(
 	ctx context.Context,
 	id string,
@@ -124,8 +96,6 @@ func (s *service) Get(
 	return s.storage.FindByKey(ctx, id)
 }
 
-// rebuild Replays every aggregate id the event log lists into the read model
-// (asynx.Replay heals one id at a time); without an AggregateLister it is a no-op.
 func (s *service) rebuild(
 	ctx context.Context,
 ) error {
@@ -140,8 +110,6 @@ func (s *service) rebuild(
 	for _, key := range keys {
 		id, ok := strings.CutPrefix(key, eventKeyPrefix)
 		if !ok {
-			// A non-event key (e.g. a "snapshots:<id>" row for the same aggregate)
-			// — skip it; the aggregate is rebuilt from its "events:" key.
 			continue
 		}
 		if err := errors.Join(s.replay(ctx, id)); err != nil {
@@ -151,9 +119,6 @@ func (s *service) rebuild(
 	return nil
 }
 
-// replay folds id's stream into the read model, returning Replay's error and the
-// first save error apart. A Forget marker deletes the row, so a tombstoned
-// stream never heals back as a ghost.
 func (s *service) replay(
 	ctx context.Context,
 	id string,
@@ -183,9 +148,6 @@ func filterByWorkspace(
 	return result
 }
 
-// Subscriber registers p as axReviewThread's durable subscriber: a failed save
-// is retried by asynx, and parks the aggregate, instead of being logged and
-// dropped. The Forget marker deletes the row; a missing row is no error.
 func Subscriber(
 	p *Projection,
 ) func(*asynx.Builder[domain.ReviewThread]) {

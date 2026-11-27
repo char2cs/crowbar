@@ -12,14 +12,10 @@ interface TopTrayProps {
   chatId: string
   plan: PlanItem[] | undefined
   providers: AgentProvider[]
-  /** What the stopped turn's notice can do. */
   actions: FailureActions
-  /** Puts an unsent message's text back in the composer. */
   onEdit: (text: string) => void
 }
 
-/** Behind the input box's top edge: a failure, the to-do list, queued messages and the answered
- *  requests, in one tray that exists only while one of them has something to show. */
 export function TopTray({ chatId, plan, providers, actions, onEdit }: TopTrayProps) {
   const { steps, queued, failed, resolved } = useTopTray(chatId, plan)
   const stop = useNewestStop(chatId)

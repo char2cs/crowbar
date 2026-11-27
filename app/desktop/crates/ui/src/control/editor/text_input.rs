@@ -1,5 +1,3 @@
-//! A single-line text field with selection, clipboard and input-method support.
-
 pub(crate) mod binding;
 mod commands;
 mod fields;
@@ -31,7 +29,6 @@ use crate::foundation::IconName;
 use crate::foundation::Surface;
 use crate::foundation::opaque_debug;
 
-/// A text field entity; render it as a child and subscribe to [`TextInputEvent`].
 pub struct TextInput {
     pub(crate) buffer: Buffer,
     pub(crate) placeholder: SharedString,
@@ -58,7 +55,6 @@ impl Focusable for TextInput {
 }
 
 impl TextInput {
-    /// An empty field showing `placeholder` while empty.
     pub fn new(
         placeholder: impl Into<SharedString>,
         cx: &mut Context<'_, Self>,
@@ -78,7 +74,6 @@ impl TextInput {
         }
     }
 
-    /// Builds a field entity in one call.
     pub fn build(
         placeholder: impl Into<SharedString>,
         cx: &mut App,
@@ -86,7 +81,6 @@ impl TextInput {
         cx.new(|cx| Self::new(placeholder, cx))
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,
@@ -96,7 +90,6 @@ impl TextInput {
         self
     }
 
-    /// Sets the size and finish of the field.
     #[must_use]
     pub fn style(
         mut self,
@@ -106,7 +99,6 @@ impl TextInput {
         self
     }
 
-    /// Shows `icon` inside the left edge and moves the text clear of it.
     #[must_use]
     pub fn leading_icon(
         mut self,
@@ -116,17 +108,14 @@ impl TextInput {
         self
     }
 
-    /// The current text.
     pub fn text(&self) -> &str {
         self.buffer.text()
     }
 
-    /// The placeholder shown while the text is empty.
     pub fn placeholder(&self) -> &SharedString {
         &self.placeholder
     }
 
-    /// Replaces the text and selects its end, without emitting `Changed`.
     pub fn set_text(
         &mut self,
         text: &str,
@@ -136,7 +125,6 @@ impl TextInput {
         self.restart_blink(cx);
     }
 
-    /// Moves keyboard focus to the field.
     pub fn focus(
         &self,
         window: &mut Window,

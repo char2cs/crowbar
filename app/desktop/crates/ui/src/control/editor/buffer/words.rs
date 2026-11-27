@@ -1,5 +1,3 @@
-//! Word and line boundaries of a text, for word-wise movement and double or triple click.
-
 use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;

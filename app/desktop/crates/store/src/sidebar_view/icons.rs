@@ -1,5 +1,3 @@
-//! The running requests the sidebar reads.
-
 use sidebar::{IconTarget, Requests};
 
 use crate::sidebar_view::SidebarView;

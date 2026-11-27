@@ -1,5 +1,3 @@
-//! Grapheme and word boundaries and the pointer presses built on them.
-
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::Buffer;

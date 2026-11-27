@@ -1,4 +1,3 @@
-//! A scripted system check and a grid click, shared by the unit tests.
 #![cfg(test)]
 
 mod fake_check;

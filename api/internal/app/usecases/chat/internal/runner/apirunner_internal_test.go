@@ -24,8 +24,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// stubChatsForSpawn answers a spawn's reads of the chat; the
-// embedded nil interface panics on anything else.
 type stubChatsForSpawn struct {
 	agentchat.EventStore
 	chat domain.Chat
@@ -35,8 +33,6 @@ func (s stubChatsForSpawn) GetChat(context.Context, string) (domain.Chat, error)
 	return s.chat, nil
 }
 
-// SetProvider moves the chat's vendor; the one it has is refused, as the
-// command refuses it.
 func (s stubChatsForSpawn) SetProvider(_ context.Context, _, providerID string) (domain.Chat, error) {
 	if providerID == s.chat.ProviderID {
 		return s.chat, asynxModels.ErrValidation
@@ -44,8 +40,6 @@ func (s stubChatsForSpawn) SetProvider(_ context.Context, _, providerID string) 
 	return s.chat, nil
 }
 
-// spyLifecycle hears every runner_started and runner_exited row its ledger
-// commits, so a test blocks on the commit a client reads rather than on a timer.
 type spyLifecycle struct {
 	started chan string
 	exited  chan string
@@ -59,7 +53,7 @@ func newSpyLifecycle(t *testing.T) (*spyLifecycle, *ledgerstore.Store) {
 	l.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
 		for _, r := range rows {
 			if ch, ok := heard[r.Kind]; ok {
-				body, _ := ledger.DecodeBody[ledger.RunnerExited](r) // both rows carry runnerId
+				body, _ := ledger.DecodeBody[ledger.RunnerExited](r)
 				ch <- body.RunnerID
 			}
 		}
@@ -69,7 +63,6 @@ func newSpyLifecycle(t *testing.T) (*spyLifecycle, *ledgerstore.Store) {
 
 func (*spyLifecycle) Touch(context.Context, string) {}
 
-// startedRow is the runner_started row chat-1's ledger holds for runnerID.
 func startedRow(t *testing.T, l *ledgerstore.Store, runnerID string) ledger.RunnerStarted {
 	t.Helper()
 	rows, err := l.Read(t.Context(), "chat-1", 0, 0)
@@ -83,8 +76,6 @@ func startedRow(t *testing.T, l *ledgerstore.Store, runnerID string) ledger.Runn
 	return ledger.RunnerStarted{}
 }
 
-// spawnHarness is the smallest Runners that can drive spawnRunner end to end
-// with a REAL shipped descriptor and a fake PTY seam.
 type spawnHarness struct {
 	rs        *Runners
 	term      *fakeTermForAttach
@@ -109,22 +100,18 @@ func newSpawnHarness(t *testing.T, surface string) *spawnHarness {
 			snapshots:     lifecycle,
 			term:          term,
 			chatLock:      newTestLock(), parks: newParks(),
-			apiConns: newAPIConnRegistry(),
-			attached: newAttachRegistry(),
-			surfaces: newSurfaceRegistry(),
-			// The real registries a runner's death reconciles through.
-			answers: answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
-			turns:   noopTurns{},
-			ledger:  l,
-			// No vendor serve forks: a test that wants a connection seeds one.
+			apiConns:       newAPIConnRegistry(),
+			attached:       newAttachRegistry(),
+			surfaces:       newSurfaceRegistry(),
+			answers:        answerdesk.New(answerdesk.DefaultRetention, noLedger{}),
+			turns:          noopTurns{},
+			ledger:         l,
 			noAPITransport: true,
 		},
 		term: term, lifecycle: lifecycle, home: home, chatID: "chat-1",
 	}
 }
 
-// seedLiveAPIConn registers a connection backed by a real process, as
-// startAPIConn would: the runner's liveness hangs on that process.
 func (h *spawnHarness) seedLiveAPIConn(t *testing.T, runnerID string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command("sleep", "30")
@@ -136,9 +123,6 @@ func (h *spawnHarness) seedLiveAPIConn(t *testing.T, runnerID string) *exec.Cmd 
 	return cmd
 }
 
-// TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY: an api-transport spawn whose
-// provider is not hotswap must not also fork the descriptor's own TUI, which
-// nothing drives and whose hooks still reach Crowbar.
 func TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.seedLiveAPIConn(t, "runner-1")
@@ -154,8 +138,6 @@ func TestRegression_AnAPIDrivenSpawnForksNoOrphanPTY(t *testing.T) {
 		"a runner with no PTY must record no terminal session rather than a stale one")
 }
 
-// The connection is the runner once no PTY is forked, so its serve process
-// dying reaches the reconcile a dead PTY would.
 func TestRegression_APTYLessRunnerExitsWhenItsServeProcessDies(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	cmd := h.seedLiveAPIConn(t, "runner-1")
@@ -175,8 +157,6 @@ func TestRegression_APTYLessRunnerExitsWhenItsServeProcessDies(t *testing.T) {
 	}
 }
 
-// claude is hooks transport: its PTY IS the session, and nothing about the
-// orphan fix may touch a single claude spawn.
 func TestSpawnRunner_AHooksTransportProviderStillForksItsPTY(t *testing.T) {
 	h := newSpawnHarness(t, "")
 
@@ -189,8 +169,6 @@ func TestSpawnRunner_AHooksTransportProviderStillForksItsPTY(t *testing.T) {
 	assert.Equal(t, h.term.created[0].termSessID, in.TerminalSession)
 }
 
-// An api-transport spawn whose connection never came up still forks its PTY:
-// suppressing it would leave the chat with no process at all.
 func TestSpawnRunner_AnAPITransportSpawnWithNoLiveConnectionStillForksItsPTY(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 
@@ -202,8 +180,6 @@ func TestSpawnRunner_AnAPITransportSpawnWithNoLiveConnectionStillForksItsPTY(t *
 		"a failed api connection degrades to hooks over the PTY (design spec 2.2b), not to nothing")
 }
 
-// SwitchToTerminal's own teardown of a PTY-less runner's `serve` process is a
-// handover, not the runner dying: the native view it forks is the runner now.
 func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	cmd := h.seedLiveAPIConn(t, "runner-1")
@@ -213,7 +189,6 @@ func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *te
 	require.NoError(t, err)
 	<-h.lifecycle.started
 
-	// What SwitchToTerminal does to the connection, in its own order.
 	h.rs.handOverAPIConn("runner-1")
 	h.rs.apiConns.drop("runner-1")
 	waitProcessGone(t, cmd)
@@ -225,8 +200,6 @@ func TestRegression_SwitchToTerminalDoesNotExitThePTYLessRunnerItHandsOver(t *te
 	}
 }
 
-// waitProcessGone blocks on the process actually being reaped, so the
-// assertion after it is about the exit path and never about timing.
 func waitProcessGone(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -234,9 +207,6 @@ func waitProcessGone(t *testing.T, cmd *exec.Cmd) {
 	}, 5*time.Second, 10*time.Millisecond, "the serve process never died")
 }
 
-// ptylessRunners is the teardown half of the harness: a runner already
-// started with NO terminal session, whose native view is the only process it
-// has left.
 func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	t.Helper()
 	lifecycle, l := newSpyLifecycle(t)
@@ -256,8 +226,6 @@ func ptylessRunners(t *testing.T) (*Runners, *spyLifecycle) {
 	}, lifecycle
 }
 
-// settled waits out every onAttachExit rs started, then reports any runner
-// they exited.
 func settled(rs *Runners, lifecycle *spyLifecycle) (string, bool) {
 	rs.background.wg.Wait()
 	select {
@@ -268,12 +236,9 @@ func settled(rs *Runners, lifecycle *spyLifecycle) (string, bool) {
 	}
 }
 
-// Retire and a provider switch kill the native view and re-establish nothing:
-// for a runner with no PTY of its own that view was its last process.
 func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T) {
 	rs, lifecycle := ptylessRunners(t)
 
-	// An end's own order: mark the runner ending, forget the view, then kill it.
 	rs.live.markExiting("runner-1", domain.AgentExitDisplaced)
 	rs.attached.drop("runner-1")
 	rs.onAttachExit("chat-1", "runner-1")(engineterminal.Exit{})
@@ -286,9 +251,6 @@ func TestRegression_ANativeViewTornDownForGoodExitsThePTYLessRunner(t *testing.T
 	}
 }
 
-// A view's exit leaves the runner when something else keeps it: its own PTY
-// (the liveness authority), a re-established connection, or a detach, which
-// ends nothing and re-establishes what replaces the view.
 func TestOnAttachExit_LeavesARunnerSomethingElseKeeps(t *testing.T) {
 	ending := func(rs *Runners) { rs.live.markExiting("runner-1", domain.AgentExitDisplaced) }
 	for name, keep := range map[string]func(*Runners){
@@ -312,8 +274,6 @@ func TestOnAttachExit_LeavesARunnerSomethingElseKeeps(t *testing.T) {
 	}
 }
 
-// carrierTestDescriptor is api transport plus a restart_tui prompt_submit: an
-// adopted spawn forks no PTY, so its argv carries nothing.
 const carrierTestDescriptor = `
 id: carrier-test
 spawn:
@@ -374,8 +334,6 @@ func installDescriptor(t *testing.T, home, body string) engineagents.Agent {
 	return a
 }
 
-// seedAdoptableAPIConn registers on runner-1 what applyAPITransport leaves: a
-// real driver with its session established, and a process for watchExit.
 func (h *spawnHarness) seedAdoptableAPIConn(
 	t *testing.T, stdio engineagents.APIStdio, agent engineagents.Agent,
 ) {
@@ -398,13 +356,10 @@ func (h *spawnHarness) seedAdoptableAPIConn(
 	})
 }
 
-// promptDispatchServer answers the establish and the turn, publishing the
-// turn's text; refuse makes it reject the turn.
 func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) engineagents.APIStdio {
 	t.Helper()
 	return fakeServe(t, func(conn *testutil.LinePeer) {
 		for {
-			// A failed read is the client closing: the test's own wait reports it.
 			var req struct {
 				ID     json.RawMessage `json:"id"`
 				Method string          `json:"method"`
@@ -436,8 +391,6 @@ func promptDispatchServer(t *testing.T, received chan<- string, refuse bool) eng
 	})
 }
 
-// An adopted spawn forks no PTY, so the connection it adopts is the only
-// carrier its prompt has.
 func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := promptDispatchServer(t, received, false)
@@ -463,8 +416,6 @@ func TestRegression_AnAdoptedPTYLessSpawnStillDeliversThePromptItCarries(t *test
 	}
 }
 
-// A spawn that cannot get its prompt to a carrier fails, so the prompt is
-// settled and the client keeps the user's text.
 func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := promptDispatchServer(t, received, true)
@@ -487,8 +438,6 @@ func TestRegression_AnAdoptedSpawnThatCannotDeliverItsPromptFailsTheSpawn(t *tes
 	}
 }
 
-// An api-transport spawn whose connection never came up forks its PTY, and
-// that PTY's argv carries the prompt.
 func TestSpawnRunner_TheForkedPTYCarriesThePromptWhenNoConnectionCameUp(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	agent := installCarrierDescriptor(t, h.home)
@@ -504,11 +453,6 @@ func TestSpawnRunner_TheForkedPTYCarriesThePromptWhenNoConnectionCameUp(t *testi
 	assert.Contains(t, h.term.created[0].argv, "hi there")
 }
 
-// selectionCarrierDescriptor is carrierTestDescriptor plus the OTHER thing a
-// spawn carries: a model/effort choice, declared on BOTH carriers — apply:
-// for the argv of a forked PTY, api_apply: for the config of an adopted
-// connection. An api-transport descriptor may not declare only the first
-// (rules.selectionAPICarrier): that spawn can fork nothing to put it on.
 const selectionCarrierDescriptor = carrierTestDescriptor + `
 model:
   available: [fast, deep]
@@ -526,8 +470,6 @@ effort:
     - pass_arg: { arg: "-c", value: 'reasoning="{effort}"' }
 `
 
-// selectionConversations pins the chat's model/effort choice — the one read
-// spawnPreflight makes that decides what this spawn has to carry.
 type selectionConversations struct {
 	stubConversationsForSpawn
 	sel engineagents.Selection
@@ -539,9 +481,6 @@ func (s selectionConversations) ChatSelection(
 	return s.sel, nil
 }
 
-// TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection: a chosen model rides
-// the serve process's own config channel (model.api_apply), so the chat keeps its
-// api connection and the streaming it carries.
 func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := promptDispatchServer(t, received, false)
@@ -560,8 +499,6 @@ func TestRegression_ASpawnWithAChosenModelKeepsItsAPIConnection(t *testing.T) {
 	assert.True(t, h.rs.HasLiveAPIConnection("runner-1"))
 }
 
-// The record names the carrier that took the choice: selectionRequiresRestart
-// compares against LaunchModel, so a model no carrier received sticks.
 func TestRegression_ASelectionIsRecordedOnTheCarrierThatActuallyTookIt(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := promptDispatchServer(t, received, false)
@@ -582,8 +519,6 @@ func TestRegression_ASelectionIsRecordedOnTheCarrierThatActuallyTookIt(t *testin
 		"this runner IS its connection; the config channel is what carried the choice")
 }
 
-// The degrade branch's half of the same rule: no connection came up, so the
-// forked PTY is the carrier and its own argv is where the choice rides.
 func TestSpawnRunner_TheForkedPTYCarriesTheSelectionWhenNoConnectionCameUp(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	installDescriptor(t, h.home, selectionCarrierDescriptor)
@@ -604,8 +539,6 @@ func TestSpawnRunner_TheForkedPTYCarriesTheSelectionWhenNoConnectionCameUp(t *te
 	assert.NotEmpty(t, in.TerminalSession)
 }
 
-// A selection-carrying spawn forks no PTY either: its prompt rides the
-// connection the choice does.
 func TestRegression_ASelectionCarryingSpawnStillDeliversItsPromptOverTheConnection(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := promptDispatchServer(t, received, false)
@@ -631,8 +564,6 @@ func TestRegression_ASelectionCarryingSpawnStillDeliversItsPromptOverTheConnecti
 	}
 }
 
-// A carrier that renders nothing for a field reports it uncarried: recordRunner
-// stamps what a carrier took, never what the chat intended.
 func TestCarriedSelection_ReportsOnlyTheFieldsTheCarrierRenders(t *testing.T) {
 	sel := engineagents.Selection{Model: "deep", Effort: "high", PermissionLevel: "trusted"}
 	modelOnly := func(s engineagents.Selection) []engineagents.InjectStep {
@@ -651,8 +582,6 @@ func TestCarriedSelection_ReportsOnlyTheFieldsTheCarrierRenders(t *testing.T) {
 	assert.Equal(t, engineagents.Selection{PermissionLevel: "trusted"}, carriedSelection(sel, none))
 }
 
-// A spawn that carries no selection at all still adopts — nothing about a
-// chat that chose nothing changes.
 func TestSpawnRunner_ASpawnWithNoSelectionStillAdoptsItsConnection(t *testing.T) {
 	received := make(chan string, 1)
 	stdio := promptDispatchServer(t, received, false)
@@ -669,8 +598,6 @@ func TestSpawnRunner_ASpawnWithNoSelectionStillAdoptsItsConnection(t *testing.T)
 		"a spawn with nothing to carry has nothing the adopted connection can drop")
 }
 
-// A permission level's api carrier is its vars:, rendered into the establish
-// call rather than the serve argv; the shipped descriptor is that pairing.
 func TestSpawnRunner_APermissionLevelAloneStillAdoptsTheConnection(t *testing.T) {
 	h := newSpawnHarness(t, engineagents.SurfaceChat)
 	h.rs.conversations = selectionConversations{sel: engineagents.Selection{PermissionLevel: "trusted"}}
@@ -684,8 +611,6 @@ func TestSpawnRunner_APermissionLevelAloneStillAdoptsTheConnection(t *testing.T)
 		"a permission level has a declared api carrier (its vars:), so it is not a reason to fork")
 }
 
-// An attaching spawn runs its attach argv in place of the plan: the connection
-// it attaches to carries the prompt.
 func TestSpawnRunner_AnAttachingSpawnDeliversItsPromptOverTheConnection(t *testing.T) {
 	h := helperServeSpawn(t, "answer", true)
 	asked := filepath.Join(t.TempDir(), "asked")

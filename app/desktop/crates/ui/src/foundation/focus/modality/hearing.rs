@@ -1,6 +1,3 @@
-//! What every window root listens to: pointer presses, for the input modality, and the
-//! pointer leaving the window.
-
 use gpui::{
     App, DispatchPhase, IntoElement, MouseExitEvent, MouseMoveEvent, PlatformInput, Styled, Window,
     canvas, point, px,
@@ -10,9 +7,6 @@ use crate::foundation::focus::modality::pressed;
 
 const OUTSIDE: f32 = -1.0;
 
-/// An empty element that hears the window it is painted in: a press there turns
-/// [`crate::Modality`] to the pointer, and the pointer leaving it unhovers everything, as
-/// a browser does. Every window root paints one.
 pub fn hear() -> impl IntoElement {
     canvas(
         |_, _, _| {},

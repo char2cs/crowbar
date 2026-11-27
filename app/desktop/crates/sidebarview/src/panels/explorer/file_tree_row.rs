@@ -1,5 +1,3 @@
-//! A 26px row of the Files and Changes panels.
-
 pub(crate) mod badges;
 pub(crate) mod file_glyph;
 mod glyph;
@@ -38,7 +36,6 @@ const BASE_PADDING: f32 = 6.0;
 const IGNORED_OPACITY: f32 = 0.5;
 const MATCH_TINT: f32 = 0.07;
 const CUT_OPACITY: f32 = 0.4;
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree-item.tsx
 const COPIED_INK: u32 = 0x0022_c55e;
 
 #[derive(IntoElement)]

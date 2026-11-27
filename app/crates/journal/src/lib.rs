@@ -1,6 +1,3 @@
-//! Typed log events: code returns or hands over an [`Event`] value instead of logging inline,
-//! and each crate turns events into tracing events in one place, [`sink!`], under its own target.
-
 mod event;
 mod level;
 mod sink;

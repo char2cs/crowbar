@@ -1,7 +1,3 @@
-//! Plans that file a row somewhere else.
-//!
-//! Spec: develop `web/src/components/sidebar/lib/sidebar-drop-dispatch.ts`.
-
 mod branch_drop;
 mod chat_drop;
 mod container;

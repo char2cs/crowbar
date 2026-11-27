@@ -1,5 +1,3 @@
-//! Piecewise keyframe animations with one easing curve per interval, like CSS `@keyframes`.
-
 use crate::foundation::motion::cubic_bezier::CubicBezier;
 
 #[derive(Debug, Clone, Copy, PartialEq)]

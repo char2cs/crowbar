@@ -5,7 +5,6 @@ interface Disposable {
   dispose(): void
 }
 
-/** The slice of a Monaco text model the registry and the editor manager use. */
 export interface IModelLike {
   readonly uri: string
   dispose(): void
@@ -13,7 +12,6 @@ export interface IModelLike {
   getValueLength(): number
   getAlternativeVersionId(): number
   onDidChangeContent(listener: () => void): Disposable
-  /** One undoable full replace; `preserveSelections` keeps every showing editor's carets. */
   replaceAll(text: string, preserveSelections: boolean): void
 }
 
@@ -32,10 +30,8 @@ export interface DocumentListener {
 interface OpenDocument {
   model: IModelLike
   savedText: string
-  /** The model version that holds `savedText`; -1 when no version does. */
   savedVersionId: number
   dirty: boolean
-  /** Moves on with each save and each open, across documents: a read begun before it is older. */
   saveMark: number
   subscription: Disposable
 }
@@ -55,8 +51,6 @@ function callAll(listeners: Listeners, uri: string): void {
   for (const fn of [...(listeners.get(uri) ?? [])]) fn()
 }
 
-/** The window's open documents: one Monaco model each, created on open and disposed when its
- *  buffer goes. The model owns the text; the registry derives dirty and reports transitions. */
 export class DocumentRegistry {
   private docs = new Map<string, OpenDocument>()
   private writers: Listeners = new Map()
@@ -69,7 +63,6 @@ export class DocumentRegistry {
     private listener: DocumentListener,
   ) {}
 
-  /** Idempotent per document. A model the references peek made is adopted with `text`. */
   open(ref: DocumentRef, languageId: string, text: string, savedText = text): IModelLike {
     const uri = documentUri(ref)
     const existing = this.docs.get(uri)
@@ -97,7 +90,6 @@ export class DocumentRegistry {
     if (!doc) return
     this.docs.delete(uri)
     doc.subscription.dispose()
-    // Told first, so what was attached to the model comes off a live one.
     this.listener.released(uri)
     doc.model.dispose()
   }
@@ -110,7 +102,6 @@ export class DocumentRegistry {
     return this.docs.get(uri)?.model ?? null
   }
 
-  /** The current text, after every pending writer of `uri` has landed its edits. */
   text(uri: string): string | null {
     callAll(this.writers, uri)
     return this.docs.get(uri)?.model.getValue() ?? null
@@ -124,12 +115,10 @@ export class DocumentRegistry {
     return this.docs.get(uri)?.dirty ?? false
   }
 
-  /** Where the document's saves stand; -1 when it is not open. */
   saveMark(uri: string): number {
     return this.docs.get(uri)?.saveMark ?? -1
   }
 
-  /** Record `text` as what disk holds; clean only if the model still holds exactly it. */
   markSaved(uri: string, text: string): void {
     const doc = this.docs.get(uri)
     if (!doc) return
@@ -139,19 +128,15 @@ export class DocumentRegistry {
     this.settleDirty(uri, doc)
   }
 
-  /** A user edit: one undoable step. */
   replace(uri: string, text: string): void {
     const model = this.docs.get(uri)?.model
     if (model && model.getValue() !== text) model.replaceAll(text, false)
   }
 
-  /** Text from outside the editor, undoable, leaving every editor's caret where it was. */
   applyExternal(uri: string, text: string, saved: boolean): void {
     const doc = this.docs.get(uri)
     if (!doc) return
-    // Disk holding what the document already shows changes nothing, so nobody is told.
     if (doc.model.getValue() === text && (!saved || doc.savedText === text)) return
-    // Saved text is set first, so the change lands clean instead of flickering dirty.
     if (saved) doc.savedText = text
     if (doc.model.getValue() !== text) doc.model.replaceAll(text, true)
     if (saved) this.markSaved(uri, text)

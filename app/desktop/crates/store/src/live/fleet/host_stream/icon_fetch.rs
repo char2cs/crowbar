@@ -1,5 +1,3 @@
-//! Bringing the daemon's space and repository images to disk when a record says it has one.
-
 mod icon_fetch_event;
 
 use daemonapi::Call;

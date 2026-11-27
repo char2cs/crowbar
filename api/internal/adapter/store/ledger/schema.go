@@ -1,8 +1,5 @@
 package ledger
 
-// schema is the chat ledger's tables. at is unix microseconds from the store clock;
-// heads.open is 1 while the chat has unfinished work; a sessions row binds a provider
-// session to one chat; a dead letter is an unplaceable hook kept for deadLetterRetention.
 var schema = []string{
 	`CREATE TABLE IF NOT EXISTS chat_ledger (
 		chat_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -10,14 +7,12 @@ var schema = []string{
 		at INTEGER NOT NULL,
 		body BLOB NOT NULL,
 		PRIMARY KEY (chat_id, seq)) WITHOUT ROWID`,
-	// A feed's window finds where each of its turns begins.
 	`CREATE INDEX IF NOT EXISTS chat_ledger_by_turn ON chat_ledger (chat_id, turn_id, seq)`,
 	`CREATE TABLE IF NOT EXISTS chat_ledger_heads (
 		chat_id TEXT PRIMARY KEY, last_seq INTEGER NOT NULL, open INTEGER NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS chat_ledger_sessions (
 		provider TEXT NOT NULL, session_id TEXT NOT NULL, chat_id TEXT NOT NULL,
 		PRIMARY KEY (provider, session_id)) WITHOUT ROWID`,
-	// A relay row finds the chat a session's MCP relay id was bound in.
 	`CREATE TABLE IF NOT EXISTS chat_ledger_relays (
 		relay_id TEXT PRIMARY KEY, chat_id TEXT NOT NULL) WITHOUT ROWID`,
 	`CREATE INDEX IF NOT EXISTS chat_ledger_relays_by_chat ON chat_ledger_relays (chat_id)`,

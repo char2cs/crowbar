@@ -1,5 +1,3 @@
-//! Caret movement, deletion and clipboard commands of [`TextInput`].
-
 use std::ops::Range;
 
 use gpui::{ClipboardItem, Context, EntityInputHandler as _, Window};

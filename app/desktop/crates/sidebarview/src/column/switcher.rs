@@ -1,5 +1,3 @@
-//! The 44px space switcher: active space name, add button and the other spaces.
-
 pub(crate) mod edit_pencil;
 mod host_line;
 mod hover_glide;

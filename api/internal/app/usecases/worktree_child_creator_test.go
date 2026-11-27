@@ -15,15 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent
-// pins the Promote fix: workspace.CreateChild's own taxonomy default rule
-// (model spec §4.1) inherits OwnWorktree from the PARENT, so a fork parent
-// that is itself a workspace-less bubble (WorktreePath == "") would otherwise
-// default a promotion into ANOTHER bubble — a chat with neither a worktree nor
-// a branch name, silently. worktreeChildCreator forces OwnWorktree true
-// always, which this proves against the REAL workspace.Usecase (real git, real
-// resolveInherited, real branch generator), not the fake usecases/chat wires
-// its own fixture with.
 func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
@@ -41,12 +32,10 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 		Path: repoDir,
 	}))
 	parent, err := repos.Workspace.Create(context.Background(), workspace.CreateInput{
-		ID:        "parent-ws",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "main",
-		// WorktreePath left empty on purpose: this is the workspace-less
-		// "bubble" fork parent the reviewer's finding is about.
+		ID:           "parent-ws",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "main",
 		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Now())
 	require.NoError(t, err)

@@ -1,5 +1,3 @@
-//! Which key presses the modal itself handles.
-
 mod mode;
 mod pressed;
 

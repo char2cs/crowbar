@@ -6,7 +6,6 @@ use tokio::sync::oneshot;
 
 use crate::wait::pending_forget::PendingForget;
 
-/// A request's wait for its answer. Dropping it, or giving up, forgets the request.
 pub struct Expectation {
     forget: Arc<dyn PendingForget>,
     entry: (String, u64),
@@ -37,7 +36,6 @@ impl Expectation {
         }
     }
 
-    /// The answer, or a failure once `limit` has passed with none.
     pub async fn wait(
         mut self,
         limit: Duration,

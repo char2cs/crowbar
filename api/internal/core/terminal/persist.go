@@ -11,17 +11,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// Durable state: every write below runs under the entry's lifecycle lock after a state
-// check, so nothing persists a session after it ended. Command sessions are never
-// persisted: restore can only birth a login shell.
-
 func (e *terminalEngine) meta() SessionMetaStore {
 	e.cbMu.RLock()
 	defer e.cbMu.RUnlock()
 	return e.metaStore
 }
 
-// storageDir resolves the owning chat's scrollback directory, or "" with no meta store.
 func (e *terminalEngine) storageDir(ctx context.Context, chatID string) (string, error) {
 	ms := e.meta()
 	if ms == nil {
@@ -30,7 +25,6 @@ func (e *terminalEngine) storageDir(ctx context.Context, chatID string) (string,
 	return ms.StorageDir(ctx, chatID)
 }
 
-// saveMeta upserts ent's meta row with the given state. Caller holds ent.mu.
 func (e *terminalEngine) saveMeta(ctx context.Context, ent *sessionEntry, state string) {
 	ms := e.meta()
 	if ms == nil {
@@ -54,8 +48,6 @@ func (e *terminalEngine) saveMeta(ctx context.Context, ent *sessionEntry, state 
 	}
 }
 
-// writeBuf persists a serialized screen for ent. It is a no-op (nil) without a storage
-// directory. Caller holds ent.mu.
 func (e *terminalEngine) writeBuf(ctx context.Context, ent *sessionEntry, blob []byte) error {
 	dir, err := e.storageDir(ctx, ent.chatID)
 	if err != nil || dir == "" {
@@ -64,7 +56,6 @@ func (e *terminalEngine) writeBuf(ctx context.Context, ent *sessionEntry, blob [
 	return persistence.WriteBuf(dir, ent.id, blob)
 }
 
-// discardPersisted deletes ent's .buf and meta row. Caller holds ent.mu.
 func (e *terminalEngine) discardPersisted(ctx context.Context, ent *sessionEntry) {
 	e.deleteBuf(ctx, ent)
 	if ms := e.meta(); ms != nil {
@@ -74,7 +65,6 @@ func (e *terminalEngine) discardPersisted(ctx context.Context, ent *sessionEntry
 	}
 }
 
-// deleteBuf removes ent's .buf, if there is a storage directory. Caller holds ent.mu.
 func (e *terminalEngine) deleteBuf(ctx context.Context, ent *sessionEntry) {
 	dir, err := e.storageDir(ctx, ent.chatID)
 	if err != nil {
@@ -89,8 +79,6 @@ func (e *terminalEngine) deleteBuf(ctx context.Context, ent *sessionEntry) {
 	}
 }
 
-// persistOnDetach records the last-known screen and a "detached" row when the final
-// client leaves s, so a later restore resumes from it.
 func (e *terminalEngine) persistOnDetach(ctx context.Context, ent *sessionEntry, s *session.Session) {
 	ent.mu.Lock()
 	if ent.state != stateLive || ent.sess.Load() != s || ent.command || s.AttachedCount() > 0 {
@@ -106,7 +94,6 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, ent *sessionEntry,
 	ent.mu.Unlock()
 }
 
-// flushOnce persists one live shell's screen if it changed since the last flush.
 func (e *terminalEngine) flushOnce(ctx context.Context, ent *sessionEntry) {
 	ent.mu.Lock()
 	defer ent.mu.Unlock()
@@ -117,7 +104,6 @@ func (e *terminalEngine) flushOnce(ctx context.Context, ent *sessionEntry) {
 	if err != nil || dir == "" {
 		return
 	}
-	// Snapshot consumes the dirty bit; an unchanged session skips the disk write.
 	blob, changed := ent.sess.Load().Snapshot()
 	if !changed {
 		return
@@ -129,9 +115,6 @@ func (e *terminalEngine) flushOnce(ctx context.Context, ent *sessionEntry) {
 	e.saveMeta(ctx, ent, ent.stateStringLocked())
 }
 
-// ── bounds: the maintenance sweep ────────────────────────────────────────────
-
-// maintenanceLoop runs runMaintenanceOnce on a ticker until Shutdown.
 func (e *terminalEngine) maintenanceLoop() {
 	defer safego.Recover("terminal.maintenanceLoop")
 	defer close(e.maintDone)
@@ -147,15 +130,12 @@ func (e *terminalEngine) maintenanceLoop() {
 	}
 }
 
-// candidate is one session seen by a sweep phase, with the facts the phase sorts and
-// filters on. The facts are read under the entry lock; each action re-checks under it.
 type candidate struct {
 	ent        *sessionEntry
 	lastActive time.Time
 	state      sessionState
-	// detached is a live shell with no client: the only kind a sweep may suspend.
-	detached bool
-	idle     bool
+	detached   bool
+	idle       bool
 }
 
 func (e *terminalEngine) candidates() []candidate {
@@ -178,9 +158,6 @@ func oldestFirst(cs []candidate) {
 	sort.Slice(cs, func(i, j int) bool { return cs[i].lastActive.Before(cs[j].lastActive) })
 }
 
-// runMaintenanceOnce sweeps in order: flush each changed live shell; suspend the oldest
-// idle detached shells of a chat over softLimitPerChat; then, while over the global caps,
-// drop cached blobs, suspend, force-suspend, and finally evict the oldest suspended.
 func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	for _, ent := range e.snapshot() {
 		e.flushOnce(ctx, ent)
@@ -218,8 +195,6 @@ func (e *terminalEngine) suspendEntry(ctx context.Context, ent *sessionEntry, fo
 	ent.mu.Unlock()
 }
 
-// underCeiling counts EVERY registered session — live and suspended alike — and sums
-// each one's resident bytes, so a pile of suspended sessions cannot slip past it.
 func (e *terminalEngine) underCeiling() bool {
 	ents := e.snapshot()
 	var bytes int64
@@ -231,7 +206,6 @@ func (e *terminalEngine) underCeiling() bool {
 		case stateSuspended:
 			bytes += int64(len(ent.blob))
 		case stateExited, stateRemoved:
-			// Left the registry: holds neither a model nor a blob.
 		}
 		ent.mu.Unlock()
 	}
@@ -245,8 +219,6 @@ func (e *terminalEngine) enforceCeiling(ctx context.Context) {
 	cs := e.candidates()
 	oldestFirst(cs)
 
-	// Reclaimable cache first: ModelBytes counts each live session's cached blob, so the
-	// ceiling can be tripped purely by cache.
 	for _, c := range cs {
 		if s := c.ent.live(); s != nil {
 			s.DropCachedBlob()
@@ -266,8 +238,6 @@ func (e *terminalEngine) enforceCeiling(ctx context.Context) {
 			}
 		}
 	}
-	// Last resort: suspending never lowers the COUNT, so once suspended sessions push us
-	// over, the only way back under is to drop the least-recently-active ones.
 	evictable := e.candidates()
 	oldestFirst(evictable)
 	for _, c := range evictable {
@@ -280,9 +250,6 @@ func (e *terminalEngine) enforceCeiling(ctx context.Context) {
 	}
 }
 
-// evict drops a Suspended session to reclaim its slot, .buf and meta row, and reports it
-// ended — a session disappearing without an ended event would leave its tab waiting for a
-// PTY that is never coming back. A session restored since it was picked is left alone.
 func (e *terminalEngine) evict(ctx context.Context, ent *sessionEntry) {
 	ent.mu.Lock()
 	var fx effects
@@ -293,8 +260,6 @@ func (e *terminalEngine) evict(ctx context.Context, ent *sessionEntry) {
 	fx.run()
 }
 
-// Stats returns a point-in-time snapshot of session counts, estimated model memory, and
-// the parse-health surface across all registered sessions.
 func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes int64, degraded, parsePanics int) {
 	for _, ent := range e.snapshot() {
 		ent.mu.Lock()
@@ -315,7 +280,6 @@ func (e *terminalEngine) Stats() (active, detached, suspended int, modelBytes in
 			modelBytes += int64(len(ent.blob))
 			suspended++
 		case stateExited, stateRemoved:
-			// Left the registry: counted in no bucket.
 		}
 		ent.mu.Unlock()
 	}

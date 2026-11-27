@@ -1,5 +1,3 @@
-//! The project a chat belongs to.
-
 use crate::live::state::State;
 
 pub(crate) fn of(

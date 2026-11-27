@@ -10,7 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// GORMStores holds the plain-CRUD repositories backed by the shared GORM DB.
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
@@ -55,13 +54,10 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent chat telemetry store: %w", err)
 	}
-	// Built last: gorm_test.go's fault injection counts ExecContext calls by
-	// construction order.
 	modelManifestFetch, err := storesqlite.NewFromDB[domain.AgentModelManifestFetch, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: agent model manifest fetch store: %w", err)
 	}
-	// Operations and clients after modelManifestFetch, for the same reason.
 	operations, err := storesqlite.NewFromDB[domain.Operation, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: operation store: %w", err)

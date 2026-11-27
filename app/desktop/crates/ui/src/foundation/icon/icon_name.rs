@@ -1,8 +1,5 @@
-//! Names of the embedded Phosphor icons.
-
 macro_rules! icon_names {
     ($($variant:ident => $stem:literal),* $(,)?) => {
-        /// A Phosphor icon the shell surfaces use.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[non_exhaustive]
         pub enum IconName {
@@ -13,10 +10,8 @@ macro_rules! icon_names {
         }
 
         impl IconName {
-            /// Every embedded icon.
             pub const ALL: &'static [IconName] = &[$(IconName::$variant),*];
 
-            /// File stem of the icon inside its weight folder.
             pub fn stem(self) -> &'static str {
                 match self {
                     $(IconName::$variant => $stem,)*

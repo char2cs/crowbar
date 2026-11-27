@@ -14,20 +14,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// handoffCap discovers the live defaultChatLogTurns cap through the real
-// HandoffWindow rather than a copy of the number: a probe slice far
-// larger than any plausible cap always comes back trimmed to exactly it, so a
-// future change to the cap cannot leave this file silently testing the wrong
-// boundary.
 func handoffCap(t *testing.T) int {
 	t.Helper()
 	_, _, kept := agenttools.HandoffWindow("probe", make([]struct{}, 100_000), -1)
 	return len(kept)
 }
 
-// recordNumberedTurns appends n user turns with distinguishable text
-// (prefix-0, prefix-1, ...) so a trimmed handoff can be checked for exactly
-// which ones survived the cap.
 func recordNumberedTurns(t *testing.T, f fixture, chat domain.Chat, prefix string, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
@@ -35,8 +27,6 @@ func recordNumberedTurns(t *testing.T, f fixture, chat domain.Chat, prefix strin
 	}
 }
 
-// A gap under the cap must render exactly as it did before this cap existed:
-// every turn present, no truncation note anywhere in the blob.
 func TestAssembleConversation_UnderTheCapCarriesEveryTurnAndNoNote(t *testing.T) {
 	t.Parallel()
 
@@ -57,8 +47,6 @@ func TestAssembleConversation_UnderTheCapCarriesEveryTurnAndNoNote(t *testing.T)
 	}
 }
 
-// The fresh-join path (cut zero, the whole ledger) is capped too, so a long chat
-// never dumps its whole history into the next provider, but its first ask leads.
 func TestAssembleConversation_FreshJoinOverTheCapKeepsTheFirstAskAndTheMostRecent(t *testing.T) {
 	t.Parallel()
 
@@ -81,10 +69,6 @@ func TestAssembleConversation_FreshJoinOverTheCapKeepsTheFirstAskAndTheMostRecen
 	assert.NotContains(t, blob, "turn-1\n", "the turns after the first ask are the ones trimmed")
 }
 
-// The resume path caps the GAP itself, not just the ledger as a whole: turns
-// from before the provider left never appear (unchanged, existing behaviour),
-// and once the gap alone exceeds the cap, its own oldest turns are the ones
-// trimmed.
 func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(t *testing.T) {
 	t.Parallel()
 
@@ -112,8 +96,6 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 	assert.Contains(t, blob, "get_chat_log")
 }
 
-// A person's clear ends the conversation the next CLI is told about: what was said
-// before it was discarded on purpose, so no handoff carries it.
 func TestAssembleConversation_ACarriesNothingFromBeforeTheConversationWasCleared(t *testing.T) {
 	t.Parallel()
 

@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// forkedMain is main's chat with feature-a's worktree forked off main in git
-// (the reaper's Takes), whatever the chat tree says about where the rows sit.
 type forkedMain struct {
 	chats  *mocks.AgentChatPlacements
 	uc     tree.Usecase
@@ -48,8 +46,6 @@ func (f forkedMain) rosterIDs() []string {
 	return ids
 }
 
-// A row dragged out of main's subtree still goes when the git cascade takes
-// its worktree, and the response names it as taken beyond the selection.
 func TestDeleteChat_TakesTheRowOfAWorktreeTheCascadeTakes(t *testing.T) {
 	f := newForkedMain(t)
 	seedWorktreeChat(f.chats, "main", "ws-main", "")
@@ -64,8 +60,6 @@ func TestDeleteChat_TakesTheRowOfAWorktreeTheCascadeTakes(t *testing.T) {
 	assert.Empty(t, f.roster.Rows)
 }
 
-// The reap is bounded by git lineage: a chat nested under a taken row in the
-// tree, in a worktree the cascade does not take, is re-hung, never reaped.
 func TestDeleteChat_ReHangsWhatATakenRowHeldOutsideTheCascade(t *testing.T) {
 	f := newForkedMain(t, worktreeIn("ws-fb"))
 	seedWorktreeChat(f.chats, "main", "ws-main", "")
@@ -81,8 +75,6 @@ func TestDeleteChat_ReHangsWhatATakenRowHeldOutsideTheCascade(t *testing.T) {
 	assert.Empty(t, chatRow(t, f.chats, "fb").ParentID, "and its row rises to feature-a's parent")
 }
 
-// A taken row above the selected chat widens the delete by that row alone:
-// nothing is purged twice and a workspace-less sibling under it survives.
 func TestDeleteChat_ATakenAncestorTakesOnlyItsOwnRow(t *testing.T) {
 	f := newForkedMain(t)
 	seedWorktreeChat(f.chats, "fa", "ws-fa", "")
@@ -97,7 +89,6 @@ func TestDeleteChat_ATakenAncestorTakesOnlyItsOwnRow(t *testing.T) {
 	assert.Empty(t, chatRow(t, f.chats, "sib").ParentID, "the sibling rises, it is not purged")
 }
 
-// A working chat in a row the cascade adds refuses the delete before any reap.
 func TestDeleteChat_AWorkingChatInATakenRowRefusesTheDelete(t *testing.T) {
 	f := newForkedMain(t)
 	seedWorktreeChat(f.chats, "main", "ws-main", "")
@@ -111,7 +102,6 @@ func TestDeleteChat_AWorkingChatInATakenRowRefusesTheDelete(t *testing.T) {
 	assert.Empty(t, f.chats.Purged)
 }
 
-// A locked root refuses before a reap deeper in its subtree runs.
 func TestDeleteChat_ALockedRootRefusesBeforeAnyReap(t *testing.T) {
 	f := newForkedMain(t, worktreeIn("ws-child"))
 	seedWorktreeChat(f.chats, "main", "ws-main", "")
@@ -126,8 +116,6 @@ func TestDeleteChat_ALockedRootRefusesBeforeAnyReap(t *testing.T) {
 	assert.Len(t, f.roster.Rows, 3)
 }
 
-// A kept row rises past every parent the delete takes: the nearest surviving
-// ancestor, never a taken row that is about to be purged.
 func TestDeleteChat_AReHungRowRisesPastEveryTakenParent(t *testing.T) {
 	f := newForkedMain(t, worktreeIn("ws-fb"), worktreeIn("ws-fc"))
 	f.reaper.Takes["ws-main"] = []string{"ws-fa", "ws-fb"}
@@ -149,7 +137,6 @@ func TestDeleteChat_AReHungRowRisesPastEveryTakenParent(t *testing.T) {
 	assert.Equal(t, []string{"ws-fc"}, f.rosterIDs())
 }
 
-// A taken row under another taken row hands what it held to neither.
 func TestDeleteChat_ATakenRowUnderATakenParentHandsItsChildToTheRoot(t *testing.T) {
 	f := newForkedMain(t, worktreeIn("ws-fz"), worktreeIn("ws-x"))
 	f.reaper.Takes["ws-main"] = []string{"ws-fa", "ws-fz"}
@@ -164,15 +151,12 @@ func TestDeleteChat_ATakenRowUnderATakenParentHandsItsChildToTheRoot(t *testing.
 	assert.Empty(t, chatRow(t, f.chats, "x").ParentID)
 }
 
-// seedOwner appends the chat that owns wsID: the row a workspace is drawn as.
 func seedOwner(chats *mocks.AgentChatPlacements, id, wsID string) {
 	chats.Rows = append(chats.Rows, domain.Chat{
 		ID: id, Type: domain.ChatTypeChat, WorkspaceID: wsID, OwnsWorkspace: true,
 	})
 }
 
-// Deleting a workspace's owning row deletes the workspace: every chat running
-// in it goes too, behind the same work-at-risk refusal as any reap.
 func TestDeleteChat_AWorkspacesOwningRowTakesEveryChatRunningInIt(t *testing.T) {
 	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-fa"))
 	seedOwner(chats, "owner", "ws-fa")
@@ -197,8 +181,6 @@ func TestDeleteChat_AWorkspacesOwningRowTakesEveryChatRunningInIt(t *testing.T) 
 	assert.Empty(t, roster.Rows, "no fresh owner keeps the workspace alive")
 }
 
-// A chat that merely runs in a workspace is not the workspace: deleting it
-// leaves the owner, its neighbours and the worktree.
 func TestDeleteChat_ANonOwningChatInAWorkspaceTakesNoNeighbour(t *testing.T) {
 	chats, uc, roster, reaper, _ := newUsecaseOverRoster(t, worktreeIn("ws-fa"))
 	seedOwner(chats, "owner", "ws-fa")
@@ -214,8 +196,6 @@ func TestDeleteChat_ANonOwningChatInAWorkspaceTakesNoNeighbour(t *testing.T) {
 	assert.Len(t, roster.Rows, 1)
 }
 
-// The repo's main checkout outlives its chats, so its owning row going takes
-// none of the chats working there.
 func TestDeleteChat_TheMainCheckoutsOwningRowTakesNoNeighbour(t *testing.T) {
 	chats := mocks.NewAgentChatPlacements()
 	roster := mocks.NewAgentWorkspaceRoster()

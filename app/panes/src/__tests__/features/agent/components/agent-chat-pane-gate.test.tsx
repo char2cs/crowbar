@@ -29,9 +29,6 @@ import {
   resetHostWorld,
 } from '@/__tests__/__fixtures__/remote-host'
 
-// The chat view is where a pane's chat is first asked for (its feed). A probe stands in
-// for it, so the gate is judged by whether that view mounts and what reaches the
-// network. Its textarea stands in for the view's composer.
 const probe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('@/features/agent/chat/agent-chat-view', () => ({
   AgentChatView: ({ visible }: { visible: boolean }) => {
@@ -84,8 +81,6 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => {
-  // Unmount before the world resets: resetting it would let a gate that was still
-  // mounted mount its pane and read the network after the stub is gone.
   cleanup()
   resetHostWorld()
   destroyHostRuntime('host-1')
@@ -103,7 +98,6 @@ describe('AgentChatPaneGate on a draft thread', () => {
       await screen.findByRole('textbox', { name: /message the agent|describe the change/i }),
     ).toBeInTheDocument()
     expect(probe.mounts).toBe(0)
-    // The provider list rides along for the picker; no chat is read or created.
     expect(requested().filter((url) => /\/chats\/(?!providers)/.test(url))).toEqual([])
   })
 })
@@ -139,12 +133,9 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     await act(async () => loadProjects(projectOn('p-remote', 'host-1')))
 
     expect(await screen.findByTestId('chat-view')).toBeInTheDocument()
-    // Whatever the pane reads (its host's provider list) goes to that host, never the local one.
     expect(requested().every((url) => url.startsWith('crowbar://host-1/'))).toBe(true)
   })
 
-  // A pane restored at boot whose project is in no cached row: the first local answer does
-  // not say it is gone while the host it may be on has not been read.
   it('keeps opening a chat no row holds until its host is read, then mounts', async () => {
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
     mount('w-remote')
@@ -204,8 +195,6 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     expect(pendingChatSurfaces.getState().pending.has('pane-1')).toBe(false)
   })
 
-  // The body owns every pane hook and window listener: they go with it and come back
-  // with it, rather than acting on a blank pane or watching a container that was replaced.
   it('unmounts the whole pane when its host stops resolving and mounts it afresh on return', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     recordWorkspaceScope({ projectId: 'p-remote', repoId: 'r1', wsId: 'w-remote' })
@@ -224,7 +213,6 @@ describe('AgentChatPaneGate on an install that has paired a remote host', () => 
     expect(screen.queryByTestId('chat-view')).toBeNull()
     expect(liveKeydown()).toBeLessThan(whileMounted)
 
-    // A re-paired host streams its projects again.
     act(() => {
       pairRemoteHost('host-1')
       loadProjects(projectOn('p-remote', 'host-1'))
@@ -245,7 +233,6 @@ describe('AgentChatPaneGate where no remote host was ever paired', () => {
   })
 })
 
-// A cold start: the daemons have not listed anything, but the last run's placements are on disk.
 describe('AgentChatPaneGate before any host has listed', () => {
   async function lastRunPlaced(hostId: string, wsId = 'w-remote') {
     const stop = startHostPlacementCache()

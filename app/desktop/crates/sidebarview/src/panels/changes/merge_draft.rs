@@ -1,5 +1,3 @@
-//! What the user has typed or ticked in the merge box and not yet sent.
-
 use std::collections::BTreeSet;
 
 use gpui::{AppContext as _, Context, Entity, Subscription, px};

@@ -1,5 +1,3 @@
-//! Small building blocks shared by the screens.
-
 use gpui::{Context, Div, ParentElement as _, Pixels, Styled as _, div};
 use ui::{Icon, Theme};
 

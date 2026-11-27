@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
-// fetchGithubAvatarBytes resolves the repo owner avatar URL via git + gh and
-// downloads its bytes. Best-effort: returns (nil, "", nil) on any soft
-// failure (no origin, no gh auth, transport error).
 func fetchGithubAvatarBytes(
 	ctx context.Context,
 	repoPath string,
@@ -25,9 +22,6 @@ func fetchGithubAvatarBytes(
 	if url == "" {
 		return nil, "", nil
 	}
-	// Bound the fetch in time AND size: a slow host must not stall the request, and
-	// a malicious/misconfigured one must not stream gigabytes into memory (the
-	// timeout alone is not a size bound). Both degrade to a generated avatar.
 	dlCtx, cancel := context.WithTimeout(ctx, githubAvatarFetchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, url, http.NoBody)
@@ -46,7 +40,6 @@ func fetchGithubAvatarBytes(
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", nil
 	}
-	// LimitReader(+1) detects (not silently truncates) an oversize body.
 	data, err := io.ReadAll(io.LimitReader(resp.Body, icons.MaxBytes+1))
 	if err != nil {
 		return nil, "", nil
@@ -61,7 +54,6 @@ func fetchGithubAvatarBytes(
 	return data, ct, nil
 }
 
-// githubAvatarURL shells out to git + gh to resolve the owner avatar URL.
 func githubAvatarURL(
 	ctx context.Context,
 	repoPath string,
@@ -75,8 +67,6 @@ func githubAvatarURL(
 	if err != nil {
 		return ""
 	}
-	// binpath.Resolve: the packaged .app daemon inherits launchd's minimal PATH,
-	// which misses Homebrew's /opt/homebrew/bin where gh usually lives.
 	//nolint:gosec // G204: gh invoked with fixed args; slug is parsed from the repo's own git remote URL and passed as a discrete argv entry, not shell-interpreted.
 	out, err := exec.CommandContext(ctx, binpath.Resolve("gh"), "api", "repos/"+slug, "--jq", ".owner.avatar_url").Output()
 	if err != nil {
@@ -85,7 +75,6 @@ func githubAvatarURL(
 	return strings.TrimSpace(string(out))
 }
 
-// githubSlugFromURL extracts "owner/repo" from a GitHub remote URL.
 func githubSlugFromURL(
 	rawURL string,
 ) (string, error) {
@@ -105,6 +94,4 @@ func githubSlugFromURL(
 	return "", fmt.Errorf("unrecognised URL: %q", rawURL)
 }
 
-// githubAvatarFetchTimeout bounds the outbound GitHub owner-avatar download so a
-// slow host never stalls the icon-refresh path.
 const githubAvatarFetchTimeout = 10 * time.Second

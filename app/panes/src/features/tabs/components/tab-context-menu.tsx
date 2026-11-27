@@ -52,12 +52,8 @@ const TabContextMenu = ({
   onReload,
   onRevealInFinder,
 }: TabContextMenuProps) => {
-  // Stays mounted while closed (the tab bar keeps the buffer): unmounting at once
-  // makes base-ui return focus to the tab, stealing it from the Rename prompt.
   if (!buffer) return null
 
-  // openContent always sets a real path (file path, or a synthetic scheme for
-  // terminal/branchReview) — narrow once rather than per item below.
   const path = buffer.path ?? ''
 
   const items: ContextMenuItem[] = [
@@ -80,8 +76,6 @@ const TabContextMenu = ({
                 placeholder: 'Terminal name',
                 confirmLabel: 'Rename',
               })
-              // The name feeds useBufferDisplayName's control-char-joined projection, so
-              // pasted control bytes are stripped (same ingress policy as OSC titles/cwds).
               const nextName = rawName ? stripControlChars(rawName).trim() : ''
 
               if (!nextName) return

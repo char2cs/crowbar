@@ -13,12 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// createProjectForHome creates a project via POST /v0/projects and returns its
-// id once the ProjectDTO is broadcast. Unlike importProject it does NOT wait for
-// repo discovery: POST /v0/projects provisions only the project record and its
-// home workspace (repo setup is a separate flow), which is all the home suite
-// needs. Using a real git dir gives the home workspace (rooted at the project
-// path) a populated tree for the file routes.
 func createProjectForHome(t *testing.T, h *harness) string {
 	t.Helper()
 	dir := gitRepoWithCommit(t)
@@ -36,8 +30,6 @@ func createProjectForHome(t *testing.T, h *harness) string {
 	return id
 }
 
-// homeWorkspaceID reads the id of the project's home workspace, the id its
-// documents are addressed by.
 func homeWorkspaceID(t *testing.T, h *harness, projectID string) string {
 	t.Helper()
 	var home struct {
@@ -48,10 +40,6 @@ func homeWorkspaceID(t *testing.T, h *harness, projectID string) string {
 	return home.ID
 }
 
-// TestRegression_HomeEndpointReachable proves that GET /v0/projects/:id/home
-// returns 200 with a workspace DTO whose kind is "home". This guards the router
-// wiring: if the home package is not mounted under projectScoped the endpoint
-// 404s and the project home panel never loads.
 func TestRegression_HomeEndpointReachable(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
@@ -64,11 +52,6 @@ func TestRegression_HomeEndpointReachable(t *testing.T) {
 		"home endpoint must return a workspace with kind=home")
 }
 
-// TestHome_ThreadsRoundTrip proves review threads are a home-workspace capability:
-// open a thread under /v0/projects/:p/home/threads and read it back. The home
-// workspace has no repo, so this exercises the empty-repoId thread path end to
-// end (open → store → list), which would 404 before the home thread routes were
-// mounted.
 func TestHome_ThreadsRoundTrip(t *testing.T) {
 	h := newHarness(t)
 	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
@@ -86,9 +69,6 @@ func TestHome_ThreadsRoundTrip(t *testing.T) {
 	assert.Equal(t, opened.ID, listed[0].ID)
 }
 
-// TestHome_AThreadReachesTheHomeWorkspaceScope: a client holding the home
-// workspace's ws: scope hears a thread opened there, carrying the project it
-// names though the home rides no repo.
 func TestHome_AThreadReachesTheHomeWorkspaceScope(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
@@ -110,8 +90,6 @@ func TestHome_AThreadReachesTheHomeWorkspaceScope(t *testing.T) {
 	assert.Equal(t, projectID, th.ProjectID, "home thread frame must carry the project scope")
 }
 
-// TestHome_FilesScopeHoldsTheHomeWorkspace: the project-home view watches its
-// files through the home workspace's files: scope.
 func TestHome_FilesScopeHoldsTheHomeWorkspace(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
@@ -119,10 +97,6 @@ func TestHome_FilesScopeHoldsTheHomeWorkspace(t *testing.T) {
 	dialStream(t, h).Hold(t, "files:"+homeWorkspaceID(t, h, projectID))
 }
 
-// TestRegression_HomeHasNoGitSurface locks the design decision that git is NOT a
-// home capability: the home workspace is the project root, not a per-workspace
-// git worktree. The route stays 404 by design; the frontend must skip git
-// streams for the home workspace rather than expect this to resolve.
 func TestRegression_HomeHasNoGitSurface(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
@@ -132,10 +106,6 @@ func TestRegression_HomeHasNoGitSurface(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// TestRegression_HomeFilesCopy proves POST /home/files/copy is mounted for the
-// project-home workspace and performs a byte-faithful duplicate: create/rename/
-// delete were mounted on the home route group (Task 28), but the copy verb was
-// not, so Duplicate in the home explorer 404'd every time (Task 34).
 func TestRegression_HomeFilesCopy(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
@@ -159,9 +129,6 @@ func TestRegression_HomeFilesCopy(t *testing.T) {
 		"home copy must reproduce the source content byte-for-byte")
 }
 
-// TestRegression_HomeFilesCopyConflictAndMissingSource proves the home copy
-// route maps usecase errors exactly like the workspace-scoped verb it mirrors:
-// an existing destination is a 409, a missing source is a 404.
 func TestRegression_HomeFilesCopyConflictAndMissingSource(t *testing.T) {
 	h := newHarness(t)
 	homeBase := "/v0/projects/" + createProjectForHome(t, h) + "/home"
@@ -181,12 +148,6 @@ func TestRegression_HomeFilesCopyConflictAndMissingSource(t *testing.T) {
 		http.StatusNotFound)
 }
 
-// TestRegression_HomeFilesRenameContract proves PATCH /home/files renames on the
-// shared {path, newPath} shape the workspace handler and the FE already send. The
-// handler bound {oldPath, newPath}, so every home-project explorer rename 400'd
-// on the mismatch and failed silently in the UI (Task 28/29/31 built out this
-// explorer). A rename with {path, newPath} moves the file; the retired
-// {oldPath, newPath} shape now 400s.
 func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	h := newHarness(t)
 	projectID := createProjectForHome(t, h)
@@ -205,7 +166,6 @@ func TestRegression_HomeFilesRenameContract(t *testing.T) {
 		map[string]string{"path": "README.md", "newPath": "RENAMED.md"}, &renamed)
 	assert.Equal(t, "RENAMED.md", renamed.ID)
 
-	// Content survives at the new path; the old path is gone.
 	var after struct {
 		Content string `json:"content"`
 	}
@@ -213,7 +173,6 @@ func TestRegression_HomeFilesRenameContract(t *testing.T) {
 	assert.Equal(t, before.Content, after.Content, "rename must preserve content at the new path")
 	require.NoError(t, h.raw(http.MethodGet, docURL(homeID, "README.md"), nil, http.StatusNotFound).Body.Close())
 
-	// The retired {oldPath, newPath} shape leaves `path` unbound → 400.
 	h.raw(http.MethodPatch, homeBase+"/files",
 		map[string]string{"oldPath": "RENAMED.md", "newPath": "AGAIN.md"}, http.StatusBadRequest).
 		Body.Close()

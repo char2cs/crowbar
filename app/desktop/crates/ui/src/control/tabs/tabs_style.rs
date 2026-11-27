@@ -1,5 +1,3 @@
-//! Looks of a [`crate::Tabs`] list.
-
 use gpui::{Div, Hsla, ParentElement, Styled, div, px};
 
 use crate::foundation::Palette;
@@ -15,15 +13,11 @@ const SEGMENT_REST_TEXT: f32 = 0.72;
 const PILL_ICON_GAP: f32 = 2.0;
 const SEGMENT_ICON_GAP: f32 = 6.0;
 
-/// Visual recipe of a tab list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum TabsStyle {
-    /// `TabsList` as the sidebar mode switch draws it: 32px tabs on the sidebar's idle wash under a
-    /// raised control-surface pill.
     #[default]
     Pill,
-    /// `SegmentedControl`: 30px segments, the indicator is the background colour (pane header switch).
     Segmented,
 }
 

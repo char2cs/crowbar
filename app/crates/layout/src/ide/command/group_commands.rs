@@ -277,8 +277,6 @@ mod tests {
         assert_eq!(layout, before, "{name}: unchanged");
     }
 
-    /// Tab 1 reads `[a b c] [d] [e f]` left to right, `c` focused after building, tab 2 holds
-    /// `[x y]` and tab 3 holds `[z]`.
     fn fixture() -> Layout {
         let mut layout = Layout::default();
         add_tab(&mut layout, 1);

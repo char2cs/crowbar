@@ -12,8 +12,6 @@ import {
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 import { resumedFadeDelay } from '@/features/agent/transcript/plate/streaming-fade-delay'
 
-/** Reads `props.leaf`, not `props.text`: the marks are decorations and never touch
- *  the document. Settles on the real `animationend`, never a timer. */
 function ChatFreshTextLeaf(props: PlateLeafProps) {
   const { editor, leaf, children } = props
   const record = leaf as unknown as Record<string, unknown>
@@ -30,8 +28,6 @@ function ChatFreshTextLeaf(props: PlateLeafProps) {
         style={{ animationDelay: `${delayMs}ms` }}
         onAnimationEnd={() => {
           if (typeof generation !== 'number') return
-          // A per-word split retires the generation only once every word has
-          // reported; an unsplit span settles directly.
           if (typeof wordIndex === 'number' && typeof totalWords === 'number') {
             settleFreshWord(editor, generation, wordIndex, totalWords)
           } else {

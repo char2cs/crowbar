@@ -5,8 +5,6 @@ import { DndScope } from '@/features/agent/chat/dnd-scope'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
 
-// The paragraph as a live drop target (drop line while an attachment hovers
-// it, move on release) is covered end to end in dnd-scope.test.tsx.
 describe('ChatParagraphElement', () => {
   it('renders a plain paragraph normally, with no DndScope ancestor at all', () => {
     expect(() => render(<MarkdownMessage>{'just some text'}</MarkdownMessage>)).not.toThrow()

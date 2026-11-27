@@ -1,5 +1,3 @@
-//! What every drawing function of the view needs.
-
 mod element_id;
 mod field;
 mod fields;

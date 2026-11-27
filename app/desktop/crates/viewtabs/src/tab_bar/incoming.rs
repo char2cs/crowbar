@@ -48,8 +48,6 @@ impl TabBar {
         });
     }
 
-    /// The commands that move the open chat in `pane` to `at`, as if its pane had been dragged
-    /// there: a sidebar row of an open chat drops as its pane.
     pub fn pane_drop(
         &mut self,
         pane: &PaneId,

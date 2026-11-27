@@ -1,8 +1,3 @@
-//! The IDE shell inside one pane: the top row and the tab bar.
-//!
-//! Every element here is drawn from data and action callbacks and decides nothing; the layout
-//! view builds them for each pane group and wires the callbacks to its own commands.
-
 mod tabbar;
 #[cfg(test)]
 mod test_support;

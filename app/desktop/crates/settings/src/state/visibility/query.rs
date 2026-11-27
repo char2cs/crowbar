@@ -1,7 +1,3 @@
-//! The two matchers of the settings search: the index finds pages, the row text finds rows.
-//! Spec: web/src/utils/search-match.ts (`scoreSearchQuery`) and
-//! web/src/features/settings/lib/settings-row-search.ts.
-
 use crate::schema::Row;
 use crate::schema::SearchEntry;
 

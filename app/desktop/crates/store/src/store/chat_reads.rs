@@ -1,10 +1,6 @@
-//! What the shell reads about one chat.
-
 use crate::Store;
 
 impl Store {
-    /// The SVG artwork of the provider `chat` runs on, to draw in the host's ink; `None` until
-    /// the chat and its host's providers are known.
     pub fn chat_glyph(
         &self,
         chat: &str,
@@ -13,8 +9,6 @@ impl Store {
             .read(|state| crate::reads::chat_glyph::of(state, chat))
     }
 
-    /// Whether `chat` has a branch to review: it owns its worktree, as a repository's own
-    /// checkout or a branch does; a thread, a project home chat or an unknown chat has none.
     pub fn chat_reviews_branch(
         &self,
         chat: &str,
@@ -23,8 +17,6 @@ impl Store {
             .read(|state| crate::reads::branch_review::of(state, chat))
     }
 
-    /// Whether `chat`'s files are read-only: its workspace is locked, as develop's
-    /// `useWorkspaceReadOnly`; an unknown chat's are not.
     pub fn chat_read_only(
         &self,
         chat: &str,
@@ -33,7 +25,6 @@ impl Store {
             .read(|state| crate::reads::read_only::of(state, chat))
     }
 
-    /// The project `chat` belongs to; `None` when it is not loaded or has none.
     pub fn chat_project(
         &self,
         chat: &str,
@@ -42,7 +33,6 @@ impl Store {
             .read(|state| crate::live::chat_project::of(state, chat))
     }
 
-    /// The workspace `chat` works in; `None` when it is not loaded or has none.
     pub fn chat_workspace(
         &self,
         chat: &str,
@@ -57,7 +47,6 @@ impl Store {
         })
     }
 
-    /// The folder `chat` works in, on whichever computer holds it; `None` when it is not loaded.
     pub fn chat_root(
         &self,
         chat: &str,
@@ -66,7 +55,6 @@ impl Store {
             .read(|state| crate::live::workspace_root::of_chat(state, chat))
     }
 
-    /// The name of the other computer `chat` runs on; `None` when it runs on this one.
     pub fn chat_remote_host(
         &self,
         chat: &str,
@@ -75,8 +63,6 @@ impl Store {
             .read(|state| crate::live::workspace_root::remote_host_of(state, chat))
     }
 
-    /// The chats the daemon deleted, or a removed host held, since the last call, each named
-    /// once, so the views showing them close as develop's `forgetChat` closes them.
     pub fn take_departed_chats(&self) -> Vec<String> {
         self.hub.quietly(|state| {
             let mut departed = std::mem::take(&mut state.left.chats);
@@ -90,8 +76,6 @@ impl Store {
         })
     }
 
-    /// The projects the daemon deleted, or a removed host held, since the last call, each
-    /// named once, so the shell closes the views of those spaces.
     pub fn take_departed_projects(&self) -> Vec<String> {
         self.hub.quietly(|state| {
             let mut departed = std::mem::take(&mut state.left.projects);
@@ -105,7 +89,6 @@ impl Store {
         })
     }
 
-    /// The id of the host `chat` runs on; `None` when it is not loaded.
     pub fn chat_host(
         &self,
         chat: &str,
@@ -114,8 +97,6 @@ impl Store {
             .read(|state| crate::live::workspace_root::host_id_of(state, chat))
     }
 
-    /// `chat` as a view tab draws it: its title, or "Untitled chat" provisionally, and the
-    /// branch status of the workspace it owns; `None` when it is not loaded.
     pub fn chat_row(
         &self,
         chat: &str,

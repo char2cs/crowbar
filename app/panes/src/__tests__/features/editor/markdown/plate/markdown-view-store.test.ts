@@ -17,9 +17,9 @@ describe('markdown view store', () => {
   })
 
   it('toggleView flips rich<->source from the default', () => {
-    useMarkdownViewStore.getState().toggleView('b1') // rich -> source
+    useMarkdownViewStore.getState().toggleView('b1')
     expect(selectMarkdownView('b1')(useMarkdownViewStore.getState())).toBe('source')
-    useMarkdownViewStore.getState().toggleView('b1') // source -> rich
+    useMarkdownViewStore.getState().toggleView('b1')
     expect(selectMarkdownView('b1')(useMarkdownViewStore.getState())).toBe('rich')
   })
 

@@ -6,8 +6,6 @@ use crate::tree::geometry::rect::Rect;
 use crate::tree::split_node::SplitNode;
 
 impl Tab {
-    /// The rectangle of every group when the tab is laid out in `bounds`, left to right and top
-    /// to bottom. [`Tab::layout`] lists only the pane each of these shows.
     #[must_use]
     pub fn leaves(
         &self,
@@ -18,7 +16,6 @@ impl Tab {
             .map_or_else(Vec::new, |tree| tree.place_leaves(bounds))
     }
 
-    /// The group that holds `pane`.
     #[must_use]
     pub fn group_of(
         &self,
@@ -27,7 +24,6 @@ impl Tab {
         self.tree.as_ref().and_then(|tree| tree.group_of(pane))
     }
 
-    /// Number of groups, which is the number of places in the layout.
     #[must_use]
     pub fn group_count(&self) -> usize {
         self.tree.as_ref().map_or(0, SplitNode::leaf_count)

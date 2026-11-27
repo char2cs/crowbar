@@ -13,7 +13,6 @@ import type { SettingsTab } from '@/features/window/stores/ui-state-store'
 import { SettingsVerticalTabs } from './settings-vertical-tabs'
 import type { SettingsTabItem } from './settings-tab-items'
 
-/** `tabs` narrowed to the ones the current settings search matches. */
 function useVisibleSettingsTabs(tabs: SettingsTabItem[]): SettingsTabItem[] {
   const searchQuery = useSettingsStore((state) => state.search.query)
   const searchResults = useSettingsStore((state) => state.search.results)
@@ -27,7 +26,6 @@ interface TabsProps {
   onTabChange: (tab: SettingsTab) => void
 }
 
-/** The settings title: "Settings", or under 720px a dropdown of the tabs in place of the rail. */
 export function SettingsTitle({ tabs, activeTab, onTabChange }: TabsProps) {
   const [open, setOpen] = useState(false)
   const visibleTabs = useVisibleSettingsTabs(tabs)
@@ -65,7 +63,6 @@ export function SettingsTitle({ tabs, activeTab, onTabChange }: TabsProps) {
   )
 }
 
-/** The settings search field; `className` sets its width. */
 export function SettingsSearchInput({ className }: { className?: string }) {
   const searchQuery = useSettingsStore((state) => state.search.query)
   const setSearchQuery = useSettingsStore((state) => state.setSearchQuery)
@@ -84,7 +81,6 @@ export function SettingsSearchInput({ className }: { className?: string }) {
   )
 }
 
-/** The tab rail (hidden under 720px, where the title's dropdown stands in) and the active tab. */
 export function SettingsPanels({
   tabs,
   activeTab,

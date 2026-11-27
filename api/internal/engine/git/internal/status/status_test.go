@@ -218,8 +218,6 @@ func TestParse_AheadBehind(
 	assert.Equal(t, 0, s.Behind)
 }
 
-// --- Error path ---
-
 func TestParse_InvalidRepo(
 	t *testing.T,
 ) {
@@ -230,8 +228,6 @@ func TestParse_InvalidRepo(
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status: parse")
 }
-
-// --- parseAheadBehind edge cases ---
 
 func TestParse_BehindOnly(
 	t *testing.T,
@@ -251,7 +247,6 @@ func TestParse_BehindOnly(
 	r = exec.Git(ctx, dir, "push", "-u", "origin", "main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	// Push a commit from a clone so remote is ahead.
 	cloneDir := t.TempDir()
 	r = exec.Git(ctx, cloneDir, "clone", remoteDir, ".")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
@@ -273,8 +268,6 @@ func TestParse_BehindOnly(
 	assert.Equal(t, 0, s.Ahead)
 	assert.Equal(t, 1, s.Behind)
 }
-
-// --- Staged deleted file: charToStatus('D') on X position ---
 
 func TestParse_StagedDeletedFile(
 	t *testing.T,
@@ -300,8 +293,6 @@ func TestParse_StagedDeletedFile(
 	assert.True(t, found, "expected a staged deleted entry for todelete.txt")
 }
 
-// --- Unstaged deleted file: charToStatus('D') on Y position ---
-
 func TestParse_UnstagedDeletedFile(
 	t *testing.T,
 ) {
@@ -326,23 +317,14 @@ func TestParse_UnstagedDeletedFile(
 	assert.True(t, found, "expected an unstaged deleted entry for todelete.txt")
 }
 
-// --- parseRenamedEntry: non-R/C first char (staged=false) ---
-
 func TestParse_RenamedEntryUnstagedCopy(
 	t *testing.T,
 ) {
-	// We cannot easily produce a working-tree rename without staging it via
-	// the git porcelain, so we verify the staged=true path is already covered
-	// by TestParse_RenamedFile and exercise the parser directly via a real
-	// copy-in-index scenario using git cp alias workaround.
-	// The simplest achievable real test is a copy (C) which git may report;
-	// we skip if git doesn't detect it and just verify no panic.
 	dir := initRepo(t)
 	ctx := context.Background()
 
 	makeInitialCommit(t, dir, "src.txt", "content\n")
 
-	// Copy the file and add; git may report it as a copy (C) or addition (A).
 	require.NoError(t, func() error {
 		data, e := os.ReadFile(filepath.Join(dir, "src.txt"))
 		if e != nil {
@@ -355,7 +337,6 @@ func TestParse_RenamedEntryUnstagedCopy(
 	s, err := status.Parse(ctx, dir)
 
 	require.NoError(t, err)
-	// dst.txt is either Added or Renamed/Copied — just verify parsing didn't panic.
 	var found bool
 	for _, f := range s.Files {
 		if f.Path == "dst.txt" {
@@ -364,8 +345,6 @@ func TestParse_RenamedEntryUnstagedCopy(
 	}
 	assert.True(t, found, "expected dst.txt in status output")
 }
-
-// --- parseUnmergedEntry: DD conflict (both deleted) ---
 
 func TestParse_ConflictBothDeleted(
 	t *testing.T,
@@ -386,18 +365,12 @@ func TestParse_ConflictBothDeleted(
 	r = exec.Git(ctx, dir, "commit", "-m", "delete on main")
 	require.Equal(t, 0, r.ExitCode, r.Stderr)
 
-	// Merging two branches that both deleted the same file results in a
-	// clean fast-forward or a DD conflict depending on git version; either way
-	// the parse must not error.
 	_ = exec.Git(ctx, dir, "merge", "branch-b")
 
 	s, err := status.Parse(ctx, dir)
 	require.NoError(t, err)
-	// Whether it conflicts or not, parsing succeeded.
 	_ = s
 }
-
-// --- isConflict: AA (both added) path ---
 
 func TestParse_ConflictBothAdded(
 	t *testing.T,
@@ -405,7 +378,6 @@ func TestParse_ConflictBothAdded(
 	dir := initRepo(t)
 	ctx := context.Background()
 
-	// Start with an empty initial commit so both branches can add the same file.
 	emptyPath := filepath.Join(dir, ".gitkeep")
 	require.NoError(t, os.WriteFile(emptyPath, []byte(""), 0o600))
 	_ = exec.Git(ctx, dir, "add", ".gitkeep")
@@ -440,14 +412,9 @@ func TestParse_ConflictBothAdded(
 	assert.True(t, found, "expected newfile.txt to be conflicted (AA)")
 }
 
-// --- isConflict: xU and Ux paths ---
-
 func TestParse_ConflictUWithOther(
 	t *testing.T,
 ) {
-	// A standard content conflict produces UU in porcelain v2 "u" entries.
-	// The isConflict helper is exercised indirectly via ordinary entry parsing
-	// when xy contains 'U'. Produce a UU conflict via a normal merge conflict.
 	dir := initRepo(t)
 	ctx := context.Background()
 
@@ -481,8 +448,6 @@ func TestParse_ConflictUWithOther(
 	assert.True(t, found, "expected at least one conflicted file")
 }
 
-// --- White-box tests using exported internal helpers ---
-
 func TestParseAheadBehind_WrongFieldCount(
 	t *testing.T,
 ) {
@@ -501,7 +466,6 @@ func TestParseOrdinaryEntries_TooFewParts(
 func TestParseOrdinaryEntries_ShortXY(
 	t *testing.T,
 ) {
-	// xy field has length < 2
 	files := status.ExportedParseOrdinaryEntries("1 X N... 100644 100644 100644 abc def path.txt")
 	assert.Nil(t, files)
 }
@@ -509,7 +473,6 @@ func TestParseOrdinaryEntries_ShortXY(
 func TestParseOrdinaryEntries_ConflictXY(
 	t *testing.T,
 ) {
-	// xy = "UU" triggers isConflict → returns a single conflicted entry.
 	files := status.ExportedParseOrdinaryEntries("1 UU N... 100644 100644 100644 abc def conflict.txt")
 	require.Len(t, files, 1)
 	assert.Equal(t, gitdomain.GitFileStatusConflicted, files[0].Status)
@@ -520,7 +483,6 @@ func TestParseOrdinaryEntries_ConflictXY(
 func TestParseOrdinaryEntries_StagedDeleted(
 	t *testing.T,
 ) {
-	// xy = "D." → staged deletion, no unstaged change.
 	files := status.ExportedParseOrdinaryEntries("1 D. N... 100644 000000 000000 abc def deleted.txt")
 	require.Len(t, files, 1)
 	assert.Equal(t, gitdomain.GitFileStatusDeleted, files[0].Status)
@@ -530,7 +492,6 @@ func TestParseOrdinaryEntries_StagedDeleted(
 func TestParseOrdinaryEntries_UnstagedDeleted(
 	t *testing.T,
 ) {
-	// xy = ".D" → unstaged deletion.
 	files := status.ExportedParseOrdinaryEntries("1 .D N... 100644 100644 000000 abc def missing.txt")
 	require.Len(t, files, 1)
 	assert.Equal(t, gitdomain.GitFileStatusDeleted, files[0].Status)
@@ -540,7 +501,6 @@ func TestParseOrdinaryEntries_UnstagedDeleted(
 func TestParseOrdinaryEntries_StagedAdded(
 	t *testing.T,
 ) {
-	// xy = "A." → staged new file.
 	files := status.ExportedParseOrdinaryEntries("1 A. N... 000000 100644 000000 abc def newfile.txt")
 	require.Len(t, files, 1)
 	assert.Equal(t, gitdomain.GitFileStatusAdded, files[0].Status)
@@ -550,7 +510,6 @@ func TestParseOrdinaryEntries_StagedAdded(
 func TestParseOrdinaryEntries_StagedRenamed(
 	t *testing.T,
 ) {
-	// xy = "R." → staged rename.
 	files := status.ExportedParseOrdinaryEntries("1 R. N... 100644 100644 100644 abc def renamed.txt")
 	require.Len(t, files, 1)
 	assert.Equal(t, gitdomain.GitFileStatusRenamed, files[0].Status)
@@ -574,7 +533,6 @@ func TestParseRenamedEntry_ShortXY(
 func TestParseRenamedEntry_NotROrC(
 	t *testing.T,
 ) {
-	// xy = ".R" → staged=false (x != 'R' && x != 'C').
 	f := status.ExportedParseRenamedEntry("2 .R N... 100644 100644 100644 abc def R100 new.txt")
 	assert.Equal(t, "new.txt", f.Path)
 	assert.Equal(t, gitdomain.GitFileStatusRenamed, f.Status)
@@ -636,6 +594,5 @@ func TestCharToStatus_R(
 func TestCharToStatus_Default(
 	t *testing.T,
 ) {
-	// Unknown char → Modified.
 	assert.Equal(t, gitdomain.GitFileStatusModified, status.ExportedCharToStatus('X'))
 }

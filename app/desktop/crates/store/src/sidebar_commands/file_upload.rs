@@ -1,5 +1,3 @@
-//! Copying local files into a directory of the followed workspace.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -66,12 +64,6 @@ impl FileUpload {
 }
 
 impl SidebarCommands {
-    /// Copies each local file of `sources` into `directory` (the workspace root when empty) one
-    /// after the other, then reloads the listing. `done` gets the workspace-relative paths
-    /// written, or the first failure; the files before it stay.
-    ///
-    /// # Errors
-    /// [`Error::Refused`] when no workspace is open.
     pub fn upload_files(
         &self,
         directory: &str,

@@ -1,7 +1,6 @@
 import type { ToolCallBody } from '@/features/agent/api/chat-rows'
 import type { ToolItem } from '@/features/agent/stores/lib/transcript-items'
 
-/** Live, done, and the plain verb for a call that never finished. */
 const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
   read: ['Reading', 'Read', 'Read'],
   edit: ['Editing', 'Edited', 'Edit'],
@@ -13,8 +12,6 @@ const VERBS: Partial<Record<ToolItem['family'], [string, string, string]>> = {
 
 const CREATE: [string, string, string] = ['Creating', 'Created', 'Create']
 
-/** An edit writes a new file when its diff has no old side, or its one hunk starts
- *  from nothing (how a provider reports a file that was not there). */
 const writesNewFile = (diff = '') => {
   if (diff.startsWith('--- /dev/null\n')) return true
   const hunks = diff.match(/^@@ .*$/gm) ?? []
@@ -40,8 +37,6 @@ const WORDS = /"([^"]*)"|'([^']*)'|(\S+)/g
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash'])
 const basename = (word: string) => word.split('/').pop() ?? word
 
-/** A command as a reader names it: wrapping shells, sudo and env assignments
- *  peeled off, the program by its basename, first line only. */
 function commandProgramName(cmd: string): string {
   const line = cmd.trim().split('\n')[0] ?? ''
   const words = [...line.matchAll(WORDS)].map((m) => m[1] ?? m[2] ?? m[3] ?? '')
@@ -67,7 +62,7 @@ function hostOf(target: string): { host: string; more: boolean } | undefined {
     const url = new URL(target)
     return { host: url.host, more: url.pathname.length > 1 || url.search !== '' }
   } catch {
-    return undefined // not a URL: the target is shown as it came
+    return undefined
   }
 }
 
@@ -94,14 +89,11 @@ function subjectOf(item: ToolItem, done: boolean): ToolLabel['subject'] {
     const url = hostOf(target)
     if (url) return { full: target, display: done && url.more ? `${url.host}/…` : url.host }
   }
-  // The daemon names a file inside the workspace from there; an absolute path lies outside it.
   return { full: target, display: target }
 }
 
-/** The tool an MCP call named. */
 const mcpTool = (body: ToolCallBody) => body.mcpTool || humanizeToolName(body.name ?? '')
 
-/** A call's verb and subject: present while it runs, past once done. */
 export function toolLabel(item: ToolItem): ToolLabel {
   const { body, family, status } = item
   const done = status === 'ok' || status === 'error'
@@ -124,7 +116,6 @@ const asText = ({ verb, subject }: ToolLabel, family: ToolItem['family']) =>
 export const liveLabel = (item: ToolItem) =>
   asText(toolLabel({ ...item, status: 'running' }), item.family)
 
-/** The label as the call's own status reads it. */
 export const labelText = (item: ToolItem) => asText(toolLabel(item), item.family)
 
 export function diffStat(diff: string): { added: number; removed: number } {
@@ -137,7 +128,6 @@ export function diffStat(diff: string): { added: number; removed: number } {
   return { added, removed }
 }
 
-/** A duration read at a glance; sub-second work in ms, since "0s" reads as nothing. */
 export function formatDuration(ms: number | undefined): string {
   if (!ms || ms < 0) return ''
   if (ms < 1000) return `${ms}ms`

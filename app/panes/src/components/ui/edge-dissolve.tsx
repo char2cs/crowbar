@@ -2,16 +2,10 @@ import type { CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
 
 interface DissolveLayerSpec {
-  /** px blur radius for THIS layer's backdrop-filter. */
   blur: number
-  /** Mask stops as fractions of the zone (0 = far edge, 1 = near): transparent→black, then
-   *  →black→ transparent for mid layers; the last two run to the near edge. From composer-dock.css's
-   *  `.dissolve-layer`: stacked masked layers fake a ramping blur one backdrop-filter can't. */
   stops: number[]
 }
 
-// composer-dock.css's 7-layer `.dissolve-layer` recipe, as data rather than `:nth-child` rules tied
-// to one zone height, so it runs at whatever height the caller implies.
 const LAYERS: DissolveLayerSpec[] = [
   { blur: 1, stops: [0, 0.1, 0.3, 0.4] },
   { blur: 2, stops: [0.1, 0.2, 0.4, 0.5] },
@@ -26,8 +20,6 @@ function layerStyle(layer: DissolveLayerSpec, height: number): CSSProperties {
   const firstStop = layer.stops[0]!
   const lastStop = layer.stops[layer.stops.length - 1]!
   const top = Math.max(0, height * firstStop - layer.blur)
-  // A 2-stop layer runs to the near edge (bottom: 0 as authored; edge="top" flips it); a 4-stop
-  // layer's fade-out stops short of it.
   const bottom = layer.stops.length === 4 ? Math.max(0, height * (1 - lastStop) - layer.blur) : 0
   const colors =
     layer.stops.length === 4
@@ -51,17 +43,11 @@ function layerStyle(layer: DissolveLayerSpec, height: number): CSSProperties {
 }
 
 interface EdgeDissolveProps {
-  /** Which edge of its positioned ancestor this dissolves FROM — content
-   *  passing under that edge is what blurs. */
   edge: 'top' | 'bottom'
-  /** Zone height in px; taller ramps the blur more gradually (the composer's is ~2-4x its dock). */
   height: number
   className?: string
 }
 
-// The composer's "glass": content behind blurs and fades instead of clipping at a hard edge.
-// Authored once for edge="bottom"; "top" flips the stack with scaleY(-1) (blur is isotropic).
-// Decorative, no pointer events; the caller positions it inside its own relative box.
 export function EdgeDissolve({ edge, height, className }: EdgeDissolveProps) {
   return (
     <div

@@ -17,54 +17,31 @@ import {
 } from '@/features/agent/transcript/plate/streaming-value-blocks'
 import { splitIntoWords, staggerDelay } from '@/features/agent/transcript/plate/fresh-word-stagger'
 
-/** The fade-in mark, only ever a Slate decoration — never in the document. */
 export const CHAT_FRESH_MARK = 'chatFresh'
-/** This leaf's `animation-delay` in ms. Constant per run: a changing value
- *  defeats `isTextDecorationsEqual` and rewrites a running animation's delay;
- *  elapsed time is applied once at mount by `resumedFadeDelay`. */
 export const CHAT_FRESH_DELAY_MARK = 'chatFreshDelay'
-/** When the run landed (`performance.now()`), so a remount can resume its fade. */
 export const CHAT_FRESH_BORN_MARK = 'chatFreshBornAt'
-/** A finished fade kept only to hold the leaf split stable for later words;
- *  matches no plugin, so it renders as plain text with no animation to restart. */
 const CHAT_FRESH_HELD = 'chatFreshHeld'
-/** Per-word index and generation total, only on a per-word split, so each word's
- *  `animationend` counts on its own instead of the first one settling the run. */
 export const CHAT_FRESH_WORD_INDEX_MARK = 'chatFreshWordIndex'
 export const CHAT_FRESH_WORD_TOTAL_MARK = 'chatFreshWordTotal'
 
-// Flat head start per word so scroll-follow gets underway before text appears.
 const SCROLL_LEAD_MS = 150
 
-// Past this many words the stagger step is imperceptible, so the chunk fades
-// as one span instead of paying for hundreds.
 const WORD_SPLIT_CAP = 80
 
-/** One insertion's just-arrived text, as a range over text the document
- *  already holds — the fade is a decoration, never a document change. */
 interface FreshRun {
-  /** Distinct per insertion so adjacent runs keep their own timing. */
   generation: number
   path: Path
   start: number
   end: number
-  /** One insertion can span several leaves; these keep the cascade continuous. */
   wordOffset: number
   totalWords: number
-  /** The fade plays against this clock, not the span's life: slate-react
-   *  remounts these leaves constantly, and without it every remount would
-   *  restart from invisible. Stamped by `recordRun`. */
   bornAt: number
 }
 
-// Decorations, not per-word leaves in the document: a chunk is one
-// `insert_text` regardless of word count, and settling costs no operation.
 const freshRuns = new WeakMap<PlateEditor, FreshRun[]>()
 const settledGenerations = new WeakMap<PlateEditor, Set<number>>()
 const freshGenerations = new WeakMap<PlateEditor, number>()
 
-// Backstop for runs whose `animationend` never fires (reduced motion, hidden
-// chat); ~1s of history at one flush per frame, long after any visible fade.
 const MAX_LIVE_GENERATIONS = 60
 
 function nextFreshGeneration(editor: PlateEditor): number {
@@ -88,9 +65,6 @@ function recordRun(editor: PlateEditor, run: Omit<FreshRun, 'bornAt'>): void {
 
 const pathKey = (path: Path) => path.join('.')
 
-/** Drops unrenderable runs, but keeps a settled run while any run in its text
- *  node still fades: slate-react keys leaves by split index, so dropping one
- *  would remount (and restart) every fading leaf after it. */
 function pruneRuns(editor: PlateEditor, invalidFromBlock: number): void {
   const runs = freshRuns.get(editor)
   if (!runs?.length) return
@@ -108,7 +82,6 @@ function pruneRuns(editor: PlateEditor, invalidFromBlock: number): void {
   if (settled && kept.length === 0) settled.clear()
 }
 
-// One redecorate pass per frame, however many words finished in it.
 const pendingCleanup = new WeakMap<PlateEditor, number>()
 
 function scheduleFadeCleanup(editor: PlateEditor): void {
@@ -118,15 +91,11 @@ function scheduleFadeCleanup(editor: PlateEditor): void {
     editor,
     requestAnimationFrame(() => {
       pendingCleanup.delete(editor)
-      // Absent on a headless editor, which has no rendering to invalidate.
       editor.api.redecorate?.()
     }),
   )
 }
 
-/** Retires one finished fade, from the real `animationend`. Schedules a
- *  redecorate because only re-rendered blocks recompute decorations, and a
- *  streaming list re-renders only its last item. */
 export function settleFreshGeneration(editor: PlateEditor, generation: number): void {
   const settled = settledGenerations.get(editor) ?? new Set<number>()
   if (settled.has(generation)) return
@@ -137,8 +106,6 @@ export function settleFreshGeneration(editor: PlateEditor, generation: number): 
 
 const settledWordCounts = new WeakMap<PlateEditor, Map<number, Set<number>>>()
 
-/** One word of a per-word cascade finished; the generation settles only once
- *  every word has reported, since word 0 always finishes first. */
 export function settleFreshWord(
   editor: PlateEditor,
   generation: number,
@@ -147,16 +114,12 @@ export function settleFreshWord(
 ): void {
   const byGeneration = settledWordCounts.get(editor) ?? new Map<number, Set<number>>()
   const words = byGeneration.get(generation) ?? new Set<number>()
-  // A Set, not a counter: a remounted leaf can replay the same word's
-  // `animationend`, and a repeat must not over-count.
   words.add(wordIndex)
   byGeneration.set(generation, words)
   settledWordCounts.set(editor, byGeneration)
   if (words.size >= totalWords) settleFreshGeneration(editor, generation)
 }
 
-/** The fade as per-word Slate ranges over `entry`'s leaf; Slate splits the leaf
- *  along them at render, so the document never holds a leaf per word. */
 export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): DecoratedRange[] {
   const text = (node as Node).text
   if (typeof text !== 'string') return []
@@ -169,10 +132,7 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
   const ranges: DecoratedRange[] = []
   for (const run of runs) {
     if (!pathEquals(run.path, path)) continue
-    // A reparse can reshape the leaf; offsets naming text no longer there are dropped.
     if (run.end > text.length || run.start >= run.end) continue
-    // Not time-based: retiring on a clock would swap the span for a plain one
-    // and re-render on-screen text. Stranded fades are handled by `resumedFadeDelay`.
     const held = settled?.has(run.generation) || run.generation <= floor
     const mark = (offset: number, next: number, delay: number, wordIndex?: number) =>
       ranges.push(
@@ -193,7 +153,6 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
             }) as unknown as DecoratedRange,
       )
 
-    // One unsplit fade, settled directly (no word index).
     if (run.totalWords > WORD_SPLIT_CAP) {
       mark(run.start, run.end, SCROLL_LEAD_MS)
       continue
@@ -209,12 +168,8 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
   return ranges
 }
 
-// Leading blocks already confirmed stable; never re-compared, which keeps a
-// streamed message from costing O(length²).
 const knownStablePrefix = new WeakMap<PlateEditor, number>()
 
-/** Patches leaf marks and text in place — never removing/inserting a node — so
- *  every ancestor keeps its reference and `NodeIdPlugin` id. */
 function patchLeavesInPlace(editor: PlateEditor, diffs: LeafDiff[]): void {
   for (const { path, prev, next } of diffs) {
     const prevKeys = markKeys(prev)
@@ -240,7 +195,6 @@ function patchLeavesInPlace(editor: PlateEditor, diffs: LeafDiff[]): void {
     }
     if (nextText.length) {
       editor.tf.insertText(nextText, { at: { path, offset: 0 } })
-      // The whole leaf: its old text went the moment its marks changed.
       recordRun(editor, {
         generation: nextFreshGeneration(editor),
         path,
@@ -253,9 +207,6 @@ function patchLeavesInPlace(editor: PlateEditor, diffs: LeafDiff[]): void {
   }
 }
 
-/** Records a fade over every leaf of an inserted block with one continuous word
- *  index. `skip` (shared, mutated) is flattened text already on screen, so a
- *  replaced block does not re-fade words the reader has already seen. */
 function recordBlockRuns(
   editor: PlateEditor,
   node: Node,
@@ -263,7 +214,6 @@ function recordBlockRuns(
   generation: number,
   wordIndex: { current: number },
   total: number,
-  // `take` bounds the fresh span after the skip; unset means "to the block's end".
   skip: { remaining: number; take?: number } = { remaining: 0 },
 ): void {
   if (typeof node.text === 'string') {
@@ -296,9 +246,6 @@ function recordBlockRuns(
   })
 }
 
-/** A block that only grew or changed at its end (a code fence gaining lines, a
- *  table gaining rows) keeps the children it already drew: a whole-block replace
- *  remounts and re-decorates every one. False when no leading child agrees. */
 function replaceChildTail(editor: PlateEditor, prevBlock: Node, nextBlock: Node, at: Path) {
   const prev = prevBlock.children
   const next = nextBlock.children
@@ -322,15 +269,10 @@ function replaceChildTail(editor: PlateEditor, prevBlock: Node, nextBlock: Node,
   return true
 }
 
-/** Applies `next` touching only the blocks that differ — `setValue` would tear
- *  down and rebuild every settled paragraph per token. A growing tail becomes
- *  one `insert_text`, and the fade is recorded as runs, not document marks. */
 export function applyStreamedValue(editor: PlateEditor, next: Value): void {
   const prev = editor.children as Value
   const startAt = Math.min(knownStablePrefix.get(editor) ?? 0, prev.length, next.length)
   const stable = startAt + stableBlockCount(prev.slice(startAt), next.slice(startAt))
-  // Never latch the last block: it is still being written, and a delta that
-  // reparses identically (e.g. mid table separator row) would freeze it forever.
   knownStablePrefix.set(editor, Math.min(stable, Math.max(next.length - 1, 0)))
   if (stable === prev.length && stable === next.length) return
 
@@ -342,12 +284,10 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
       if (divergence) {
         const prevText = lastLeaf(prevBlock).text as string
         const staleLength = prevText.length - divergence.keep
-        if (staleLength === 0 && divergence.replacement === '') return // truly unchanged
+        if (staleLength === 0 && divergence.replacement === '') return
         const endPoint = editor.api.end([stable])
         if (endPoint) {
-          // Delete only the diverging suffix so the shared prefix keeps its fade state.
           if (staleLength > 0) {
-            // Offsets in this block are about to shift, so its runs go with it.
             pruneRuns(editor, stable)
             editor.tf.delete({
               at: endPoint,
@@ -359,7 +299,6 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
             pruneRuns(editor, Number.POSITIVE_INFINITY)
           }
           if (divergence.replacement !== '') {
-            // Re-read: the delete shifted the block's end.
             const insertAt = staleLength > 0 ? editor.api.end([stable]) : endPoint
             if (insertAt) {
               editor.tf.insertText(divergence.replacement, { at: insertAt })
@@ -377,9 +316,6 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
         }
       }
       if (!divergence) {
-        // Usually a mark completing mid-paragraph. Patch leaves in place when the
-        // shape is unchanged: a block replace reassigns its NodeIdPlugin id,
-        // remounting the block and restarting its fade.
         const leafDiffs: LeafDiff[] = []
         if (leafDivergences(prevBlock, nextBlock, [stable], leafDiffs) && leafDiffs.length > 0) {
           pruneRuns(editor, stable)
@@ -388,7 +324,6 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
         }
         pruneRuns(editor, stable)
         if (replaceChildTail(editor, prevBlock, nextBlock, [stable])) return
-        // Shape changed: replace the block, fading only the genuinely new text.
         editor.tf.removeNodes({ at: [stable] })
         editor.tf.insertNodes([nextBlock] as Value, { at: [stable] })
         const prevText = flattenText(prevBlock)
@@ -414,8 +349,6 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
       }
     }
     pruneRuns(editor, stable)
-    // Text carried over verbatim is already on screen; skip it so one flush that
-    // finishes a paragraph and starts the next does not re-fade the first.
     const carriedOver = commonPrefixLength(
       prev
         .slice(stable)
@@ -439,7 +372,6 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
         .slice(carriedOver)
       const total = splitIntoWords(freshText).length
       editor.tf.insertNodes(newNodes as Value, { at: [stable] })
-      // One skip counter across all blocks, consumed across block boundaries.
       const skip = { remaining: carriedOver }
       newNodes.forEach((node, i) => {
         recordBlockRuns(editor, node as Node, [stable + i], generation, wordIndex, total, skip)

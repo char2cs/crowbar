@@ -8,11 +8,6 @@ import { usePtySizeSync } from '@/features/terminal/hooks/use-pty-size-sync'
 
 type SyncOptions = Parameters<typeof usePtySizeSync>[0]
 
-// usePtySizeSync is the ONE owner of a view's PTY size. These pin what the old
-// refitAndSyncPty helper pinned, now at the owner: the PTY is pushed whenever
-// xterm's grid differs from what THIS connection was last told — even when a fit
-// changes nothing — and never redundantly, and only by a visible view.
-
 function makeTerminal(rows: number, cols: number) {
   let onResize: (() => void) | null = null
   return {
@@ -34,7 +29,6 @@ function makeConnection() {
   return { alive: true, resize: vi.fn() }
 }
 
-// jsdom gives every element a 0×0 box; the tests control it.
 function makeContainer(width = 800, height = 600) {
   const el = document.createElement('div')
   el.getBoundingClientRect = () => ({ width, height }) as DOMRect
@@ -116,8 +110,6 @@ describe('usePtySizeSync', () => {
   })
 })
 
-// The daemon's Go suite writes this fixture (TestConformance_XtermResizeFixture): per scenario, the
-// keyframe before a resize, the keyframe after it, and the raw PTY output behind both.
 type ResizeScenario = {
   name: string
   cols: number
@@ -153,7 +145,6 @@ async function xtermFed(data: string, cols: number, rows: number, scrollback: nu
   return terminal
 }
 
-/** What a viewer can tell apart: every line's text, wrap bit and cell widths, and the cursor. */
 function bufferOf(terminal: Terminal, exempt: { firstWrap?: boolean; cursorX?: boolean } = {}) {
   const buffer = terminal.buffer.active
   const lines = []
@@ -168,7 +159,6 @@ function bufferOf(terminal: Terminal, exempt: { firstWrap?: boolean; cursorX?: b
   return { length: buffer.length, baseY: buffer.baseY, cursor: [cursorX, buffer.cursorY], lines }
 }
 
-/** Resizes a terminal the way a view does: the hook's fit, which then tells the PTY. */
 function resizeThroughHook(terminal: Terminal, cols: number, rows: number) {
   const connection = makeConnection()
   renderHook(() =>
@@ -183,8 +173,6 @@ function resizeThroughHook(terminal: Terminal, cols: number, rows: number) {
   expect(connection.resize).toHaveBeenCalledExactlyOnceWith(rows, cols)
 }
 
-// xterm reflows its own buffer on a resize, and the daemon reflows its model; the keyframe that
-// follows must repaint exactly what the client already shows.
 describe('usePtySizeSync — the keyframe after a resize matches xterm.js own reflow', () => {
   const known = 'printedSpacesKnownDivergence'
   it('the fixture holds the known-divergence scenario', () => {
@@ -196,7 +184,6 @@ describe('usePtySizeSync — the keyframe after a resize matches xterm.js own re
       const client = await xtermFed(sc.before, sc.cols, sc.rows, sc.scrollback)
       resizeThroughHook(client, sc.toCols, sc.toRows)
       const after = await xtermFed(sc.after, sc.toCols, sc.toRows, sc.scrollback)
-      // R6: no keyframe can flag its oldest line; a CUP cannot carry a pending wrap (R-6c-1).
       const exempt = { firstWrap: sc.saturated, cursorX: sc.pendingWrap }
       expect(bufferOf(client, exempt)).toEqual(bufferOf(after, exempt))
     })
@@ -210,12 +197,9 @@ describe('usePtySizeSync — the keyframe after a resize matches xterm.js own re
     })
   }
 
-  // UPSTREAM.md D2: x/vt stores a printed space like an erased cell, so the daemon counts the chain
-  // "x" * 20 + "   " as 20 cells; xterm counts the spaces and keeps one more row.
   it('known divergence: a chain ending in printed spaces keeps one more row on the client', async () => {
     const sc = resizeFixture.scenarios.find((s) => s.name === known)!
     const after = bufferOf(await xtermFed(sc.after, sc.toCols, sc.toRows, sc.scrollback))
-    // Raw output keeps the three printed spaces; a keyframe sends the one space a wrap needs.
     const spaces = {
       text: expect.stringMatching(/^ +$/),
       wrapped: true,

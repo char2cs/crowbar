@@ -24,8 +24,6 @@ func TestMain(
 	m.Run()
 }
 
-// fakeResolver returns a canned identity, or records the worktree path it was
-// called with.
 type fakeResolver struct {
 	identity  gitdomain.Identity
 	gotWtPath string
@@ -39,9 +37,6 @@ func (f *fakeResolver) CurrentIdentity(
 	return f.identity
 }
 
-// newRouter wires the identity handler onto the flat chat-scoped group the
-// way router.go does, with a stand-in for chatScoped's resolveChatWorktree
-// middleware that always resolves ws.
 func newRouter(
 	resolver handlers.IdentityResolver,
 	ws domain.Workspace,
@@ -57,10 +52,6 @@ func newRouter(
 	return r
 }
 
-// newRouterNoWorkspace wires the same route WITHOUT resolveChatWorktree's
-// stand-in ever running, so resolveWorkspace's reqscope read comes back
-// empty — the same degradation an unresolvable workspace id used to produce
-// before spec §8 step 6 retired the WorkspaceReader fallback.
 func newRouterNoWorkspace(
 	resolver handlers.IdentityResolver,
 ) *gin.Engine {
@@ -80,9 +71,6 @@ func do(
 	return rec
 }
 
-// TestGet_NoResolvedWorkspace pins that a request reaching this handler with
-// no workspace resolved on reqscope degrades to a best-effort 200 with every
-// identity field empty, rather than a 404 or 500.
 func TestGet_NoResolvedWorkspace(
 	t *testing.T,
 ) {
@@ -108,8 +96,6 @@ func TestGet_NoResolvedWorkspace(
 	assert.Empty(t, resolver.gotWtPath, "resolver must not be invoked when no workspace is resolved")
 }
 
-// TestGet_Found pins that a resolved chat worktree resolves the identity from
-// its worktree path and serves it back on the query envelope.
 func TestGet_Found(
 	t *testing.T,
 ) {

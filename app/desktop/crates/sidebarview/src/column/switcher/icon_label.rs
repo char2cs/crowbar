@@ -1,5 +1,3 @@
-//! The "ICON" label over a space's icon popover, set as develop's.
-
 use gpui::{Div, FontWeight, ParentElement, Styled, div};
 use ui::{Palette, TrackedText, tracking};
 
@@ -29,7 +27,6 @@ mod tests {
 
     use super::*;
 
-    /// Tailwind `tracking-wider`, in em.
     const WIDER: f32 = 0.05;
 
     fn label_width(
@@ -58,7 +55,6 @@ mod tests {
         );
     }
 
-    /// Develop's `text-[10px]` on the section label.
     const DEVELOP_LABEL: f32 = 10.0;
 
     #[gpui::test]

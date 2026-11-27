@@ -1,10 +1,3 @@
-//! Drags from other applications onto the web views a window embeds.
-//!
-//! A drag source talks only to the top-level window under the pointer, so a web view, a child
-//! window, never hears a drag. The window names a hidden window of ours as its `XdndProxy`
-//! (XDND spec, "Proxy"); that window hands each message on to the window itself, or to the web
-//! view under the pointer, naming itself as the source, and passes the web view's answers back.
-
 mod atoms;
 mod drop_target;
 mod relay;
@@ -31,8 +24,6 @@ const THREAD: &str = "crowbar-xdnd-proxy";
 const OFF_SCREEN: i16 = -1;
 const SIDE: u16 = 1;
 
-/// The proxy of one window's drags, served on a thread and a connection of its own until it is
-/// dropped.
 #[derive(Debug)]
 pub struct XdndProxy {
     connection: Arc<RustConnection>,
@@ -42,11 +33,6 @@ pub struct XdndProxy {
 }
 
 impl XdndProxy {
-    /// Serves the drags that reach `window`, an X window id.
-    ///
-    /// # Errors
-    /// [`Error::X11Connect`] when no X server answers, [`Error::Proxy`] when the proxy window
-    /// cannot be made or named, and [`Error::Thread`] when its thread cannot start.
     pub fn install(window: u32) -> Result<Self, Error> {
         let (connection, screen) = RustConnection::connect(None)?;
         let root = connection

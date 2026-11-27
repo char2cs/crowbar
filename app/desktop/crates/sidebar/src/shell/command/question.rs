@@ -1,5 +1,3 @@
-//! A yes-or-no question the sidebar asks before sending a command.
-
 use crate::shell::chats::RowId;
 use crate::shell::command::{Command, Stakes};
 
@@ -7,26 +5,17 @@ const KILL_BODY: &str =
     "It stops now, even mid-turn. The conversation is kept and resumes when reopened.";
 const DETACH_BODY: &str = "will move to a detached HEAD, releasing the branch so Crowbar can manage it in its own worktree. Your files are safe — only the working directory's current branch changes; uncommitted changes and commits are preserved.";
 
-/// A confirmation dialog whose accept button sends one command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Question {
-    /// The dialog's title.
     pub title: String,
-    /// The explanation under the title.
     pub body: String,
-    /// The label of the cancel button.
     pub cancel: &'static str,
-    /// The label of the accept button.
     pub confirm: &'static str,
-    /// What accepting costs, which colours the accept button.
     pub stakes: Stakes,
-    /// The command sent when the question is accepted.
     pub command: Command,
 }
 
 impl Question {
-    /// Asks before detaching the checkout of `branch` so Crowbar can manage it in a worktree.
-    /// Names the checkout's `path` when it is known; accepting sends [`Command::Detach`].
     pub fn detach(
         row: RowId,
         branch: &str,
@@ -46,8 +35,6 @@ impl Question {
         }
     }
 
-    /// Asks before killing the agent running the thread titled `title`.
-    /// Accepting sends [`Command::KillAgent`].
     pub fn kill(
         row: RowId,
         title: &str,

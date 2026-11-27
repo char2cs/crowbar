@@ -21,8 +21,6 @@ func announced(t *testing.T, st ledger.State, provider, sessionID string) ledger
 	return st
 }
 
-// A nested conversation or internal session sharing the wire is foreign to the
-// chat's bound session; the announcement itself and an id-less event never are.
 func TestNamesAnotherConversation_JudgesAgainstTheChatsBoundSession(t *testing.T) {
 	t.Parallel()
 	foreign := func(st ledger.State, provider, kind, sessionID string) bool {
@@ -48,8 +46,6 @@ func TestNamesAnotherConversation_JudgesAgainstTheChatsBoundSession(t *testing.T
 	assert.False(t, foreign(st, "p1", engineagents.HookTurnStop, "thread-cleared"))
 }
 
-// An api connection binds the sessions it opens itself, so a thread it reports
-// starting under another id is a child's (C13): judged, never an announcement.
 func TestNamesAnotherConversation_AnAPIThreadStartOfAnotherSessionIsAChilds(t *testing.T) {
 	t.Parallel()
 	st := announced(t, ledger.Fold("chat-1", nil), "p1", "thread-main")

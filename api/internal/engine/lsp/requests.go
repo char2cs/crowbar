@@ -177,8 +177,6 @@ func (e *engine) rawRequest(
 	return raw, nil
 }
 
-// request acquires a server ref for its duration and releases it: net-zero, so an open
-// document keeps the server warm, and with none the request spawns, serves and tears down.
 func (e *engine) request(
 	ctx context.Context,
 	wsID string,
@@ -199,9 +197,6 @@ func (e *engine) request(
 	return raw, ok, nil
 }
 
-// serve runs fn against the file's language server with the request timeout,
-// under the same net-zero acquire/release as request. It reports false (and
-// never calls fn) when no server serves the file.
 func (e *engine) serve(
 	ctx context.Context,
 	wsID string,
@@ -223,9 +218,6 @@ func (e *engine) serve(
 	return true, fn(reqCtx, srv)
 }
 
-// absFilePath resolves a workspace-relative file path against the worktree so
-// the language server receives an absolute file URI it can match to its rooted
-// workspace. An already-absolute path is returned unchanged.
 func absFilePath(
 	worktreePath string,
 	filePath string,
@@ -236,8 +228,6 @@ func absFilePath(
 	return filepath.Join(worktreePath, filePath)
 }
 
-// relLocations rewrites FilePaths to workspace-relative form: the frontend addresses files
-// that way, so the server's absolute paths never reach it.
 func relLocations(
 	worktreePath string,
 	locations []domlsp.Location,
@@ -248,9 +238,6 @@ func relLocations(
 	return locations
 }
 
-// relWorkspaceEdit rewrites a workspace edit's per-file keys to their
-// workspace-relative form, so a rename's edits address the same paths the
-// editor's buffers and the files API use.
 func relWorkspaceEdit(
 	worktreePath string,
 	edit domlsp.WorkspaceEdit,

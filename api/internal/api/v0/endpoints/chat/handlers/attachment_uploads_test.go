@@ -16,7 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// chunkedUploadFake records each chunked-upload call as "op id[ detail]" and answers canned values.
 type chunkedUploadFake struct {
 	calls    []string
 	received int64

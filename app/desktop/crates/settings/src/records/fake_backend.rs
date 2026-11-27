@@ -1,5 +1,3 @@
-//! An in-memory backend for tests.
-
 mod state;
 mod values;
 
@@ -17,15 +15,12 @@ use crate::values::Listener;
 use crate::values::Snapshot;
 use crate::values::Value;
 
-/// A [`Backend`](crate::values::Backend) and [`RecordBackend`](crate::records::record_backend::RecordBackend)
-/// that keep everything in memory and log what they were asked to do.
 #[derive(Clone, Default)]
 pub struct FakeBackend {
     pub(crate) state: Rc<RefCell<State>>,
 }
 
 impl FakeBackend {
-    /// A backend that starts from `snapshot`.
     pub fn new(snapshot: Snapshot) -> Self {
         let state = State {
             snapshot,
@@ -36,7 +31,6 @@ impl FakeBackend {
         }
     }
 
-    /// Serves `records` for the list `source`.
     #[must_use]
     pub fn with_records(
         self,
@@ -50,22 +44,18 @@ impl FakeBackend {
         self
     }
 
-    /// Makes every following write fail.
     pub fn refuse_writes(&self) {
         self.state.borrow_mut().refusing = true;
     }
 
-    /// The ids of the actions run so far, oldest first.
     pub fn invoked(&self) -> Vec<String> {
         self.state.borrow().invoked.clone()
     }
 
-    /// The record commands applied so far as `(source, record, command)`.
     pub fn commands(&self) -> Vec<(String, String, RecordCommand)> {
         self.state.borrow().commands.clone()
     }
 
-    /// Pretends another window changed `key`: stores it and tells every listener.
     pub fn publish(
         &self,
         key: &Key,

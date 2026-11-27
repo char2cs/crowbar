@@ -39,7 +39,6 @@ beforeEach(() => {
 })
 
 describe('AddHostScreen', () => {
-  // The web draws the brand; the way in is the native glass button over it.
   it('welcomes with the wordmark and tagline over the native start button', () => {
     render(<AddHostScreen onPaired={vi.fn()} />)
     expect(screen.getByRole('img', { name: 'Crowbar' })).toBeInTheDocument()
@@ -57,7 +56,6 @@ describe('AddHostScreen', () => {
     expect(brand()).toHaveAttribute('data-state', 'open')
   })
 
-  // Before any host there is no shell: the welcome itself hands the sheet the theme's colours.
   it('paints the connect sheet from the theme’s palette', () => {
     document.documentElement.style.setProperty('--background', '#1c1c1a')
     render(<AddHostScreen onPaired={vi.fn()} />)
@@ -159,7 +157,6 @@ describe('AddHostScreen', () => {
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
 
-  // A dismissed attempt is over: its confirmed fingerprint never reaches the next.
   it('settles back on dismiss and starts the next attempt afresh', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     render(<AddHostScreen onPaired={vi.fn()} />)
@@ -175,7 +172,6 @@ describe('AddHostScreen', () => {
     expect(sheet()).toMatchObject({ open: true, stage: 'address', name: '', fingerprint: '' })
   })
 
-  // Opened from the app to add another host: straight to the sheet, and dismissing goes back.
   it('opens on the sheet and cancels back when there is somewhere to return to', async () => {
     const onCancel = vi.fn()
     render(<AddHostScreen onPaired={vi.fn()} onCancel={onCancel} />)

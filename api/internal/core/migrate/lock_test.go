@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// Two daemons on one home share its SQLite files; the second must be refused.
 func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
 	h := testutil.FixtureHome(t)
 
@@ -36,8 +35,6 @@ func TestRegression_StateDirSingleInstanceLock(t *testing.T) {
 	}
 }
 
-// The home's root is the first thing a boot writes, so a fresh home is born
-// here and must be owner-only, as the stores opened after it expect.
 func TestCreateHome_MakesAnOwnerOnlyHome(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	h, err := home.At(filepath.Join(t.TempDir(), "fresh"))

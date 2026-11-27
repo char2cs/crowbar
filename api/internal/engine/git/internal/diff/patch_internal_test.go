@@ -1,7 +1,3 @@
-// Package diff (internal tests) exercises patch.go's private helpers directly:
-// patchError's branch table and cutHunk's malformed/edge inputs are pure-function
-// cases a real git subprocess essentially never produces, and patchCopier's
-// error latch needs a writer that fails on demand.
 package diff
 
 import (
@@ -71,10 +67,6 @@ func TestCutHunk_UnparseableHeaderReturnsNil(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// TestCutHunk_AllContextNoChangesReturnsNil covers the guard against emitting a
-// hunk whose surviving body changes nothing — git itself rejects such a patch
-// as corrupt, so cutting must drop it rather than send a header over dead
-// context lines.
 func TestCutHunk_AllContextNoChangesReturnsNil(t *testing.T) {
 	hunk := []string{"@@ -1,5 +1,5 @@\n", " a\n", " b\n", " c\n", " d\n", " e\n"}
 
@@ -83,11 +75,6 @@ func TestCutHunk_AllContextNoChangesReturnsNil(t *testing.T) {
 	assert.Nil(t, got)
 }
 
-// TestCutHunk_RewritesHeaderCountsForSurvivingBody is the normal cutting case:
-// the kept lines' own +/- counts replace the original header's promise. room=3
-// keeps only the header plus the first 2 of the hunk's 3 body lines (room-1),
-// dropping the trailing context line — the header must then promise 1 old / 1
-// new line, not the original 3.
 func TestCutHunk_RewritesHeaderCountsForSurvivingBody(t *testing.T) {
 	hunk := []string{"@@ -1,3 +1,3 @@\n", "-a\n", "+A\n", " c\n"}
 
@@ -98,11 +85,6 @@ func TestCutHunk_RewritesHeaderCountsForSurvivingBody(t *testing.T) {
 	assert.Equal(t, []string{"-a\n", "+A\n"}, got[1:])
 }
 
-// TestCutHunk_NoNewlineMarkerCountsNeitherSide pins the "\ No newline at end of
-// file" marker's accounting in the recount loop: it annotates the preceding
-// line rather than occupying a line of its own, so it must contribute to
-// neither oldCount nor newCount (and not to changes) while the real +/- lines
-// around it still do.
 func TestCutHunk_NoNewlineMarkerCountsNeitherSide(t *testing.T) {
 	hunk := []string{
 		"@@ -1,3 +1,3 @@\n",

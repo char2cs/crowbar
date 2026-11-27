@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// Repo and workspace creation answer 202 and finish in the background, so a
-// created entity only shows up on a later GET. The wait is bounded so a create
-// that failed after the 202 names what never arrived instead of hanging.
 const (
 	appearTimeout  = 30 * time.Second
 	appearInterval = 250 * time.Millisecond
@@ -18,8 +15,6 @@ type daemon struct {
 	wire transport
 }
 
-// postAccepted issues a fire-and-forget mutation. The 202 routes answer with an
-// empty body, so there is nothing to decode — only a status to check.
 func (d *daemon) postAccepted(
 	ctx context.Context,
 	what string,
@@ -65,8 +60,6 @@ func postData[T any](
 	return decodeEnvelope[T](what, status, respBody)
 }
 
-// patchData issues a synchronous PATCH mutation and decodes its response —
-// the branch rename this tool runs is answered in place, not fire-and-forget.
 func patchData[T any](
 	ctx context.Context,
 	d *daemon,
@@ -82,9 +75,6 @@ func patchData[T any](
 	return decodeEnvelope[T](what, status, respBody)
 }
 
-// waitFor polls a list endpoint until pick recognises the entity, then returns
-// it. what names the entity in the timeout error, so a failed async create is
-// reported as the thing that is missing rather than as a bare deadline.
 func waitFor[T any](
 	ctx context.Context,
 	d *daemon,

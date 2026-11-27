@@ -24,7 +24,7 @@ beforeEach(() => {
 
 describe('useOlderTurns', () => {
   it('loads nothing when mounted at the bottom of a feed that can scroll', () => {
-    const el = scroller(3600) // the bottom of 4000px in a 400px view
+    const el = scroller(3600)
     renderHook(() => useOlderTurns('chat-1', el, () => {}))
     expect(loadOlder).not.toHaveBeenCalled()
   })
@@ -32,7 +32,7 @@ describe('useOlderTurns', () => {
   it('loads when the view comes to rest near the first loaded row, never mid-gesture', () => {
     const ref = scroller(5000)
     renderHook(() => useOlderTurns('chat-1', ref, () => {}))
-    ref.current.scrollTop = 700 // a fling passing through: its write would cancel the momentum
+    ref.current.scrollTop = 700
     ref.current.dispatchEvent(new Event('scroll'))
     expect(loadOlder).not.toHaveBeenCalled()
     ref.current.dispatchEvent(new Event('scrollend'))

@@ -1,5 +1,3 @@
-//! The open find bar and its subscription.
-
 use gpui::{Entity, Subscription};
 
 use crate::search_bar::SearchBar;

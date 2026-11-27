@@ -17,7 +17,6 @@ import (
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 )
 
-// signal is one Signal call a recordingSignals saw.
 type signal struct {
 	scope stream.Scope
 	kind  string
@@ -46,7 +45,6 @@ func (f *fakeWorkspaceRepo) ObserveWorkingTreeState(
 	return domain.Workspace{ID: in.ID}, nil
 }
 
-// recv reads ch, failing the test instead of hanging it when nothing comes.
 func recv[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
 	select {

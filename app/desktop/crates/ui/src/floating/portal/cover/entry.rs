@@ -1,5 +1,3 @@
-//! One overlay open in a window: its kind, the cards it painted and its click-away handler.
-
 use std::rc::Rc;
 
 use gpui::{App, Bounds, Pixels, Window};

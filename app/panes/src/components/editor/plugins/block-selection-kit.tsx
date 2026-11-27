@@ -1,6 +1,3 @@
-// Adapted from the Plate registry (block-menu-kit.json -> `block-selection-kit`), minus the
-// `@platejs/ai` mod+j chat this app lacks; the overlay that block-menu-kit and the drag handle
-// depend on. Added: Cmd/Ctrl+A is a document-wide TEXT select-all (SelectAllDocument).
 'use client'
 
 import { BlockSelectionPlugin } from '@platejs/selection/react'
@@ -17,16 +14,11 @@ const hasSelectableClass = ({
   className?: string
 }) => [className, attributes.className].filter(Boolean).join(' ').includes('slate-selectable')
 
-// Cmd/Ctrl+A selects the whole DOCUMENT as text. Runs LAST (after BlockSelectionPlugin, hence
-// this array) so code-block and table scoping claim it first. Returns `true` so the caller
-// preventDefaults: the browser default does nothing under a synthesized keydown.
 const SelectAllDocument = createPlatePlugin({ key: 'selectAllDocument' }).overrideEditor(
   ({ editor, tf: { selectAll } }) => ({
     transforms: {
       selectAll: () => {
         if (selectAll()) return true
-        // `[]` is the editor node itself; Slate resolves a path to that node's
-        // full range, so this is start-of-document to end-of-document.
         editor.tf.select([])
         return true
       },
@@ -38,8 +30,6 @@ export const BlockSelectionKit = [
   BlockSelectionPlugin.configure(({ editor }) => ({
     options: {
       enableContextMenu: true,
-      // Cmd/Ctrl+A goes to the text selection (SelectAllDocument): a BLOCK selection's keymap
-      // ignores left/right, so a fully selected document would never collapse.
       disableSelectAll: true,
       isSelectable: (element) =>
         !getPluginTypes(editor, [KEYS.column, KEYS.codeLine, KEYS.td]).includes(element.type),
@@ -48,8 +38,6 @@ export const BlockSelectionKit = [
       belowRootNodes: (props) => {
         if (!hasSelectableClass(props)) return null
 
-        // Same runtime shape as `PlateElementProps`, but TS won't unify this plugin's generic
-        // `belowRootNodes` props with it (upstream casts too).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the two plugin generics do not unify structurally
         return <BlockSelection {...(props as any)} />
       },

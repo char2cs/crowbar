@@ -47,9 +47,6 @@ func TestProjectDTOList(
 	assert.Equal(t, "p2", got[1].ID)
 }
 
-// The list is ordered by the converter itself, which is what makes the REST list
-// and the WS snapshot — the two callers — incapable of disagreeing about the
-// sidebar order.
 func TestProjectDTOList_OrdersByIndexThenID(
 	t *testing.T,
 ) {

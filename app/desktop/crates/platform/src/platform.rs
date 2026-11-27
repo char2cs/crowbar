@@ -5,10 +5,6 @@ use crate::error::Error;
 use crate::launch::Launch;
 use crate::link_target::{LinkTarget, classify};
 
-/// Opens an `http(s)`, `mailto` or `tel` link in the system's default application.
-///
-/// # Errors
-/// [`Error::Refused`] for any other link, [`Error::Spawn`] when the launcher cannot start.
 pub fn open_external(link: &str) -> Result<(), Error> {
     if classify(link, None) != LinkTarget::SystemBrowser {
         return Err(refused(link));
@@ -29,13 +25,6 @@ fn hand_to_browser(link: &str) {
     }
 }
 
-/// Decides a navigation request of a pane's web view: `true` lets the view load `link`;
-/// a web, mail or phone link is handed to the system browser instead and the view stays put,
-/// and anything else is refused.
-///
-/// `crowbar:` and `about:` links are the app's own, and so is `dev_origin`, the dev server of a
-/// development build. `data:`, `blob:`, `file:` and `javascript:` are never followed: a document
-/// of either of the first two has an opaque origin and must not replace the app.
 pub fn follow_link(
     link: &str,
     dev_origin: Option<&str>,
@@ -50,19 +39,11 @@ pub fn follow_link(
     }
 }
 
-/// Opens an existing file or directory with the default application, for example the log file.
-///
-/// # Errors
-/// [`Error::Unresolved`] when the path does not exist, [`Error::Spawn`] when the launcher cannot start.
 pub fn open_path(path: &Path) -> Result<(), Error> {
     let resolved = resolve(path)?;
     Launch::open(Desktop::current(), resolved).spawn()
 }
 
-/// Shows an existing path in the file manager.
-///
-/// # Errors
-/// [`Error::Unresolved`] when the path does not exist, [`Error::Spawn`] when the launcher cannot start.
 pub fn reveal_in_file_manager(path: &Path) -> Result<(), Error> {
     let resolved = resolve(path)?;
     if resolved.is_dir() {

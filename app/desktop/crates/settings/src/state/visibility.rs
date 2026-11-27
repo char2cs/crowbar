@@ -1,8 +1,3 @@
-//! Which pages, rows and blocks a search query leaves visible.
-//! Spec: web/src/features/settings/components/settings-section.tsx (row and section filtering)
-//! and settings-vertical-tabs.tsx (pages by index hit). A block outside any section goes with the
-//! section above it (else the first below), as develop draws it inside that section.
-
 use std::collections::BTreeSet;
 
 use crate::schema::Block;

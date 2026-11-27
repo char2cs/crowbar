@@ -1,5 +1,3 @@
-//! A portal's place in what floats over its window, released with the portal's element state.
-
 use gpui::{App, ElementId, EntityId, Window};
 
 pub(crate) fn keyed(

@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-/// Where the view reads the current time from, so animations can be driven by a test.
 pub trait Clock {
-    /// The current instant.
     fn now(&self) -> Instant;
 }
 

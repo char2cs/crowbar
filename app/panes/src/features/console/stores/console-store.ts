@@ -11,19 +11,16 @@ import {
 } from '@/features/console/lib/dock-prefs'
 import { appendCapped } from '@/features/console/lib/ring'
 
-/** The most lines kept; the oldest go first. Matches the daemon's own ring. */
 const BUFFER_CAP = 5000
 
 export interface ConsoleState {
   open: boolean
-  /** Where the console sits, whether it floats over the app or takes space, and its size; all persisted. */
   dock: ConsoleDock
   mode: ConsoleMode
   size: number
   stream: LogStreamState
   entries: ConsoleEntry[]
   nextId: number
-  /** The highest log `seq` shown; the stream resumes after it. */
   cursor: number | null
   expandedId: number | null
 
@@ -31,11 +28,8 @@ export interface ConsoleState {
   setOpen: (open: boolean) => void
   cycleDock: () => void
   toggleMode: () => void
-  /** Commits a finished resize; the caller clamps it to the window. */
   setSize: (size: number) => void
   setStream: (state: LogStreamState) => void
-  /** Folds log-stream frames into the buffer. Pass a whole replay, its `ready` included, in one
-   *  call: a `ready` with `reset` (daemon restarted) drops held lines before the replay shows. */
   ingest: (frames: readonly LogFrame[]) => void
   toggleExpanded: (id: number) => void
 }
@@ -85,7 +79,6 @@ export const useConsoleStore = create<ConsoleState>((set, get) => ({
         continue
       }
       if (frame.type !== 'log') continue
-      // A replay can race the live feed; the cursor makes a repeat harmless.
       if (cursor !== null && frame.record.seq <= cursor) continue
       cursor = frame.record.seq
       added.push({ kind: 'log', record: frame.record })

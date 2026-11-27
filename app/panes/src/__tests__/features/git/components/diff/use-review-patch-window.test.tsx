@@ -13,10 +13,6 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { markViewed } from '@/__tests__/__fixtures__/viewed'
 import { markGitStatusChanged } from '@/features/git/stores/git-refresh'
 
-// Fixtures mirror review-code-view.test.tsx: jsdom has no layout, so the rect
-// stub makes the virtualised surface real, and every render assertion blocks
-// on a CODE marker that only exists inside a patch body.
-
 const mocks = vi.hoisted(() => ({ getReviewPatch: vi.fn(), getReviewFileSides: vi.fn() }))
 
 vi.mock('@/features/git/api/review-window-api', async (importOriginal) => {
@@ -200,7 +196,6 @@ describe('review patch window with viewed files', () => {
     expect(screen.getAllByRole('checkbox', { name: /viewed/i })).toHaveLength(3)
   })
 
-  // A pure addition: +4 -0 over a 3-line context hunk, as the daemon reported a real edit.
   it('shows the summary counts on a file viewed before its patch was ever fetched', async () => {
     const { files, outline } = manyFiles(2)
     files[0] = { ...files[0], additions: 4, deletions: 0 }

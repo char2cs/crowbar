@@ -1,19 +1,11 @@
-// Run a one-shot callback off the critical frame, so deferred work (LSP open, first diagnostics,
-// code lenses) lets content paint first. Cancelling before it fires guarantees it never runs,
-// which keeps didOpen/didClose safe under rapid tab switching. Falls back to setTimeout(fn, 0).
-
 export interface IdleTaskHandle {
-  /** Cancel the pending task. Idempotent. No-op once the task has fired. */
   cancel: () => void
 }
 
 export interface ScheduleIdleOptions {
-  /** Max delay (ms) before the idle callback is forced to run. Default 200. */
   timeout?: number
 }
 
-/** Schedule `task` for browser idle (or `timeout` ms at the latest); `cancel()` stops it if it
- *  hasn't fired. */
 export function scheduleIdleTask(
   task: () => void,
   options: ScheduleIdleOptions = {},

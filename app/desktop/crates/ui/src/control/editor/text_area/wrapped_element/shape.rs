@@ -1,5 +1,3 @@
-//! Shapes the text, or the placeholder while empty, of a text area into wrapped lines.
-
 use gpui::{App, Entity, Hsla, Pixels, SharedString, TextRun, TextStyle, Window};
 
 use crate::control::editor::field::runs_for;

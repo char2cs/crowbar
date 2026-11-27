@@ -1,5 +1,3 @@
-//! What a toast column shows and the swipe that dismisses a toast.
-
 pub(super) mod swipe;
 
 use gpui::{Context, Pixels, Point};
@@ -33,7 +31,6 @@ impl ToastQueue {
         self.dismiss(swipe.toast, cx);
     }
 
-    /// Moves the column, for example when the sidebar collapses.
     pub fn set_placement(
         &mut self,
         placement: ToastPlacement,
@@ -43,17 +40,14 @@ impl ToastQueue {
         cx.notify();
     }
 
-    /// Where the column sits now.
     pub fn placement(&self) -> ToastPlacement {
         self.placement
     }
 
-    /// How many toasts the queue holds, leaving ones included.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Whether the queue holds no toast.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

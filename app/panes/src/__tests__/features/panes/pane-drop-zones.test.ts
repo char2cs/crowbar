@@ -22,7 +22,7 @@ describe('pane drop zones', () => {
 
   it('corners resolve to the nearer edge via the diagonal test', () => {
     const square = { left: 0, top: 0, width: 100, height: 100 }
-    const zone = getPaneDropZoneFromRect({ x: 5, y: 5 }, square) // top-left corner
+    const zone = getPaneDropZoneFromRect({ x: 5, y: 5 }, square)
     expect(['left', 'top']).toContain(zone)
   })
 

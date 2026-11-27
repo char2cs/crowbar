@@ -22,8 +22,6 @@ function MessageError({ text, retry }: { text: string; retry: () => void }) {
   )
 }
 
-/** One message's render failure stays on that message: a notice with two ways on, its text
- *  as written one click away. It never keys its child, so a streaming reply is not remounted. */
 export function MessageBoundary({ text, children }: { text: string; children: ReactNode }) {
   return (
     <ErrorBoundary resetKey={text} fallback={(retry) => <MessageError text={text} retry={retry} />}>

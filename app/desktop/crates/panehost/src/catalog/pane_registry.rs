@@ -5,17 +5,12 @@ use protocol::PaneTypeId;
 use crate::catalog::pane_type::PaneType;
 use crate::error::{Error, Result};
 
-/// The known pane types. The shell never matches on a built-in kind: it looks types up here.
 #[derive(Debug, Default, Clone)]
 pub struct PaneRegistry {
     types: BTreeMap<PaneTypeId, PaneType>,
 }
 
 impl PaneRegistry {
-    /// Adds a type.
-    ///
-    /// # Errors
-    /// [`Error::DuplicateType`] when the id is taken.
     pub fn register(
         &mut self,
         pane_type: PaneType,
@@ -27,8 +22,6 @@ impl PaneRegistry {
         Ok(())
     }
 
-    /// Removes a type, for example when an extension is disabled. Instances of it keep their
-    /// state and show a placeholder.
     pub fn unregister(
         &mut self,
         id: &PaneTypeId,
@@ -36,7 +29,6 @@ impl PaneRegistry {
         self.types.remove(id)
     }
 
-    /// Looks up a type.
     #[must_use]
     pub fn get(
         &self,
@@ -45,7 +37,6 @@ impl PaneRegistry {
         self.types.get(id)
     }
 
-    /// All types in id order.
     pub fn iter(&self) -> impl Iterator<Item = &PaneType> {
         self.types.values()
     }

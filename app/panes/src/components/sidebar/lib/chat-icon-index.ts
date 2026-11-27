@@ -5,7 +5,6 @@ import type { Problem } from '@/lib/errors/problem'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { resolveOwnerChats, resolveOwnerOfChat } from '@/components/sidebar/lib/workspace-owners'
 
-/** The SidebarRow fields RowGlyph reads, so view-row.tsx can spread them onto its own row. */
 export type ChatIconFields = Pick<
   SidebarRow,
   | 'kind'
@@ -21,9 +20,6 @@ export type ChatIconFields = Pick<
   | 'placeholderReason'
 >
 
-// A branch row's Workspace-derived icon fields, shared by deriveRows and chatIconIndex.
-// `ownDefaultBranch` is the one fact a Workspace can't tell about itself: it separates the repo's
-// own checkout from a branch Crowbar couldn't set up (see placeholderKind).
 export function workspaceIconFields(
   workspace: Workspace,
   ownDefaultBranch: string | undefined,
@@ -43,9 +39,6 @@ export function workspaceIconFields(
   }
 }
 
-// Icon fields per workspace-owning chat across `repos`, from the same ownership fold the tree
-// uses, so Recents draws the real branch/lock/PR glyph rather than a generic bubble. A chat
-// absent from the map owns no workspace and keeps the caller's default chat glyph.
 export function chatIconIndex(repos: readonly Repo[]): Map<string, ChatIconFields> {
   const index = new Map<string, ChatIconFields>()
   for (const repo of repos) {

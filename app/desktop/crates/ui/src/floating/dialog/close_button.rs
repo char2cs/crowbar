@@ -1,6 +1,3 @@
-//! The close button of a dialog header: a pointer click closes the dialog, while Return and
-//! Space on the focused button leave it open, as on develop.
-
 use gpui::{App, ClickEvent, ElementId, Window};
 
 use crate::control::Button;

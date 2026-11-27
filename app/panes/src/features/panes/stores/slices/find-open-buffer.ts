@@ -6,10 +6,8 @@ import {
   type PaneContent,
 } from '@/features/panes/types/pane-content'
 
-/** The workspace a document belongs to; '' for a host document. */
 export const ownerOf = (ref: DocumentRef) => (ref.authority === 'workspace' ? ref.workspaceId : '')
 
-/** The workspace a spec names; never the active one, so an open lands where its caller meant. */
 export function specWorkspaceId(spec: OpenEditorTabSpec): string {
   switch (spec.type) {
     case 'editor':
@@ -24,8 +22,6 @@ export function specWorkspaceId(spec: OpenEditorTabSpec): string {
   }
 }
 
-/** The open buffer `spec` would duplicate, which openContent shows instead. A document is one
- *  buffer whichever workspace asks; a New Tab page is unique per pane only (`paneTabIds`). */
 export function findOpenBuffer(
   buffers: readonly PaneContent[],
   spec: OpenEditorTabSpec,
@@ -52,7 +48,6 @@ export function findOpenBuffer(
       return buffers.find((b) => b.type === 'newTabPage' && inPane.has(b.id))
     }
     default:
-      // A browser tab is a fresh webview every time.
       return undefined
   }
 }

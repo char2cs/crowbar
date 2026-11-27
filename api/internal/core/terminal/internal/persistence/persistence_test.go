@@ -70,7 +70,6 @@ func TestWriteBuf_ConcurrentWritesNoCorruption(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	// Content must be exactly one of the two payloads — no interleaving.
 	isA := bytes.Equal(got, payloadA)
 	isB := bytes.Equal(got, payloadB)
 	assert.True(t, isA || isB, "content must be exactly one of the two payloads, got len=%d", len(got))
@@ -83,13 +82,11 @@ func TestWriteBuf_NoLeftoverTempFiles(t *testing.T) {
 
 	require.NoError(t, persistence.WriteBuf(dir, sessionID, data))
 
-	// After success there must be no .buf-* temp files left.
 	pattern := filepath.Join(dir, fmt.Sprintf("%s.buf-*", sessionID))
 	matches, err := filepath.Glob(pattern)
 	require.NoError(t, err)
 	assert.Empty(t, matches, "leftover temp files found: %v", matches)
 
-	// The real .buf file must exist.
 	_, err = os.Stat(filepath.Join(dir, sessionID+".buf"))
 	assert.NoError(t, err)
 }
@@ -107,8 +104,6 @@ func TestWriteBuf_CreatesDir(t *testing.T) {
 
 func TestWriteBuf_MkdirError(t *testing.T) {
 	base := t.TempDir()
-	// Make a regular file, then ask to write under a path that treats it as a
-	// directory — MkdirAll cannot create a dir beneath a file.
 	blocker := filepath.Join(base, "iam-a-file")
 	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
 
@@ -119,8 +114,6 @@ func TestWriteBuf_MkdirError(t *testing.T) {
 
 func TestWriteBuf_RenameError(t *testing.T) {
 	dir := t.TempDir()
-	// Occupy the destination path with a NON-EMPTY directory so renaming the
-	// staging file over it fails (rename onto a non-empty dir is not allowed).
 	dest := filepath.Join(dir, "s.buf")
 	require.NoError(t, os.Mkdir(dest, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dest, "occupant"), []byte("x"), 0o600))
@@ -129,7 +122,6 @@ func TestWriteBuf_RenameError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rename")
 
-	// No staging temp file should be left behind after the failed rename.
 	matches, gErr := filepath.Glob(filepath.Join(dir, "s.buf-*"))
 	require.NoError(t, gErr)
 	assert.Empty(t, matches, "leftover temp files after rename failure: %v", matches)
@@ -137,8 +129,6 @@ func TestWriteBuf_RenameError(t *testing.T) {
 
 func TestDeleteBuf_RealIOError(t *testing.T) {
 	dir := t.TempDir()
-	// A non-empty directory at the .buf path makes os.Remove fail with a
-	// non-NotExist error (ENOTEMPTY), exercising the wrapped-error branch.
 	bufDir := filepath.Join(dir, "s.buf")
 	require.NoError(t, os.Mkdir(bufDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bufDir, "occupant"), []byte("x"), 0o600))

@@ -10,8 +10,6 @@ import { ApiError } from '@/lib/errors/api-error'
 import * as errors from '@/lib/errors/report'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
-// jsdom measures 0×0, and a zero-height viewport windows down to no rows; the
-// opening gate keeps the list hidden, so controls are found by label.
 const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800, x: 0, y: 0 }
 const originalRect = HTMLElement.prototype.getBoundingClientRect
 
@@ -156,8 +154,6 @@ describe('UserRow', () => {
     expect(screen.queryByLabelText('Retry prompt')).not.toBeInTheDocument()
   })
 
-  // The ledger says the refused prompt was sent again, so the row stops offering Retry for
-  // good: the sending tab's memory of the retry is gone once its row lands.
   it('a refused prompt whose retry landed says nothing more and offers no Retry', async () => {
     const l = ledger('c1')
     seedFeed('c1', [l.prompt('r1', 'hello?'), l.settle('r1', false, 'not_acknowledged')])

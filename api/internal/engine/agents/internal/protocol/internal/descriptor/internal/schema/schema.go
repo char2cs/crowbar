@@ -1,6 +1,3 @@
-// Package schema loads Crowbar's canonical conversation vocabulary and validates a provider
-// descriptor's event table against it. The vocabulary is data (vocabulary.yaml) so adding a
-// provider needs no Go; adding an event is a Crowbar capability change and does.
 package schema
 
 import (
@@ -13,20 +10,14 @@ import (
 //go:embed vocabulary.yaml
 var vocabularyYAML []byte
 
-// familySuffix marks a prefix FAMILY in an optional list: `suggestion_label.*` admits
-// any field under `suggestion_label.`, because those keys are provider vocabulary.
 const familySuffix = ".*"
 
 type EventRule struct {
 	Direction string   `yaml:"direction"`
 	Required  []string `yaml:"required"`
 	Optional  []string `yaml:"optional"`
-	// Extras are sibling keys on the event that carry structure rather than a field
-	// map (telemetry.rate_limits, permission.answers_into). Their shape is the
-	// event's own business, not this table's.
-	Extras []string `yaml:"extras"`
-	// Replies names the decisions an `ask` event's reply template may define.
-	Replies []string `yaml:"replies"`
+	Extras    []string `yaml:"extras"`
+	Replies   []string `yaml:"replies"`
 }
 
 type Vocabulary struct {
@@ -54,9 +45,6 @@ func Load() (Vocabulary, error) {
 	return v, nil
 }
 
-// Validate checks one provider's event table. A provider may map a SUBSET of events,
-// but each must be known, carry its required fields, and carry no undeclared field,
-// which turns a typo into a startup failure.
 func (v Vocabulary) Validate(providerID string, events map[string]map[string][]string) error {
 	for _, name := range sortedKeys(events) {
 		rule, ok := v.Events[name]
@@ -78,8 +66,6 @@ func (v Vocabulary) Validate(providerID string, events map[string]map[string][]s
 	return nil
 }
 
-// admits reports whether field is one this event declares, either exactly or as a
-// member of a prefix family.
 func (r EventRule) admits(field string) bool {
 	for _, allowed := range r.Required {
 		if allowed == field {
@@ -100,8 +86,6 @@ func (r EventRule) admits(field string) bool {
 	return false
 }
 
-// sortedKeys makes every error deterministic. Without it the message a bad descriptor
-// produces changes between runs and the test asserting on it is flaky.
 func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

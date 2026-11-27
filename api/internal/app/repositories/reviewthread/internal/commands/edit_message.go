@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// EditReviewMessage rewrites the body of any message in a thread by id, the root
-// comment (Messages[0]) included. Edits are not timestamped.
 type EditReviewMessage struct {
 	ID        string
 	MessageID string
@@ -62,7 +60,6 @@ func (c EditReviewMessage) EmitEvent(
 	return thread
 }
 
-// hasMessage reports whether a message with the given id exists in the slice.
 func hasMessage(
 	messages []domain.ReviewMessage,
 	id string,

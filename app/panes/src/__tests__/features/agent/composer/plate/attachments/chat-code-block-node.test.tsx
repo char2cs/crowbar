@@ -11,17 +11,10 @@ import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-compos
 import { excalidrawSceneFromCodeBlock } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 import * as ExcalidrawPreviewModule from '@/features/agent/composer/plate/attachments/excalidraw-preview'
 
-/** The app renders attachments under `AgentChatView`'s `DndScope`. */
 function renderWithDnd(ui: ReactNode) {
   return render(<DndScope>{ui}</DndScope>)
 }
 
-// Wraps the REAL component (not a stand-in) so every existing behavioural
-// assertion below still exercises actual rendering — this only adds the
-// ability to inspect the `pngRef` prop `ChatCodeBlockElement` computed for
-// it, which two tests below need to prove the sibling-`img`-lookup branches
-// (found vs. not-found) without duplicating ExcalidrawPreview's own
-// pngRef-resolution tests (see excalidraw-preview.test.tsx).
 vi.mock(
   '@/features/agent/composer/plate/attachments/excalidraw-preview',
   async (importOriginal) => {
@@ -38,7 +31,6 @@ vi.mock('@excalidraw/excalidraw', () => ({
   exportToSvg: async () => document.createElementNS('http://www.w3.org/2000/svg', 'svg'),
 }))
 
-/** The composer's own interactive editor: the transcript renders diagrams instead. */
 function ComposerDraft({ md }: { md: string }) {
   const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })
   return (
@@ -89,21 +81,15 @@ describe('chat attachment code blocks', () => {
       <MarkdownMessageStatic>{`\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\``}</MarkdownMessageStatic>,
     )
     expect(screen.getByText(/excalidraw diagram/i)).toBeInTheDocument()
-    // The raw fenced JSON stays mounted (hidden), same as the text-attachment
-    // case above — Slate's node<->DOM mapping must never be disturbed.
     expect(screen.getByText(scene).closest('.hidden')).not.toBeNull()
   })
 
-  // An agent writes a bare ```excalidraw fence (no composer `:{id}` suffix), and that must still
-  // render as a diagram, not plain code.
   it('renders a diagram preview for a BARE excalidraw fence (no id) with valid scene JSON — agent-authored output', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     render(<MarkdownMessageStatic>{`\`\`\`excalidraw\n${scene}\n\`\`\``}</MarkdownMessageStatic>)
     expect(screen.getByText(/excalidraw diagram/i)).toBeInTheDocument()
   })
 
-  // The false-positive guard still holds for the bare-tag path: content
-  // validation, not the id suffix, is what's doing the work here.
   it('renders a plain code block for a bare excalidraw fence with content that is not valid scene JSON', () => {
     render(<MarkdownMessageStatic>{'```excalidraw\nnot json\n```'}</MarkdownMessageStatic>)
     expect(screen.getByText('not json')).toBeInTheDocument()
@@ -124,7 +110,6 @@ describe('chat attachment code blocks', () => {
     expect(screen.queryByRole('button', { name: /reorder this attachment/i })).toBeNull()
   })
 
-  // Each attachment has a delete button beside its drag handle.
   it('renders a delete button alongside the drag handle, which removes the attachment on click', async () => {
     renderWithDnd(
       <MarkdownMessage>
@@ -143,8 +128,6 @@ describe('chat attachment code blocks', () => {
     expect(screen.queryByRole('button', { name: /remove this attachment/i })).toBeNull()
   })
 
-  // The fence and its persisted-PNG sibling are one logical attachment (inserted as an adjacent
-  // pair); deleting the fence must take the sibling too, or the hidden PNG ships with the message.
   it('removing an excalidraw attachment also removes its own persisted-PNG sibling, not just the fence', async () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     renderWithDnd(
@@ -152,21 +135,14 @@ describe('chat attachment code blocks', () => {
         md={`\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/x-diagram.png)`}
       />,
     )
-    // Two mounted-but-hidden raw nodes going in: the fence's own raw source,
-    // and the PNG sibling's void placeholder (`ChatMarkdownImageElement`'s
-    // `isExcalidrawPngSibling` branch) — both `className="hidden"`.
     expect(document.querySelectorAll('.hidden')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: /remove this attachment/i }))
 
     await waitFor(() => expect(screen.queryByText(/excalidraw diagram/i)).toBeNull())
-    // Both gone — not just the fence's own, leaving the sibling's orphaned.
     expect(document.querySelectorAll('.hidden')).toHaveLength(0)
   })
 
-  // WKWebView treats mousedown+move inside editable content as text selection before a drag can
-  // start, so the handle needs its own contenteditable="false" island. The harness's Slate root is
-  // already read-only, hence asserting a wrapper CLOSER than the editor root.
   it('wraps the drag handle in its own non-editable island, not just relying on an ancestor', () => {
     renderWithDnd(
       <MarkdownMessage>
@@ -189,7 +165,6 @@ describe('chat attachment code blocks', () => {
     expect(lastCallProps).toMatchObject({ pngRef: 'chats/c1/attachments/diagram.png' })
   })
 
-  // The PNG sibling feeds ExcalidrawPreview's `pngRef`; it must not also render as a plain image.
   it('does not also render the excalidraw PNG sibling as a plain markdown image', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
@@ -234,23 +209,9 @@ describe('chat attachment code blocks', () => {
     expect(lastCallProps).toMatchObject({ pngRef: undefined })
   })
 
-  // Every test above renders through MarkdownMessageStatic. This is the one
-  // exercising `MarkdownMessage`'s INTERACTIVE editor — the other surface
-  // `ChatCodeBlockElement` is registered on (chatComposerPlugins, not just
-  // its static derivative) — so the sibling-lookup logic is proven to run
-  // there too, not only under static rendering. It does not, and cannot by
-  // itself, prove immunity to `useNodePath`'s memoized-staleness caveat (see
-  // `findFollowingImageRef`'s own doc comment and this file's bottom
-  // describe block for why that specific scenario has no reliable black-box
-  // reproduction); it establishes that the interactive path renders
-  // correctly at all, which no other test here did before.
   it('threads pngRef correctly through the INTERACTIVE renderer too, not just its static derivative', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
-    // An excalidraw fence resolves to a preview, which — under the
-    // interactive renderer — is wrapped in the draggable primitive (see
-    // ChatCodeBlockElement), so this renders under the same `DndScope`
-    // production wires up at AgentChatView.
     renderWithDnd(<MarkdownMessage>{md}</MarkdownMessage>)
 
     const spy = vi.mocked(ExcalidrawPreviewModule.ExcalidrawPreview)
@@ -267,9 +228,6 @@ function codeBlockElement(lang: string, lines: string[]): TCodeBlockElement {
   } as unknown as TCodeBlockElement
 }
 
-// The scene must keep its identity when only the TCodeBlockElement object changes (NodeIdPlugin,
-// unrelated edits): a fresh scene re-runs ExcalidrawPreview's export effect on every render, which
-// loops into React error #185 (maximum update depth).
 describe('excalidrawSceneFromCodeBlock identity stability', () => {
   it('returns the SAME scene reference for two different node objects with identical source text', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })

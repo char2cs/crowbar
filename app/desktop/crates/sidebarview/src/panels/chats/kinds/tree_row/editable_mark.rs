@@ -1,5 +1,3 @@
-//! A repository header's click-to-edit mark: develop's `EditableRepoIcon`.
-
 use std::rc::Rc;
 
 use gpui::{

@@ -1,5 +1,3 @@
-//! The hover-revealed buttons at the end of a tree row.
-
 pub(super) mod cluster_spec;
 pub(super) mod menu_anchor;
 pub(super) mod row_report;

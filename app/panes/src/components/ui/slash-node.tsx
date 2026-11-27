@@ -1,6 +1,3 @@
-// Adapted from the Plate registry (slash-kit.json -> `slash-node`): the `/` command menu, trimmed
-// to the block kinds `transforms.ts` supports; entries for unregistered plugins (AI, toggle, TOC,
-// columns, drawings, date, footnote) are dropped with their imports.
 'use client'
 
 import * as React from 'react'

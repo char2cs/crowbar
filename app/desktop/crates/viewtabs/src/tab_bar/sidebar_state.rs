@@ -1,16 +1,11 @@
 use crate::strip_metrics::{ROW_GAP, TOGGLE_SIZE, TRAFFIC_LIGHT_INSET};
 
-/// Whether the sidebar is showing, and on which side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarState {
-    /// The sidebar is open on the left: it owns the toggle and sits under the window buttons.
     #[default]
     Open,
-    /// Open on the right, which leaves the strip in the window's top-left corner.
     OpenRight,
-    /// Collapsed on the left: the strip shows the re-open toggle before the first tab.
     ClosedLeft,
-    /// Collapsed on the right: the strip shows the mirrored toggle after the last tab.
     ClosedRight,
 }
 

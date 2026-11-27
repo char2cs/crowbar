@@ -69,7 +69,7 @@ describe('observeRect', () => {
     const onChange = vi.fn()
     watch(onChange)
     const first = FakeIntersectionObserver.live[0]
-    first.fire(1) // the initial delivery is not a change
+    first.fire(1)
     expect(onChange).not.toHaveBeenCalled()
 
     rect = { ...rect, left: 260 }

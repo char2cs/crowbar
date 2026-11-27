@@ -3,14 +3,12 @@ use std::path::PathBuf;
 
 use crate::drafts::DraftFile;
 
-/// The drafts file on disk, replaced whole and atomically on each write.
 #[derive(Debug)]
 pub struct DiskDraftFile {
     path: PathBuf,
 }
 
 impl DiskDraftFile {
-    /// The drafts file at `path`.
     #[must_use]
     pub const fn at(path: PathBuf) -> Self {
         Self { path }

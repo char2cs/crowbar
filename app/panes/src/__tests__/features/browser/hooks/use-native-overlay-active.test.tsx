@@ -3,7 +3,6 @@ import { DialogContent, DialogPrimitive } from '@/components/ui/dialog'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useNativeOverlayActive } from '@/features/browser/hooks/use-native-overlay-active'
 
-/** The app's real root is the one body child the watcher ignores. */
 function renderHook<T>(callback: () => T) {
   const container = document.createElement('div')
   container.id = 'root'
@@ -11,7 +10,6 @@ function renderHook<T>(callback: () => T) {
   return renderHookIn(callback, { container })
 }
 
-/** The node itself becomes the body child, as library helpers do. */
 function appendNodeToBody(html: string): HTMLElement {
   const template = document.createElement('template')
   template.innerHTML = html

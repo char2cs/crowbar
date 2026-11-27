@@ -1,5 +1,3 @@
-//! One file of the daemon's git status.
-
 use serde::Deserialize;
 use sidebar::GitStatus;
 

@@ -1,5 +1,3 @@
-//! The daemon side of the view: frames in, input, size and theme out, focus and blink.
-
 use gpui::{AsyncApp, ClipboardItem, Context, WeakEntity, Window};
 use terminal::{ClientMessage, DaemonFrame, sanitize_title};
 

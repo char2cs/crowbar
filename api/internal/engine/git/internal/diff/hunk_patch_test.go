@@ -113,7 +113,7 @@ func TestHunkPatch_CleanRepo_ReturnsStaleHunk(t *testing.T) {
 
 func TestHunkPatch_InvalidRepo_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir() // not a git repo
+	dir := t.TempDir()
 	_, err := diff.HunkPatch(ctx, dir, "any.go", "aabbccddeeff", false)
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, diff.ErrStaleHunk)

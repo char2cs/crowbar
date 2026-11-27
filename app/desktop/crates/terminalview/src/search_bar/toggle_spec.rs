@@ -1,5 +1,3 @@
-//! Identity and option of one search toggle button.
-
 use terminal::SearchOptions;
 use ui::IconName;
 

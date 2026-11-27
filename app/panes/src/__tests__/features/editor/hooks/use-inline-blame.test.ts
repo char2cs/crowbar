@@ -17,8 +17,6 @@ import {
 } from '@/__tests__/__fixtures__/remote-host'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// The load effect only needs a bound editor and model; nothing is rendered
-// because every load here answers with no entries.
 const editor = {} as Monaco.editor.IStandaloneCodeEditor
 const model = {} as Monaco.editor.ITextModel
 
@@ -61,7 +59,6 @@ describe('useInlineBlame', () => {
       })
     })
 
-    // A failed load is recorded and never retried until the file is saved or closed.
     it('asks nothing, and records no failure, until the project list names the host', async () => {
       renderHook(() => useInlineBlame(editor, model, 'ws-remote', 'a.ts'))
       await act(async () => {})

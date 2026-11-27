@@ -4,8 +4,6 @@ import {
 } from '@/features/settings/config/default-settings'
 import type { Settings } from '@/features/settings/types/settings'
 
-// One localStorage key per setting. Absent keys take their default; object values merge stored
-// fields over the defaults so a newly added field gets its default.
 const STORAGE_PREFIX = 'crowbar:settings:'
 
 function readKey(key: string): unknown {
@@ -42,8 +40,6 @@ export function persistSettings(settings: Partial<Settings>): void {
   }
 }
 
-/** Rewrites the settings already in storage (a load may have normalized them) and adds none:
- *  a default written here would outlive a later build's different default. */
 export function persistStoredSettings(settings: Settings): void {
   const stored = (Object.keys(settings) as Array<keyof Settings>).filter(
     (key) => readKey(key) !== null,
@@ -54,7 +50,6 @@ export function persistStoredSettings(settings: Settings): void {
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
 let pendingSettings: Partial<Settings> = {}
 
-/** Coalesce rapid single-setting edits (a slider, a text field) into one write. */
 export function persistSettingsDebounced(settings: Partial<Settings>): void {
   pendingSettings = { ...pendingSettings, ...settings }
   if (saveTimeout) clearTimeout(saveTimeout)

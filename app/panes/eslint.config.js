@@ -5,8 +5,6 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 import globals from 'globals'
 
-// Files over the 600-line cap when the cap landed (2026-09-24). This list is
-// the backlog: split a file, then delete its entry. Never add to it.
 const MAX_LINES_BASELINE = [
   'src/__tests__/components/sidebar/hooks/use-sidebar-drag.test.ts',
   'src/__tests__/components/sidebar/lib/drop-actions.test.ts',
@@ -14,14 +12,10 @@ const MAX_LINES_BASELINE = [
   'src/__tests__/components/sidebar/sidebar-row.test.tsx',
   'src/__tests__/features/agent/composer/plate/chat-paste-plugin.test.tsx',
   'src/__tests__/features/agent/transcript/plate/streaming-value-patch.test.ts',
-  'src/__tests__/features/git/components/diff/use-review-annotations.test.tsx',
   'src/__tests__/features/panes/components/pane-container.test.tsx',
   'src/__tests__/features/settings/components/tabs/providers-settings.test.tsx',
 ]
 
-// Findings that predate these rules, in areas being rewritten by the
-// stabilization plan (docs/plans/2026-09-24-stabilization.md §7). Each entry
-// goes when its file is fixed; never add to these lists.
 const UNDESCRIBED_DIRECTIVE_BASELINE = [
   'src/features/tabs/hooks/use-pane-top-row-edges.ts',
   'src/features/terminal/hooks/use-terminal-connection.ts',
@@ -38,9 +32,6 @@ export const BASELINES = [
   { rule: 'vitest/expect-expect', files: NO_ASSERTION_BASELINE },
 ]
 
-// Entity-addressed API paths are built by lib/project-url.ts and lib/workspace-scope-url.ts, which
-// qualify them with the entity's host. Catches whole paths, `+`/template pieces and `/v0` fragments;
-// a path routed through a constant is beyond syntax. `\x2f` is `/`: esquery regexes cannot hold one.
 const ENTITY = '(projects|chats|workspaces)'
 const V0_TAIL = `\\x2fv0(\\x2f(${ENTITY}\\x2f?)?)?$`
 const ENTITY_API_SELECTORS = [
@@ -56,7 +47,6 @@ const ENTITY_API_PATH_MESSAGE =
   'Build project/repo/workspace/chat URLs with projectBase/repoBase (lib/project-url) or the ' +
   'lib/workspace-scope-url builders: a hand-written path carries no host and lands on the local daemon.'
 
-// Provider facts come from the provider catalog and the daemon's neutral fields, never from a name in the UI.
 const PROVIDER_NAME = '(claude|codex|anthropic|openai)'
 const PROVIDER_VOCABULARY_RULES = [
   {
@@ -71,8 +61,6 @@ const PROVIDER_VOCABULARY_RULES = [
   },
 ]
 
-// A swallowed failure is invisible: return a fallback or report() it.
-// A pane page is as wide as its pane, not the window develop's breakpoints ask about.
 const WINDOW_WIDTH_RULES = [
   {
     selector:
@@ -118,8 +106,6 @@ const SWALLOWED_FAILURE_RULES = [
     message: '.catch(() => undefined) hides a failure: handle it or report() it.',
   },
   {
-    // A thrown value's own text skips report(): a migrating refusal becomes a toast.
-    // A heuristic: it misses `${err}`, a message a helper returns, other names.
     selector:
       "CallExpression[callee.object.name=/^(toast|toastManager)$/] :matches(ConditionalExpression[test.operator='instanceof'][test.right.name='Error'], MemberExpression[object.name=/^(e|err|error)$/][property.name='message'], CallExpression[callee.name='String'][arguments.0.name=/^(e|err|error)$/])",
     message: "A toast of a thrown value's text skips report(): report(err, { action }) it.",
@@ -132,13 +118,8 @@ const TAURI_IMPORTS = {
 }
 
 export default tseslint.config(
-  // Build output — a standalone `ignores` entry is a global ignore in flat
-  // config. Without it `eslint .` walks compiled bundles in dist/.
-  // Generated files are ignored too: their headers carry blanket disables.
   { ignores: ['dist/**', 'dist-panes/**', 'public/mockServiceWorker.js', 'src/routeTree.gen.ts'] },
   {
-    // Node build scripts run under Node, not the browser — give them the Node
-    // globals (console/process/__dirname) so no-undef doesn't flag them.
     files: ['scripts/**/*.{js,mjs,cjs}'],
     languageOptions: { globals: { ...globals.node } },
   },
@@ -152,8 +133,6 @@ export default tseslint.config(
     },
   },
   {
-    // Classic react-hooks rules only (v7's recommended preset would also
-    // enable the React Compiler rules — not adopted yet).
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
@@ -215,15 +194,12 @@ export default tseslint.config(
     },
   },
   {
-    // The URL builders spell the paths every other module must not.
     files: ['src/lib/host-path.ts', 'src/lib/project-url.ts', 'src/lib/workspace-scope-url.ts'],
     rules: {
       'no-restricted-syntax': ['error', ...SWALLOWED_FAILURE_RULES, ...WINDOW_WIDTH_RULES],
     },
   },
   {
-    // Stores hold state; side effects that need UI live in components that
-    // watch the store (CLAUDE.md "Store patterns").
     files: ['src/**/stores/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
@@ -242,8 +218,6 @@ export default tseslint.config(
     },
   },
   {
-    // The vetted bridge modules — the only files allowed to import
-    // `@tauri-apps/*` directly. Everything else goes through them.
     files: [
       'src/lib/crowbar-bridge.ts',
       'src/lib/ws/tauri-transport.ts',
@@ -262,8 +236,6 @@ export default tseslint.config(
     rules: {
       'vitest/no-focused-tests': 'error',
       'vitest/no-disabled-tests': 'error',
-      // Assertion helpers (expect*/assert*), awaited findBy* queries and
-      // when* waiters (vi.waitFor around an expect) count as assertions.
       'vitest/expect-expect': [
         'error',
         {
@@ -282,7 +254,6 @@ export default tseslint.config(
     },
   },
   // Named `baseline/*` so scripts/check-eslint-baselines.mjs can drop them and
-  // fail on any listed file that no longer violates (baselines only shrink).
   ...BASELINES.filter(({ files }) => files.length > 0).map(({ rule, files }) => ({
     name: `baseline/${rule}`,
     files,

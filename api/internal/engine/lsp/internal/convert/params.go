@@ -6,9 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// TextDocumentPositionParams builds the LSP textDocument/position parameter
-// object shared by completion, hover, definition, and references requests. The
-// file path is converted to a file URI and the position is passed through 1:1.
 func TextDocumentPositionParams(
 	path string,
 	pos lsp.Position,
@@ -19,8 +16,6 @@ func TextDocumentPositionParams(
 	}
 }
 
-// ReferenceParams builds the textDocument/references parameter object, including
-// the declaration so the result set covers the symbol's definition.
 func ReferenceParams(
 	path string,
 	pos lsp.Position,
@@ -32,7 +27,6 @@ func ReferenceParams(
 	}
 }
 
-// RenameParams builds the textDocument/rename parameter object.
 func RenameParams(
 	path string,
 	pos lsp.Position,
@@ -45,9 +39,6 @@ func RenameParams(
 	}
 }
 
-// CodeActionParams builds the textDocument/codeAction parameter object scoped to
-// the given range. diagnostics is the raw JSON array of LSP Diagnostics the
-// actions should address (the editor's markers in range); nil sends none.
 func CodeActionParams(
 	path string,
 	rng lsp.Range,
@@ -64,7 +55,6 @@ func CodeActionParams(
 	}
 }
 
-// FormattingParams builds the textDocument/formatting parameter object.
 func FormattingParams(
 	path string,
 	options lsp.FormattingOptions,
@@ -78,7 +68,6 @@ func FormattingParams(
 	}
 }
 
-// DocumentSymbolParams builds the textDocument/documentSymbol parameter object.
 func DocumentSymbolParams(
 	path string,
 ) map[string]any {
@@ -87,8 +76,6 @@ func DocumentSymbolParams(
 	}
 }
 
-// SemanticTokensDeltaParams builds the textDocument/semanticTokens/full/delta
-// parameter object: edits against the result previousResultID names.
 func SemanticTokensDeltaParams(
 	path string,
 	previousResultID string,
@@ -99,8 +86,6 @@ func SemanticTokensDeltaParams(
 	}
 }
 
-// SemanticTokensRangeParams builds the textDocument/semanticTokens/range
-// parameter object.
 func SemanticTokensRangeParams(
 	path string,
 	rng lsp.Range,
@@ -111,9 +96,6 @@ func SemanticTokensRangeParams(
 	}
 }
 
-// ExecuteCommandParams builds the workspace/executeCommand parameter object.
-// arguments is the command's raw argument array as the server issued it, or
-// nil for none.
 func ExecuteCommandParams(
 	command string,
 	arguments json.RawMessage,

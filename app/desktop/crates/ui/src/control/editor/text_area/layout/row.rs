@@ -1,5 +1,3 @@
-//! One visual row of a wrapped text.
-
 use std::ops::Range;
 
 use gpui::Pixels;

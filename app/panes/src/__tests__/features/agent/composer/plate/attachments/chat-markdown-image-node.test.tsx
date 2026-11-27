@@ -9,7 +9,6 @@ import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdow
 
 afterEach(cleanup)
 
-/** The composer's own interactive editor: the transcript renders diagrams instead. */
 function ComposerDraft({ md }: { md: string }) {
   const editor = usePlateEditor({ plugins: chatComposerPlugins, value: chatMarkdownToValue(md) })
   return (
@@ -19,7 +18,6 @@ function ComposerDraft({ md }: { md: string }) {
   )
 }
 
-/** Under the real `DndScope`, as `AgentChatView` renders it. */
 function renderWithDnd(ui: React.ReactNode) {
   return render(<DndScope>{ui}</DndScope>)
 }
@@ -33,8 +31,6 @@ describe('chat attachment images', () => {
     expect(img).toBeInTheDocument()
   })
 
-  // Like every other attachment kind, an image is height-capped so a tall photo can't take over
-  // the composer.
   it('caps a settled image at a fixed max height', () => {
     render(
       <MarkdownMessageStatic>{'![a photo](https://example.com/photo.png)'}</MarkdownMessageStatic>,
@@ -49,7 +45,6 @@ describe('chat attachment images', () => {
     expect(img.className).toContain('max-h-80')
   })
 
-  // Images are reorderable in the input box like every other attachment kind.
   it('renders a drag handle for an interactive image, unlike a settled one', () => {
     const interactive = renderWithDnd(
       <MarkdownMessage>{'![a photo](https://example.com/photo.png)'}</MarkdownMessage>,
@@ -72,17 +67,12 @@ describe('chat attachment images', () => {
     await vi.waitFor(() => expect(screen.queryByAltText('a photo')).toBeNull())
   })
 
-  // The excalidraw PNG sibling hide (chat-markdown-image-node.tsx, pre-
-  // existing behavior) must survive both the max-height and drag additions —
-  // it's still a completely different render branch (a `hidden` PlateElement,
-  // no `<img>` at all).
   it('still hides the excalidraw PNG sibling, with no drag handle either', () => {
     const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
     const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
     renderWithDnd(<ComposerDraft md={md} />)
 
     expect(document.querySelectorAll('img')).toHaveLength(0)
-    // Only the excalidraw fence's OWN handle, none for the hidden PNG.
     expect(screen.getAllByRole('button', { name: /reorder this attachment/i })).toHaveLength(1)
   })
 
@@ -97,7 +87,6 @@ describe('chat attachment images', () => {
 
       fireEvent.click(screen.getByTitle('Click to expand'))
 
-      // Now TWO — the inline thumbnail plus the lightbox's own full-size copy.
       expect(screen.getAllByAltText('a photo')).toHaveLength(2)
     })
 
@@ -122,9 +111,6 @@ describe('chat attachment images', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Close' }))
 
-      // Base UI unmounts the popup only after its own exit transition —
-      // asynchronous even under jsdom, so this settles rather than asserting
-      // synchronously right after the click.
       await vi.waitFor(() => expect(screen.getAllByAltText('a photo')).toHaveLength(1))
     })
 

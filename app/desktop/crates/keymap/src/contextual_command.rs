@@ -1,16 +1,9 @@
-//! Chords the shell takes only while their surface shows, and only from a page that left the
-//! key alone: Escape on the sidebar drawer and Mod+F on the Files tree. They are fixed, never
-//! rebound, as in develop.
-
 use chord::Keystroke;
 use protocol::{CommandId, KeyBinding, KeyChord, Precedence};
 
-/// A command whose chord applies only while its surface shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ContextualCommand {
-    /// Close the sidebar lying over the content as a drawer (Escape).
     DismissDrawer,
-    /// Open the Files tree's search (Mod+F).
     SearchFiles,
 }
 
@@ -20,19 +13,16 @@ const ALL: [ContextualCommand; 2] = [
 ];
 
 impl ContextualCommand {
-    /// The command with id `id`, as a page's `command.run` names it.
     #[must_use]
     pub fn parse(id: &str) -> Option<Self> {
         ALL.into_iter().find(|command| command.id() == id)
     }
 
-    /// The command a key press asks for, whether or not its surface shows.
     #[must_use]
     pub fn of_stroke(stroke: &Keystroke) -> Option<Self> {
         ALL.into_iter().find(|command| command.matches(stroke))
     }
 
-    /// The binding a page forwards while the surface shows; the page's own handling wins.
     #[must_use]
     pub fn binding(self) -> Option<KeyBinding> {
         let keys = KeyChord::new(self.chord()).ok()?;

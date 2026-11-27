@@ -1,5 +1,3 @@
-//! A node to place in the tree, with the two ids its parent may be named by.
-
 use crate::rows::forest::item_kind::ItemKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

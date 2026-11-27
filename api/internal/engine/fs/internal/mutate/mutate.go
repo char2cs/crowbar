@@ -1,4 +1,3 @@
-// Package mutate performs structural filesystem mutations: create, copy, rename, delete.
 package mutate
 
 import (
@@ -13,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// CreateFile creates an empty file at filePath. Parent directories are created
-// if they do not exist.
 func CreateFile(
 	repoPath string,
 	filePath string,
@@ -33,7 +30,6 @@ func CreateFile(
 	return f.Close()
 }
 
-// CreateDir creates a directory and all parents.
 func CreateDir(
 	repoPath string,
 	dirPath string,
@@ -48,8 +44,6 @@ func CreateDir(
 	return nil
 }
 
-// Copy duplicates sourcePath to destPath (repo-relative) verbatim, recursively, recreating symlinks
-// as links. destPath must not exist (fs.ErrExist) nor sit inside sourcePath (infinite recursion).
 func Copy(
 	repoPath string,
 	sourcePath string,
@@ -80,8 +74,6 @@ func Copy(
 		return fmt.Errorf("mutate: copy mkdirall %s: %w", destPath, err)
 	}
 	if err := copyNode(srcFull, destFull, info); err != nil {
-		// Remove a half-populated destination so a failed Copy is atomic: a partial tree would mislead the
-		// file view and make a retry fail with 409. destFull was absent, so this only removes our work.
 		return errors.Join(
 			fmt.Errorf("mutate: copy %s to %s: %w", sourcePath, destPath, err),
 			os.RemoveAll(destFull),
@@ -165,8 +157,6 @@ func copyFileBytes(
 	return out.Close()
 }
 
-// Rename renames or moves a file or directory. Both oldPath and newPath are
-// relative to repoPath.
 func Rename(
 	repoPath string,
 	oldPath string,
@@ -192,9 +182,6 @@ func Rename(
 	return nil
 }
 
-// ensureRenameDestFree refuses a rename onto an existing DIFFERENT path, which os.Rename would
-// silently clobber; matches Copy's fs.ErrExist. The same inode (a case-only rename on a
-// case-insensitive filesystem) is allowed.
 func ensureRenameDestFree(
 	oldFull string,
 	newFull string,
@@ -209,8 +196,6 @@ func ensureRenameDestFree(
 	return fmt.Errorf("destination %s: %w", newFull, fs.ErrExist)
 }
 
-// Delete removes a file or directory (recursive). filePath is relative to
-// repoPath.
 func Delete(
 	repoPath string,
 	filePath string,

@@ -1,5 +1,3 @@
-//! What a pane shows: the pane source, native panes, web view holes, theme.
-
 pub(crate) mod holes;
 pub(crate) mod native_panes;
 pub(crate) mod new_tab;

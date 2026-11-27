@@ -40,11 +40,6 @@ function renderHeader() {
   )
 }
 
-// The chat's own top row when it sits ALONGSIDE a visible editor (side by
-// side or stacked presentation) — carries the same window-chrome contract
-// TabBar's own row does (it may be the pane's real top-left corner: chat
-// renders first), but none of TabBar's pane-level actions — branch-review
-// shortcut and close-view already live in the IDE sector's own row.
 describe('ChatColumnHeader', () => {
   afterEach(resetEntities)
 

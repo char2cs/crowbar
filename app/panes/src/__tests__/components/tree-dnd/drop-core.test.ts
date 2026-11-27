@@ -1,5 +1,3 @@
-// The tree-agnostic half of drag and drop, phrased in rows the sidebar doesn't have ('note',
-// 'group'): a test in workspaces and repos would still pass if the sidebar's matrix crept back in.
 import { describe, expect, it } from 'vitest'
 import {
   ALL_MODES,
@@ -93,8 +91,6 @@ describe('dropModeAt', () => {
   })
 
   it('takes the band as a number, so a wider one moves the boundaries with it', () => {
-    // 0.25 nests on a 20% band and reorders on a 30% one. That single ratio
-    // behaving differently IS the knob a tree turns per row kind.
     expect(dropModeAt(0.25, ALL_MODES, EDGE_BAND_CONTAINER)).toBe('into')
     expect(dropModeAt(0.25, ALL_MODES, EDGE_BAND_HEAVY)).toBe('before')
     expect(dropModeAt(0.75, ALL_MODES, EDGE_BAND_HEAVY)).toBe('after')
@@ -106,11 +102,8 @@ describe('dropModeAt', () => {
   })
 
   it('returns null when the band lands on a mode the matrix refused', () => {
-    // Half a row can be live while the other half is not: the position still
-    // resolves, and the refusal is what turns it into "draw nothing".
     expect(dropModeAt(0.9, modes({ after: false }), EDGE_BAND_HEAVY)).toBeNull()
     expect(dropModeAt(0.1, modes({ before: false }), EDGE_BAND_HEAVY)).toBeNull()
-    // Same on the 50/50 split a non-nestable row falls back to.
     expect(dropModeAt(0.1, modes({ into: false, before: false }), EDGE_BAND_HEAVY)).toBeNull()
     expect(dropModeAt(0.9, modes({ into: false, before: false }), EDGE_BAND_HEAVY)).toBe('after')
   })

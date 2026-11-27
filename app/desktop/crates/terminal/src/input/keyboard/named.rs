@@ -1,5 +1,3 @@
-//! Escape sequences of the non-printing keys.
-
 use crate::input::keyboard::cursor_keys::CursorKeys;
 use crate::input::modifiers::Modifiers;
 

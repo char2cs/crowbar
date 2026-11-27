@@ -1,5 +1,3 @@
-//! What one sidebar command asks of the daemon.
-
 mod after;
 pub(crate) mod agent;
 pub(crate) mod create;

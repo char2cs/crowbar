@@ -1,5 +1,3 @@
-//! The shell's context menus on macOS, drawn by `AppKit`.
-
 use std::cell::Cell;
 
 use objc2::MainThreadMarker;

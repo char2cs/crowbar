@@ -31,9 +31,6 @@ function describe(status: LspServerStatus | null): { title: string; detail?: str
   }
 }
 
-/** The active file's language-server chip, from the daemon's GET /lsp/status: refreshed when the
- *  file changes, its document finishes opening (a server spawns then) and the menu opens, never
- *  polled. Restart and Start act on the daemon and show its answer. */
 export function LspStatusMenu({ workspaceId, path }: { workspaceId: string; path: string }) {
   const [status, setStatus] = useState<LspServerStatus | null>(null)
   const [isOpen, setIsOpen] = useState(false)

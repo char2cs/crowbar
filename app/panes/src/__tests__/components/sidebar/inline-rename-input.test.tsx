@@ -12,8 +12,6 @@ describe('InlineRenameInput', () => {
     expect(input.selectionEnd).toBe('feature-x'.length)
   })
 
-  // Without a placeholder, an empty naming input (a fork's create row) reads as a chat box, and
-  // what gets typed there becomes the branch's name.
   it('shows the placeholder only while defaultValue is empty', () => {
     const { rerender } = render(
       <InlineRenameInput
@@ -108,10 +106,6 @@ describe('InlineRenameInput', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
-  // The editor can mount on a row that is scrolled out of the sidebar's
-  // shared scroller (a rename started from Recents draws on the tree copy;
-  // the context menu can rename a scrolled-away row). Focus alone does not
-  // bring it back, so the caret landed in an invisible input.
   it('scrolls itself into view on mount, not only focuses', () => {
     const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
     try {

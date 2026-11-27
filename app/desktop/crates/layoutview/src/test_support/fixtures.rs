@@ -65,7 +65,6 @@ fn open_beside(
     layout.apply(command).expect("open pane");
 }
 
-/// Opens `name` as an editor tab of the focused group of tab 1.
 pub(crate) fn open_tab(
     layout: &mut Layout,
     name: &str,
@@ -78,7 +77,6 @@ pub(crate) fn open_tab(
     layout.apply(open).expect("open a tab");
 }
 
-/// Tab 1 with chat `a` beside a group of the editor tabs `b` and `c`.
 pub(crate) fn stacked_layout() -> Layout {
     let mut layout = layout_of("a", &[]);
     let placement = Placement {
@@ -113,7 +111,6 @@ fn stack_onto_a(
     layout.apply(open).expect("stack");
 }
 
-/// Tab 1 holding one group of the editor tabs `a`, `b` and `c`, with `shown` shown and focused.
 pub(crate) fn strip_layout(shown: &str) -> Layout {
     let mut layout = Layout::default();
     layout

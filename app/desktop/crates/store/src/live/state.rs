@@ -1,5 +1,3 @@
-//! The shared state the sidebar reads and the stream and commands write.
-
 mod change_signal;
 pub(crate) mod chat_project;
 mod hub;

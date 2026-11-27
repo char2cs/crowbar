@@ -1,5 +1,3 @@
-//! Writes the daemon log to disk and reads its tail.
-
 mod tail;
 mod writer;
 

@@ -166,8 +166,6 @@ func TestWriteErr_AlwaysSetsTheCategoryCode(t *testing.T) {
 	assert.Equal(t, "internal", decode(t, rec.Body.Bytes())["code"])
 }
 
-// A delete refused over work at risk keeps the wire shape the client's
-// workAtRiskOf reads: code work_at_risk and data.workAtRisk.
 func TestFail_WritesTheCodeItsStatusAndData(t *testing.T) {
 	ctx, rec := newCtx(t)
 	refused := domain.WorkAtRisked([]domain.WorkAtRisk{
@@ -210,8 +208,6 @@ func TestFail_AnUncodedErrorIsInternal(t *testing.T) {
 	assert.Equal(t, "boom", body["error"])
 }
 
-// The client reads a 5xx's message; the access log keeps the whole chain once,
-// and a refusal the client can act on is not logged as a failure.
 func TestFail_AServerFailureNotesItsWholeChainForTheLog(t *testing.T) {
 	ctx, _ := newCtx(t)
 	err := fmt.Errorf("repos: list: %w", errors.New("db down"))

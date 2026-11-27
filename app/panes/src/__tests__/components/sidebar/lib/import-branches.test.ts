@@ -44,7 +44,6 @@ describe('performImportBranches', () => {
       { name: 'release', chatId: expect.any(String), lock: true },
     ])
     expect(new Set(sent.map((b) => b.chatId)).size).toBe(2)
-    // Each branch is drawn at once, by the id the daemon will create its chat under.
     expect(opRows().map((r) => [r.id, r.label])).toEqual([
       [sent[0]!.chatId, 'feature-a'],
       [sent[1]!.chatId, 'release'],

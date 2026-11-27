@@ -1,5 +1,3 @@
-//! Which glyph leads a tree row.
-
 pub(super) mod chat_glyph;
 
 use ui::{IconName, IconWeight};

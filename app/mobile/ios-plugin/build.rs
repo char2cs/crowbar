@@ -1,5 +1,3 @@
-//! Registers the commands the Swift plugin handles with the Tauri permission system.
-
 const COMMANDS: &[&str] = &[
     "set_chrome",
     "set_sidebar",

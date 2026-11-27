@@ -1,4 +1,3 @@
-//! Fixtures shared by the unit tests: a strip in a test window that records what it asks for.
 #![cfg(test)]
 
 use std::cell::RefCell;
@@ -74,7 +73,6 @@ pub(crate) fn open(
     Harness { bar, cx, events }
 }
 
-/// A strip in its window, whose floating elements open windows of their own.
 pub(crate) struct Floating {
     pub(crate) window: VisualTestContext,
 }
@@ -101,7 +99,6 @@ pub(crate) fn open_floating(
     Floating { window }
 }
 
-/// Where the row source sits: below the strip, in the window's left column.
 pub(crate) const ROW_SOURCE_Y: f32 = 100.0;
 const ROW_SOURCE_SIZE: f32 = 8.0;
 
@@ -133,7 +130,6 @@ impl Render for RowSource {
     }
 }
 
-/// A strip in a window that also holds a sidebar chat row ("t9") to drag onto it.
 pub(crate) fn open_under_row_source(
     cx: &mut TestAppContext,
     tabs: Vec<TabView>,

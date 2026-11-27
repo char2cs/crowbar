@@ -34,8 +34,6 @@ function focus(workspaceId: string, projectId: string) {
   )
 }
 
-// A remote workspace's paths mean nothing to this machine's Finder: the explorer must
-// not offer to reveal them there.
 describe('SidebarFilesPanel reveal in Finder', () => {
   beforeEach(() => {
     tree.onRevealInFinder = undefined

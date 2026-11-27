@@ -35,7 +35,6 @@ export function drawChatView(
     onSelectPresentation: () => {},
     ...overrides,
   }
-  // An empty workspace store: no list in any store names this chat.
   return render(
     <PlateController>
       <WorkspaceStoreContext.Provider value={createWorkspaceStore('w1')}>

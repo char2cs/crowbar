@@ -1,5 +1,3 @@
-//! Reads attribute values out of the sprites' SVG markup.
-
 pub(crate) fn attr<'a>(
     markup: &'a str,
     name: &str,

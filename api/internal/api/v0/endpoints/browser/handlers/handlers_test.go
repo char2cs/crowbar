@@ -81,7 +81,6 @@ func TestPeer_DisconnectingForgetsItsTabs(t *testing.T) {
 	waitForTabs(t, bridge, false)
 }
 
-// waitForTabs waits for the server's read loop to apply (or drop) chat1's tabs.
 func waitForTabs(t *testing.T, bridge *browserbridge.Bridge, present bool) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -118,6 +117,5 @@ func TestPeer_DropsAPeerThatStopsAnsweringPings(t *testing.T) {
 		"type": "tabs", "tabs": []map[string]any{{"id": "t1", "chatId": "chat1"}},
 	}))
 	waitForTabs(t, bridge, true)
-	// The client never reads again, so it never answers a ping: a half-open connection.
 	waitForTabs(t, bridge, false)
 }

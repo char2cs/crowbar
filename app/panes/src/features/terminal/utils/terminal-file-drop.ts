@@ -12,7 +12,7 @@ function decodeFileUrl(entry: string): string | null {
     const url = new URL(entry)
     return url.protocol === 'file:' ? decodeURIComponent(url.pathname) : null
   } catch {
-    return null // not a URL
+    return null
   }
 }
 
@@ -29,7 +29,6 @@ export function formatDroppedPathsForTerminal(rawPaths: string[]): string {
       resolved.push(entry)
       continue
     }
-    // Skip relative paths, http/https URLs, and other unsupported entries
   }
   if (resolved.length === 0) return ''
   return `${resolved.map(quoteTerminalPath).join(' ')} `

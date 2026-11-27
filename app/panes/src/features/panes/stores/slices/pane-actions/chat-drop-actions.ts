@@ -6,7 +6,6 @@ import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import type { PaneActions } from '../pane-slice'
 import type { PaneSet } from './context'
 
-/** A chat dropped onto a pane: the only gesture that puts two chats in one view. */
 export function createChatDropActions(set: PaneSet): Pick<PaneActions, 'dropChatOnPane'> {
   return {
     dropChatOnPane(chatId, paneId, zone, workspaceId = null) {
@@ -15,8 +14,6 @@ export function createChatDropActions(set: PaneSet): Pick<PaneActions, 'dropChat
         if (!target) return
         const existing = chatPaneIndex(state.panes).get(chatId)
 
-        // The middle of a chatless pane fills it in place; an already-open
-        // chat is revealed rather than opened twice.
         if (zone === 'center' && target.chatId === null) {
           if (existing) {
             focusPane(state, existing)
@@ -30,8 +27,6 @@ export function createChatDropActions(set: PaneSet): Pick<PaneActions, 'dropChat
           return
         }
 
-        // Anything else splits the target — the middle of an occupied pane
-        // only ever ADDS, on the right.
         const side = zone === 'center' ? 'right' : zone
         const direction: SplitDirection =
           side === 'left' || side === 'right' ? 'horizontal' : 'vertical'

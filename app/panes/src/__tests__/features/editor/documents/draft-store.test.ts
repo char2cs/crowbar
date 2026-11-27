@@ -18,7 +18,6 @@ beforeAll(async () => {
 }, MONACO_LOAD_MS)
 
 beforeEach(() => {
-  // IndexedDB schedules its own work on setImmediate, which stays real.
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
   host.documents.open(DOC, 'markdown', 'disk')
 })

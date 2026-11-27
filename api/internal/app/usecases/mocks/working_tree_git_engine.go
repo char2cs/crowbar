@@ -6,14 +6,12 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// WorkingTreeGitEngine is a fake of the git WorkingTreeSummary surface.
 type WorkingTreeGitEngine struct {
 	WorkingTreeSummaryFn func(
 		ctx context.Context,
 		repoPath string,
 		base string,
 	) (int, int, bool, bool, error)
-	// WouldMergeConflictsFn answers a batch; unset, every pair is clean.
 	WouldMergeConflictsFn func(
 		ctx context.Context,
 		repoPath string,
@@ -26,7 +24,6 @@ type WorkingTreeGitEngine struct {
 	) (string, error)
 }
 
-// NewWorkingTreeGitEngine returns an empty WorkingTreeGitEngine.
 func NewWorkingTreeGitEngine() *WorkingTreeGitEngine {
 	return &WorkingTreeGitEngine{}
 }
@@ -50,9 +47,6 @@ func (g *WorkingTreeGitEngine) WouldMergeConflicts(
 	return make([]gitengine.MergeVerdict, len(pairs))
 }
 
-// RevParse resolves rev, or reports it as resolvable by default so summaryBase's
-// verification step is a no-op unless a test opts into RevParseFn to exercise the
-// fork-point fallback.
 func (g *WorkingTreeGitEngine) RevParse(
 	ctx context.Context,
 	repoPath string,

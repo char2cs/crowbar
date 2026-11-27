@@ -1,5 +1,3 @@
-//! Saving and loading the layout.
-
 pub(crate) mod layout_files;
 pub(crate) mod layout_store;
 pub(crate) mod layout_writer;

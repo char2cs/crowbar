@@ -5,7 +5,6 @@ import type { WindowPaneState } from '@/features/panes/stores/window-pane-store.
 import type { BufferActions } from '@/features/panes/stores/slices/buffer-slice'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
-// Buffers are window-level, like panes (use-pane-store.ts).
 function useBufferStore<T>(selector: (state: WindowPaneState) => T): T {
   return useStore(windowPaneStore, selector)
 }
@@ -26,6 +25,5 @@ export const useBuffersByIds = (ids: string[]): PaneContent[] =>
     }),
   )
 
-/** Open terminal tabs, each holding one PTY session. */
 export const useTerminalBufferCount = (): number =>
   useBufferStore((s) => s.buffers.filter((b) => b.type === 'terminal').length)

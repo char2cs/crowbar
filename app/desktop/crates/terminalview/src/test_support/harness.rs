@@ -1,5 +1,3 @@
-//! A terminal view in a test window wired to a fake daemon peer.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 

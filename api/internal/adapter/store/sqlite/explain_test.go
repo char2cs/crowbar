@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// openAndWrite opens the database at path and writes to it, as a store does
-// on its first use, returning the driver's error.
 func openAndWrite(t *testing.T, path string) error {
 	t.Helper()
 	db, err := sqlite.OpenDB(path)
@@ -70,8 +68,6 @@ func TestExplain_ADatabaseInAFolderItCannotWriteIsReadOnly(t *testing.T) {
 	assert.Contains(t, words, "read-only")
 }
 
-// A refused file names itself: the folder is rarely read-only as a whole, and
-// without the path a user cannot find the one file another user owns.
 func TestExplain_APermissionRefusalNamesThePath(t *testing.T) {
 	refused := fmt.Errorf("owner-only: %w", &fs.PathError{Op: "chmod", Path: "/home/u/.crowbar/x.json", Err: syscall.EPERM})
 

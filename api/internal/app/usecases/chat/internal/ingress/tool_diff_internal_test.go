@@ -23,7 +23,6 @@ func TestEditDiff_NothingToShowIsEmpty(t *testing.T) {
 	assert.Empty(t, editDiff("f", "", "same", "same"))
 }
 
-// Git names a file outside the session from the root: a/abs, never a/abs.
 func TestEditDiff_AbsolutePathHeadersAgreeOnOneFileName(t *testing.T) {
 	got := editDiff("/repo/README.md", "", "a\n", "b\n")
 	assert.Equal(t, "--- a/repo/README.md\n+++ b/repo/README.md\n@@ -1,1 +1,1 @@\n-a\n+b\n", got)

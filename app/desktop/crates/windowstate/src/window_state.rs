@@ -5,24 +5,17 @@ use crate::rect::Rect;
 
 pub(crate) const MIN_SIZE: (f32, f32) = (640.0, 480.0);
 
-/// The size of a first-run window, in logical pixels (width, height).
 pub const DEFAULT_SIZE: (f32, f32) = (1280.0, 800.0);
 
 const VISIBLE_FRACTION: f32 = 0.25;
 
-/// What is remembered of the window: its normal bounds and whether it was maximized.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct WindowState {
-    /// The bounds the window has when not maximized.
     pub bounds: Rect,
-    /// The window was maximized when the app last closed.
     pub maximized: bool,
 }
 
 impl WindowState {
-    /// Where to open given the connected `displays`. The bounds are grown to at least 640×480; if
-    /// less than a quarter of the window is on any display, it moves onto the first display
-    /// (the primary one); with no displays known the remembered bounds are used as they are.
     #[must_use]
     pub fn placement(
         &self,

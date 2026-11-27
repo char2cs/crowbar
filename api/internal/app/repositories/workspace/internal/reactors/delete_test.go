@@ -23,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
-// newAx builds axWorkspace; a non-nil st is its durable read model.
 func newAx(
 	t *testing.T,
 	st *projections.Store,
@@ -55,8 +54,6 @@ func newStore(
 	return st
 }
 
-// gatedStoreReader holds AwaitTombstone until the test releases a tombstone, so
-// a test controls exactly when the persisted deleted row becomes visible.
 type gatedStoreReader struct {
 	waiting chan struct{}
 	release chan domain.Workspace
@@ -82,7 +79,6 @@ func (g *gatedStoreReader) AwaitTombstone(
 	}
 }
 
-// fixedStoreReader answers every AwaitTombstone with the same tombstone.
 type fixedStoreReader struct{ tomb domain.Workspace }
 
 func (f fixedStoreReader) AwaitTombstone(context.Context, string) (domain.Workspace, error) {
@@ -119,7 +115,6 @@ func noDrop(context.Context, string) error { return nil }
 
 func noGiveUp(context.Context, string, *domain.Workspace, error) {}
 
-// giveUp is one onGiveUp call; ctxErr is whether its ctx was already done.
 type giveUp struct {
 	wsID        string
 	tomb        *domain.Workspace
@@ -133,11 +128,6 @@ func recordGiveUps() (GiveUp, chan giveUp) {
 	}, calls
 }
 
-// TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets drives a real
-// Delete through a real axWorkspace with the real save-only store projection:
-// the projection persists the "deleted" tombstone (waking the reactor), the
-// reactor cascades the dependents, removes the tombstone's own worktree path and
-// Forgets the aggregate, which drops the read-model row (spec §3.6/§3.8).
 func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T) {
 	st := newStore(t)
 	ctx, ax := newAx(t, st)
@@ -147,9 +137,6 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 		forgot = append(forgot, wsID)
 		return nil
 	}
-	// The reactor runs concurrently with this test, so the tombstone row is
-	// observed where the invariant lives: at the moment the worktree is removed
-	// (persist happens-before purge), not by racing a read against the purge.
 	type removal struct {
 		path      string
 		tombstone *domain.Workspace
@@ -169,12 +156,8 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
 	require.NoError(t, err)
 
-	// rmWorktree pushes onto rmCh: a genuine completion signal, so block on it
-	// directly (a hang would surface via go test -timeout).
 	rm := <-rmCh
 	assert.Equal(t, "/wt/w1/worktree", rm.path, "the purge removes the tombstone's own WorktreePath")
-	// The deleted tombstone row was persisted before the purge began (the boot
-	// orphan-sweep depends on this row surviving a crash mid-purge).
 	require.NoError(t, rm.err)
 	require.NotNil(t, rm.tombstone)
 	require.Equal(t, domain.WorkspaceStatusDeleted, rm.tombstone.Status)
@@ -189,9 +172,6 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 	assert.Equal(t, []string{"w1"}, forgot, "the dependents cascade must run once")
 }
 
-// TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved proves the ordering
-// gate: until the persisted tombstone is observed, nothing is purged (spec §3.6
-// persist-happens-before-purge).
 func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	reader := newGatedStoreReader()
@@ -204,7 +184,7 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
 	require.NoError(t, err)
 
-	<-reader.waiting // the reactor is live and parked on the gate
+	<-reader.waiting
 	select {
 	case <-rmCh:
 		t.Fatal("worktree removed before the deleted row was observed")
@@ -219,9 +199,6 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// TestPurger_Purge_Idempotent re-drives the purge over an already-purged
-// aggregate: the boot sweep re-runs the same Purge verbatim after a crash, so
-// every step must converge (spec §3.6 idempotency contract).
 func TestPurger_Purge_Idempotent(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
@@ -238,8 +215,6 @@ func TestPurger_Purge_Idempotent(t *testing.T) {
 	assert.Equal(t, 2, rmCount, "the remover itself is idempotent over an absent root")
 }
 
-// An unprovisioned placeholder has no worktree of its own: nothing to remove,
-// but its dependents and its aggregate still go.
 func TestPurger_Purge_PlaceholderHasNoWorktreeToRemove(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	createWorkspace(t, ctx, ax, "w1", "")
@@ -253,9 +228,6 @@ func TestPurger_Purge_PlaceholderHasNoWorktreeToRemove(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// TestDeleteReactor_TransientRemoveWorktreeError_RetriesUntilSuccess proves a
-// transient rm failure does not abandon the purge until the next restart: the
-// reactor retries the idempotent sequence until it succeeds.
 func TestDeleteReactor_TransientRemoveWorktreeError_RetriesUntilSuccess(t *testing.T) {
 	st := newStore(t)
 	ctx, ax := newAx(t, st)
@@ -284,10 +256,6 @@ func TestDeleteReactor_TransientRemoveWorktreeError_RetriesUntilSuccess(t *testi
 	assert.False(t, exists)
 }
 
-// A persistent failure must back off, not spin: the old fixed 25 ms retry made
-// ~4,800 rm attempts (each with an ERROR log) over the reactor's lifetime. With
-// exponential backoff the attempts over a window grow only logarithmically
-// until the cap, then linearly at the cap.
 func TestDeleteReactor_PersistentFailure_BacksOff(t *testing.T) {
 	_, ax := newAx(t, nil)
 	var attempts atomic.Int32
@@ -302,15 +270,10 @@ func TestDeleteReactor_PersistentFailure_BacksOff(t *testing.T) {
 	defer cancel()
 	r.purgeUntilDone(ctx, "w1")
 
-	// 2+4+8+16 = 30ms for the first 5 attempts, then one per 16ms: ~12 in 150ms.
-	// A fixed 2ms retry would have made ~75.
 	assert.GreaterOrEqual(t, attempts.Load(), int32(4))
 	assert.LessOrEqual(t, attempts.Load(), int32(20))
 }
 
-// TestDeleteReactor_TombstoneNeverObserved_DoesNotPurge asserts that if the
-// deleted row is never observed within the deadline, the reactor defers to the
-// boot sweep: no rm, no Forget, so no orphan-without-row is ever created.
 func TestDeleteReactor_TombstoneNeverObserved_DoesNotPurge(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
@@ -328,7 +291,6 @@ func TestDeleteReactor_TombstoneNeverObserved_DoesNotPurge(t *testing.T) {
 	assert.True(t, exists, "aggregate must survive for the boot sweep to re-drive")
 }
 
-// A purge that gives up is reported to the caller, on a ctx it can still save under.
 func TestDeleteReactor_AGiveUpIsReportedNotLogged(t *testing.T) {
 	_, ax := newAx(t, nil)
 	purger := NewPurger(ax, noDrop, noDependents, func(context.Context, domain.Workspace) error {
@@ -368,7 +330,6 @@ func TestDeleteReactor_ATombstoneNeverObservedReportsWithoutATomb(t *testing.T) 
 	require.ErrorIs(t, got.err, context.DeadlineExceeded)
 }
 
-// fakeAx is a minimal asynx stub whose Subscribe fails on demand.
 type fakeAx struct {
 	asynx.Asynx[domain.Workspace]
 	subscribeErr error
@@ -382,8 +343,6 @@ func (f *fakeAx) Subscribe(
 	return "", f.subscribeErr
 }
 
-// TestDeleteReactor_OnEvent_FallsBackToAggregateIDWhenEmpty proves onEvent's id
-// resolution: some event sources leave AggregateID unset.
 func TestDeleteReactor_OnEvent_FallsBackToAggregateIDWhenEmpty(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	var mu sync.Mutex
@@ -411,9 +370,6 @@ func (f storeReaderFunc) AwaitTombstone(ctx context.Context, id string) (domain.
 	return f(ctx, id)
 }
 
-// TestDeleteReactor_OnEvent_RefusedOnceDraining proves the gate stops the
-// reactor from spawning new purge work once a drain has begun: a refused event
-// is not a dropped one (the boot sweep re-purges), but it must not touch disk.
 func TestDeleteReactor_OnEvent_RefusedOnceDraining(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	gate := drain.New()
@@ -426,9 +382,6 @@ func TestDeleteReactor_OnEvent_RefusedOnceDraining(t *testing.T) {
 	assert.False(t, rmCalled, "a refused event must not spawn purge work")
 }
 
-// TestPurger_DependentsError_AbortsPurge proves the ordering contract: if the
-// dependents cascade fails, the worktree is not removed and the aggregate is not
-// forgotten — a re-drive must still be able to run the cascade.
 func TestPurger_DependentsError_AbortsPurge(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
@@ -444,8 +397,6 @@ func TestPurger_DependentsError_AbortsPurge(t *testing.T) {
 	assert.True(t, exists, "the aggregate must survive a cascade failure for a re-drive")
 }
 
-// TestPurger_RemoveWorktreeError_AbortsForget proves a failed rm leaves the
-// tombstone in place, so a re-drive retries the removal.
 func TestPurger_RemoveWorktreeError_AbortsForget(t *testing.T) {
 	ctx, ax := newAx(t, nil)
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
@@ -457,14 +408,10 @@ func TestPurger_RemoveWorktreeError_AbortsForget(t *testing.T) {
 	assert.True(t, exists, "the aggregate must survive a failed rm for a re-drive")
 }
 
-// fakeAxForget overrides Forget so a test can force a real (non-ErrValidation)
-// failure of the terminal step.
 type fakeAxForget struct{ forgetErr error }
 
 func (f fakeAxForget) Forget(context.Context, string) error { return f.forgetErr }
 
-// A real Forget failure is reported, never swallowed: it is the last chance to
-// notice the aggregate was never actually forgotten.
 func TestPurger_ForgetError_IsReported(t *testing.T) {
 	purger := NewPurger(fakeAxForget{forgetErr: errors.New("event store unavailable")}, noDrop,
 		noDependents, func(context.Context, domain.Workspace) error { return nil })
@@ -485,10 +432,6 @@ func TestRegisterDeleteReactor_SubscribeError(t *testing.T) {
 	assert.Contains(t, err.Error(), "workspace delete reactor: subscribe")
 }
 
-// A crash between Forget and the row delete its marker triggers leaves a
-// tombstone row whose aggregate is already gone. Forget now answers
-// ErrValidation and no projection will ever delete that row, so the purge drops
-// it itself — otherwise every boot sweep re-finds it forever.
 func TestPurger_AlreadyForgottenAggregate_DropsTheOrphanedRow(t *testing.T) {
 	var dropped []string
 	purger := NewPurger(fakeAxForget{forgetErr: asynxModels.ErrValidation},

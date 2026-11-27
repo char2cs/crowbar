@@ -10,12 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// Read once, plan the whole change in memory, write only the rows that moved: the chat read model is an
-// async projection, so a re-read between a write and the renumber after it can serve the pre-write list.
-
-// loadChat resolves a chat from the log fold, with its live Node placement, as the origin a move is planned
-// against; a stale origin would file the row back under its previous parent. A chat of another workspace
-// is NOT-FOUND, so the caller learns nothing about rows outside its scope.
 func (u *chatFolderUsecase) loadChat(
 	ctx context.Context,
 	workspaceID string,
@@ -33,9 +27,6 @@ func (u *chatFolderUsecase) loadChat(
 	return u.correctHomePlacement(ctx, chat)
 }
 
-// globalSnapshotAround reads every row the daemon knows, merged with the Node forest in subject's scope,
-// with subject's row taken from the caller's log fold (see corrected). Folders, workspace anchors and an
-// ordinary fork's owning chat (ChatTypeBranch) are Node-backed subjects; their writes go to Nodes.
 func (u *chatFolderUsecase) globalSnapshotAround(
 	ctx context.Context,
 	subject domain.Chat,
@@ -47,8 +38,6 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	return u.globalSnapshotIn(ctx, subject, scope)
 }
 
-// globalSnapshotIn is globalSnapshotAround with the root's scope already
-// resolved — for a folder create, whose subject does not exist yet.
 func (u *chatFolderUsecase) globalSnapshotIn(
 	ctx context.Context,
 	subject domain.Chat,
@@ -68,8 +57,6 @@ func (u *chatFolderUsecase) globalSnapshotIn(
 	return buildHomeSnapshot(f, subject, subjectIsNodeBacked), nil
 }
 
-// workspaceSnapshot is the snapshot chat placement plans against for workspaceID's level, folders and
-// every other kind interleaved, as of one read.
 func (u *chatFolderUsecase) workspaceSnapshot(
 	ctx context.Context,
 	workspaceID string,
@@ -77,17 +64,12 @@ func (u *chatFolderUsecase) workspaceSnapshot(
 	return u.workspaceSnapshotAround(ctx, workspaceID, domain.Chat{})
 }
 
-// workspaceSnapshotAround is workspaceSnapshot with subject's row taken from the caller's log fold: a stale
-// container would turn a reorder into a move or drop a move, and a just-minted subject is appended.
-// seeds are containers the walk must reach (the destination), so a first placement lands last, not at 0.
 func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
 	subject domain.Chat,
 	seeds ...string,
 ) (*treeSnapshot, error) {
-	// Every row, not one workspace's: a level spans workspaces (a repo root holds the default checkout's
-	// chats and every fork's own row), and the scope decides who counts.
 	rows, err := u.chats.ListChats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
@@ -105,8 +87,6 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 	return u.homeSnapshotAround(ctx, workspaceID, rows, subject, seeds...)
 }
 
-// corrected replaces the projected row for subject with the log-folded one, or
-// adds it when the projection has not caught up enough to list it at all.
 func corrected(
 	rows []domain.Chat,
 	subject domain.Chat,
@@ -123,9 +103,6 @@ func corrected(
 	return append(rows, subject)
 }
 
-// persist writes the rows the plan touched plus every fresh row (owed a Node Create even when its placement
-// equals the zero value), and returns the folders and anchors (as branch rows) for the caller to broadcast,
-// since no projection announces them; a chat's write is broadcast by the hub projection.
 func (u *chatFolderUsecase) persist(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -166,9 +143,6 @@ func (u *chatFolderUsecase) persist(
 	return written, nil
 }
 
-// writeRow saves one row: a re-parented row has its whole placement written, a renumbered one only its
-// order, so a densify never restates a parent read from a possibly stale projection. Node-backed rows
-// (snapshot.homeIDs) go to writeHomeNode.
 func (u *chatFolderUsecase) writeRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -184,8 +158,6 @@ func (u *chatFolderUsecase) writeRow(
 	if !snapshot.reparented(id) {
 		updated, err := u.chats.SetOrder(ctx, id, row.Order)
 		if err != nil {
-			// A concurrent delete can purge the row between snapshot and write; a row
-			// that no longer exists needs no order.
 			if errors.Is(err, problem.ErrNotFound) {
 				return nil, nil
 			}
@@ -200,8 +172,6 @@ func (u *chatFolderUsecase) writeRow(
 	return &updated, nil
 }
 
-// without drops the subject row from a written set, leaving the collateral the
-// caller broadcasts alongside it.
 func without(
 	rows []domain.Chat,
 	id string,
@@ -215,9 +185,6 @@ func without(
 	return out
 }
 
-// placementTarget resolves the index a moved row should land at: the caller's
-// explicit request, its current index when it is only being re-parented in
-// place, or the end of the destination when it arrives from elsewhere.
 func placementTarget(
 	requested *int,
 	snapshot *treeSnapshot,

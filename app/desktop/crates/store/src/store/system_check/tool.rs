@@ -1,16 +1,11 @@
-/// A command line tool the first-run system check looks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Tool {
-    /// Git, which Crowbar cannot work without.
     Git,
-    /// The GitHub CLI, which only adds GitHub features.
     Gh,
-    /// The GitLab CLI, which only adds GitLab features.
     Glab,
 }
 
 impl Tool {
-    /// Every tool, in the order the check lists them.
     pub const ALL: [Self; 3] = [Self::Git, Self::Gh, Self::Glab];
 
     pub(crate) fn route(self) -> &'static str {

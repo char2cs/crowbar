@@ -1,5 +1,3 @@
-//! A mouse report on its way to the program.
-
 use gpui::MouseButton as HostButton;
 use terminal::{MouseButton, ViewPoint};
 

@@ -6,7 +6,6 @@ import type { ViewedChange } from '@/sdk/viewed-change'
 import type { ViewedListener } from './viewed-listener'
 import type { ViewedOwner } from './viewed-owner'
 
-/** The page owns the viewed maps in its IndexedDB; for builds with no native shell (mobile, web). */
 export class IdbViewedOwner implements ViewedOwner {
   private readonly listeners = new Map<string, Set<ViewedListener>>()
   private writes: Promise<void> = Promise.resolve()

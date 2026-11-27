@@ -11,12 +11,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// turnsPage is how many rows a read of the chat's turns takes at a time.
 const turnsPage = 512
 
-// ChatTurns is every message of the chat, in the order it is shown: a
-// person's once its turn started, the agent's once settled, each failed turn
-// as a notice.
 func (c *Conversations) ChatTurns(ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
 	f := newTurnFold()
 	for after := int64(0); ; {
@@ -34,14 +30,12 @@ func (c *Conversations) ChatTurns(ctx context.Context, chatID string) ([]domain.
 	}
 }
 
-// noteSpeaker is who a note Crowbar adds to the conversation is shown from.
 const noteSpeaker = "crowbar"
 
-// turnFold is a chat's rows folded, one at a time, into the messages it said.
 type turnFold struct {
 	text    ledger.MessageFold
 	turns   map[string]*turnFact
-	runners map[string]string // provider by runner id
+	runners map[string]string
 	users   []rowFact[ledger.UserMessage]
 	notices []rowFact[string]
 }
@@ -61,8 +55,6 @@ type rowFact[B any] struct {
 	body   B
 }
 
-// shown is a message at its place: order is where it is shown, seq the row
-// that said or settled it.
 type shown struct {
 	order, seq int64
 	turn       domain.LedgerTurn
@@ -81,8 +73,6 @@ func (f *turnFold) turn(id string) *turnFact {
 	return t
 }
 
-// apply folds r, the row after every one already folded. Only the main
-// agent's rows are the conversation; a subagent's are its own.
 func (f *turnFold) apply(r ledger.Row) {
 	f.text.Apply(r)
 	if r.Scope != "" {
@@ -112,11 +102,9 @@ func (f *turnFold) apply(r ledger.Row) {
 	case ledger.KindPromptSettled, ledger.KindSessionBound, ledger.KindSessionLost, ledger.KindMarker,
 		ledger.KindRunnerExited, ledger.KindAssistantText, ledger.KindReasoning, ledger.KindToolCall,
 		ledger.KindAsk, ledger.KindAskResolved, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove, ledger.KindShell:
-		// the message fold reads the text; the rest says no message
 	}
 }
 
-// applyFailed records a turn's first failure as a notice of its own.
 func (f *turnFold) applyFailed(r ledger.Row) {
 	body, err := ledger.DecodeBody[ledger.TurnFailed](r)
 	if err != nil {
@@ -135,12 +123,10 @@ func (f *turnFold) applyFailed(r ledger.Row) {
 func (f *turnFold) end(t *turnFact, body ledger.TurnEnded) {
 	t.effort = cmp.Or(body.Effort, t.effort)
 	if !t.started && t.start.RunnerID == "" && body.RunnerID != "" {
-		// A turn whose start never came is its ending runner's.
 		t.start.RunnerID, t.start.Provider = body.RunnerID, f.runners[body.RunnerID]
 	}
 }
 
-// said is every message said so far, in the order it is shown.
 func (f *turnFold) said() []domain.LedgerTurn {
 	var items []shown
 	for _, u := range f.users {
@@ -168,8 +154,6 @@ func (f *turnFold) said() []domain.LedgerTurn {
 	return out
 }
 
-// userTurn is a prompt as said: a Crowbar prompt once its turn took it, where
-// that turn started and under the request it was sent with.
 func (f *turnFold) userTurn(u rowFact[ledger.UserMessage]) (shown, bool) {
 	lt := domain.LedgerTurn{ID: u.turnID, Role: domain.TurnRoleUser, Text: u.body.Text, At: u.at}
 	seq := u.seq
@@ -200,7 +184,6 @@ func (f *turnFold) agentTurn(m ledger.MessageText) shown {
 	return shown{order: m.FirstSeq, seq: m.SettleSeq, turn: lt}
 }
 
-// ledgerTurn is lt said in turnID's turn, by the provider and runner it ran on.
 func (f *turnFold) ledgerTurn(turnID string, lt domain.LedgerTurn) domain.LedgerTurn {
 	if t := f.turns[turnID]; t != nil {
 		lt.Provider, lt.RunnerID, lt.SessionID = t.start.Provider, t.start.RunnerID, t.start.SessionID

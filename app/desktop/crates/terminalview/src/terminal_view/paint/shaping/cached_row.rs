@@ -1,5 +1,3 @@
-//! A row and the lines shaped from it.
-
 use gpui::ShapedLine;
 use terminal::Row;
 

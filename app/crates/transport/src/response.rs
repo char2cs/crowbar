@@ -55,7 +55,6 @@ pub(crate) fn readable_by(
     response
 }
 
-/// The marker on `response`, if the proxy set one.
 #[must_use]
 pub fn marker_of(response: &Response<Vec<u8>>) -> Option<&str> {
     response

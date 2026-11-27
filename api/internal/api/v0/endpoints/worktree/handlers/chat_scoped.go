@@ -12,12 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The worktree lifecycle verbs act on the worktree a chat holds; a request only ever names the
-// chat, and each verb resolves it to its workspace before acting.
-
-// chatWorkspace resolves the URL's chat to the workspace behind its worktree (its own, else its
-// nearest ancestor's), writing a 404 and returning ok=false on any failure: like
-// resolveChatWorktree, an unresolvable chat is indistinguishable from a missing one.
 func (h *Handlers) chatWorkspace(
 	c *gin.Context,
 ) (domain.Workspace, bool) {
@@ -29,7 +23,6 @@ func (h *Handlers) chatWorkspace(
 	return ws, true
 }
 
-// startOn starts run as an operation on ws and answers 202 with it, or the refusal.
 func (h *Handlers) startOn(
 	c *gin.Context,
 	ws domain.Workspace,
@@ -53,8 +46,6 @@ func (h *Handlers) startOn(
 	libs.WriteOperation(c, op)
 }
 
-// relLabel is "<head> <rel> <branch of id>", or head alone when id's branch
-// cannot be read: a label is never left dangling.
 func (h *Handlers) relLabel(
 	ctx context.Context,
 	head string,
@@ -73,15 +64,10 @@ func (h *Handlers) relLabel(
 	return head
 }
 
-// renameBranchRequest is the PATCH .../chats/:id/branch body; the branch renamed FROM is the
-// daemon's to know, never the caller's to assert.
 type renameBranchRequest struct {
 	Branch string `json:"branch"`
 }
 
-// ChatRenameBranch handles PATCH .../chats/:id/branch, renaming the branch of the chat's worktree.
-// It is separate from the title-only POST .../rename because title and branch are independent and
-// differently guarded; hierarchy.RenameBranch owns the guards. It answers with the chat id.
 func (h *Handlers) ChatRenameBranch(
 	c *gin.Context,
 ) {

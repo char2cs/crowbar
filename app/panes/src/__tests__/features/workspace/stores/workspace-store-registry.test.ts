@@ -14,8 +14,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// The registry's instance lifecycle; pane/buffer persistence is window-level and tested in
-// window-pane-store.test.ts.
 describe('workspace-store-registry', () => {
   it('getOrCreate returns the same instance for the same wsId', () => {
     const a = getOrCreateWorkspaceStore('ws-a')
@@ -44,8 +42,6 @@ describe('workspace-store-registry', () => {
     expect(ids).toContain('ws-2')
   })
 
-  // getWorkspaceStore never mints a store: a buffer can outlive its
-  // workspace's eviction, and a store minted for its id would leak.
   it('getWorkspaceStore returns undefined for an unregistered workspace, without creating one', () => {
     expect(getWorkspaceStore('ws-never-registered')).toBeUndefined()
     expect(getAllActiveWorkspaceIds()).not.toContain('ws-never-registered')

@@ -1,9 +1,3 @@
-//! A scroll area's wheel step on Linux: `pow(h, 2/3)` pixels a click for a window `h` high, as
-//! `WebKitGTK`'s `Scrollbar::pixelsPerLineStep` scrolls develop's pages.
-//!
-//! The viewport's first child listens. Bubbling reaches it after any area nested in the content
-//! and before the viewport's own listener, which it stops for a wheel's lines.
-
 use gpui::{
     App, DispatchPhase, EntityId, Hitbox, HitboxBehavior, IntoElement, ScrollDelta, ScrollEvent,
     ScrollHandle, Styled as _, Window, canvas, point, px,

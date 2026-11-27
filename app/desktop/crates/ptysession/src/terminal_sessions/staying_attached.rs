@@ -1,5 +1,3 @@
-//! Keeping a view attached to its session: the stream, and what a lost stream reattaches to.
-
 use tokio_tungstenite::client_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -54,7 +52,6 @@ impl TerminalSessions {
         self.unlisted(target).await
     }
 
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/terminal/components/resolve-terminal-connection.ts
     async fn unlisted(
         &self,
         (base, session): (&SessionPaths, &str),

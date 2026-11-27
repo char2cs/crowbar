@@ -1,6 +1,3 @@
-// Adapted from the Plate registry (floating-toolbar-kit.json -> `floating-toolbar-buttons`),
-// trimmed to marks, inline equation and link: AI/comment/suggestion aren't installed, and Turn-into
-// (reachable from the slash and block menus) and More need Radix menus we don't have.
 'use client'
 
 import {

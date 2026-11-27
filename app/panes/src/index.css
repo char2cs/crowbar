@@ -11,9 +11,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Written every frame of a drag and read only by the element that sets it. Registered
-   as non-inherited so a write restyles that element, not its whole subtree (9ms vs 1ms
-   per frame on the sidebar drag). */
 @property --sidebar-track-width {
   syntax: '<length>';
   inherits: false;
@@ -26,9 +23,6 @@
   initial-value: 0px;
 }
 
-/* Unlayered, since an unlayered !important beats every layered Tailwind motion (framer-motion is
-   gated by <MotionConfig>). Spinners are status, not decoration, so `.animate-spin` and
-   `[data-essential-motion]` (for variant-class spinners) are exempt. WCAG 2.3.3. */
 @media (prefers-reduced-motion: reduce) {
   *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *),
   *:not(.animate-spin, [data-essential-motion], [data-essential-motion] *)::before,
@@ -60,8 +54,6 @@
   }
 }
 
-/* A raised selected surface (pill, active tab) on the --control-* tokens, with its
-   own text tokens re-pointed so every label inside reads on it in any theme. */
 @utility control-surface {
   background-color: var(--control-surface);
   border-color: var(--control-surface);
@@ -72,9 +64,6 @@
   --elevated-highlight: var(--control-highlight);
 }
 
-/* The daemon names a repo's tile colour by token (avatar.go palette); without
-   a class behind each token the tile has no fill and its letter vanishes. The
-   tokens arrive at runtime, so the scanner never sees them: emit all eight. */
 @source inline('avatar-{rose,amber,emerald,cyan,indigo,violet,slate,pink}');
 
 @utility avatar-rose {
@@ -133,54 +122,35 @@
   font-size: var(--ui-text-xl);
 }
 
-/* Allow content-pane shadows to follow the rounded pane content shape. */
 [data-pane-container] {
   overflow: visible !important;
 }
 
-/* Re-rasterising rounded, shadowed boxes at a new width every frame makes drags crawl, so they
-   go flat until release. `!important` beats the inline styles buildPaneContentStyle sets. */
 html[data-pane-resizing] [data-pane-content],
-/* The chat/editor halves most of all: PaneSash rewrites their flex-basis every pointermove, and
-   each has its own rounded, clipped border (buildInnerViewStyle). */
 html[data-pane-resizing] [data-chat-view],
 html[data-pane-resizing] [data-editor-view] {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
-/* The chat header's EdgeDissolve: each of its 7 backdrop-filter layers resamples at the new width
-   on every sash write, so the blur pauses for the drag and returns at rest. */
 html[data-pane-resizing] [data-testid='edge-dissolve'] > div,
-/* The composer's dissolve is the same 7-layer recipe, over the chat's full width. */
 html[data-pane-resizing] .agent-chat .dissolve-layer {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  /* Free to drop: with the blur off these layers paint nothing, but a mask still rasterises at
-     the new width every frame. */
   mask-image: none !important;
   -webkit-mask-image: none !important;
 }
 
-/* Backstop for the `selectstart` listener (workspace-tree-context.tsx) on paths that never fire
-   it. `user-select` inherits, so one rule covers the document; Monaco's own `text` is left to the
-   listener. Both spellings: WebKit reports only -webkit-user-select. */
 html[data-row-dragging] {
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* The cursor comes from whatever the pointer is over, not the captured row, so it goes everywhere,
-   !important over ROW_BASE's cursor-pointer. The universal selector measured free; a full-window
-   cursor overlay instead overlaps every composited layer and costs ~40ms a frame. */
 html[data-row-dragging],
 html[data-row-dragging] * {
   cursor: grabbing !important;
 }
 
-/* One stepped translate of a sprite strip (-100% = `frames` frame-widths). Outside `@theme`:
-   Tailwind emits those keyframes only for a used `--animate-*` utility, and this one is composed
-   inline, so it would be tree-shaken from production. */
 @keyframes flicker-strip {
   to {
     transform: translateX(-100%);

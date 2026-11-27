@@ -10,9 +10,6 @@ type contextChannel struct{}
 
 func (contextChannel) Name() string { return "context_channel" }
 
-// Check refuses an api-transport descriptor that opens sessions yet never says how Crowbar's
-// context (its tools preamble, and a replaced session's record) reaches them: such a session
-// would start without it, and the chat would lose its conversation.
 func (contextChannel) Check(d *spec.Descriptor) error {
 	for i, step := range d.Inject {
 		if err := checkInjectStep(d.ID, i, step); err != nil {
@@ -38,8 +35,6 @@ func carriesContext(d *spec.Descriptor) bool {
 	})
 }
 
-// checkInjectStep keeps a prompt_lead to what it can mean: the context moment, alone,
-// naming the document it leads with.
 func checkInjectStep(id string, i int, step spec.InjectSpec) error {
 	if step.PromptLead == "" {
 		return nil

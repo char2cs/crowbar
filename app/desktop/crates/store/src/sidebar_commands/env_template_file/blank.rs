@@ -1,5 +1,3 @@
-//! An env file with every value emptied: the keys and the comments stay.
-
 use crate::sidebar_commands::env_template_file::quote_state::QuoteState;
 
 const EXPORT: &str = "export";

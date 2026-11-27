@@ -1,5 +1,3 @@
-//! What the canvas hands to a paint pass: its bounds and the frame prepaint produced.
-
 use gpui::{Bounds, Pixels};
 
 use crate::terminal_view::paint::frame::Frame;

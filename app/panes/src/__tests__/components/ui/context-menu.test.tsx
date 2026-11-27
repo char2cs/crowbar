@@ -47,7 +47,6 @@ describe('ContextMenu keyboard dismiss', () => {
   })
 })
 
-// Closes for real on onClose, as every caller's useContextMenu does.
 function OwnedMenu({ items }: { items: ContextMenuItem[] }) {
   const [isOpen, setOpen] = useState(true)
   return (
@@ -76,10 +75,6 @@ describe('ContextMenu submenus', () => {
       />,
     )
 
-    // Base UI only opens a submenu on hover after the pointer has actually
-    // moved inside the menu (guards against an accidental trigger sitting
-    // under the cursor when the menu first mounts) — so move over the popup
-    // before hovering the trigger, matching a real mouse gesture.
     const menu = getByRole('menu')
     fireEvent.mouseMove(menu)
     const trigger = (await findByText('Turn into')).closest('[role="menuitem"]')!

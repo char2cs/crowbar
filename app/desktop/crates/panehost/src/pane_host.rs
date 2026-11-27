@@ -40,11 +40,6 @@ use crate::slot::focus_report;
 use crate::slot::parse_hover;
 use crate::slot::pointer_report;
 
-/// Owns every pane web view: places them from the layout, pools and parks them, delivers
-/// lifecycle frames, and turns what pages post into [`HostEvent`]s.
-///
-/// The host keeps no copy of pane state. The model owns it; the host reads it from each
-/// [`LayoutSnapshot`] and reports changes as events.
 pub struct PaneHost {
     pub(crate) registry: PaneRegistry,
     pub(crate) factory: Factory,
@@ -85,8 +80,6 @@ fn hover_report(message: &IpcMessage) -> Option<HostEvent> {
 }
 
 impl PaneHost {
-    /// Builds a host. `tables` must be the ones the [`PaneProtocol`](crate::PaneProtocol) of
-    /// `webviews` shares.
     #[must_use]
     pub fn new(
         config: Config,
@@ -119,39 +112,29 @@ impl PaneHost {
         }
     }
 
-    /// The pane type registry.
     #[must_use]
     pub fn registry(&self) -> &PaneRegistry {
         &self.registry
     }
 
-    /// Mutable access to the registry, to register or remove types.
     pub fn registry_mut(&mut self) -> &mut PaneRegistry {
         &mut self.registry
     }
 
-    /// The queue of messages pages post. Await it on the main thread and pass each message to
-    /// [`PaneHost::handle_ipc`].
     #[must_use]
     pub fn inbox(&self) -> async_channel::Receiver<IpcMessage> {
         self.inbox.clone()
     }
 
-    /// Deletes cookies, cache and site storage of every browser pane.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when the engine refuses.
     pub fn clear_browsing_data(&self) -> Result<()> {
         Ok(self.factory.clear_browsing_data()?)
     }
 
-    /// Number of live web views, in use or idle.
     #[must_use]
     pub fn web_view_count(&self) -> usize {
         self.pool.len()
     }
 
-    /// What the shell draws in `pane`'s rectangle.
     #[must_use]
     pub fn display(
         &self,
@@ -174,10 +157,6 @@ impl PaneHost {
         }
     }
 
-    /// Reconciles web views with the layout: creates, moves, shows, hides, parks and destroys.
-    ///
-    /// Every pane is reconciled even when another one fails; the first failure is returned in
-    /// the report next to the events.
     pub fn sync(
         &mut self,
         snapshot: &LayoutSnapshot<'_>,
@@ -208,14 +187,6 @@ impl PaneHost {
         }
     }
 
-    /// Handles one message a page posted. `layout` is the model the pane state lives in.
-    ///
-    /// A message from a pane that no longer has a web view is stale and ignored. A malformed
-    /// or oversized frame is answered with a `protocol.error` frame and the pane stays; only a
-    /// run of them fails the pane, inside its own frame.
-    ///
-    /// # Errors
-    /// [`Error::WebView`] when answering the pane fails.
     pub fn handle_ipc(
         &mut self,
         message: IpcMessage,
@@ -259,11 +230,6 @@ impl PaneHost {
         self.on_frame(message.pane, frame, layout)
     }
 
-    /// Sends a frame to a pane's page.
-    ///
-    /// # Errors
-    /// [`Error::NotShown`] when the pane has no web view, [`Error::Frame`] when the frame
-    /// cannot be encoded and [`Error::WebView`] when the web view layer fails.
     pub fn send(
         &self,
         pane: &PaneId,

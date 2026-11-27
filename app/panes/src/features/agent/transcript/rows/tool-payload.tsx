@@ -5,8 +5,6 @@ import { useChatHost } from '@/lib/host-resolve'
 
 type Read = { state: 'loading' } | { state: 'read'; text: string | null } | { state: 'failed' }
 
-/** One side, read when it mounts. A swept blob reads null and is said
- *  plainly; any other failure is transient and offers a retry. */
 function PayloadSide({
   chatId,
   label,
@@ -21,7 +19,6 @@ function PayloadSide({
   const hostId = useChatHost(chatId)
   const key = `${hostId}#${blobRef}#${attempt}`
 
-  // The blob is its chat's host's: nothing is read until that host is known.
   useEffect(() => {
     if (!hostId) return
     const controller = new AbortController()
@@ -58,8 +55,6 @@ function PayloadSide({
   )
 }
 
-/** A tool call's request and result, each read by blob ref once opened; a
- *  ref that lands while the panel is open adds its side. */
 export function ToolPayload({
   chatId,
   inputRef,

@@ -1,5 +1,3 @@
-// From the Plate registry (`https://platejs.org/r/floating-toolbar-kit.json`),
-// verbatim — the selection formatting toolbar.
 'use client'
 
 import { createPlatePlugin } from 'platejs/react'

@@ -17,7 +17,6 @@ import { chatSession } from './chat-session'
 
 const TOGGLE_EDITOR = 'panes.toggleEditor'
 
-/** The shell's chat pane: the chat the shell opened, placed in its own workspace like the desktop pane container does, with its identity row and title sent to the shell tab; the row's open editor button asks the shell to open the editor beside the chat. An untitled chat keeps the shell's own label; a draft's row has no title, as develop's. */
 export function ChatPaneHost({ client }: { client: Pick<PaneClient, 'setTitle' | 'runCommand'> }) {
   const chatId = useStore(chatSession, (s) => s.chatId)
   const active = useStore(chatSession, (s) => s.active)

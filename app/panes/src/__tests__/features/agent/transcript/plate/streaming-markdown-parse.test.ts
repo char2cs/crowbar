@@ -14,8 +14,6 @@ import {
 const strip = (v: unknown): unknown =>
   JSON.parse(JSON.stringify(v, (k, val) => (k === 'id' || k === 'listStart' ? undefined : val)))
 
-// The editor merges adjacent text leaves and the raw parse does not; both sides
-// go through one scratch editor so only real differences remain.
 const scratch = createPlateEditor({ plugins: chatComposerPlugins })
 function sameDocument(a: Value, b: Value): { a: unknown; b: unknown } {
   const [rawA, rawB] = [strip(a), strip(b)]
@@ -38,7 +36,6 @@ function rng(seed: number) {
   }
 }
 
-/** Streams `md` in `chunks`-sized random pieces; every step must equal the full parse. */
 function streamAndCompare(md: string, seed: number, maxChunk: number) {
   const random = rng(seed)
   const editor = createPlateEditor({ plugins: chatComposerPlugins })
@@ -53,8 +50,6 @@ function streamAndCompare(md: string, seed: number, maxChunk: number) {
     expect(a, `seed ${seed} at ${at}: ${JSON.stringify(text.slice(-60))}`).toEqual(b)
     applyStreamedValue(editor, step.value)
   }
-  // A definition arriving late rewrites an earlier block; the patcher never
-  // revisits settled blocks, and the settled message re-renders from scratch.
   if (!cursor.disabled) {
     const { a, b } = sameDocument(editor.children as Value, chatMarkdownToValue(md))
     expect(a).toEqual(b)
@@ -112,7 +107,6 @@ describe('parseStreamingMarkdown', () => {
           [5, 120],
         ] as const
       ).map(([seed, maxChunk]) => streamAndCompare(md, seed, maxChunk))
-      // Constructs that reach backwards must switch the incremental path off.
       expect(cursors.every((c) => c.disabled)).toBe(BACKWARD_REACHING.has(name))
     })
   }
@@ -158,7 +152,6 @@ describe('parseStreamingMarkdown', () => {
         )
         if (end.blocks > 0) incremental++
       }
-      // Not vacuous: most generated documents really ran the incremental path.
       expect(incremental).toBeGreaterThan(10)
     },
   )

@@ -12,9 +12,7 @@ import { cn } from '@/lib/utils'
 import { SIDEBAR_FILE_ROW_HEIGHT } from '@/components/sidebar/lib/sidebar-file-row-height'
 
 export const SIDEBAR_FILE_ROW_ICON_SIZE = 14
-/** ROW_SHAPE's own `px-1.5`, so a depth-0 label starts where a chat row's does. */
 export const SIDEBAR_FILE_ROW_BASE_INDENT = 6
-/** ROW_GLYPH_BOX's 16px plus ROW_SHAPE's `gap-1.5`: the room a `control` takes. */
 const CONTROL_SLOT = 22
 
 export interface TreeGuideTarget {
@@ -30,12 +28,9 @@ interface TreeGuidesProps {
   indentSize: number
   previousDepth: number
   nextDepth: number
-  /** The ancestor each guide belongs to, so the tree's delegated handlers can act on it. */
   targets?: ReadonlyArray<TreeGuideTarget | null>
 }
 
-// The vertical rules joining a nested row to its ancestors, one per level, inset where a level
-// begins and ends.
 export function TreeGuides({
   depth,
   baseIndent,
@@ -76,30 +71,20 @@ type SidebarFileRowProps = Omit<React.ComponentProps<'button'>, 'children'> & {
   baseIndent?: number
   height?: number
   selected?: boolean
-  /** A drop would land inside this row (same nest signal as the chat tree). */
   dropTarget?: boolean
-  /** Slot before the icon column, e.g. a disclosure caret. */
   leading?: React.ReactNode
-  /** An interactive control (a checkbox) over the leading edge, outside the button. */
   control?: React.ReactNode
   icon?: React.ReactNode
   label?: React.ReactNode
   labelClassName?: string
-  /** Inline right after the label, e.g. a git status letter. */
   badge?: React.ReactNode
-  /** Dimmed text after the label, e.g. a file's directory. */
   detail?: React.ReactNode
-  /** Right-aligned slot, e.g. +N -N counts or a pill. */
   trailing?: React.ReactNode
-  /** Replaces label/badge/detail/trailing with an input; the row is then not a button. */
   editor?: React.ReactNode
-  /** Indent guides drawn behind the row. */
   guides?: React.ReactNode
   containerClassName?: string
 }
 
-// The dense row every file list draws through (Files explorer, Git panel): the chat row's capsule,
-// type and icon column at file-tree pitch.
 export function SidebarFileRow({
   depth = 0,
   indentSize = ROW_INDENT_STEP,
@@ -145,7 +130,6 @@ export function SidebarFileRow({
     <div className={cn('file-tree-item w-full', containerClassName)} data-depth={depth}>
       {guides}
       {hasControl && (
-        // A sibling, not a child: interactive content may not nest in a button.
         <span className="absolute inset-y-0 z-3 flex items-center" style={{ left: indent }}>
           <span className={ROW_GLYPH_BOX}>{control}</span>
         </span>

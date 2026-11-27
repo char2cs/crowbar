@@ -1,5 +1,3 @@
-//! A mouse button together with the event it was pressed or released with.
-
 use gpui::MouseButton;
 
 #[derive(Debug)]

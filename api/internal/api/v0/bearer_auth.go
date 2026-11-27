@@ -14,16 +14,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// clientAuthStore is the narrow seam requireBearerAuth needs — satisfied by
-// store.ScopedStore[domain.Client, string]. Read-only on purpose: writing the
-// row back could clobber a revoke that landed mid-request.
 type clientAuthStore interface {
 	FindWhere(ctx context.Context, match domain.Client) ([]domain.Client, error)
 }
 
-// requireBearerAuth authenticates a request by its Authorization: Bearer header.
-// A request with no TLS state (unix socket, loopback dev bind) passes through:
-// filesystem permission on the socket is that path's trust boundary.
 func requireBearerAuth(
 	clients clientAuthStore,
 	conns *clientConns,
@@ -52,14 +46,12 @@ func requireBearerAuth(
 			c.Abort()
 			return
 		}
-		// Only a verified client's request may outlive the pre-auth read bound.
 		if err := middleware.LiftReadDeadline(c); err != nil {
 			libs.WriteErr(c, http.StatusInternalServerError, "connection unusable")
 			c.Abort()
 			return
 		}
 		libs.SetPairedClient(c, libs.PairedClient{ID: client.ID, Name: client.Name})
-		// A stream outlives this check, so the connection it hijacks is held for a revoke.
 		c.Writer = &revocableWriter{
 			ResponseWriter: c.Writer, ctx: c.Request.Context(),
 			clients: clients, conns: conns, clientID: client.ID, tokenHash: tokenHash,
@@ -68,8 +60,6 @@ func requireBearerAuth(
 	}
 }
 
-// pairedClient is the unrevoked client holding tokenHash, or nil. FindWhere
-// ignores a zero-valued field, so an empty hash would match every client.
 func pairedClient(
 	ctx context.Context,
 	clients clientAuthStore,

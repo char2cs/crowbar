@@ -31,8 +31,6 @@ export const useTerminalStore = create<TerminalStore>()((set, get) => ({
     set((state) => {
       const current = state.sessions.get(sessionId)
       if (current) {
-        // OSC 7 cwd and title events fire on every PTY write, mostly unchanged; a new Map
-        // re-renders every subscriber (every tab label), so a no-op must not make one.
         let changed = false
         for (const k of Object.keys(updates) as (keyof Terminal)[]) {
           if (!Object.is(current[k], updates[k])) {

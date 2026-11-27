@@ -14,7 +14,7 @@ func TestSetParentFromPR_SetsParentID(t *testing.T) {
 	cmd := commands.SetParentFromPR{ID: "ws1", ParentID: "parent-ws"}
 	got := cmd.EmitEvent(ws)
 	assert.Equal(t, "parent-ws", got.ParentID)
-	assert.Equal(t, "ws1", got.ID) // other fields unchanged
+	assert.Equal(t, "ws1", got.ID)
 }
 
 func TestSetParentFromPR_Validate_NilWorkspace(t *testing.T) {

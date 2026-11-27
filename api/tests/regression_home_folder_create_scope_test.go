@@ -11,12 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Reported live against production: a folder created scoped to one project
-// rendered under a different one. The sibling legacy tests cover the READ half
-// (a HomeID-less row listed by every home); this one pins the MINT half, which
-// had no coverage at all — that a create through a project's home mount stamps
-// the home it was made in, so the row never depends on adoption to be scoped,
-// and project B listing FIRST cannot claim it.
 func TestRegression_HomeFolderCreatedInOneProjectAppearsInAnother(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -29,8 +23,6 @@ func TestRegression_HomeFolderCreatedInOneProjectAppearsInAnother(t *testing.T) 
 	nested := createChatFolder(t, h, baseA, "scoped-nested", root.ID)
 	h.Quiesce()
 
-	// B reads before A ever does: nothing here may fall through to the
-	// first-lister adoption the legacy path relies on.
 	inB := listChatFolders(t, h, baseB)
 	for _, made := range []string{root.ID, nested.ID} {
 		_, leaked := chatFolderByID(inB, made)
@@ -54,10 +46,6 @@ func TestRegression_HomeFolderCreatedInOneProjectAppearsInAnother(t *testing.T) 
 	}
 }
 
-// The other half of the same guarantee: a create must never be able to mint a
-// home-scoped folder with no home at all. The repo mount takes its scope from
-// :repoId, and an empty one there would produce exactly the HomeID-less row the
-// legacy tests describe — a fresh one, on today's code.
 func TestRegression_FolderCreateWithNoScopeMintsAHomelessRow(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

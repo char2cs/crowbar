@@ -1,5 +1,3 @@
-//! Where the drop line sits, in window coordinates.
-
 use gpui::{Bounds, Pixels};
 
 use sidebar::DropMode;

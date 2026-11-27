@@ -81,7 +81,6 @@ events:
     action: [{ call: turn/send, send: { id: "{session_id}", text: "{text}" } }]
 `
 
-// A descriptor that reaches its server by websocket needs no serve.
 func TestDescriptorValidate_AServelessEndpointDescriptorPasses(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "socketed.yaml")
 	require.NoError(t, os.WriteFile(file, []byte(socketDescriptor), 0o600))
@@ -108,7 +107,6 @@ func TestDescriptorValidate_PrintsJSON(t *testing.T) {
 	}
 }
 
-// Without --live, test validates the installed descriptor by provider id.
 func TestDescriptorTest_WithoutLiveValidatesByProviderID(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir())
 
@@ -126,7 +124,6 @@ func TestDescriptorTest_AnUnknownProviderIsAnError(t *testing.T) {
 	require.ErrorContains(t, err, `no provider "nope"`)
 }
 
-// --live on a descriptor with a static error runs nothing live.
 func TestDescriptorTest_LiveStopsAtAStaticError(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "broken.yaml")
 	require.NoError(t, os.WriteFile(file, []byte("id: broken\nspawn:\n  cmd: broken\n"), 0o600))

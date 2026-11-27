@@ -1,6 +1,3 @@
-//! A list of records the backend supplies.
-
-/// Rows of live data (agents, sessions, hosts) shown under a source name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListBlock {
     pub(crate) source: String,
@@ -12,37 +9,31 @@ pub struct ListBlock {
 }
 
 impl ListBlock {
-    /// A small heading above the list, if any.
     #[must_use]
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
 
-    /// The name the backend lists the records under.
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
     }
 
-    /// The text shown while the records load.
     #[must_use]
     pub fn loading(&self) -> &str {
         &self.loading
     }
 
-    /// An explanation above the list, shown only over real records.
     #[must_use]
     pub fn intro_text(&self) -> Option<&str> {
         self.intro.as_deref()
     }
 
-    /// The text shown when the records could not be loaded.
     #[must_use]
     pub fn failed(&self) -> &str {
         &self.failed
     }
 
-    /// The text shown when there are no records.
     #[must_use]
     pub fn empty(&self) -> &str {
         &self.empty

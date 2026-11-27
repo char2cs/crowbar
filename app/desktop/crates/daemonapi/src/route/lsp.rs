@@ -1,10 +1,7 @@
-//! The routes of the language servers a chat owns.
-
 use crate::route::Route;
 use crate::route::query::encode;
 
 impl Route {
-    /// The LSP route `verb` (`hover`, `didOpen` …) of the language servers `chat` owns.
     pub fn lsp(
         chat: &str,
         verb: &str,
@@ -12,8 +9,6 @@ impl Route {
         Self::at(format!("/v0/chats/{chat}/lsp/{verb}"))
     }
 
-    /// The route of the state of the language server `chat` runs for the file at `path`,
-    /// percent-encoded.
     pub fn lsp_status(
         chat: &str,
         path: &str,

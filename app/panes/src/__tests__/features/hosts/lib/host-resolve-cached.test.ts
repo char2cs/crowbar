@@ -14,7 +14,6 @@ import {
   putEntities,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 
-/** The last run listed chat c1 on `hostId`; this run starts cold, with `paired` hosts and no list. */
 async function coldStartAfter(hostId: string, paired: string[]) {
   const stop = startHostPlacementCache()
   putEntities('chat', [chatEntity({ id: 'c1' })], hostId)

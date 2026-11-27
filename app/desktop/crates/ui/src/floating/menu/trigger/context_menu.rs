@@ -1,5 +1,3 @@
-//! A menu opened by a right click.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -14,7 +12,6 @@ use crate::foundation::opaque_debug;
 
 const OFFSET: f32 = 4.0;
 
-/// Wraps `child`; a right click on it opens `items` as the desktop's menu, at the pointer.
 #[derive(IntoElement)]
 pub struct ContextMenu {
     id: ElementId,
@@ -25,7 +22,6 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
-    /// A context menu over `child` listing `items`.
     pub fn new(
         id: impl Into<ElementId>,
         child: impl IntoElement,
@@ -40,8 +36,6 @@ impl ContextMenu {
         }
     }
 
-    /// Opens the menu at `placement` of the wrapped element instead of at the pointer, as develop
-    /// pops its tab menu under the tab's centre.
     #[must_use]
     pub fn placement(
         mut self,
@@ -52,7 +46,6 @@ impl ContextMenu {
     }
 }
 
-/// Styles the area that takes the right click, so it can grow to fill free space.
 impl Styled for ContextMenu {
     fn style(&mut self) -> &mut StyleRefinement {
         &mut self.style

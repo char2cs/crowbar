@@ -1,5 +1,3 @@
-//! What panes are told: broadcasts, settings, paired hosts and the background.
-
 mod background;
 mod breakpoints;
 mod broadcast;

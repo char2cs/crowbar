@@ -5,12 +5,6 @@ import {
 } from '@/core/entities/repo-queries'
 import type { Repo } from '@/core/entities/repo-types'
 
-// The file explorer gates its mutation menu items on this lookup. A workspace
-// lives in one of TWO id spaces: the repo's tree rows (repo.workspaces) or the
-// default (main-worktree) workspace, which is never a tree row — only
-// repo.defaultWorkspaceId + repo.defaultWorkspaceStatus. Adopted protected
-// branches are locked AND default, so missing the second space un-gated every
-// repo home (the original review finding).
 function makeRepo(over: Partial<Repo> = {}): Repo {
   return {
     id: 'r1',
@@ -36,9 +30,6 @@ describe('isWorkspaceLockedInSidebar', () => {
     expect(isWorkspaceLockedInSidebar(repos, 'ws-feature')).toBe(false)
   })
 
-  // The review finding: a locked DEFAULT workspace (adoptMainWorktree creates
-  // Protected → status 'locked' + IsDefault) is not a tree row — the lookup must
-  // resolve it via repo.defaultWorkspaceId + defaultWorkspaceStatus.
   it('reports a locked default (main-worktree) workspace', () => {
     const repos = [
       makeRepo({
@@ -75,9 +66,6 @@ describe('isWorkspaceLockedInSidebar', () => {
   })
 })
 
-// Deleting the active workspace navigates to its parent, else the repo's locked base, else null
-// (the caller falls back to /projects).
-
 function repoWith(workspaces: Repo['workspaces']): Repo[] {
   return [
     {
@@ -113,7 +101,6 @@ test('descendants of the deleted workspace are not navigation targets', () => {
     { id: 'parent', branch: 'feat/parent', parentId: 'base', status: 'new', age: '—' },
     { id: 'child', branch: 'feat/child', parentId: 'parent', status: 'new', age: '—' },
   ])
-  // Deleting `parent` also deletes `child`; the surviving target is `base`.
   expect(getPostDeleteNavigationTarget(repos, 'parent')).toBe('base')
 })
 

@@ -1,5 +1,3 @@
-//! The overlay scrollbar element.
-
 use gpui::{
     App, BorderStyle, Bounds, Corners, Element, ElementId, GlobalElementId, Hsla,
     InspectorElementId, LayoutId, PaintQuad, Pixels, ScrollHandle, Style, Window, point, px, quad,

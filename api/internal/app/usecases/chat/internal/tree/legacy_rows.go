@@ -9,10 +9,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Rows a level draws that predate Node rows (an old repo import or locked branch). No backfill: each is
-// counted where the sidebar draws it, and the first write touching its level mints its Node.
-
-// rowExists reports whether id names any row a chat can be filed under.
 func (u *chatFolderUsecase) rowExists(
 	ctx context.Context,
 	id string,
@@ -30,8 +26,6 @@ func (u *chatFolderUsecase) rowExists(
 	return err == nil && live
 }
 
-// addNodelessRepos appends a fresh phantom for every repo of a home scope
-// that has no Node row yet.
 func (f *forest) addNodelessRepos(
 	scope forestScope,
 	nodeSeen map[string]bool,
@@ -48,8 +42,6 @@ func (f *forest) addNodelessRepos(
 	}
 }
 
-// addNodelessAnchors appends a fresh anchor for every branch row of a repo scope with no Node row yet,
-// placed under its fork parent's row where the sidebar draws it, so the densify counts it there.
 func (u *chatFolderUsecase) addNodelessAnchors(
 	ctx context.Context,
 	f *forest,

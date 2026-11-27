@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// LSP requires a strictly increasing version on every didChange; a constant
-// version makes servers drop or reject edits after the first one.
 func TestDidChange_VersionsIncreaseAndResetOnReopen(t *testing.T) {
 	fake := newFakeServer(nil)
 	e := buildEngine(t, fake)
@@ -115,10 +113,6 @@ func TestDidClose_WithoutOpenIsNoOp(t *testing.T) {
 	assert.Equal(t, 0, fake.closeCount())
 }
 
-// TestEngine_OpenKeepsServerWarm_CloseTearsDown proves the document-lifetime
-// model: DidOpen holds a ref that survives requests, and DidClose drops it,
-// tearing the server down exactly once and firing OnReleaseEmpty (snapshot
-// evicted).
 func TestEngine_OpenKeepsServerWarm_CloseTearsDown(t *testing.T) {
 	fake := newFakeServer(json.RawMessage(`{"items":[]}`))
 	e, sc := buildCountingEngine(t, fake)
@@ -136,8 +130,6 @@ func TestEngine_OpenKeepsServerWarm_CloseTearsDown(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Across the whole open session exactly one server was spawned and it stayed
-	// alive: the open-doc ref kept it warm, so requests reused it.
 	assert.Equal(t, 1, sc.count(), "the open document keeps a single server warm")
 	assert.Equal(t, 0, fake.closeCount(), "server must not be torn down while the doc is open")
 
@@ -150,9 +142,6 @@ func TestEngine_OpenKeepsServerWarm_CloseTearsDown(t *testing.T) {
 	assert.False(t, held, "snapshot map must no longer hold the wsID key")
 }
 
-// TestEngine_DidChangeIsRefNeutral proves didChange does not permanently change
-// the refcount: with an open document the server stays warm (one spawn, no
-// teardown) until DidClose, and the change itself neither spawns nor closes.
 func TestEngine_DidChangeIsRefNeutral(t *testing.T) {
 	fake := newFakeServer(nil)
 	e, sc := buildCountingEngine(t, fake)

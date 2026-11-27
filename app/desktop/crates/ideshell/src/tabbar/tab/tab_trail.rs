@@ -1,6 +1,3 @@
-//! What follows a tab's label: a lock on a read-only file, then the dot of unsaved work on a
-//! tab that is not shown, as develop's tab bar item.
-
 use gpui::{AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
 use ui::{Icon, IconName, Palette};
 

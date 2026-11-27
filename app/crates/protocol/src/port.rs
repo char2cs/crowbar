@@ -1,5 +1,3 @@
-//! The port the shell uses to reach a daemon: requests, responses, targets and relay endpoints.
-
 mod daemon_request;
 mod daemon_response;
 mod daemon_transport;

@@ -21,16 +21,9 @@ fn validate(value: &str) -> Result<()> {
     Ok(())
 }
 
-string_id!(
-    /// The document a pane asks the shell to open, as develop's `DocumentRef` names one: a
-    /// workspace-relative path (`src/a.ts`) for a workspace file, or an absolute one (`/etc/hosts`)
-    /// for a file of the host. At most 4096 bytes, free of control characters and `..` segments.
-    DocumentPath,
-    validate
-);
+string_id!(DocumentPath, validate);
 
 impl DocumentPath {
-    /// Whether it names a file of the host rather than one of the workspace.
     #[must_use]
     pub fn is_host(&self) -> bool {
         self.as_str().starts_with('/')

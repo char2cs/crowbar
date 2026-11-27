@@ -1,5 +1,3 @@
-//! A stepper: minus, a typed field and plus.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{InteractiveElement as _, IntoElement, ParentElement, Styled, div, px};
 use settings::{Control, Nudge, Row};

@@ -1,5 +1,3 @@
-//! A placed node with its children.
-
 use crate::rows::forest::item_kind::ItemKind;
 use crate::rows::forest::sibling_key::SiblingKey;
 

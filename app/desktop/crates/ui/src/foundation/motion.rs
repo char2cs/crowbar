@@ -1,5 +1,3 @@
-//! Reduced-motion preference and the animation factory.
-
 pub(crate) mod adapters;
 mod cubic_bezier;
 mod glide;
@@ -25,7 +23,6 @@ use gpui::{Animation, App, Global};
 
 const REDUCED: Duration = Duration::from_micros(10);
 
-/// Global motion preference; the shell sets it from the OS "reduce motion" setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Motion {
     reduced: bool,
@@ -34,22 +31,18 @@ pub struct Motion {
 impl Global for Motion {}
 
 impl Motion {
-    /// Preference that honours "reduce motion".
     pub fn reduced() -> Self {
         Self { reduced: true }
     }
 
-    /// The installed preference; full motion when none was installed.
     pub fn of(cx: &App) -> Self {
         cx.try_global::<Self>().copied().unwrap_or_default()
     }
 
-    /// Whether animations are collapsed to an instant.
     pub fn is_reduced(self) -> bool {
         self.reduced
     }
 
-    /// `duration`, or the instant duration when motion is reduced.
     pub fn duration(
         self,
         duration: Duration,
@@ -60,7 +53,6 @@ impl Motion {
         duration
     }
 
-    /// A one-shot animation of `duration` along `curve`, honouring the preference.
     pub fn animation(
         self,
         duration: Duration,
@@ -69,7 +61,6 @@ impl Motion {
         Animation::new(self.duration(duration)).with_easing(move |t| curve.ease(t))
     }
 
-    /// A looping animation that stays active under reduced motion (spinners are exempt).
     pub fn essential_loop(
         duration: Duration,
         curve: CubicBezier,

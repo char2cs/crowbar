@@ -1,5 +1,3 @@
-//! What decides whether the followed workspace can merge.
-
 use crate::live::WorkspaceRecord;
 
 const CONFLICTS: &str = "pr-conflicts";

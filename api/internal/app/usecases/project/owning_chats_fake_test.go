@@ -11,10 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// fakeOwningChats stands in for the chat side every workspace a repo import is
-// now born under. Unlike the hierarchy's own fake it delegates nothing: this
-// usecase builds its workspace rows itself, so all the chat side does here is
-// mint, attach and discard — which is exactly what this records.
 type fakeOwningChats struct {
 	mu sync.Mutex
 
@@ -23,9 +19,6 @@ type fakeOwningChats struct {
 	attached  map[string]string
 	discarded []string
 
-	// mintErr fails MintOwningChat and attachErr fails AttachOwningWorkspace, so
-	// a test can prove that a workspace is never left behind when the chat that
-	// must own it cannot be minted or cannot be pointed at it.
 	mintErr   error
 	attachErr error
 }
@@ -74,8 +67,6 @@ func (f *fakeOwningChats) DiscardOwningChat(
 	return nil
 }
 
-// ownerOf reports the chat that ended up owning a workspace, and whether one
-// did at all.
 func (f *fakeOwningChats) ownerOf(
 	workspaceID string,
 ) (string, bool) {
@@ -97,19 +88,6 @@ func (f *fakeOwningChats) discards() []string {
 	return append([]string{}, f.discarded...)
 }
 
-// newImportUsecase builds the import usecase already wired to a fresh owning-chat
-// fake, which every construction in these tests needs now that no workspace can
-// be created without one. A test that wants to assert on the chat side builds
-// its own fake and calls SetOwningChats itself.
-//
-// deps.Nodes is defaulted to a fresh mocks.NewNodePlacements() when the caller
-// left it nil, so every ImportRepo/importOneRepo call in these tests can mint
-// a repo's own position row without every one of the dozens of ImportDeps{...}
-// literals in this package needing to carry it explicitly. A test that wants
-// to assert on the Node side (or inject a Create failure) sets deps.Nodes
-// itself before calling this.
-//
-// deps.CrowbarHome, which NewImport requires, defaults to a temp dir.
 func newImportUsecase(
 	t *testing.T,
 	deps project.ImportDeps,
@@ -126,8 +104,6 @@ func newImportUsecase(
 	return uc
 }
 
-// tempCrowbarHome resolves the crowbar home to a throwaway directory, so an
-// import under test never writes into a real home.
 func tempCrowbarHome(t *testing.T) func() (string, error) {
 	t.Helper()
 	dir := t.TempDir()

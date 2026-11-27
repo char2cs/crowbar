@@ -10,10 +10,8 @@ import { ApiError } from '@/lib/errors/api-error'
 import { UNREACHED } from '@/lib/errors/report'
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 
-/** What report() shows for a client bug. */
 const UNEXPLAINED = 'Something went wrong — details are in the log'
 
-/** The notice a failed spawn puts in front of the user. */
 function noticeFor(err: unknown, providerName: string, action: string) {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   toastSpawnFailure(err, providerName, action)
@@ -40,8 +38,6 @@ describe('spawn failure notice', () => {
   })
 
   it('does NOT blame the PATH for an unrelated failure', () => {
-    // The old copy told the user to check their PATH no matter WHAT went wrong, which
-    // sends them hunting for a problem they do not have.
     const notice = noticeFor(new ApiError('workspace is locked', 409), 'Codex', 'start')
 
     expect(notice.description).not.toMatch(/PATH/)
@@ -104,7 +100,6 @@ describe('toastSpawnFailure', () => {
     resetHostWorld()
   })
 
-  // A chat on a remote host that cannot be reached is not a CLI the user should go install.
   it('names the host a spawn could not reach instead of the chat it could not start', () => {
     pairRemoteHost('h1', 'Studio Mac')
     vi.spyOn(console, 'error').mockImplementation(() => {})

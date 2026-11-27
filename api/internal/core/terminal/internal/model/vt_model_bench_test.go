@@ -8,15 +8,12 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
-// resizeBench is a model and the two sizes a benchmark toggles it between.
 type resizeBench struct {
 	name     string
 	from, to [2]int
 	output   string
 }
 
-// resizeBenches are the models a resize must stay cheap on: many short lines, one chain filling the
-// scrollback, and a height change, which reflows nothing.
 func resizeBenches() []resizeBench {
 	short := strings.Repeat(strings.Repeat("s", 40)+"\r\n", 10000)
 	return []resizeBench{
@@ -34,9 +31,6 @@ func (rb resizeBench) model(b *testing.B) (TerminalModel, Serializer) {
 	return m, ser
 }
 
-// BenchmarkResize toggles each model between its sizes. Budget: no more time than the keyframe
-// the resize forces (BenchmarkSerialize), and B/op no more than the model's cells really hold
-// (cellB: ModelBytes counts bytesPerCell, not a uv.Cell's size).
 func BenchmarkResize(b *testing.B) {
 	for _, rb := range resizeBenches() {
 		b.Run(rb.name, func(b *testing.B) {
@@ -56,7 +50,6 @@ func BenchmarkResize(b *testing.B) {
 	}
 }
 
-// BenchmarkSerialize is the keyframe each resize forces, over the same models.
 func BenchmarkSerialize(b *testing.B) {
 	for _, rb := range resizeBenches() {
 		b.Run(rb.name, func(b *testing.B) {

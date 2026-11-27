@@ -1,5 +1,3 @@
-//! The merge box of the followed workspace, with why merging may be blocked.
-
 use sidebar::{MergeBox, MergeStrategy, MergeWork};
 
 use crate::live::State;

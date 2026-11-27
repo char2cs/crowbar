@@ -1,5 +1,3 @@
-//! The lifted tab: the ghost of a dragged tab and the preview of a pane joining the strip.
-
 use gpui::{
     AnyElement, App, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _,
     Window, div, px,
@@ -16,8 +14,6 @@ const GHOST: &str = "tab-ghost";
 const BAND_MARGIN: f32 = 32.0;
 
 impl TabBar {
-    /// A pane's chat as the view tab it would become, lifted, at the width it takes on joining
-    /// the strip; `None` for a pane no tab of the strip lists.
     #[must_use]
     pub fn preview(
         &self,

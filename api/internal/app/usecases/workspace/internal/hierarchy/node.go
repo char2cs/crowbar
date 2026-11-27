@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// NodeCreator is the write-only Node surface that mints a workspace's own position row when
-// CreateChild/CreateFromImport create it.
 type NodeCreator interface {
 	Create(
 		ctx context.Context,
@@ -20,8 +18,6 @@ type NodeCreator interface {
 	) (tree.Node, error)
 }
 
-// noOpNodeCreator is the default, minting nothing, for tests that do not care about Nodes; it keeps
-// u.nodes never nil so every Create error is real. Production always wires a real repo via WithNodes.
 type noOpNodeCreator struct{}
 
 func (noOpNodeCreator) Create(
@@ -34,15 +30,10 @@ func (noOpNodeCreator) Create(
 	return tree.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}, nil
 }
 
-// WithNodes wires the Node surface every created workspace mints its position row through,
-// overriding noOpNodeCreator; the composition root always passes the real repo.
 func WithNodes(nodes NodeCreator) Option {
 	return func(u *hierarchyUsecase) { u.nodes = nodes }
 }
 
-// mintWorkspaceNode mints wsID's own position row; callers roll the whole create back on failure.
-// Create can fail in a healthy daemon (ctx cancelled after a slow git op), and no backfill exists, so
-// a Workspace row must never survive without its Node row.
 func (u *hierarchyUsecase) mintWorkspaceNode(
 	ctx context.Context,
 	id string,
@@ -53,8 +44,6 @@ func (u *hierarchyUsecase) mintWorkspaceNode(
 	return nil
 }
 
-// discardWorkspaceRow best-effort tombstones a workspace row whose Node could not be minted. Logged,
-// never returned: the mint failure is the cause the caller reports.
 func (u *hierarchyUsecase) discardWorkspaceRow(
 	ctx context.Context,
 	id string,

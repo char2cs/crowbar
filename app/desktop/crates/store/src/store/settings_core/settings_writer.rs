@@ -1,5 +1,3 @@
-//! Saves the settings file on its own thread, so the disk never holds up the window.
-
 mod pending_save;
 
 use std::collections::BTreeMap;

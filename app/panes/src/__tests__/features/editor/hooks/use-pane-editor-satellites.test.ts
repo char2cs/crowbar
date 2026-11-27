@@ -12,7 +12,6 @@ import { usePaneEditorSatellites } from '@/features/editor/hooks/use-pane-editor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
-// It talks to the daemon and never touches the model text under test.
 vi.mock('@/features/editor/hooks/use-inline-blame', () => ({ useInlineBlame: () => {} }))
 
 const PATH = 'package.json'
@@ -39,7 +38,6 @@ function activate(paneId: string, bufferId: string) {
   act(() => windowPaneStore.getState().paneActions.activateEditorTabInPane(paneId, bufferId))
 }
 
-/** What the pane controller does on a tab switch: show the active buffer's model. */
 function showActive(host: EditorHost, paneId: string) {
   const state = windowPaneStore.getState()
   const id = state.panes[paneId]?.activeEditorTabId

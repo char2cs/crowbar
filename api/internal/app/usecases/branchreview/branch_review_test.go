@@ -36,8 +36,6 @@ func TestBranchReview_Get_MissingWorkspace_IsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrNotFound)
 }
 
-// --- local workspace mock ---
-
 type mockWorkspace struct {
 	GetFn              func(ctx context.Context, id string) (domain.Workspace, error)
 	SetMergeStrategyFn func(ctx context.Context, id string, s gitdomain.MergeStrategy) (domain.Workspace, error)
@@ -142,8 +140,6 @@ func (m *mockWorkspace) ListInRepo(_ context.Context, _, _ string) ([]domain.Wor
 
 var _ workspace.Workspace = (*mockWorkspace)(nil)
 
-// --- local reviewthread mock ---
-
 type mockReviewThread struct {
 	OpenFn            func(ctx context.Context, in reviewthread.OpenInput, now time.Time) (domain.ReviewThread, error)
 	ReplyFn           func(ctx context.Context, in reviewthread.ReplyInput, now time.Time) (domain.ReviewThread, error)
@@ -192,9 +188,8 @@ func (m *mockReviewThread) ListByWorkspace(ctx context.Context, wsID string) ([]
 
 var _ reviewthread.ReviewThread = (*mockReviewThread)(nil)
 
-// mockGitEngine fakes what branchreview calls; the rest of the engine is nil.
 type mockGitEngine struct {
-	gitengine.Engine  // the write verbs, which a review never runs
+	gitengine.Engine
 	RangeDiffFn       func(ctx context.Context, repoPath, base, branch string) (gitdomain.MultiFileDiff, error)
 	DiffAgainstRefFn  func(ctx context.Context, repoPath, ref string) (gitdomain.MultiFileDiff, error)
 	ReviewFilesFn     func(ctx context.Context, repoPath, ref string, dirty []string) ([]gitdomain.ReviewFileSummary, error)
@@ -480,8 +475,6 @@ func (g *mockGitEngine) SetUpstream(ctx context.Context, repoPath, branch string
 
 var _ gitengine.Engine = (*mockGitEngine)(nil)
 
-// --- helpers ---
-
 func fixedNow() time.Time {
 	return time.Unix(1_000_000, 0).UTC()
 }
@@ -508,8 +501,6 @@ func noopThreads() *mockReviewThread {
 		},
 	}
 }
-
-// --- Task 4: BranchReviewUsecase.Get tests ---
 
 func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
 	ctx := context.Background()
@@ -558,8 +549,6 @@ func TestBranchReview_Get_ThreadsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: threads")
 }
-
-// --- Task 5: mutation tests ---
 
 func TestBranchReview_SetMergeStrategy_Delegates(t *testing.T) {
 	ctx := context.Background()
@@ -667,8 +656,6 @@ func TestBranchReview_Reply_MintsMessageID(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, captured.MessageID)
-	// The human/UI path attributes nothing: a person has neither a vendor CLI
-	// behind them nor an originating agent conversation.
 	assert.Empty(t, captured.ProviderID)
 	assert.Empty(t, captured.ChatID)
 	assert.False(t, captured.IsAgent)
@@ -764,8 +751,6 @@ func TestBranchReview_SetThreadResolved_ReopenError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "branch review: reopen")
 }
-
-// --- ForkPointSha fallback and annotateUncommitted tests ---
 
 func (m *mockWorkspace) SetLock(
 	_ context.Context,

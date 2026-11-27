@@ -1,7 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// A fake bridge: each openTerminal is a new view transport the test can drop.
 const bridge = vi.hoisted(() => {
   type Conn = {
     sessionId: string
@@ -18,10 +17,8 @@ const bridge = vi.hoisted(() => {
     listCalls: [] as string[],
     listGate: null as Promise<void> | null,
     createGate: null as Promise<void> | null,
-    // One gate per terminalCreate call, in call order; a call past the list uses createGate.
     createGates: [] as Promise<void>[],
     failList: false,
-    /** What the next failing list throws; a plain error by default. */
     listError: null as unknown,
     refuseOpen: false,
     createError: null as unknown,
@@ -96,7 +93,6 @@ type Props = Parameters<typeof useTerminalAttachment>[0]
 const scope = (projectId: string, wsId: string, owningChatId: string) =>
   recordWorkspaceScope({ projectId, repoId: 'r', wsId, owningChatId })
 
-/** Holds a bridge call until the returned release runs. */
 function hold(install: (gate: Promise<void>) => void): () => void {
   let release = () => {}
   install(new Promise<void>((r) => (release = r)))
@@ -152,7 +148,6 @@ describe('useTerminalAttachment', () => {
     expect(useTerminalStore.getState().getSession('tab-1')?.connectionId).toBe('fresh-1')
   })
 
-  // Which host the chat's terminals live on is workspace-scope-url's to say.
   it('addresses the PTY of an explicit chat under that chat', async () => {
     const { settle } = render({ sessionId: 'pty-1', chatId: 'chat-8', attachOnly: true })
     await settle()
@@ -181,7 +176,6 @@ describe('useTerminalAttachment', () => {
     expect(bridge.created).toBe(0)
   })
 
-  // A tab never spawns a PTY because an existing one exited.
   it('a drop whose session has ended reports it ended and spawns nothing', async () => {
     useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
     const { result, onEnded, settle } = render()
@@ -214,7 +208,7 @@ describe('useTerminalAttachment', () => {
     expect(a.close).toHaveBeenCalled()
     expect(bridge.opened.map((c) => c.sessionId)).toEqual(['pty-A', 'pty-B'])
     expect(result.current.connection).toBe(bridge.opened[1])
-    unmount() // the transport closes; the PTY is left running
+    unmount()
     expect(bridge.opened[1].close).toHaveBeenCalled()
   })
 
@@ -229,8 +223,6 @@ describe('useTerminalAttachment', () => {
     expect(result.current.connection?.sessionId).toBe('pty-C')
   })
 
-  // The daemon made the PTY the moment it answered; forgetting it because the view left
-  // meanwhile would have the next mount make a second and leave this one running unseen.
   it('unmount while the daemon creates the PTY remembers it, so a remount attaches it rather than making another', async () => {
     const created = hold((gate) => (bridge.createGate = gate))
     const first = render()
@@ -240,7 +232,7 @@ describe('useTerminalAttachment', () => {
     created()
     await first.settle()
 
-    bridge.live = [...bridge.live, 'fresh-1'] // the daemon is running the PTY it made
+    bridge.live = [...bridge.live, 'fresh-1']
     const second = render()
     await second.settle()
 
@@ -249,9 +241,6 @@ describe('useTerminalAttachment', () => {
     expect(second.result.current.connection).toBe(bridge.opened[0])
   })
 
-  // Mount, unmount, remount (StrictMode in dev, a quick remount anywhere) while the first
-  // create is in flight: the live attempt answers first, the superseded one last. The
-  // last must not replace the PTY the view shows, or a drop re-attaches to the wrong shell.
   it('a superseded create answering last never replaces the PTY the view is showing', async () => {
     const releases: Array<() => void> = []
     bridge.createGates = [0, 1].map(() => new Promise<void>((r) => releases.push(r)))
@@ -284,7 +273,7 @@ describe('useTerminalAttachment', () => {
     const { result, onEnded, settle } = render()
     await settle()
     expect(bridge.opened).toHaveLength(0)
-    expect(onEnded).not.toHaveBeenCalled() // could not ask ≠ gone
+    expect(onEnded).not.toHaveBeenCalled()
 
     act(() => useConnectionStore.setState({ status: 'connected' }))
     await settle()
@@ -308,8 +297,6 @@ describe('useTerminalAttachment', () => {
   })
 })
 
-// A paired install cold-boots with the project list unloaded: the terminal's
-// host is unknown, so it may not address the daemon (any daemon) until it is.
 describe('on an install that has paired a remote host', () => {
   const REMOTE_TERMINALS = 'crowbar://host-1/v0/chats/chat-r/terminals'
   const LOCAL_TERMINALS = '/v0/chats/chat-l/terminals'
@@ -321,7 +308,6 @@ describe('on an install that has paired a remote host', () => {
     useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
     scope('p-remote', 'ws-remote', 'chat-r')
     scope('p-local', 'ws-local', 'chat-l')
-    // A tab already bound to a PTY, so every attach has to ask the daemon.
     useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-1' })
   })
 
@@ -364,8 +350,6 @@ describe('on an install that has paired a remote host', () => {
     expect(result.current.connection).toBe(bridge.opened[1])
   })
 
-  // One source says a remote host is back: its status. A failed list marks a host still read
-  // as up down, so its next up is the return; channels opening re-attach nothing.
   it('retries a remote terminal when ITS host is up again, and on nothing else', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     getOrCreateHostRuntime('host-1').getState().setStatus('up')
@@ -420,7 +404,6 @@ describe('on an install that has paired a remote host', () => {
     expect(bridge.listCalls).toEqual([REMOTE_TERMINALS])
     expect(bridge.opened).toHaveLength(1)
 
-    // A re-paired host streams its projects again.
     act(() => {
       pairRemoteHost('host-1')
       loadProjects(projectOn('p-remote', 'host-1'))
@@ -445,8 +428,6 @@ describe('on an install that has paired a remote host', () => {
     expect(result.current.connection).toBeNull()
   })
 
-  // A PTY the daemon has made is the tab's, whether or not it could be opened: forgetting
-  // it would have the next attach make a second one and leave the first running unseen.
   it('remembers a PTY created as the host was revoked, and re-attaches it when paired back', async () => {
     loadProjects(projectOn('p-remote', 'host-1'))
     useTerminalStore.setState({ sessions: new Map() })
@@ -461,8 +442,7 @@ describe('on an install that has paired a remote host', () => {
     expect(bridge.opened).toHaveLength(0)
     expect(useTerminalStore.getState().getSession('tab-1')?.connectionId).toBe('fresh-1')
 
-    bridge.live = [...bridge.live, 'fresh-1'] // the daemon is running the PTY it made
-    // A re-paired host streams its projects again.
+    bridge.live = [...bridge.live, 'fresh-1']
     act(() => {
       pairRemoteHost('host-1')
       loadProjects(projectOn('p-remote', 'host-1'))
@@ -474,7 +454,6 @@ describe('on an install that has paired a remote host', () => {
     expect(result.current.connection).toBe(bridge.opened[0])
   })
 
-  // A host's own failure names the host; anything else keeps its old words.
   const unreachable = proxyMarkerError('host-unreachable', 'host-1')
   it.each([
     ['a refused transport', 'ws-remote', 'open', 'Terminal unavailable'],

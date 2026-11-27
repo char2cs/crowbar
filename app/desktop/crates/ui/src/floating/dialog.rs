@@ -1,5 +1,3 @@
-//! Modal application dialog with scrim.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -25,10 +23,6 @@ const VIEWPORT_PADDING: f32 = 16.0;
 const TOP_SHARE: f32 = 1.0;
 const BOTTOM_SHARE: f32 = 3.0;
 
-/// A modal dialog: scrim, header with title and close button, scrolling body and optional footer.
-///
-/// Not deferred: a deferred dialog cannot hold a popover, whose panel defers too. Mount
-/// it as the last child of a full-window layer so it paints over its siblings.
 #[derive(IntoElement)]
 pub struct Dialog {
     id: ElementId,
@@ -60,7 +54,6 @@ pub use dialog_style::DialogStyle;
 pub use header_flow::HeaderFlow;
 
 impl Dialog {
-    /// An empty dialog; render it at the root of the window while it is open.
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
         Self {
@@ -75,7 +68,6 @@ impl Dialog {
         }
     }
 
-    /// Fills `extent` of the window; the body then has no padding and the header no rule.
     #[must_use]
     pub fn flush(
         mut self,
@@ -86,7 +78,6 @@ impl Dialog {
         self
     }
 
-    /// Adds controls right after the title.
     #[must_use]
     pub fn header_actions(
         mut self,
@@ -96,7 +87,6 @@ impl Dialog {
         self
     }
 
-    /// Sets the body content.
     #[must_use]
     pub fn body(
         mut self,
@@ -106,7 +96,6 @@ impl Dialog {
         self
     }
 
-    /// Sets the footer content, right-aligned on a muted strip.
     #[must_use]
     pub fn footer(
         mut self,
@@ -116,7 +105,6 @@ impl Dialog {
         self
     }
 
-    /// Registers the handler for the close button and a press on the scrim.
     #[must_use]
     pub fn on_close(
         mut self,

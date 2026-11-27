@@ -1,7 +1,3 @@
-//! The search index of each page: what a settings search finds a page by. One entry per line:
-//! section, label, description and comma-separated keywords, split by `|`.
-//! Spec: web/src/features/settings/config/search-index.ts.
-
 use crate::schema::SearchEntry;
 
 pub(super) const EDITOR: &str = "\

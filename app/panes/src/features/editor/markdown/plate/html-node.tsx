@@ -6,9 +6,6 @@ import { createPlatePlugin, PlateElement, type PlateElementProps } from 'platejs
 import { handleMarkdownAnchorClick, useLinkWorkspace } from '@/lib/markdown-link'
 import { loadLocalImage, useMarkdownAsset } from './markdown-asset'
 
-// The HTML comes from a file or an agent's message, maybe on another host: beyond scripts, it
-// may not restyle the app around it (style, class), take typing (forms) or carry inline SVG —
-// what README hosts drop too.
 const HTML_BLOCK_POLICY = {
   USE_PROFILES: { html: true },
   FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'option', 'map', 'area'],
@@ -17,16 +14,12 @@ const HTML_BLOCK_POLICY = {
 
 function HtmlElement(props: PlateElementProps) {
   const raw = (props.element as unknown as { html?: string }).html ?? ''
-  // Display-only: serialization keeps the untouched `html` string, so this cannot corrupt the file.
   const clean = DOMPurify.sanitize(raw, HTML_BLOCK_POLICY)
 
   const asset = useMarkdownAsset()
   const linkWorkspace = useLinkWorkspace()
   const ref = useRef<HTMLDivElement>(null)
 
-  // Local `<img src="./logo.png">` refs don't resolve in the webview (its base URL is the dev
-  // server), so after paint each local src is rewritten to a `data:` URL read from the workspace.
-  // Remote and data srcs are left alone; late reads are cancelled.
   useEffect(() => {
     const el = ref.current
     if (!el || !asset) return
@@ -41,9 +34,6 @@ function HtmlElement(props: PlateElementProps) {
     return () => controller.abort()
   }, [clean, asset])
 
-  // A native delegated listener, not onClick: the controls are `<a>`s in HTML we don't own (Enter
-  // on one dispatches a click), so the container takes no role. Every anchor click is cancelled and
-  // routed to the OS browser, since in the Tauri WKWebView it would navigate the whole app.
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -69,7 +59,6 @@ function HtmlElement(props: PlateElementProps) {
   )
 }
 
-/** Void `html` element plugin — registers the node type the markdown rules emit. */
 export const HtmlKit = [
   createPlatePlugin({
     key: 'html',

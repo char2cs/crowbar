@@ -8,8 +8,6 @@ import { shouldScrollScrollback } from '../utils/wheel-routing'
 import { recordInputTape } from '../utils/input-tape'
 import { readTerminalThemePayload } from './use-terminal-theme'
 
-// RIS, xterm's in-band reset. A snapshot goes out as ONE chunk that begins with it: xterm parses
-// a chunk within one task, so no frame can show the reset buffer before the redraw.
 const RIS = new Uint8Array([0x1b, 0x63])
 
 function withReset(data: Uint8Array): Uint8Array {
@@ -20,23 +18,16 @@ function withReset(data: Uint8Array): Uint8Array {
 }
 
 interface UseTerminalConnectionOptions {
-  /** This view's live stream to its PTY (null while (re)attaching). */
   connection: TerminalConnection | null
-  /** True when the PTY was spawned by this attach — gates the initial command. */
   created: boolean
   getTerminalTheme: () => NonNullable<XtermTerminal['options']['theme']>
-  /** Run once, after the fresh shell's first output (its prompt). */
   initialCommand?: string
-  // Fired once when the daemon reports the session's process exited (its exit
-  // frame). The only signal that ends a terminal — see TerminalFrame.
   onTerminalExit?: (sessionId: string) => void
   sessionId: string
   terminal: XtermTerminal | null
   updateSession: (sessionId: string, updates: { title?: string }) => void
 }
 
-/** PTY frames into xterm, input to the PTY, host theme to the daemon. Bound to one connection at a
- *  time; a re-attach hands in a new one and everything re-binds. */
 export function useTerminalConnection({
   connection,
   created,
@@ -49,11 +40,7 @@ export function useTerminalConnection({
 }: UseTerminalConnectionOptions) {
   const connectionRef = useRef(connection)
   const onTerminalExitRef = useRef(onTerminalExit)
-  // Input typed while no connection exists (between a drop and the re-attach)
-  // waits here, in order, and goes out the moment one arrives.
   const pendingInputRef = useRef('')
-  // The connection the initial command already went to: a re-render that re-binds
-  // the same connection must not run it twice.
   const initialCommandSentToRef = useRef<TerminalConnection | null>(null)
   useEffect(() => {
     onTerminalExitRef.current = onTerminalExit
@@ -78,9 +65,6 @@ export function useTerminalConnection({
   useEffect(() => {
     if (!terminal || !connection) return
 
-    // The first frame after an attach is the daemon's redraw of the whole screen:
-    // pin to it and repaint once — WKWebView can leave a freshly written WebGL
-    // canvas blank until something invalidates it.
     let finalizePending = true
     let initialCommandPending =
       Boolean(initialCommand) && created && initialCommandSentToRef.current !== connection
@@ -103,8 +87,6 @@ export function useTerminalConnection({
         return
       }
       if (initialCommandPending) {
-        // The fresh shell is attached and has drawn (its first frame): whatever it
-        // is doing, the PTY holds this input until it reads it.
         initialCommandPending = false
         initialCommandSentToRef.current = connection
         connection.write(`${initialCommand}\n`)
@@ -113,8 +95,6 @@ export function useTerminalConnection({
         writeFrame(frame.data)
         return
       }
-      // A snapshot replaces the screen with the daemon's ground truth. Its reset rides in band,
-      // so the bytes queued before it parse first and the frames after it land on it.
       finalizePending = false
       terminal.write(withReset(frame.data), () => {
         terminal.scrollToBottom()
@@ -124,35 +104,21 @@ export function useTerminalConnection({
 
     const disposables = [
       terminal.onData((data) => {
-        // xterm reports its helper textarea's focus (\x1b[I / \x1b[O) on every pane
-        // switch; a shell at its prompt would echo them as garbage. Real WINDOW
-        // focus is reported below instead.
         if (data === '\x1b[I' || data === '\x1b[O') return
         markStart('terminal.echo')
-        // Keystrokes are forwarded verbatim and never interpreted: whether a typed
-        // "exit" ends anything is up to the program reading it (a shell, ssh, a
-        // REPL, an agent TUI). The daemon's exit frame reports the outcome.
         write(data, 'onData')
       }),
       terminal.onTitleChange((rawTitle) => {
-        // Always write the sanitized result: an empty/rejected title clears any
-        // prior one so the tab falls back to its directory/command label.
         updateSession(sessionId, { title: sanitizeTerminalTitle(rawTitle) })
       }),
     ]
 
-    // The host light/dark theme reaches the daemon on (re)attach — so a freshly
-    // started app queries the right background — and on every switch — so a
-    // DEC-2031-subscribed app re-queries live.
     connection.setTheme(readTerminalThemePayload())
     const unlistenTheme = themeRegistry.onThemeChange(() => {
       terminal.options.theme = getTerminalTheme()
       connection.setTheme(readTerminalThemePayload())
     })
 
-    // Route the wheel by the app's DECLARED mouse-tracking intent (see
-    // shouldScrollScrollback): only Shift+wheel on the primary buffer scrolls our
-    // own scrollback; everything else is xterm's (native scroll, or the app's).
     const wheelContainer = terminal.element?.parentElement
     const handleWheel = (event: WheelEvent) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,7 +131,6 @@ export function useTerminalConnection({
     }
     wheelContainer?.addEventListener('wheel', handleWheel, { capture: true, passive: false })
 
-    // Report WINDOW focus to an app that enabled focus reporting (DECSET ?1004).
     const emitFocusReport = (seq: string) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((terminal as any).modes?.sendFocusMode) write(seq, 'focus-report')

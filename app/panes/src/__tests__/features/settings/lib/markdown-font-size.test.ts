@@ -12,8 +12,6 @@ describe('normalizeMarkdownFontSize', () => {
   })
 
   it('defaults to the size the stylesheet used to hardcode', () => {
-    // `1rem` with no root font-size override — the default must not change what
-    // an existing user sees.
     expect(MARKDOWN_FONT_SIZE_DEFAULT).toBe(16)
   })
 

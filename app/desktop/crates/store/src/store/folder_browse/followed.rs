@@ -1,5 +1,3 @@
-//! The host a picker follows: who it is and how to reach it.
-
 use crate::live::State;
 use crate::reads::{active_project, host_of};
 

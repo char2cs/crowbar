@@ -24,7 +24,6 @@ func (eventEntry) TableName() string {
 	return "events"
 }
 
-// The receipts and deliveries tables are new in v1; events keeps its schema.
 var v1Tables = []string{
 	`CREATE TABLE IF NOT EXISTS receipts (
 		command_id TEXT PRIMARY KEY,
@@ -42,17 +41,12 @@ var v1Tables = []string{
 	)`,
 }
 
-// eventStoreConns lets reads and acks run beside the one open write
-// transaction (WAL admits one writer and many readers).
 const eventStoreConns = 4
 
 type eventStore struct {
 	db *sql.DB
 }
 
-// NewEventStore returns an asynx event store over the SQLite database at path.
-// Write transactions begin IMMEDIATE so two writers queue on the busy timeout
-// instead of failing a lock upgrade.
 func NewEventStore(
 	path string,
 ) (models.Store, error) {
@@ -85,8 +79,6 @@ func NewEventStore(
 	return &eventStore{db: sqlDB}, nil
 }
 
-// OpenReadOnly returns an event store over the existing database at path that
-// only reads: it creates no table, so a retired log stays as its build wrote it.
 func OpenReadOnly(path string) (models.Store, error) {
 	db, err := sql.Open(sqlite.DriverName, storesqlite.ReadOnlyDSN(path))
 	if err != nil {
@@ -101,7 +93,6 @@ func eventStoreDSN(
 	return storesqlite.DSN(path) + "&_pragma=busy_timeout(5000)&_txlock=immediate"
 }
 
-// An in-memory SQLite database belongs to one connection, so it cannot be pooled.
 func maxConns(
 	path string,
 ) int {
@@ -160,8 +151,6 @@ func (s *eventStore) readBlobs(
 	return blobs, nil
 }
 
-// AggregateIDs returns the distinct stream ids that hold at least one event.
-// It backs the read-model reconcile-on-open for stores holding many aggregates.
 func (s *eventStore) AggregateIDs(
 	ctx context.Context,
 ) (ids []string, err error) {
@@ -274,7 +263,6 @@ func (s *eventStore) Atomically(
 	return nil
 }
 
-// Close checkpoints the WAL and releases the file handle.
 func (s *eventStore) Close() error {
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("eventstore: close: %w", err)

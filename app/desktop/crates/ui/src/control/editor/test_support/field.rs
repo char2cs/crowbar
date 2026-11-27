@@ -1,5 +1,3 @@
-//! A focused text field in a test window.
-
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -26,7 +24,6 @@ impl Render for Counted {
     }
 }
 
-/// Installs the theme, motion and text input bindings a field needs.
 pub(crate) fn install(cx: &mut TestAppContext) {
     cx.update(|cx| {
         cx.set_global(Theme::default());
@@ -35,7 +32,6 @@ pub(crate) fn install(cx: &mut TestAppContext) {
     });
 }
 
-/// Opens a window holding a focused [`TextInput`] with the default bindings installed.
 pub(crate) fn field(cx: &mut TestAppContext) -> (Entity<TextInput>, &mut VisualTestContext) {
     install(cx);
     let (input, cx) = cx.add_window_view(|_, cx| TextInput::new("Search", cx));
@@ -43,7 +39,6 @@ pub(crate) fn field(cx: &mut TestAppContext) -> (Entity<TextInput>, &mut VisualT
     (input, cx)
 }
 
-/// Like [`field`], in the active window, with the number of times the window was drawn.
 pub(crate) fn drawn_field(cx: &mut TestAppContext) -> Drawn<'_, TextInput> {
     install(cx);
     let draws = Rc::new(Cell::new(0));
@@ -61,7 +56,6 @@ pub(crate) fn drawn_field(cx: &mut TestAppContext) -> Drawn<'_, TextInput> {
     (input, draws, cx)
 }
 
-/// The text currently in `input`.
 pub(crate) fn text_of(
     input: &Entity<TextInput>,
     cx: &mut VisualTestContext,

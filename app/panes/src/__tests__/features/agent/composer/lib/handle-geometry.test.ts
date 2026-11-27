@@ -24,13 +24,11 @@ describe('handleOffset', () => {
 })
 
 describe('isMultiline', () => {
-  // Fractional font metrics make a bare `> LINE` flicker the radius on one line.
   it('tolerates fractional height on a single line', () => {
     expect(isMultiline(20)).toBe(false)
     expect(isMultiline(24.5)).toBe(false)
   })
 
-  // The rounded rectangle starts the moment the text wraps, so two lines already read as a box.
   it('turns into the rounded rectangle as soon as a second line appears', () => {
     expect(isMultiline(40)).toBe(true)
     expect(isMultiline(60)).toBe(true)

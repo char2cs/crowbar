@@ -6,10 +6,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// OperationKind names the work an operation runs; the set is closed.
 type OperationKind string
 
-// The operation kinds.
 const (
 	OpWorkspaceSync             OperationKind = "workspace.sync"
 	OpWorkspaceMergeIntoParent  OperationKind = "workspace.merge_into_parent"
@@ -28,14 +26,11 @@ const (
 	OpRepoDelete                OperationKind = "repo.delete"
 	OpProjectCreate             OperationKind = "project.create"
 	OpProjectDelete             OperationKind = "project.delete"
-	// OpEntitySave is the daemon giving up on saving an entity's changes.
-	OpEntitySave OperationKind = "entity.save"
+	OpEntitySave                OperationKind = "entity.save"
 )
 
-// OperationState is where an operation is in accepted → running → succeeded | failed.
 type OperationState string
 
-// The operation states.
 const (
 	OpAccepted  OperationState = "accepted"
 	OpRunning   OperationState = "running"
@@ -43,10 +38,8 @@ const (
 	OpFailed    OperationState = "failed"
 )
 
-// EntityKind is the kind of entity an operation names.
 type EntityKind string
 
-// The entity kinds.
 const (
 	EntityProject   EntityKind = "project"
 	EntityRepo      EntityKind = "repo"
@@ -54,13 +47,11 @@ const (
 	EntityChat      EntityKind = "chat"
 )
 
-// EntityRef names one entity.
 type EntityRef struct {
 	Kind EntityKind `json:"kind"`
 	ID   string     `json:"id"`
 }
 
-// OperationItem is one entity an operation creates or changes, with its own outcome.
 type OperationItem struct {
 	Ref   EntityRef        `json:"ref"`
 	Label string           `json:"label"`
@@ -68,7 +59,6 @@ type OperationItem struct {
 	Error *problem.Problem `json:"error,omitempty"`
 }
 
-// Operation is work that outlives its request, and its outcome.
 type Operation struct {
 	ID        string           `json:"id" gorm:"primaryKey"`
 	Kind      OperationKind    `json:"kind"`
@@ -80,7 +70,6 @@ type Operation struct {
 	Error     *problem.Problem `json:"error,omitempty" gorm:"serializer:json"`
 	Dismissed bool             `json:"dismissed"`
 	Version   int              `json:"version"`
-	// The service's clock owns both times; gorm must not stamp its own.
-	CreatedAt time.Time `json:"createdAt" gorm:"autoCreateTime:false"`
-	UpdatedAt time.Time `json:"updatedAt" gorm:"index;autoUpdateTime:false"`
+	CreatedAt time.Time        `json:"createdAt" gorm:"autoCreateTime:false"`
+	UpdatedAt time.Time        `json:"updatedAt" gorm:"index;autoUpdateTime:false"`
 }

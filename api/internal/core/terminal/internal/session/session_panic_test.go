@@ -10,22 +10,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 )
 
-// panicCtl toggles which model-access path panics, so one fake model can drive both the §8.5
-// Resize (mutateModelLocked) and Attach-serialize (serializeLocked) session recover backstops
-// from a single test. The real vtModel recovers Write panics internally, so those session
-// backstops are otherwise unreachable through Session.Resize/Attach.
 type panicCtl struct {
 	resize    atomic.Bool
 	serialize atomic.Bool
 	write     atomic.Bool
 }
 
-// fakeModel is a no-op model.TerminalModel + model.ModelHealth used to exercise the session's
-// parse-health surface and panic isolation. Its Resize panics on demand (the §8.5 Resize
-// path); Write/OnForegroundReset are inert so the live pump never bumps modelPanics on its
-// own and the per-panic count stays exact. degraded/panics seed the ModelHealth read.
 type fakeModel struct {
-	ctl        *panicCtl // nil ⇒ Resize never panics
+	ctl        *panicCtl
 	cols, rows int
 	degraded   bool
 	panics     int
@@ -60,8 +52,6 @@ var (
 	_ model.ModelHealth   = (*fakeModel)(nil)
 )
 
-// panicSerializer panics from Serialize on demand to drive the Attach serializeLocked
-// backstop; otherwise it emits a fixed sentinel redraw.
 type panicSerializer struct{ ctl *panicCtl }
 
 func (s panicSerializer) Serialize(m model.TerminalModel) []byte {
@@ -71,7 +61,6 @@ func (s panicSerializer) Serialize(m model.TerminalModel) []byte {
 	return []byte("REDRAW")
 }
 
-// swapNewModel substitutes the session's model-construction seam for the duration of a test.
 func swapNewModel(
 	t *testing.T,
 	fn func(cols, rows, sb int) (model.TerminalModel, model.Serializer),
@@ -82,11 +71,6 @@ func swapNewModel(
 	t.Cleanup(func() { newModel = orig })
 }
 
-// TestRegression_ModelPanicOnResizeAndAttachStillServes pins §8.5: a panic on the Resize
-// drain (mutateModelLocked) and on the Attach serialize (serializeLocked) is recovered, bumps
-// the session's modelPanics counter (now observable via Health/Stats — §9.4), never closes
-// done, and leaves the session serving the next Attach/Write. Deleting either recover backstop
-// would surface the panic to pump()/the caller and fail this test.
 func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 	ctl := &panicCtl{}
 	swapNewModel(t, func(cols, rows, sb int) (model.TerminalModel, model.Serializer) {
@@ -109,8 +93,6 @@ func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 
 	_, pp0 := s.Health()
 
-	// (1) Resize-drain panic → mutateModelLocked recovers; Resize still returns nil (the
-	// pty.Setsize succeeded), modelPanics bumps, the session stays live.
 	ctl.resize.Store(true)
 	require.NoError(t, s.Resize(100, 40), "Resize must swallow the model panic and return nil")
 	_, pp1 := s.Health()
@@ -118,20 +100,14 @@ func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 	requireOpen("after resize panic")
 	ctl.resize.Store(false)
 
-	// (2) Attach-serialize panic → serializeLocked recovers and yields a nil redraw; Attach
-	// still registers the client and returns its channel, modelPanics bumps again.
 	ctl.serialize.Store(true)
 	ch, err := s.Attach()
 	require.NoError(t, err, "Attach must succeed even when serialize panics")
 	_, pp2 := s.Health()
 	assert.Greater(t, pp2, pp1, "an Attach-serialize panic must bump modelPanics")
 	requireOpen("after attach-serialize panic")
-	// The recovered serialize yields a nil redraw; the client is still registered (live
-	// fan-out continues), so we only assert the session survived, not the exact frames.
 	s.Detach(ch)
 
-	// (3) The session STILL SERVES: a clean attach now yields the sentinel redraw and Write
-	// succeeds.
 	ctl.serialize.Store(false)
 	ch2, err := s.Attach()
 	require.NoError(t, err)
@@ -143,13 +119,7 @@ func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 	requireOpen("after recovery")
 }
 
-// TestSession_HealthSurfacesModelHealth proves Session.Health() threads the optional
-// model.ModelHealth surface through to the engine's Stats observability (§9.4): a degraded
-// model with recovered parse panics is reported as degraded with the panic count, so a
-// blanked-and-reparsed session is no longer invisible to operators.
 func TestSession_HealthSurfacesModelHealth(t *testing.T) {
-	// A bare session (no PTY, no pump): live shell output would drive the emitter over the
-	// fake model and add session-level backstop panics, making the count racy.
 	s := newBareSession("sid-health", "/bin/sh", t.TempDir(), "")
 	s.model = &fakeModel{cols: 80, rows: 24, degraded: true, panics: 3}
 
@@ -158,8 +128,6 @@ func TestSession_HealthSurfacesModelHealth(t *testing.T) {
 	assert.Equal(t, 3, panics, "ModelHealth.ParsePanics() must aggregate into Health()")
 }
 
-// TestSession_HealthCleanModel proves a healthy session reports clean health: not degraded
-// and zero parse panics.
 func TestSession_HealthCleanModel(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-health-clean", dir)
@@ -171,10 +139,6 @@ func TestSession_HealthCleanModel(t *testing.T) {
 	assert.Zero(t, panics, "a healthy session must report zero parse panics")
 }
 
-// TestBackstopPanic_RebuildsModelAndKeyframes pins the §8.5 recovery that replaced the raw
-// fallback: once a backstop catches a model panic, the model is rebuilt at the PTY's size
-// and the NEXT frame every client receives is a keyframe (Snapshot) of the rebuilt model —
-// never raw PTY bytes and never a diff off the corrupt base.
 func TestBackstopPanic_RebuildsModelAndKeyframes(t *testing.T) {
 	s := newBareSession("sid-backstop", "/bin/sh", t.TempDir(), "")
 	m, ser := model.New(80, 24, 200)
@@ -184,7 +148,7 @@ func TestBackstopPanic_RebuildsModelAndKeyframes(t *testing.T) {
 	ch, err := s.Attach()
 	require.NoError(t, err)
 	defer s.Detach(ch)
-	_, ok := waitFrame(t, ch) // the attach snapshot
+	_, ok := waitFrame(t, ch)
 	require.True(t, ok)
 	s.PumpChunkForTest([]byte("BEFORE"))
 	_, ok = waitFrame(t, ch)

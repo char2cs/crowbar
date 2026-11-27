@@ -6,7 +6,6 @@ export type ConsoleMode = 'overlay' | 'push'
 export interface DockPrefs {
   dock: ConsoleDock
   mode: ConsoleMode
-  /** Pixels along the axis facing the app: height for top/bottom, width for left/right. */
   size: number
 }
 

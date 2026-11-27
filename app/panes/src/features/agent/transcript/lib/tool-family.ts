@@ -15,10 +15,8 @@ const KINDS = new Set<string>([
   'meta',
 ])
 
-/** Crowbar's own tools speak through the chat itself, not as rows. */
 const OWN_SERVER = 'crowbar'
 
-/** A tool call's family, from the kind its descriptor mapped; decided once. */
 export function toolFamily(
   body: Pick<ToolCallBody, 'kind' | 'name' | 'mcpServer' | 'addressesScope'>,
 ): ToolFamily {

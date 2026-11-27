@@ -4,10 +4,6 @@ import { useSettingsStore } from '@/features/settings/store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { registerWebview, webviewCreated } from './webview-registry'
 
-/**
- * The tab's webview, made on first call at `rect` and on screen. Undefined while the tab has
- * no page to load; a second call for the same tab returns the first's creation.
- */
 export function ensureWebview(bufferId: string, rect: BrowserRect): Promise<unknown> | undefined {
   const existing = webviewCreated(bufferId)
   if (existing) return existing

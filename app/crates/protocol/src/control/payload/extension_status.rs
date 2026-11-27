@@ -6,7 +6,6 @@ use crate::control::payload::extension_status::status_kind::StatusKind;
 use crate::control::payload::text::display_text::DisplayText;
 use crate::identity::ExtensionId;
 
-/// Payload of an `extension.status` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionStatus {
@@ -17,7 +16,6 @@ pub struct ExtensionStatus {
 }
 
 impl ExtensionStatus {
-    /// The status of `extension_id`, with the reason it is not running if any.
     #[must_use]
     pub fn new(
         extension_id: ExtensionId,
@@ -31,19 +29,16 @@ impl ExtensionStatus {
         }
     }
 
-    /// The extension the status is about.
     #[must_use]
     pub fn extension_id(&self) -> &ExtensionId {
         &self.extension_id
     }
 
-    /// The new status.
     #[must_use]
     pub fn status(&self) -> StatusKind {
         self.status
     }
 
-    /// Why the extension is not running.
     #[must_use]
     pub fn reason(&self) -> Option<&DisplayText> {
         self.reason.as_ref()

@@ -1,5 +1,3 @@
-// Package conflicts detects, parses, and resolves merge conflict markers
-// in a git working tree.
 package conflicts
 
 import (
@@ -16,18 +14,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// gitRunner is the function used to run git commands; overridable in tests.
 var gitRunner = exec.Git
 
-// fileMu is a per-file mutex registry keyed by absolute file path.
-var fileMu sync.Map // map[string]*sync.Mutex
+var fileMu sync.Map
 
 func getFileMutex(absPath string) *sync.Mutex {
 	actual, _ := fileMu.LoadOrStore(absPath, &sync.Mutex{})
 	return actual.(*sync.Mutex)
 }
 
-// ConflictedFiles returns the paths of files that have merge conflicts.
 func ConflictedFiles(
 	ctx context.Context,
 	repoPath string,
@@ -53,7 +48,6 @@ func ConflictedFiles(
 	return paths, nil
 }
 
-// HasConflicts returns true if the repo currently has any unmerged paths.
 func HasConflicts(
 	ctx context.Context,
 	repoPath string,
@@ -65,8 +59,6 @@ func HasConflicts(
 	return strings.TrimSpace(r.Stdout) != "", nil
 }
 
-// ParseFile parses conflict markers in a file and fetches the common ancestor
-// (base) content from the git object store (:1:<path>).
 func ParseFile(
 	ctx context.Context,
 	repoPath string,
@@ -88,7 +80,6 @@ func ParseFile(
 		return nil, nil
 	}
 
-	// Fetch the base (ancestor) content once per file — not once per block.
 	baseContent, fetchErr := fetchBase(ctx, repoPath, filePath)
 	if fetchErr != nil {
 		return nil, fmt.Errorf("conflicts: parse file: fetch base: %w", fetchErr)
@@ -110,9 +101,6 @@ func ParseFile(
 	return hunks, nil
 }
 
-// ResolveHunk writes resolved content to the file, replacing the conflict
-// markers for the given hunk. When no conflict markers remain in the file,
-// it also stages the file via `git add <path>`.
 func ResolveHunk(
 	ctx context.Context,
 	repoPath string,
@@ -127,7 +115,6 @@ func ResolveHunk(
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Stat the file first to preserve its permissions.
 	info, err := os.Stat(absPath)
 	if err != nil {
 		return fmt.Errorf("conflicts: stat %s: %w", filePath, err)
@@ -177,17 +164,13 @@ type conflictBlock struct {
 	theirsRaw string
 }
 
-// blockParser holds parsing state for extractConflictBlocks.
 type blockParser struct {
 	lines []string
 }
 
-// parseBlock processes lines starting at startIdx (the <<<<<<< line) until
-// the matching >>>>>>> is found. It returns the completed block, the index of
-// the line after >>>>>>>, and any error.
 func (bp *blockParser) parseBlock(startIdx int) (conflictBlock, int, error) {
 	lines := bp.lines
-	startLine := startIdx + 1 // 1-based
+	startLine := startIdx + 1
 	var ourLines, baseLines, theirLines []string
 	section := "ours"
 	i := startIdx + 1
@@ -196,7 +179,7 @@ func (bp *blockParser) parseBlock(startIdx int) (conflictBlock, int, error) {
 		line := lines[i]
 
 		if strings.HasPrefix(line, ">>>>>>>") {
-			endLine := i + 1 // 1-based
+			endLine := i + 1
 			b := conflictBlock{
 				startLine: startLine,
 				endLine:   endLine,
@@ -230,7 +213,6 @@ func (bp *blockParser) parseBlock(startIdx int) (conflictBlock, int, error) {
 		i++
 	}
 
-	// Exhausted lines without finding >>>>>>>.
 	return conflictBlock{}, i, fmt.Errorf("conflicts: unclosed conflict marker starting at line %d in file", startLine)
 }
 
@@ -250,15 +232,12 @@ func extractConflictBlocks(
 			return nil, fmt.Errorf("conflicts: extract blocks: %w", err)
 		}
 		blocks = append(blocks, block)
-		i = nextIdx - 1 // -1 because the loop will i++
+		i = nextIdx - 1
 	}
 
 	return blocks, nil
 }
 
-// fetchBase fetches the common ancestor content (:1:<path>) from the git
-// object store. Returns empty string if the file has no base stage (e.g. an
-// add/add conflict).
 func fetchBase(
 	ctx context.Context,
 	repoPath string,
@@ -271,9 +250,6 @@ func fetchBase(
 	return baseResult.Stdout, nil
 }
 
-// conflictHunkID generates a stable ID based on the content of the conflict
-// block rather than its line position, so that edits above the block do not
-// invalidate the ID.
 func conflictHunkID(filePath, oursRaw, theirsRaw string) string {
 	h := sha256.New()
 	h.Write([]byte(filePath))

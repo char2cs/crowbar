@@ -9,28 +9,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the v0 delivery surface: the REST routes and the stream route.
 type Container struct {
-	app *app.Container
-	eng *engine.Container
-	// access opens and closes device connections.
-	access *accesshandlers.Handlers
-	// pairing serves the pairing/client-registry routes (router.go); its
-	// usecase holds the single outstanding pairing code in memory.
+	app     *app.Container
+	eng     *engine.Container
+	access  *accesshandlers.Handlers
 	pairing *pairinghandlers.Handlers
-	// conns holds the streams each paired client opened, for revoke to end.
-	conns *clientConns
-	// logs backs GET /console/logs; nil leaves the route unmounted.
-	logs logring.Ring
+	conns   *clientConns
+	logs    logring.Ring
 }
 
-// Access is the device listener: its state, which a minted pairing code carries
-// (the TLS identity the client checks it dialed), and the switch for it.
 type Access interface {
 	accesshandlers.Access
 }
 
-// New builds the v0 container.
 func New(
 	appContainer *app.Container,
 	engContainer *engine.Container,

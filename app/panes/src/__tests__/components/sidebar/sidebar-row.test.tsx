@@ -41,8 +41,6 @@ const baseRow: SidebarRowType = {
   hasView: false,
 }
 
-/** What deriveRows stamps on the ONE header row per repo — the
- *  field that makes a branch row the repo's project-home row. */
 const headerIcon: NonNullable<SidebarRowType['repoIcon']> = {
   repoId: 'r1',
   projectId: 'p1',
@@ -51,7 +49,6 @@ const headerIcon: NonNullable<SidebarRowType['repoIcon']> = {
   avatarColor: 'bg-indigo-700',
 }
 
-/** A non-home branch row, for the trailing-cluster cases (about the cluster, not the row kind). */
 const deletableRow: SidebarRowType = {
   ...baseRow,
   kind: 'branch',
@@ -66,15 +63,12 @@ describe('SidebarRow', () => {
     expect(screen.getByText('Fix the thing')).toBeInTheDocument()
   })
 
-  // Default (no `hasViewIdle`) is what recents-band.tsx keeps relying on.
   it('a row with a view greys its label by default, focused or not', () => {
     render(<SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} />)
     const label = screen.getByText('Fix the thing')
     expect(label.className).toMatch(/text-muted-foreground|opacity/)
   })
 
-  // A tree row with an open view is active, not disabled: `hasViewIdle` swaps the
-  // muted label for the row's idle ground, as Recents does for a dormant member.
   it('hasViewIdle gives a row with a view the idle ground instead of a greyed label', () => {
     render(
       <SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} hasViewIdle />,
@@ -86,14 +80,11 @@ describe('SidebarRow', () => {
 
   it('hasViewIdle has no effect on a row with no view at all', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} hasViewIdle />)
-    // The persistent token, not ROW_INACTIVE's own plain hover.
     expect(screen.getByRole('treeitem').className.split(/\s+/)).not.toContain(
       'bg-sidebar-element-idle',
     )
   })
 
-  // The glossy top-highlight is reserved for TAB_ACTIVE and a Recents set's hover;
-  // the tree's hover and has-view-idle states never get it.
   it('an ordinary row never carries the CossUI top-highlight, hovered or not', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
     const treeitem = screen.getByRole('treeitem').className
@@ -111,16 +102,12 @@ describe('SidebarRow', () => {
   })
 
   it('a working row shows the spinner glyph, not the static mark', () => {
-    // FlickerSpinner marks itself with `data-flicker-spinner`, as every call site asserts.
     const { container } = render(
       <SidebarRow row={{ ...baseRow, working: true }} depth={0} onOpen={vi.fn()} />,
     )
     expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
   })
 
-  // Fork and Thread are separate buttons, and an ordinary branch gets a trash too.
-  // Cluster order (sidebar-row-actions.tsx): repo-menu, Remove, Thread, Branch,
-  // Dropdown; this row has no repo-menu, so Remove leads.
   it('trailing controls on a branch row are remove, thread, fork, chevron', () => {
     render(
       <SidebarRow
@@ -143,16 +130,12 @@ describe('SidebarRow', () => {
 
   it('no HANDLER-driven trailing controls render when no handler is passed for them', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-    // baseRow's own promote dropdown is driven by its fields; fork/thread/fold
-    // render only when a caller passes a handler.
     const handlerDriven = screen
       .queryAllByRole('button')
       .filter((b) => b.hasAttribute('data-control'))
     expect(handlerDriven).toHaveLength(0)
   })
 
-  // Addendum §1 (revises spec §3.1): Fork and Thread are both always legal
-  // and always rendered — neither depends on `row.ownsWorktree` any more.
   it('the thread control always mints a thread, regardless of ownsWorktree', () => {
     const onCreate = vi.fn()
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />)
@@ -174,15 +157,12 @@ describe('SidebarRow', () => {
     expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
   })
 
-  // A thread is not a branch, so it cannot mint one: Fork never renders on a `chat` row.
   it('never renders Fork on a chat row — a thread cannot have a branch child', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onCreate={vi.fn()} />)
     expect(screen.queryByRole('button', { name: /fork/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
 
-  // A clicked button stays `:focus`, which `group-focus-within` matches, so without a
-  // blur the cluster stayed lit after the pointer left.
   it('the fork/thread/fold buttons blur themselves after firing, so the cluster does not stay stuck open', () => {
     render(
       <SidebarRow
@@ -202,7 +182,6 @@ describe('SidebarRow', () => {
     }
   })
 
-  // The thread's own title becomes the branch-name input: the row is not replaced by another.
   it("Make this thread a branch turns the row's title into the branch-name input", () => {
     const onOpen = vi.fn()
     render(<SidebarRow row={{ ...baseRow, canBranchOut: true }} depth={0} onOpen={onOpen} />)
@@ -224,7 +203,6 @@ describe('SidebarRow', () => {
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
 
-  // The repo header is identified by its repo icon, not by sitting at the root.
   it('a project-home row (branch carrying repoIcon) gets the 20px glyph exception', () => {
     const { container } = render(
       <SidebarRow
@@ -242,8 +220,6 @@ describe('SidebarRow', () => {
     expect(container.querySelector('.size-5')).toBeInTheDocument()
   })
 
-  // Recents renders rows with `parentId: null`; `inlineRenameDisabled` marks that
-  // mirror, so it must not wear the repo header's glyph exception.
   it('a branch row does NOT get the project-home treatment when it is a Recents mirror (inlineRenameDisabled)', () => {
     const { container } = render(
       <SidebarRow
@@ -263,7 +239,6 @@ describe('SidebarRow', () => {
     expect(container.querySelector('.size-4')).toBeInTheDocument()
   })
 
-  // The project-home row's glyph is the repo's editable icon once `repoIcon` has seeded.
   describe('project-home row icon', () => {
     const repoIcon = {
       repoId: 'r1',
@@ -283,8 +258,6 @@ describe('SidebarRow', () => {
     it('draws the repo mark instead of the static GitBranch glyph once repoIcon has seeded', () => {
       const { container } = render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
       expect(screen.getByRole('button', { name: /edit crowbar icon/i })).toBeInTheDocument()
-      // The letter tile — RepoIconMark's own default, drawn as the popover's
-      // trigger content, in place of the plain GitBranch mark.
       expect(container.textContent).toContain('C')
     })
 
@@ -311,8 +284,6 @@ describe('SidebarRow', () => {
     })
   })
 
-  // A locked branch draws the Lock glyph; `row.locked` is the signal, since every
-  // workspace-owning row is id'd by its owning chat now.
   describe('locked branch glyph', () => {
     function iconMarkup(el: React.ReactElement): string {
       const { container, unmount } = render(el)
@@ -370,8 +341,6 @@ describe('SidebarRow', () => {
     })
   })
 
-  // A placeholder workspace draws `WorkspaceBranchIcon`'s state on the row itself,
-  // or the setup-failure toast has nothing on the row to explain it.
   describe('workspace status glyph', () => {
     function iconMarkup(el: React.ReactElement): string {
       const { container, unmount } = render(el)
@@ -392,8 +361,6 @@ describe('SidebarRow', () => {
         locked: true,
         status: 'locked',
         isPlaceholder: true,
-        // A repo's own checkout of its default branch is `isPlaceholder` too and
-        // must not draw this (views.test.ts).
         needsProvisioning: true,
       }
       const html = iconMarkup(<SidebarRow row={placeholderRow} depth={0} onOpen={vi.fn()} />)
@@ -450,7 +417,6 @@ describe('SidebarRow', () => {
       expect(html).toBe(expected)
     })
 
-    // A row whose Workspace has not landed carries no `status`: plain fallback glyph.
     it('falls back to the plain GitBranch glyph with no status to delegate on', () => {
       const noStatusRow: SidebarRowType = {
         ...baseRow,
@@ -468,7 +434,6 @@ describe('SidebarRow', () => {
     })
   })
 
-  // The folder glyph follows fold state, open versus closed.
   describe('folder open/closed glyph', () => {
     function iconMarkup(el: React.ReactElement): string {
       const { container, unmount } = render(el)
@@ -495,8 +460,6 @@ describe('SidebarRow', () => {
     })
   })
 
-  // An unlocked worktree-owning branch row draws its branch name and change
-  // counts on a muted second line under the chat-titled label.
   describe('branch row second line', () => {
     const forkRow: SidebarRowType = {
       ...baseRow,
@@ -565,13 +528,10 @@ describe('SidebarRow', () => {
     })
   })
 
-  // Forking is a git operation, so the fork button draws the GitBranch mark.
   it('the fork control draws a GitBranch glyph, not the old "+"', () => {
     render(<SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onCreate={vi.fn()} />)
     const fork = screen.getByRole('button', { name: /fork/i })
     expect(fork.querySelector('svg')).toBeInTheDocument()
-    // The old "+" was a hand-rolled two-stroke path; GitBranch is Phosphor's
-    // own multi-element mark, which never collapses to that exact shape.
     expect(fork.innerHTML).not.toContain('M8 3v10M3 8h10')
   })
 
@@ -591,15 +551,11 @@ describe('SidebarRow', () => {
     expect(onOpen).toHaveBeenCalledWith('row-1')
   })
 
-  // A delegated dblclick listener (sidebar-tree-chrome.tsx) renames; the row only
-  // marks the label span so a double-click there differs from one on its controls.
   it('the label span carries the delegation marker double-click-to-rename targets', () => {
     render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
     expect(screen.getByText('Fix the thing')).toHaveAttribute('data-sidebar-row-label')
   })
 
-  // Every row that owns something carries a trash, except a locked branch (which
-  // cannot be removed) and the project-home row (which gets its repo menu instead).
   it('the remove control renders on chat, folder, and an ordinary branch — never a locked branch or the project home', () => {
     const shown: SidebarRowType[] = [
       baseRow,
@@ -640,8 +596,6 @@ describe('SidebarRow', () => {
     }
   })
 
-  // Recents' "end this view" control closes a VIEW, never the chat, and takes a
-  // caller-supplied label.
   describe('onClose (the non-destructive "end this view" control)', () => {
     it('renders nothing when onClose is not supplied', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
@@ -678,8 +632,6 @@ describe('SidebarRow', () => {
       expect(document.querySelector('[data-control="close"]')).toBeInTheDocument()
     })
 
-    // On the inverted TAB_ACTIVE ground the trailing buttons need the same
-    // contrast treatment as the label, or they are unreadable.
     it('re-keys its color onto the inverted pair when painted on an activeGround', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} activeGround />)
       const close = screen.getByRole('button', { name: `Close ${baseRow.label}` })
@@ -740,8 +692,6 @@ describe('SidebarRow', () => {
       )
       expect(document.querySelector('[data-control="repo-menu"]')).not.toBeInTheDocument()
     })
-
-    // The menu itself is row-context-menu.test.tsx's; this row renders only the trigger.
   })
 
   it('a chat row shows remove, thread, and fold — never fork', () => {
@@ -763,8 +713,6 @@ describe('SidebarRow', () => {
     ])
   })
 
-  // A folder carries Fork and Thread itself, with its parent's logic: under a real
-  // repo both (Fork gated by `ownsWorktree`), never Fork alone.
   it('a folder that owns a worktree shows Thread AND Fork on its own row', () => {
     render(
       <SidebarRow
@@ -779,7 +727,6 @@ describe('SidebarRow', () => {
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fork', 'fold'])
   })
 
-  // A project-home folder owns no worktree, so no Fork; Thread still, as for a home chat.
   it('a folder that owns no worktree shows Thread but not Fork', () => {
     render(
       <SidebarRow
@@ -794,7 +741,6 @@ describe('SidebarRow', () => {
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fold'])
   })
 
-  // A chat dropped into another workspace mid-turn stays put until the turn ends, and says so.
   describe('a chat waiting to move', () => {
     it('says where it moves after this turn, under its title', () => {
       writeChat({ id: 'row-1', pendingMove: { requestId: 'm1', label: 'feature-b' } })
@@ -810,8 +756,6 @@ describe('SidebarRow', () => {
     })
   })
 
-  // Double-click renames inline, driven by `sidebar-inline-rename.ts`'s store;
-  // `startRenaming` checks the DOM, so each test starts after the row mounts.
   describe('inline rename', () => {
     it('renders the real, focused input in place of the label when this row is the one renaming', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
@@ -885,8 +829,6 @@ describe('SidebarRow', () => {
       expect(screen.getByRole('textbox')).toHaveClass('font-mono')
     })
 
-    // A live chat renders twice (tree and Recents): only the tree instance may edit,
-    // or the second editor's focus steals and blur-commits the first.
     it('a second same-id instance (Recents mirroring a live pane) does not steal focus and cancel the tree row rename', () => {
       render(
         <>
@@ -909,8 +851,6 @@ describe('SidebarRow', () => {
       expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
     })
 
-    // Renaming a Recents row edits in place there, not on a tree copy that may be
-    // scrolled out of view.
     it('scrolls the editor into view so a rename started from the Recents copy is not invisible', () => {
       const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
       try {
@@ -934,8 +874,6 @@ describe('SidebarRow', () => {
       }
     })
 
-    // With no tree copy mounted (its ancestor collapsed), the Recents instance is
-    // the only one and draws the editor.
     it('a Recents-only row (its tree copy is not mounted at all) renames itself', () => {
       render(
         <SidebarRow
@@ -957,8 +895,6 @@ describe('SidebarRow', () => {
   })
 })
 
-// The phone's one row scale: every kind of row at the same height, title size and glyph box,
-// with one secondary size and one indent step.
 describe('a row drawn at a given scale', () => {
   const metrics = TOUCH_ROW_METRICS
   const atScale = (row: ReactElement) =>
@@ -1009,7 +945,6 @@ describe('a row drawn at a given scale', () => {
     expect(glyph.style.height).toBe(`${metrics.glyph}px`)
   })
 
-  // No hover on a phone: the disclosure is always there, and it alone folds the row.
   describe('a foldable row', () => {
     const folder: SidebarRowType = { ...baseRow, id: 'f', kind: 'folder', label: 'Specs' }
     const renderFolder = (folded: boolean) => {

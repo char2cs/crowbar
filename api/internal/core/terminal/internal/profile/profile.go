@@ -1,4 +1,3 @@
-// Package profile resolves PTY launch parameters from a TerminalProfile.
 package profile
 
 import (
@@ -7,16 +6,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Resolved holds the computed PTY launch parameters.
 type Resolved struct {
 	Shell   string
 	CWD     string
 	Startup []string
 }
 
-// Resolve derives shell, working directory, and startup commands from p.
-// Shell fallback: $SHELL env var → /bin/sh.
-// CWD fallback: workspaceDir.
 func Resolve(
 	p *domain.TerminalProfile,
 	workspaceDir string,

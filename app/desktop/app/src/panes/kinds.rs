@@ -1,5 +1,3 @@
-//! The core pane types, their specs and how panes are opened and numbered.
-
 pub(crate) mod chat_label;
 pub(crate) mod core_panes;
 mod core_type;

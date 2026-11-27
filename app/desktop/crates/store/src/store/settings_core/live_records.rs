@@ -1,5 +1,3 @@
-//! The Active sessions and Hosts lists, read from what the streams hold.
-
 use daemonapi::Switch;
 use settings::{Confirm, Line, Record, RecordAction, Tone};
 use sidebar::{HostState, HostTone};

@@ -6,7 +6,6 @@ vi.mock('@/lib/api/documents', async (importOriginal) => ({
   readDocument,
   readDocumentFromDisk: async (ref: unknown) => (await readDocument(ref).catch(() => null))?.text,
 }))
-// Counts Monaco loads; the host itself is the real one.
 const { loadEditorHost } = vi.hoisted(() => ({ loadEditorHost: vi.fn() }))
 vi.mock('@/features/editor/host/editor-host', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/editor/host/editor-host')>()
@@ -50,14 +49,12 @@ const UNTITLED = workspaceRef('ws-restore', 'untitled:Untitled')
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
 
-/** Another opener's work: the document's model, holding a watch of its own. */
 async function openElsewhere(ref: typeof NOTES, text: string) {
   const unwatch = await followHostDocument(ref)
   ;(await documentModelOpener())(ref, text)
   releaseWithDocument(documentUri(ref), unwatch)
 }
 
-/** A buffer the saved layout brought back: a tab, and no document yet. */
 function restoredTab(doc: DocumentRef, opts: { isVirtual?: boolean } = {}): string {
   return windowPaneStore.getState().bufferActions.openContent({
     type: 'editor',

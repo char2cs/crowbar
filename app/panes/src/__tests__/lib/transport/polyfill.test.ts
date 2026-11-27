@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 
-// The polyfill runs once at import and reads VITE_API_URL, so each test owns the
-// env it imports under: the result must not depend on the shell that ran vitest.
 async function loadPolyfill(apiUrl: string | undefined) {
   vi.stubEnv('VITE_API_URL', apiUrl)
   vi.resetModules()

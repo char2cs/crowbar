@@ -12,15 +12,9 @@ import {
 import { forgetEntities } from '@/core/entities/entity-store'
 import { resetChatStore, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 
-// Mock the IDB-backed persistence so a real destroyWorkspaceStore call (which
-// dynamically imports window-pane-store.ts for its buffer-scoped teardown)
-// doesn't need a real IndexedDB write path.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-// Fake Monaco adapters so armEditor() (dynamically imported by both
-// WorkspaceStore itself and destroyWorkspaceStore's teardown) never touches
-// real monaco-editor — same fakes editor-pane-workspace-scope.test.tsx uses.
 vi.mock('@/features/editor/lib/monaco-adapters', () => ({
   EDITOR_CREATE_OPTIONS: {},
   langForUri: () => 'plaintext',

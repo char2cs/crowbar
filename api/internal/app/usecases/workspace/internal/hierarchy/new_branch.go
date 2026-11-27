@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// CheckNewBranch refuses a name a new branch cut under parentID could not take: one git
-// rejects, one the repo already has (locally or on origin), or one a workspace holds.
-// "" passes, since the create then generates a free name.
 func (u *hierarchyUsecase) CheckNewBranch(ctx context.Context, parentID, branch string) error {
 	if branch == "" {
 		return nil

@@ -1,5 +1,3 @@
-//! Showing a changed file in a review pane that is already open.
-
 use layout::Command;
 use protocol::{PaneId, PaneState, ShellFrame};
 use serde_json::json;

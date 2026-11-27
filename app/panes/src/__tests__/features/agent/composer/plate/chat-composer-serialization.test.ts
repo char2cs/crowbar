@@ -6,11 +6,8 @@ import {
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { promptCases, sameText } from '@/__tests__/__fixtures__/composer-prompts'
 
-/** A paragraph, as the editor holds it — a round trip cannot express one that
-    still carries the whitespace the parser strips. */
 const p = (text: string) => ({ type: 'p', children: [{ text }] })
 
-/** What the box holds after someone types `text` and stops. */
 function typed(text: string) {
   return chatValueToMarkdown(chatMarkdownToValue(text))
 }
@@ -23,8 +20,6 @@ describe('the chat composer codec', () => {
     expect(typed('> quoted')).toBe('> quoted')
   })
 
-  // remark-stringify preserves outer whitespace by escaping it, so a trailing space would reach
-  // the model as `&#x20;`.
   it('never encodes trailing whitespace into the prompt', () => {
     expect(typed('what were we talking about? ')).toBe('what were we talking about?')
     expect(typed('name this chat please. ')).toBe('name this chat please.')
@@ -32,8 +27,6 @@ describe('the chat composer codec', () => {
     expect(typed('trailing newline\n')).toBe('trailing newline')
   })
 
-  // The escape is per LINE, so trimming the finished string is not enough: a Shift+Enter prompt
-  // would ship as `hello&#x20;\n\nworld`.
   describe('whitespace at the edge of an interior line', () => {
     const held = {
       'a paragraph that trails, then another': [p('hello '), p('world')],
@@ -57,9 +50,6 @@ describe('the chat composer codec', () => {
     })
   })
 
-  // An empty document normalizes to one empty paragraph, which the codec serializes as a lone
-  // U+200B; `.trim()` keeps it (Cf, not whitespace), so a box that looks empty must not count as
-  // a real character for `isPromptTextWithinLimit`.
   describe('a document with nothing actually typed in it', () => {
     it('serializes a single empty paragraph to the empty string, not U+200B', () => {
       expect(chatValueToMarkdown([p('')] as Value)).toBe('')
@@ -78,22 +68,17 @@ describe('the chat composer codec', () => {
     })
   })
 
-  // The draft, stash, queue and history store this markdown and re-parse it.
   for (const [name, value] of promptCases) {
     it(`reads a draft back unchanged: ${name}`, () => {
       expect(sameText(chatMarkdownToValue(chatValueToMarkdown(value)))).toEqual(sameText(value))
     })
   }
 
-  // A code line's indentation IS the program. It is the one place the encoder
-  // never runs and the one place trimming would corrupt the prompt.
   it('keeps the indentation inside a fenced block', () => {
     const out = chatValueToMarkdown(chatMarkdownToValue('```go\nif x {\n  return y\n}\n```'))
     expect(out).toContain('\n  return y')
   })
 
-  // A table pasted into the box has to reach the agent as a table: an
-  // unregistered node is dropped by @platejs/markdown, silently.
   it('keeps a pasted table rather than dropping it', () => {
     const table = '| a | b |\n| --- | --- |\n| 1 | 2 |'
     const out = typed(table)

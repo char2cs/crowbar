@@ -77,7 +77,6 @@ func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
 	assert.Equal(t, termwait.DefaultInterval, 2*time.Second)
 }
 
-// §6a: with no live runner the sweep parks after one pass; a runner recorded live wakes it.
 func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r := newRigEvery(t, time.Millisecond)

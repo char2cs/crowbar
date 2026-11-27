@@ -1,5 +1,3 @@
-//! Everything the shell holds of one host.
-
 use std::collections::BTreeMap;
 
 use crate::live::held::entities::Entities;

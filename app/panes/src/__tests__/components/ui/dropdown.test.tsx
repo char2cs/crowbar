@@ -20,7 +20,6 @@ function Harness() {
 }
 
 describe('Dropdown', () => {
-  // A keyboard user who backs out with Esc carries on from where they opened it.
   it('Esc closes it and hands focus back to its trigger', async () => {
     const user = userEvent.setup()
     render(<Harness />)

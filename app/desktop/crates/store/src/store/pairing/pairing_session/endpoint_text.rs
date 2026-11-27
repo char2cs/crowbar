@@ -1,5 +1,3 @@
-//! The one `host:port` an address is probed, paired, saved and compared as, however it was typed.
-
 mod error;
 mod host_port;
 mod ipv6_form;

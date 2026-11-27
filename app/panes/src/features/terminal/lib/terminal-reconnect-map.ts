@@ -1,8 +1,5 @@
 import { readLocal, writeLocal } from '@/lib/local-storage'
 
-// Backstop mapping of frontend tab id -> daemon connectionId, per workspace.
-// In-memory useTerminalStore is the primary holder across a workspace switch;
-// this localStorage mirror survives a webview reload while the daemon stays up.
 const keyFor = (workspaceId: string) => `crowbar:terminal-reconnect:${workspaceId}`
 
 function read(workspaceId: string): Record<string, string> {

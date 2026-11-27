@@ -1,5 +1,3 @@
-//! In-memory frame sinks and websocket pairs for the bridge's unit tests.
-
 use std::sync::Mutex;
 
 use tokio::io::{duplex, DuplexStream};

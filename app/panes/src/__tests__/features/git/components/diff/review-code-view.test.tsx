@@ -15,28 +15,7 @@ import type { GitDiff } from '@/features/git/types/git-types'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
-/** Generous upper bound on a rendered row's height, for reservation maths. */
 const ROW_HEIGHT_UPPER_BOUND = 64
-
-/**
- * Task B of the windowed Branch Review renderer
- * (docs/superpowers/plans/2026-07-27-diff-perf-phase-3-renderer.md).
- *
- * The surface under test reserves scroll space for EVERY changed file from the
- * outline's hunk geometry, then holds the patch text of only the handful near
- * the viewport. So the assertions here are about what is *not* fetched as much
- * as what is.
- *
- * Two traps this file is written around, both paid for already:
- *
- *  - jsdom has no layout, so a virtualised surface measures 0×0 and renders
- *    nothing. The `getBoundingClientRect` stub below (same pattern as
- *    changed-files-tree.scale.test.tsx) is what makes the window real.
- *  - the file header renders almost immediately and SURVIVES a broken render,
- *    so waiting on non-empty shadow text passes against a component that
- *    rendered no code at all. Every render assertion here blocks on a CODE
- *    marker that only exists inside a real patch body.
- */
 
 const mocks = vi.hoisted(() => ({
   getReviewPatch: vi.fn(),
@@ -46,8 +25,6 @@ vi.mock('@/features/git/api/review-window-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/git/api/review-window-api')>()
   return { ...actual, getReviewPatch: mocks.getReviewPatch }
 })
-
-// ── jsdom geometry ──────────────────────────────────────────────────
 
 const VIEWPORT_WIDTH = 900
 const VIEWPORT_HEIGHT = 800
@@ -78,11 +55,8 @@ afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
 })
 
-// ── Fixtures ────────────────────────────────────────────────────────
-
 const pathOf = (i: number) => `src/pkg/file${i}.ts`
 
-/** A marker that exists ONLY inside a patch body, never in a file header. */
 const markerOf = (i: number) => `crowbarMarker${i}`
 
 function patchFor(path: string): string {
@@ -127,11 +101,6 @@ function manyFiles(count: number): { files: GitDiff[]; outline: FileOutline[] } 
   }
 }
 
-/**
- * Render the surface inside a workspace store, which is where the review pane
- * always lives — the image viewer's shared header reads the active buffer from
- * it to implement its close button.
- */
 function renderSurface(files: GitDiff[], outline: FileOutline[]) {
   const store = createWorkspaceStore('ws-1')
   const view = render(
@@ -141,7 +110,6 @@ function renderSurface(files: GitDiff[], outline: FileOutline[]) {
   )
   return {
     ...view,
-    /** Re-render as a refreshed summary would, without remounting the surface. */
     update(nextFiles: GitDiff[], nextOutline: FileOutline[]) {
       view.rerender(
         <WorkspaceStoreContext.Provider value={store}>
@@ -152,14 +120,12 @@ function renderSurface(files: GitDiff[], outline: FileOutline[]) {
   }
 }
 
-/** Text of every rendered diff's shadow root, joined. */
 function shadowText(container: HTMLElement): string {
   return [...container.querySelectorAll('diffs-container')]
     .map((host) => (host as HTMLElement).shadowRoot?.textContent ?? '')
     .join('\n')
 }
 
-/** Block until a CODE marker reaches the DOM — never merely until text exists. */
 async function waitForCode(container: HTMLElement, marker: string): Promise<void> {
   await waitFor(() => {
     expect(shadowText(container), `code rows for ${marker} have not rendered`).toContain(marker)
@@ -176,19 +142,10 @@ function scrollerOf(container: HTMLElement): HTMLElement {
   return root!
 }
 
-/**
- * Total scroll space the surface has reserved, in pixels.
- *
- * CodeView sizes its own scaffold element to the summed height of every item,
- * so this is the one honest read of "did the file reserve the right space" —
- * the file header's ± counts are cached by the library and do not refresh.
- */
 function reservedHeight(container: HTMLElement): number {
   const scaffold = scrollerOf(container).firstElementChild as HTMLElement | null
   return Number.parseFloat(scaffold?.style.height || '0')
 }
-
-// ── Pure geometry ───────────────────────────────────────────────────
 
 describe('partitionReviewFiles', () => {
   it('produces exactly one entry per file, in the summary order', () => {
@@ -226,15 +183,11 @@ describe('buildPlaceholderFileDiff', () => {
 
     expect(fileDiff.additionLines).toEqual([])
     expect(fileDiff.deletionLines).toEqual([])
-    // @@ -1,3 +1,3 @@ with ±1 is 2 context rows + 1 removal + 1 addition.
     expect(fileDiff.unifiedLineCount).toBe(4)
     expect(fileDiff.splitLineCount).toBe(3)
   })
 
   it('tops a PARTIAL file up from the summary counts, since its outline is a lower bound', () => {
-    // The server caps the outline at 1000 hunks per file, so a partial file's
-    // hunks describe only the beginning of the diff. Sizing from them alone
-    // under-reserves scroll space by however much the cap cut.
     const file: GitDiff = { ...textFile(0), additions: 40_000, deletions: 20_000 }
     const capped: FileOutline = { ...textOutline(0), isPartial: true }
 
@@ -242,19 +195,10 @@ describe('buildPlaceholderFileDiff', () => {
     const complete = buildPlaceholderFileDiff(file, { ...capped, isPartial: false })
 
     expect(partial.unifiedLineCount).toBeGreaterThan(complete.unifiedLineCount)
-    // ...but never beyond what the capped patch will actually deliver.
-    //
-    // Topping up to the full ± counts (60,000 rows here) was the original
-    // behaviour and it was the bug: the patch is capped at PATCH_LINE_CAP, so
-    // materialising collapsed the item by the difference, shoved everything
-    // below it upwards, and left the viewport pointing at an unrelated file.
-    // A placeholder must reserve what will ARRIVE.
     expect(partial.unifiedLineCount).toBeLessThanOrEqual(PATCH_LINE_CAP)
   })
 
   it("reserves the capped height but still reports the file's TRUE ± counts", () => {
-    // The ± label sums addition/deletion lines while the height comes from unifiedLineCount:
-    // capping the height must not shrink the ± a reader uses to tell a huge file from a small one.
     const monster: GitDiff = { ...textFile(0), additions: 420_000, deletions: 0 }
     const oneHugeHunk: FileOutline = {
       ...textOutline(0),
@@ -281,8 +225,6 @@ describe('tokenisation caps', () => {
   })
 })
 
-// ── The surface ─────────────────────────────────────────────────────
-
 describe('ReviewCodeView windowing', () => {
   it('renders the head of the diff and fetches only the files near it', async () => {
     const { files, outline } = manyFiles(60)
@@ -292,23 +234,10 @@ describe('ReviewCodeView windowing', () => {
 
     const fetched = fetchedPaths()
     expect(fetched).toContain(pathOf(0))
-    // The tail of a 60-file review is nowhere near the viewport.
     expect(fetched).not.toContain(pathOf(59))
     expect(new Set(fetched).size).toBeLessThan(files.length)
   })
 
-  // Scroll-driven windowing is NOT asserted at this level, deliberately.
-  //
-  // The visible band comes from the renderer's own getRenderedItems(), which is
-  // the only source that cannot disagree with what is on screen. jsdom's
-  // renderer does not re-window on a simulated scroll, so that set never
-  // changes here and any "scrolling fetches new files" assertion would be
-  // testing the stub, not the component.
-  //
-  // Where it IS covered: planWindow's band/eviction/budget logic in
-  // patch-window.test.ts (pure, exhaustive), and live verification — on a
-  // 406-file / 1M-line review, jumping the scrollbar fetches the file on
-  // screen first and RSS stays flat at ~728MB across the whole branch.
   it('materialises the files in view on first paint, and only those', async () => {
     const { files, outline } = manyFiles(200)
     const { container } = renderSurface(files, outline)
@@ -317,24 +246,17 @@ describe('ReviewCodeView windowing', () => {
 
     const fetched = fetchedPaths()
     expect(fetched).toContain(pathOf(0))
-    // Bounded: a 200-file review does not fetch 200 patches to paint.
     expect(fetched.length).toBeLessThan(60)
   })
 
   it('re-reserves space when a refreshed summary resizes a file still on placeholder', async () => {
-    // The summary refetches on every git-status tick, so a file can grow while
-    // the pane is open. Only its placeholder carries the reserved height, and
-    // the file list is unchanged — so there is no remount to rebuild it.
     const { files, outline } = manyFiles(3)
     mocks.getReviewPatch.mockImplementation(async (_wsId: string, path: string) => {
-      // File 0 never resolves, so it stays on its placeholder — which is
-      // exactly the case under test.
       if (path === pathOf(0)) return new Promise<never>(() => {})
       return { patch: patchFor(path), truncated: false }
     })
 
     const { container, update } = renderSurface(files, outline)
-    // A sibling file's code proves the surface really rendered.
     await waitForCode(container, markerOf(1))
     const before = reservedHeight(container)
     expect(before).toBeGreaterThan(0)
@@ -346,18 +268,13 @@ describe('ReviewCodeView windowing', () => {
       ),
     )
 
-    // 4 reserved rows became 400, at the library's 20px default row height.
     await waitFor(() => {
       expect(reservedHeight(container) - before).toBeGreaterThan(396 * 20 * 0.9)
     })
   })
 
   it('reserves MORE scroll space for a partial file than its outline alone describes', async () => {
-    // The rendered counterpart of the buildPlaceholderFileDiff unit above: it
-    // proves the topped-up geometry actually reaches the virtualiser, rather
-    // than merely being computed and dropped.
     const file: GitDiff = { ...textFile(0), additions: 40_000, deletions: 20_000 }
-    // Never resolves: the assertion must be about the PLACEHOLDER's reservation.
     mocks.getReviewPatch.mockImplementation(async () => new Promise<never>(() => {}))
 
     const complete = renderSurface([file], [textOutline(0)])
@@ -367,35 +284,16 @@ describe('ReviewCodeView windowing', () => {
       expect(reservedHeight(complete.container)).toBeGreaterThan(0)
       expect(reservedHeight(partial.container)).toBeGreaterThan(0)
     })
-    // More than the outline alone describes, and bounded by the cap — the
-    // rendered counterpart of the unit assertion above.
     expect(reservedHeight(partial.container)).toBeGreaterThan(reservedHeight(complete.container))
     expect(reservedHeight(partial.container)).toBeLessThanOrEqual(
       PATCH_LINE_CAP * ROW_HEIGHT_UPPER_BOUND,
     )
   })
-
-  // Eviction semantics are NOT asserted here, deliberately.
-  //
-  // They belong to planWindow, which is pure and covered exhaustively in
-  // patch-window.test.ts — including the eviction band, the budgets, and the
-  // hysteresis that stops a boundary file thrashing. At this level the band
-  // comes from the renderer, and jsdom's renderer does not window the way a
-  // real one does: it reports far more items as rendered than a viewport
-  // holds, so a jsdom "scroll away" never actually takes a file out of range.
-  // A test asserting eviction here would be asserting a jsdom artefact.
-  //
-  // The real behaviour is verified live instead: scrolling a 406-file /
-  // 1M-line review end to end held webview RSS flat at ~728MB and it fell to
-  // 634MB at the far end, which is eviction doing its job.
 })
 
 describe('ReviewCodeView truncated patches', () => {
   const MONSTER = 'dist/bundle.js'
 
-  // The fixture's monster file is a SINGLE 420k-line hunk: under the server's
-  // default cap NOTHING fits, so the response is a header-only patch. It must
-  // read as "show all", never as an empty file.
   const HEADER_ONLY = `diff --git a/${MONSTER} b/${MONSTER}
 index 1111111..2222222 100644
 --- a/${MONSTER}
@@ -445,8 +343,6 @@ index 1111111..2222222 100644
     const { container } = renderSurface(files, outline)
 
     const showAll = await screen.findByRole('button', { name: /show all/i })
-    // Nothing of the file's body arrived — that is exactly the case that must
-    // not read as "this file has no changes".
     expect(shadowText(container)).not.toContain('crowbarMonsterMarker')
 
     fireEvent.click(showAll)
@@ -474,8 +370,6 @@ describe('ReviewCodeView failed patches', () => {
     const { container } = renderSurface(files, outline)
 
     const retry = await screen.findByRole('button', { name: /retry/i })
-    // A retry must not escalate to the uncapped read; that would answer a
-    // failed fetch of an ordinary file with the most expensive request there is.
     fireEvent.click(retry)
 
     await waitForCode(container, markerOf(0))
@@ -526,15 +420,12 @@ describe('ReviewCodeView binary files', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /assets\/logo\.png/i }))
 
-    // ImageDiffViewer labels each side of a modified image; the blob we gave it
-    // is the new one, so its <img> is what proves the viewer actually mounted.
     const image = await screen.findByAltText(/^assets\/logo\.png/)
     expect(image).toHaveAttribute('src', expect.stringContaining('aGVsbG8='))
   })
 })
 
 describe('ReviewCodeView scroll retention', () => {
-  // A tab switch unmounts this surface; the scroll offset must survive the remount.
   it('restores the scroll offset when the tab is switched away and back', () => {
     const { files, outline } = manyFiles(5)
 

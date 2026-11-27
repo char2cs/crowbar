@@ -1,5 +1,3 @@
-//! The rows the Files panel keeps once the file-tree settings have spoken.
-
 mod hidden_pattern;
 
 use crate::explorer::file_filter::hidden_pattern::matches;
@@ -71,8 +69,6 @@ fn keep(
 }
 
 impl FileTreeView {
-    /// The rows these settings keep, in order; a hidden folder hides its children too.
-    /// With git status off, every status but ignored is shown as clean.
     pub fn visible(
         &self,
         rows: Vec<FileRow>,

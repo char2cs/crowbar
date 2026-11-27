@@ -1,5 +1,3 @@
-//! The pop-up window of one owner window: the layers it shows, and following the owner.
-
 use std::collections::BTreeMap;
 
 use gpui::{AnyWindowHandle, Context, EntityId, Subscription, Window};

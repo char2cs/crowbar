@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { HostStatusDot, HostStatusIcon } from '@/features/hosts/components/host-status-icon'
 
 describe('HostStatusIcon', () => {
-  // One tone per state, said in words too: a host that can't be reached is red, not grey.
   it.each([
     ['up', 'online', 'Online'],
     ['no-live-stream', 'online', 'Online — no live stream'],
@@ -21,7 +20,6 @@ describe('HostStatusIcon', () => {
     expect(dot).toHaveAttribute('title', words)
   })
 
-  // Where the host runs is told by its record, not drawn the same for all: this machine, or a cloud.
   it('draws this machine for the local host and a cloud for a paired one', () => {
     const { container, rerender } = render(<HostStatusIcon hostId="local" state="up" />)
     expect(container.querySelector('svg')).toHaveAttribute('data-host-place', 'local')
@@ -30,14 +28,12 @@ describe('HostStatusIcon', () => {
     expect(container.querySelector('svg')).toHaveAttribute('data-host-place', 'remote')
   })
 
-  // The computer is decoration: the dot on its corner is the one thing read out.
   it('is read as its dot alone', () => {
     render(<HostStatusIcon hostId="h1" state="down" />)
 
     expect(screen.getAllByRole('img')).toEqual([screen.getByTestId('host-status-h1')])
   })
 
-  // Inside a control that has its own tooltip, a second native one would stack on top of it.
   it('can leave its dot without a native tooltip, still named in words', () => {
     render(<HostStatusIcon hostId="h1" state="down" showTitle={false} />)
 
@@ -46,7 +42,6 @@ describe('HostStatusIcon', () => {
 })
 
 describe('HostStatusDot', () => {
-  // The icon draws this same dot: a state can't read one way on a computer and another on a mark.
   it.each([
     ['up', 'online'],
     ['down', 'offline'],
@@ -66,7 +61,6 @@ describe('HostStatusDot', () => {
     expect(screen.getByTestId('host-status-h2')).toHaveAttribute('data-host-tone', tone)
   })
 
-  // Where the surface's own label says the state, the dot is not read out a second time.
   it('is silent unless labelled', () => {
     render(
       <HostStatusDot hostId="h1" state="down">

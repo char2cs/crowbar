@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decodeFrame, FrameError } from '@/core/stream/frames'
 
-// Copied from api/internal/domain/stream/testdata/frames.json, the daemon's golden file.
 const golden = [
   { t: 'ready', epoch: 'e1' },
   { t: 'entity', scope: 'projects', kind: 'operation', id: 'op1', v: 7, data: { id: 'op1' } },

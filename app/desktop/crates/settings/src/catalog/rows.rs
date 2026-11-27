@@ -1,5 +1,3 @@
-//! Short constructors for the rows of the built-in pages.
-
 pub(super) mod number_setting;
 
 use crate::schema::Control;

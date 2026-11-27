@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// errInner is a fake inner store that always errors.
 type errInner struct{ err error }
 
 func (e *errInner) Save(_ context.Context, _ reviewThreadRow) error { return e.err }
@@ -23,7 +22,6 @@ func (e *errInner) FindByKey(_ context.Context, _ string) (*reviewThreadRow, err
 }
 func (e *errInner) FindAll(_ context.Context) ([]reviewThreadRow, error) { return nil, e.err }
 
-// badDataInner returns a row with corrupt JSON data.
 type badDataInner struct{}
 
 func (b *badDataInner) Save(_ context.Context, _ reviewThreadRow) error { return nil }
@@ -119,11 +117,6 @@ func TestStorage_Save_InnerError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// legacyThreadJSON is a read_review_threads row exactly as it was written before
-// agent attribution existed — an agent message with no providerId and no chatId,
-// which is what every row in every existing install holds. The blob is
-// hand-written rather than produced by marshalling the current struct, because
-// marshalling today's type can never reproduce yesterday's bytes.
 const legacyThreadJSON = `{
 	"id":"t1",
 	"wsId":"w1",
@@ -151,11 +144,6 @@ func (legacyInner) FindAll(_ context.Context) ([]reviewThreadRow, error) {
 	return []reviewThreadRow{{ID: "t1", Data: []byte(legacyThreadJSON)}}, nil
 }
 
-// TestStorage_PreAttributionRowLoadsCleanly is the no-migration guard. Review
-// threads are persisted as opaque JSON blobs, so ProviderID and ChatID were
-// added without any schema change — which is only safe if a row written before
-// they existed still loads, with the whole thread intact and the two new fields
-// simply empty. That is the common case forever, not an edge case.
 func TestStorage_PreAttributionRowLoadsCleanly(t *testing.T) {
 	ctx := context.Background()
 	st := &storageStore{inner: legacyInner{}}
@@ -178,8 +166,6 @@ func TestStorage_PreAttributionRowLoadsCleanly(t *testing.T) {
 	assert.Empty(t, all[0].Messages[0].ProviderID)
 }
 
-// TestStorage_AttributionSurvivesTheBlob is the write half: a thread saved with
-// attribution reads back carrying it, through the same JSON column.
 func TestStorage_AttributionSurvivesTheBlob(t *testing.T) {
 	ctx, st := newStorage(t)
 	require.NoError(t, st.Save(ctx, domain.ReviewThread{

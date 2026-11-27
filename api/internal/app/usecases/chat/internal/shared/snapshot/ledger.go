@@ -9,20 +9,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// LedgerFacts are the ledger-derived parts of a chat snapshot.
 type LedgerFacts struct {
 	Conversations []ledger.Conversation
-	// Current is each provider's conversation now; it changes only with Conversations.
-	Current map[string]ledger.Conversation
-	// LastExit is how the chat's last runner ended; nil while one is live.
-	LastExit *ledger.RunnerExit
-	// Busy is whether the chat is working: ledger.State.Busy.
-	Busy bool
-	// PendingMove is the move waiting for the chat's turn boundary, nil when none.
-	PendingMove *ledger.Move
+	Current       map[string]ledger.Conversation
+	LastExit      *ledger.RunnerExit
+	Busy          bool
+	PendingMove   *ledger.Move
 }
 
-// FactsOf is what a ledger State contributes to its chat's snapshot.
 func FactsOf(st ledger.State) LedgerFacts {
 	facts := LedgerFacts{Conversations: st.Conversations(), Current: map[string]ledger.Conversation{}, Busy: st.Busy()}
 	for _, c := range facts.Conversations {
@@ -39,9 +33,6 @@ func FactsOf(st ledger.State) LedgerFacts {
 	return facts
 }
 
-// ApplyLedger installs facts from the chat's ledger writer and, when moved or the facts changed, bumps
-// the version and emits a frame. It runs under that writer, so it never reads the ledger itself. It
-// reports whether Busy flipped, and the chat's workspace.
 func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts LedgerFacts, moved bool) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,8 +50,6 @@ func (s *Snapshots) ApplyLedger(ctx context.Context, chatID string, facts Ledger
 	return flipped, st.chat.WorkspaceID
 }
 
-// Conversation is the chat's conversation with its current provider: the live
-// runner's, else the chat's own.
 func (snap Snapshot) Conversation() (ledger.Conversation, bool) {
 	provider := snap.Chat.ProviderID
 	if snap.Live != nil {
@@ -70,9 +59,6 @@ func (snap Snapshot) Conversation() (ledger.Conversation, bool) {
 	return c, ok
 }
 
-// preloadLedger fills the facts of every chat in chatIDs that has none under
-// the chat's ledger writer, so no publication lands between read and install.
-// One chat's unreadable rows fail only that chat's facts, never the read.
 func (s *Snapshots) preloadLedger(ctx context.Context, chatIDs []string) error {
 	s.mu.Lock()
 	reader := s.reader
@@ -93,8 +79,6 @@ func (s *Snapshots) preloadLedger(ctx context.Context, chatIDs []string) error {
 			return nil
 		})
 		if errors.Is(err, ledger.ErrUnreadableRow) {
-			// Its rows fail the same way every time: the chat is answered without
-			// ledger facts, held so it is read and logged once, and its feed refuses.
 			slog.ErrorContext(ctx, "agent: chat snapshot: ledger unreadable", "chat_id", chatID, "err", err)
 			s.installFacts(chatID, LedgerFacts{})
 			continue

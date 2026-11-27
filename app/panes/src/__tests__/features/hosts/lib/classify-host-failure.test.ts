@@ -10,7 +10,6 @@ describe('classifyHostFailure', () => {
       new ApiError('x', 502, 'host_identity_changed'),
       'needs-repair',
     ],
-    // A revoked or unknown token: no retry fixes it, only pairing again.
     ['the host refused the token (401)', new ApiError('unauthorized', 401), 'needs-repair'],
     ['the host failed (500)', new ApiError('boom', 500), 'down'],
     ['the route is missing (404)', new ApiError('not found', 404), 'down'],

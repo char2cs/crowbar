@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import type { NewThreadInput } from '@/features/git/hooks/use-review-thread-actions'
 
-/** Anchored to no file or line: it belongs to the branch as a whole. */
 const GENERAL_THREAD: Omit<NewThreadInput, 'body'> = {
   filePath: '',
   line: 0,
@@ -28,7 +27,6 @@ export function ReviewGeneralComposer({ postThread, error }: ReviewGeneralCompos
     setPosting(true)
     try {
       const posted = await postThread({ ...GENERAL_THREAD, body: trimmed })
-      // A failed post keeps the text: the user cannot see why it failed.
       if (posted) setBody('')
     } finally {
       setPosting(false)

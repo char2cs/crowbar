@@ -1,5 +1,3 @@
-//! The chats tree turned into sidebar rows: emitter, look, project, pending, scope items, workspace view, repo marks and the row of a view tab's chat.
-
 pub(crate) mod chat_member;
 mod emitter;
 mod forest;

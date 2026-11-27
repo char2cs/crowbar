@@ -1,5 +1,3 @@
-//! The entity an operation names.
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]

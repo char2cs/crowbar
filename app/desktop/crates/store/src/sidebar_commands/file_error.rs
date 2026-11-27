@@ -1,39 +1,27 @@
-//! Why an action on the workspace's files failed.
-
 use std::path::PathBuf;
 
 use crate::error::Error;
 
-/// Why an action on the workspace's files failed; its text is fit to show.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum FileError {
-    /// The daemon refused or could not be asked.
     #[error("{}", .0.reason())]
     Daemon(#[from] Error),
-    /// A local file could not be read.
     #[error("{}: {source}", .path.display())]
     Local {
-        /// The file.
         path: PathBuf,
-        /// The cause.
         #[source]
         source: std::io::Error,
     },
-    /// A local path has no file name to copy under.
     #[error("{} has no file name", .0.display())]
     NoFileName(PathBuf),
-    /// The reading task ended before it answered.
     #[error("reading the file was interrupted: {0}")]
     Interrupted(#[from] tokio::task::JoinError),
-    /// The template would overwrite the file it is made from.
     #[error("{0} is the file the template is made from")]
     TemplateOfItself(String),
 }
 
 impl FileError {
-    /// The daemon's HTTP status and problem code when it refused the action; `(0, None)` when
-    /// it could not be asked or the failure was not the daemon's.
     #[must_use]
     pub fn refusal(&self) -> (u16, Option<&str>) {
         match self {

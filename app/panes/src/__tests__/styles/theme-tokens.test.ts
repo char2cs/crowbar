@@ -4,16 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { cssColorToHex, readSyntaxPalette } from '@/features/editor/theme/resolve-css-color'
 
-// NOTE: vite statically rewrites `new URL('<literal>', import.meta.url)` into its
-// asset-URL helper, which under jsdom resolves to a `http://localhost/...` URL and
-// makes fileURLToPath throw "The URL must be of scheme file". Derive the directory
-// from import.meta.url first (not asset-rewritten), then join — same on-disk read.
 const css = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../styles/theme.css'),
   'utf8',
 )
 
-// The renderers' token list is read through the palette reader, which keys on it.
 const SYNTAX_TOKEN_KEYS = (() => {
   const style = { getPropertyValue: () => '#ffffff' } as unknown as CSSStyleDeclaration
   const spy = vi.spyOn(window, 'getComputedStyle').mockReturnValue(style)
@@ -40,23 +35,12 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-// Match the `.dark` selector at a line start, not the bare text: a comment mentioning it would
-// otherwise truncate the light block.
 const DARK_BLOCK_START = css.search(/^\.dark\s*\{/m)
 
-/**
- * Pull the dark-block value of a CSS var (last definition wins for the dark theme).
- * Follows ONE hop of `var(--syntax-*)` self-aliasing (e.g. `--syntax-markdown-heading:
- * var(--syntax-function)`) so a dedicated hue that intentionally reuses another
- * dedicated hue's color in dark mode resolves to that hue's own literal value —
- * its contrast is independently verified under its own key, so this is resolving
- * to a value this same test already checks, not skipping a check.
- */
 function darkValue(name: string): string | null {
   const darkBlock = css.slice(DARK_BLOCK_START)
   const matches = [...darkBlock.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
   if (matches.length === 0) {
-    // bound aliases live only in :root — resolve one hop for known aliases below
     return null
   }
   const raw = matches[matches.length - 1][1].trim()
@@ -67,7 +51,6 @@ function darkValue(name: string): string | null {
   return raw
 }
 
-/** Pull the :root-block value of a CSS var (last definition wins before the dark theme). */
 function lightValue(name: string): string | null {
   const rootBlock = css.slice(0, DARK_BLOCK_START)
   const matches = [...rootBlock.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
@@ -77,10 +60,6 @@ function lightValue(name: string): string | null {
   return matches[matches.length - 1][1].trim()
 }
 
-// Bound/aliased tokens intentionally inherit shadcn semantics (muted-foreground /
-// destructive) and are defined only in :root, so they have no dark-block hex to test.
-// Everything else is a dedicated hue and MUST clear AA — derive from the shared key
-// list so a newly added hue is covered automatically (the whole point of this guard).
 const BOUND = new Set([
   'comment',
   'variable',
@@ -118,7 +97,6 @@ describe('theme.css syntax tokens', () => {
   })
 
   it('light dedicated syntax hues clear WCAG AA against light --background', () => {
-    // --background in :root is var(--color-white) == #fff
     const bg = '#ffffff'
     for (const key of dedicated) {
       const raw = lightValue(`--syntax-${key}`)
@@ -134,7 +112,6 @@ describe('theme.css syntax tokens', () => {
 })
 
 describe('theme.css destructive fill', () => {
-  // A destructive button draws white on it in light and --destructive-foreground in dark.
   it('carries its button text at WCAG AA in both themes', () => {
     const light = contrast(
       '#ffffff',

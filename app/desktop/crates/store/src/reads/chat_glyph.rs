@@ -1,5 +1,3 @@
-//! The provider mark a chat shows at rest.
-
 use crate::live::State;
 
 pub(crate) fn of(

@@ -2,10 +2,6 @@ use crate::error::Result;
 use crate::pane_host::PaneHost;
 
 impl PaneHost {
-    /// Destroys every web view and returns once the platform has, so a window can close after it.
-    ///
-    /// # Errors
-    /// The platform's error when it has stopped or does not answer in time.
     pub fn close_web_views(&mut self) -> Result<()> {
         self.panes.clear();
         self.pool.clear();

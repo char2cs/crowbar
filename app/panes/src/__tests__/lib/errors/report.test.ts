@@ -6,13 +6,10 @@ import { OperationFailedError } from '@/lib/errors/operation-failed'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 import { toastManager } from '@/lib/toast-manager'
 
-/** What report() shows for a client bug. */
 const UNEXPLAINED = 'Something went wrong — details are in the log'
 
 vi.mock('@/lib/toast-manager', () => ({ toastManager: { add: vi.fn() } }))
 
-// Most cases reach report() as an unhandled rejection, the route
-// installGlobalReporting gives it.
 const target = new EventTarget() as Window
 let dispose: () => void
 

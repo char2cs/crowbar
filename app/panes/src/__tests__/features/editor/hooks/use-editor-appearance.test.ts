@@ -36,7 +36,6 @@ describe('useEditorOptions', () => {
     expect(updateOptions).toHaveBeenCalledWith(expect.objectContaining({ fontSize: 13 }))
   })
 
-  // Under 16px iOS zooms the page into any field that takes focus, Monaco's input included.
   it('never goes under 16px on the phone', () => {
     platform.mobile = true
     useSettingsStore.setState((s) => {

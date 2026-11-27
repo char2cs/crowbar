@@ -1,11 +1,3 @@
-/**
- * The sidebar-OPEN branch windows the toast list. base-ui inserts newest-first,
- * so a plain `slice(0, 3)` keeps the three NEWEST and silently discards the rest.
- * ConnectionIndicator raises its "Backend unavailable" toast with `duration: 0`
- * (timeout 0 — removable only by a reconnect), so an outage that also produces
- * three failure toasts pushed the one toast that says WHY off the screen, with
- * nothing left to bring it back.
- */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SidebarToastOverlay } from '@/components/layout/sidebar-toast-overlay'

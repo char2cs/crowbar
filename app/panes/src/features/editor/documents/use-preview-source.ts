@@ -8,15 +8,11 @@ import { documentRefOf, documentUri, refFromUri } from './document-ref'
 import { useDocumentText } from './use-document-text'
 
 export interface PreviewSource {
-  /** A buffer is shown at all. */
   shown: boolean
   doc: DocumentRef | null
-  /** The open document's live text, so the preview follows unsaved edits; else the preview's snapshot. */
   content: string
 }
 
-/** The document a preview renders: `bufferId`'s (a split shows previews in inactive panes), else
- *  the active pane's buffer. A preview buffer names its source; an editor buffer is its own. */
 export function usePreviewSource(bufferId?: string): PreviewSource {
   const { shown, uri, snapshot } = useStore(
     windowPaneStore,

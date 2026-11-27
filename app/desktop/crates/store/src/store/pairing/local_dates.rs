@@ -1,8 +1,5 @@
-//! The daemon's RFC 3339 times as develop shows them, in this computer's time zone.
-
 use chrono::{DateTime, Local, TimeZone};
 
-// SPEC: https://pkg.go.dev/time#Time.IsZero the daemon writes a time that never happened as year 1.
 const FIRST_YEAR: i32 = 1;
 
 fn parsed<Z: TimeZone>(

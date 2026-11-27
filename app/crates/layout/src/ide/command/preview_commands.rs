@@ -7,7 +7,6 @@ use crate::layout::Layout;
 use crate::layout::command::Command;
 
 impl PaneGroup {
-    /// The editor tab opened as a preview, which develop writes in italics until it is kept.
     #[must_use]
     pub fn preview(&self) -> Option<&PaneId> {
         self.preview.as_ref()

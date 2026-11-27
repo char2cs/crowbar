@@ -10,7 +10,6 @@ import {
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { repoMembers, type LegacyHome } from './legacy-tree-index'
 
-/** The newest failure among the ids a row names (its workspace, its owning chat). */
 export type ProblemLookup = (...entityIds: string[]) => Problem | null
 const NO_PROBLEMS: ProblemLookup = () => null
 
@@ -18,14 +17,11 @@ interface ChatView {
   label: string
   labelProvisional: boolean
   createdAt?: string
-  /** The workspace it runs in, when it names one. */
   workspaceId?: string
-  /** A workspace this chat owns whose record has not arrived: the chat is that workspace's row. */
   ownedWorkspaceId?: string
 }
 
 interface WorkspaceView {
-  /** Its owning chat's id when it has one, else the workspace id. */
   rowId: string
   label: string
   labelProvisional: boolean
@@ -35,7 +31,6 @@ interface WorkspaceView {
 }
 
 interface RepoView {
-  /** Its home checkout's owning chat; null while the repo has no home checkout. */
   rowId: string | null
   workspaceId: string | null
   label: string
@@ -47,14 +42,12 @@ interface RepoView {
   repoIcon?: SidebarRow['repoIcon']
 }
 
-/** The fields a row shows, by entity id. */
 export interface RowViews {
   chat(id: string): ChatView | undefined
   workspace(id: string): WorkspaceView | undefined
   repo(id: string): RepoView | undefined
 }
 
-// The daemon's placeholder name for a branch nobody has named yet (`chat-` + 8 hex).
 const GENERATED_BRANCH_NAME = /^chat-[0-9a-f]{8}$/
 
 function isProvisionalBranchName(branch: string | undefined): boolean {
@@ -79,7 +72,6 @@ function workspaceView(
   problemOf: ProblemLookup,
 ): WorkspaceView {
   const rowId = ownerId ?? ws.id
-  // A locked branch is labelled by its branch; an owned one by its chat, once that has seeded.
   const byChat = ownerTitle !== undefined && ws.status !== 'locked'
   return {
     rowId,
@@ -102,7 +94,6 @@ function repoView(repo: Repo, chats: readonly Chat[]): RepoView {
     branchName: repo.defaultBranch,
     locked: repo.defaultWorkspaceStatus === 'locked',
     status: repo.defaultWorkspaceStatus,
-    // Its icon route needs both ids, so a repo whose project has not seeded draws the plain glyph.
     repoIcon: repo.projectId
       ? {
           repoId: repo.id,
@@ -116,7 +107,6 @@ function repoView(repo: Repo, chats: readonly Chat[]): RepoView {
   }
 }
 
-/** Every row's fields for one project, from today's sidebar and home-tree stores. */
 export function viewsFromStores(
   repos: readonly Repo[],
   home: LegacyHome | null,

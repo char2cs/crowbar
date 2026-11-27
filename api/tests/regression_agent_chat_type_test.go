@@ -14,19 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestRegression_RepoChatsListCarriesNonChatRowType pins the two facts Task 1
-// of the 2026-09-01 owning-chat-backfill plan exists to close: ListChatsInRepo
-// does not exclude a row by its Type (its only type-based exclusion is
-// ChatTypeFolder), and AgentChatDTO carries the row's own Type onto the wire —
-// so a client can tell a non-default-typed row apart from an ordinary chat
-// within the same list response.
-//
-// ChatTypeWorkflow stands in for the non-default type under test — a
-// forward-compat marker with no v0 writer, but still one of the two types
-// validChatType accepts (2026-09-08 sidebar-placement-unification Task 9
-// narrowed that set to exclude ChatTypeBranch, this test's original stand-in:
-// a workspace's own position is a Node{Kind:workspace} row now, never a
-// retyped Chat, so nothing can mint one to seed here any more).
 func TestRegression_RepoChatsListCarriesNonChatRowType(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)

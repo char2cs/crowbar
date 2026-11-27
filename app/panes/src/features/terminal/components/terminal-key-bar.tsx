@@ -21,14 +21,11 @@ const ARROWS = [
   { Icon: ArrowRightIcon, name: 'Arrow right', bytes: '\x1b[C' },
 ] as const
 
-/** ^A..^Z and the ^[ ^\ ^] ^^ ^_ punctuation: the character's code with bit 6 cleared. */
 function ctrlChord(char: string): string | null {
   const code = char.toUpperCase().charCodeAt(0)
   return code >= 64 && code <= 95 ? String.fromCharCode(code - 64) : null
 }
 
-/** The keys a phone keyboard lacks (Esc, Tab, Ctrl, arrows) and a line field to type into,
- *  for the phone's terminal screen. `onSend` gets the bytes as the PTY should read them. */
 export function TerminalKeyBar({ onSend }: { onSend: (bytes: string) => void }) {
   const [line, setLine] = useState('')
   const [ctrl, setCtrl] = useState(false)

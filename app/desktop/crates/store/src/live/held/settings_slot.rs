@@ -1,5 +1,3 @@
-//! The shell settings once they have opened, for readers built before that.
-
 use std::sync::{Arc, OnceLock};
 
 use settings::{Key, Value};

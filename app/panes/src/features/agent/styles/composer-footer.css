@@ -1,6 +1,3 @@
-/* ── the row under the pill ────────────────────────────── */
-/* Never wraps: a wrapped `.right` (compaction label, context pill) lands at or past the
-   dock's bottom edge at narrow widths. `.right` holds the row; `.left` shrinks and clips. */
 .agent-chat .underbar {
   display: flex;
   flex-wrap: nowrap;
@@ -19,23 +16,15 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
-  /* Never break "NN% context" mid-word — a group that doesn't
-     fit moves to the next line whole, it doesn't fold in place. */
   white-space: nowrap;
 }
-/* `.left` gives: it already shrinks (`min-width: 0`), and clipping its overflow keeps a wide
-   cluster from pushing `.right` or growing the row. */
 .agent-chat .underbar .left {
   overflow: hidden;
 }
-/* `.right` keeps its natural width and never shrinks or wraps; the margin pins it right. */
 .agent-chat .underbar .right {
   flex: none;
   margin-left: auto;
 }
-/* Only in the underbar does the identity cluster compete for its row, so here it shrinks and
-   wraps internally: the view switcher (last, least essential) drops a line instead of the
-   cluster spilling past the dock. Elsewhere `.selpos` stays `flex: none`. */
 .agent-chat .underbar .selpos {
   flex: 1 1 auto;
   min-width: 0;
@@ -43,9 +32,6 @@
   row-gap: 4px;
 }
 
-/* The selection cluster: model, effort and the view switcher read as ONE
-   control group, which is why they sit closer to each other (2px) than the
-   group does to anything else in the row (10px). */
 .agent-chat-pane .selpos {
   position: relative;
   display: flex;
@@ -53,8 +39,6 @@
   gap: 2px;
   flex: none;
 }
-/* The underbar's chip. Lower contrast than a Button by design: this row reports what the chat IS,
-   so only the model's name is in the foreground colour. */
 .agent-chat-pane .chip {
   display: inline-flex;
   align-items: center;
@@ -83,8 +67,6 @@
   cursor: default;
 }
 
-/* The context pill at the right end of the line: a conic ring and the percentage. At 85% the ring
-   turns to the warning colour. A plain span reports; a button opens the Compact menu. */
 .agent-chat .ctx-pill {
   display: inline-flex;
   align-items: center;
@@ -135,9 +117,6 @@
   font-weight: 600;
   color: var(--primary);
 }
-/* The switch sits centred BETWEEN the model chip and the context pill: `space-between` splits the
-   free room into two equal gaps, so a wide chip pushes it right instead of leaving it off-centre.
-   The chip side shrinks and clips before the switch or the pill do. */
 .agent-chat .underbar[data-touch] > .mid {
   display: flex;
   flex: none;
@@ -146,11 +125,8 @@
 .agent-chat .underbar[data-touch] > .right {
   margin-left: 0;
 }
-/* 32pt to the eye, 44pt to the finger; the sliding indicator is as round as the pill. */
 .viewswitch [data-slot='segmented-control-indicator'] {
   border-radius: 9999px;
-  /* An equal 2px inset on every side, from the list's own box: the Tabs vertical variables put
-     the indicator off-centre once the segments carry hit-area pseudo-elements. */
   top: 2px;
   bottom: auto;
   height: calc(100% - 4px);
@@ -164,7 +140,6 @@
   position: absolute;
   inset: -8px 0;
 }
-/* The phone's footer is a row of 44px targets: the model chip at the left, the pill at the right. */
 .agent-chat .underbar[data-touch] {
   min-height: 44px;
   font-size: 13px;
@@ -177,7 +152,6 @@
   border-radius: 9999px;
   font-size: 13px;
 }
-/* 32px to the eye like the context pill, 44pt to the finger. */
 .agent-chat .underbar[data-touch] .chip::after {
   content: '';
   position: absolute;
@@ -194,7 +168,6 @@
   font-size: 13px;
   gap: 7px;
 }
-/* 44pt to the finger, 32pt to the eye. */
 .agent-chat .underbar[data-touch] button.ctx-pill {
   position: relative;
 }

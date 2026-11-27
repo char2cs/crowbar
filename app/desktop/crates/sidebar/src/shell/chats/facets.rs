@@ -1,5 +1,3 @@
-//! What a chats row carries: activity, presence, titling, nesting, expansion, lock, worktree, workspace and operation.
-
 mod activity;
 mod expansion;
 mod lock;

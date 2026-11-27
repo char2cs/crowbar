@@ -1,6 +1,3 @@
-//! GTK's settings: the caret blink `WebKitGTK` pages blink at too, and the colour scheme GTK's
-//! menus, dialogs and choosers draw in.
-
 use std::sync::Arc;
 use std::time::Duration;
 

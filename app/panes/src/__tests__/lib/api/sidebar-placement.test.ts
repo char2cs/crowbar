@@ -26,8 +26,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// Folders are served via `.../chats/folders`; Create/Patch/Delete answer `{folder, shifted}` /
-// `{shifted}` as title-named rows, reshaped here into FolderDTOs.
 describe('createFolder', () => {
   it('POSTs .../chats/folders and reshapes {folder, shifted} into FolderDTOs', async () => {
     fetchMock.mockResolvedValue(
@@ -81,9 +79,6 @@ describe('placeFolder', () => {
     expect(folder.name).toBe('Renamed')
   })
 
-  // A locked branch shares the folder's level; the daemon reports it among
-  // `shifted` as the branch row it draws as (its workspace id). It is never a
-  // folder — routed to `shiftedRows`, so no ghost folder is ever applied.
   it('splits a shifted locked-branch sibling out of the folder rows', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
@@ -116,8 +111,6 @@ describe('deleteFolder', () => {
     ])
   })
 
-  // A promoted child can be a chat: it is never answered as a folder, or it would land as a ghost
-  // folder entity under the chat's id.
   it('answers only the promoted folders, never a promoted chat', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
@@ -138,8 +131,6 @@ describe('deleteFolder', () => {
   })
 })
 
-// A locked branch's row is addressed by the workspace (`PATCH .../workspaces/:wsId/placement`),
-// never its owning chat, so no owningChatId need be recorded — only the project/repo scope.
 describe('placeWorkspace', () => {
   beforeEach(() => {
     useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
@@ -157,8 +148,6 @@ describe('placeWorkspace', () => {
     expect(init.method).toBe('PATCH')
   })
 
-  // The moved row's decided placement and every shifted sibling are the only confirmation a branch
-  // drag gets (no workspace frame carries a placement).
   it('answers the moved row and the shifted siblings, never void', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
@@ -179,8 +168,6 @@ describe('placeWorkspace', () => {
     expect((await placeWorkspace('ws-1', { order: 0 })).shifted).toEqual([])
   })
 
-  // A folder and a locked branch's own row share ONE sibling space within
-  // the branch's own repo, so the route names the destination `parentId`.
   it('sends the folder as parentId, the field the placement route reads', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 
@@ -190,8 +177,6 @@ describe('placeWorkspace', () => {
     expect(JSON.parse(init.body as string)).toEqual({ parentId: 'f-rev', order: 2 })
   })
 
-  // Both fields are "leave it as it is" when omitted. Sending an explicit
-  // null/undefined would re-root the row.
   it('omits a field the caller did not set rather than sending an empty one', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 
@@ -201,7 +186,6 @@ describe('placeWorkspace', () => {
     expect(JSON.parse(init.body as string)).toEqual({ order: 0 })
   })
 
-  // The repo ROOT is a real destination, spelled '' — distinct from "unset".
   it('sends the repo root as an empty parentId, not as an omission', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 

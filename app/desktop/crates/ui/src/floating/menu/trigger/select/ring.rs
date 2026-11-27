@@ -1,6 +1,3 @@
-//! The select trigger's focus-visible look: develop's `focus-visible:border-ring ring-[3px]
-//! ring-ring/24`, which also drops the resting shadow.
-
 use gpui::{BoxShadow, Div, FocusHandle, Hsla, InteractiveElement, Stateful, Styled, point, px};
 
 use crate::foundation::Pose;

@@ -30,7 +30,6 @@ describe('commentEditorKeyAction', () => {
   })
 
   it('yields Escape to the link editor rather than discarding the draft', () => {
-    // Backing out of a link dialog must not throw away everything typed so far.
     expect(commentEditorKeyAction(key('Escape'), linkOpen)).toBeNull()
   })
 

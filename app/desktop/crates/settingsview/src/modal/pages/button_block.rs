@@ -1,5 +1,3 @@
-//! A button between blocks, such as Add host.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, InteractiveElement as _, IntoElement, ParentElement, StatefulInteractiveElement as _,

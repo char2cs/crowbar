@@ -21,7 +21,6 @@ function fillAddressStage(address = '1.2.3.4:3737') {
   fireEvent.click(screen.getByRole('button', { name: /continue|next/i }))
 }
 
-// The first slot carries the field's label; autofill and an input method write the whole code there.
 const codeSlot = () => screen.findByRole('textbox', { name: 'Pairing code' })
 const codeField = () => screen.findByRole('group', { name: 'Pairing code' })
 
@@ -44,12 +43,9 @@ describe('AddHostDialog', () => {
     expect(address).toHaveAccessibleDescription('Uses port 3737 unless you add one, like :4000.')
   })
 
-  // The host refuses a longer name with a bare "Couldn’t pair": the field stops short of it.
   it('stops the name at 64 characters instead of letting a longer one fail at the host', async () => {
     const user = userEvent.setup()
     render(<AddHostDialog open onOpenChange={() => {}} />)
-    // Filled to the cap first: each keystroke re-renders the dialog, so 70 typed would
-    // cost seconds of CPU under load, and only the ones past 64 test the cap.
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'n'.repeat(64) } })
 
     await user.type(screen.getByLabelText(/name/i), 'n'.repeat(6))
@@ -101,9 +97,6 @@ describe('AddHostDialog', () => {
     )
   })
 
-  // The TOFU gate: pairing must never take the probe result without the user's confirm. Retrying
-  // after a rejected code reuses the same confirmed fingerprint rather than re-probing, so
-  // pairRemoteHost/redeemPairingCode never fire on a value the user never saw.
   it('retrying a rejected code reuses the confirmed fingerprint without re-probing', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode)
@@ -152,7 +145,6 @@ describe('AddHostDialog', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/^That code didn’t work\./)
   })
 
-  // A closed dialog's attempt is over: its confirmed fingerprint must not carry into the next.
   it('opens afresh after it was closed mid-attempt', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     const { rerender } = render(<AddHostDialog open onOpenChange={() => {}} />)
@@ -188,7 +180,6 @@ describe('AddHostDialog', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  // The shell rejects with transport words; the dialog says what to do instead.
   it.each([
     [
       '1.2.3.4:3737',
@@ -214,7 +205,6 @@ describe('AddHostDialog', () => {
     },
   )
 
-  // A name dials like an IP: what is probed, paired and saved is its one canonical address.
   it('probes and pairs a name typed without a port at its canonical address', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     vi.mocked(redeemPairingCode).mockResolvedValueOnce(undefined)
@@ -256,7 +246,6 @@ describe('AddHostDialog', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  // Two rows for one daemon would make every one of its projects ambiguous.
   it('stops before the fingerprint when the address is already paired, and says what to do', async () => {
     useHostConfigStore.setState({
       hosts: [
@@ -282,7 +271,6 @@ describe('AddHostDialog', () => {
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
 
-  // The daemon on this computer is Local over its socket: reached by its own address it is not a host.
   it('refuses this computer’s own daemon reached by address, pointing at Local', async () => {
     vi.mocked(localDaemonFingerprint).mockResolvedValue('SHA256:aaaa')
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
@@ -297,8 +285,6 @@ describe('AddHostDialog', () => {
     expect(redeemPairingCode).not.toHaveBeenCalled()
   })
 
-  // Focus follows the flow, never dropping to the page behind, and lands on the fingerprint
-  // itself: a stray or repeated Enter must not confirm one the user has not read.
   it('moves focus to the fingerprint, where Enter confirms nothing, then to the code field', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     const user = userEvent.setup()

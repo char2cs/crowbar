@@ -14,13 +14,8 @@ import { cn } from '@/lib/utils'
 import { CODE_SYNTAX_THEME } from '@/components/ui/code-syntax-theme'
 import { useRedecorateWhenGrammarReady } from '@/components/editor/plugins/use-redecorate-when-grammar-ready'
 
-// In `components/ui` only by shadcn convention; it is already Plate-specific, so reaching into
-// the markdown feature for `mermaid` keeps all per-language branching in one place.
 import { MermaidCodeBlock } from '@/features/editor/markdown/plate/mermaid-code-block'
 
-// `@/components/ui/command` wraps this app's own base-ui `Autocomplete`
-// (not `cmdk`), so this file talks to `cmdk` directly, mirroring the shape of
-// the (skipped) registry `command.tsx` so it stays self-contained.
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 
 function PopoverContent({
@@ -238,9 +233,6 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
     <PlateElement className={cn('py-1', CODE_SYNTAX_THEME)} {...props}>
       <div className="relative rounded-md bg-muted/50">
         {isMermaid ? (
-          // Render-only: the node stays a `code_block` and `codeBody` stays mounted
-          // (mermaid-code-block.tsx). Join LINES with `\n`: `NodeApi.string(element)` concatenates
-          // code_lines with no separator, which mermaid cannot parse.
           <MermaidCodeBlock code={element.children.map((line) => NodeApi.string(line)).join('\n')}>
             {codeBody}
           </MermaidCodeBlock>

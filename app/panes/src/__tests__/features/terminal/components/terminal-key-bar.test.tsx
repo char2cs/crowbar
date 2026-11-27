@@ -39,7 +39,6 @@ describe('TerminalKeyBar', () => {
     expect(onSend).toHaveBeenCalledExactlyOnceWith('\r')
   })
 
-  // Ctrl is latched for one key: Ctrl, then "c", is ^C; the next key is plain again.
   it('turns the next character into its Ctrl chord, once', () => {
     const onSend = mount()
     const ctrl = screen.getByRole('button', { name: /^control$/i })

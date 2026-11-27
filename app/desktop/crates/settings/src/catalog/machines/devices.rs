@@ -1,5 +1,3 @@
-//! The Devices page: the phones and computers this instance lets connect to it.
-
 use crate::schema::Action;
 use crate::schema::ButtonSpec;
 use crate::schema::Condition;
@@ -18,7 +16,6 @@ pub(in crate::catalog) const ADDRESS: &str = "deviceListenAddress";
 pub(in crate::catalog) const LISTENING: &str = "deviceListening";
 const ADD: &str = "devices.add";
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/settings/components/tabs/devices-settings.tsx
 pub(in crate::catalog) fn page() -> Page {
     Page::new(DEVICES, "Devices", "device-mobile")
         .block(Heading::new(

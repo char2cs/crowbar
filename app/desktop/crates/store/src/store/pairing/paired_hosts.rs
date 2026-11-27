@@ -2,8 +2,6 @@ use crate::live::HostSpec;
 use crate::store::Store;
 
 impl Store {
-    /// The paired hosts being followed, in the order they were paired; this computer's daemon is
-    /// not one of them.
     pub fn paired_hosts(&self) -> Vec<HostSpec> {
         self.hub.read(|state| {
             state
@@ -15,7 +13,6 @@ impl Store {
         })
     }
 
-    /// The id of the host that holds `project`; `None` when it is not loaded.
     pub fn project_host(
         &self,
         project: &str,

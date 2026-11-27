@@ -1,5 +1,3 @@
-//! Everything the cursor painter needs besides the cell.
-
 use gpui::Hsla;
 
 use crate::terminal_view::paint::cursor::focus_state::FocusState;

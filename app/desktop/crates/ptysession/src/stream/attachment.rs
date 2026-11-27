@@ -1,5 +1,3 @@
-//! The relay scope and the view's ends one connected session runs over.
-
 use protocol::RelayScope;
 
 use crate::ends::Ends;

@@ -1,6 +1,3 @@
-//! The text of one document, which every view over it shows: a view's edit lands here and the
-//! other views replay it into their own editor, each keeping its own carets and undo history.
-
 use gpui::{Context, EventEmitter};
 use gpui_kit::base::input::Rope;
 

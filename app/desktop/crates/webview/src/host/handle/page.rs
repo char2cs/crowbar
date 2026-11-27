@@ -3,10 +3,6 @@ use crate::host::handle::{Handle, RECEIVER};
 use crate::view::Snapshot;
 
 impl Handle {
-    /// Runs a script in the page.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn eval(
         &self,
         script: &str,
@@ -14,10 +10,6 @@ impl Handle {
         self.platform.eval(self.id, script)
     }
 
-    /// Loads another page into the view, keeping its native view and web process.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn navigate(
         &self,
         url: &str,
@@ -25,18 +17,10 @@ impl Handle {
         self.platform.navigate(self.id, url)
     }
 
-    /// The pixels the page shows now, when the backend can read them back.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn snapshot(&self) -> Result<Option<Snapshot>> {
         self.platform.snapshot(self.id)
     }
 
-    /// Delivers a text message to the page by calling its `window.__crowbarReceive` function.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn post_message(
         &self,
         text: &str,

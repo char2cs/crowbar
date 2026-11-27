@@ -17,9 +17,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// samePathResolved compares two paths with symlinks resolved: `git worktree
-// list` emits fully-resolved paths (macOS /var -> /private/var), so a raw string
-// compare against a t.TempDir() path is flaky by construction.
 func samePathResolved(t *testing.T, want, got string) {
 	t.Helper()
 	wr, err := filepath.EvalSymlinks(want)
@@ -29,8 +26,6 @@ func samePathResolved(t *testing.T, want, got string) {
 	assert.Equal(t, wr, gr)
 }
 
-// importHarness wires the usecase against REAL git with a real read model, and
-// returns the pieces an import scenario asserts over.
 func importHarness(
 	t *testing.T,
 	repoPath string,
@@ -81,25 +76,9 @@ func findByBranch(all []domain.Workspace, branch string) *domain.Workspace {
 	return nil
 }
 
-// TestRegression_ImportBranchHeldByExternalWorktreeYieldsPlaceholder reproduces
-// the confirmed production hang: importing a branch that a NON-Crowbar worktree
-// already has checked out (e.g. another tool's worktree under ~/.superconductor)
-// produced NOTHING — git refuses `worktree add` for an already-checked-out
-// branch, CreateChild fails, CreateFromImport logs + `continue`s and returns nil,
-// and nothing reported the failure. No row ever reached the workspaces stream, so the FE's optimistic import row —
-// which is cleared ONLY when a workspace with that branch arrives — spun forever
-// with no toast.
-//
-// The fix routes this into the placeholder mechanism the protected-branch import
-// already uses (spec §3.3): a row with an EMPTY WorktreePath carrying HeldByPath,
-// which the FE renders as a placeholder with Retry / Detach… and toasts once.
-// The row's mere existence is what ends the spinner.
 func TestRegression_ImportBranchHeldByExternalWorktreeYieldsPlaceholder(t *testing.T) {
 	repoPath, _ := setupImportRepo(t)
 
-	// A live worktree OUTSIDE crowbar home holds feature/x — exactly the
-	// production trigger (`fatal: 'feature/quiver-shell' is already used by
-	// worktree at /Users/…/.superconductor/worktrees/…`).
 	external := filepath.Join(t.TempDir(), "external-holder")
 	gitRun(t, repoPath, "worktree", "add", external, "feature/x")
 
@@ -130,11 +109,6 @@ func TestRegression_ImportBranchHeldByExternalWorktreeYieldsPlaceholder(t *testi
 			"and would survive provisioning to block merge/delete/rename forever")
 }
 
-// TestRegression_ImportFreeBranchStillProvisionsRealWorktree pins the happy path
-// against the placeholder fallback: a branch nobody holds must still get a REAL
-// managed worktree, never a placeholder. Without this, a fallback that fired too
-// eagerly would turn every import into an unprovisioned row and look "fixed"
-// because the spinner stopped.
 func TestRegression_ImportFreeBranchStillProvisionsRealWorktree(t *testing.T) {
 	repoPath, featureContent := setupImportRepo(t)
 

@@ -28,7 +28,6 @@ export function Toolbar({
   )
 }
 
-// From toggleVariants
 const toolbarButtonVariants = cva(
   "inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm outline-none transition-[color,box-shadow] hover:bg-muted hover:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-accent data-pressed:text-accent-foreground aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
@@ -82,8 +81,6 @@ export const ToolbarButton = withTooltip(function ToolbarButton({
     className,
   )
 
-  // A `pressed` button is a toggle (aria-pressed / data-pressed); either way it
-  // is one <button> in the toolbar's roving focus.
   return (
     <ToolbarPrimitive.Button
       className={buttonClassName}
@@ -111,8 +108,6 @@ type TooltipProps<T extends React.ElementType> = {
   tooltip?: React.ReactNode
 } & React.ComponentProps<T>
 
-// Tooltip props merge onto the button itself (WithTooltip): every ToolbarButton is a <button>,
-// and a wrapper <button> around it would be invalid HTML.
 function withTooltip<T extends React.ElementType>(Component: T) {
   return function ExtendComponent({ tooltip, ...props }: TooltipProps<T>) {
     const component = <Component {...(props as React.ComponentProps<T>)} />

@@ -1,10 +1,7 @@
-//! A lost projects snapshot on demand, as a stream that drops mid-subscription loses it.
-
 use crate::live::State;
 use crate::store::Store;
 
 impl Store {
-    /// Loses this computer's projects snapshot once, as a stream that drops before `synced` does.
     pub fn lose_projects_snapshot(&self) {
         self.hub.edit(lose);
     }

@@ -10,38 +10,26 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// Entity is one value of a snapshot read outside the hub's lock.
 type Entity struct {
 	Kind stream.EntityKind
 	ID   string
 	Data any
 }
 
-// Snapshot is what a Reader read: its entities, and the parts of its scope it
-// could not read, whose entities the client keeps rather than counts absent.
 type Snapshot struct {
 	Entities []Entity
 	Unread   []string
 }
 
-// Reader is a source whose snapshot is too slow to read under the hub's lock,
-// or may itself publish: the hub holds the scope live first, then reads, and
-// emits only the entities no live frame carried since.
 type Reader interface {
 	Source
 	Read(ctx context.Context, key string) (Snapshot, error)
 }
 
-// pendingRead is one connection's snapshot read in flight for a scope.
 type pendingRead struct {
-	// since is the seq the scope went live at: a key stamped after it has
-	// already reached the client newer than anything the read saw.
 	since uint64
 }
 
-// subReading emits Attach's frames and registers scope under the lock, then
-// joins the scope's next read, which runs on a goroutine of its own so the
-// client's other requests go on.
 func (h *Hub) subReading(ctx context.Context, c *connection, scope stream.Scope, src Reader, since int64) bool {
 	name := scope.String()
 	h.mu.Lock()
@@ -72,9 +60,6 @@ func (h *Hub) subReading(ctx context.Context, c *connection, scope stream.Scope,
 	return true
 }
 
-// readFlight is one scope's reads, shared by every connection that asks for it.
-// A sub arriving while a read runs joins the next: that read starts after the
-// sub went live, so the live frames it missed are older than what it reads.
 type readFlight struct {
 	running bool
 	next    []joiner
@@ -85,7 +70,6 @@ type joiner struct {
 	read *pendingRead
 }
 
-// fly reads for each batch of joiners until none is waiting.
 func (h *Hub) fly(ctx context.Context, name, key string, src Reader, f *readFlight) {
 	defer h.reads.Done()
 	ctx, cancel := context.WithCancel(ctx)
@@ -109,7 +93,6 @@ func (h *Hub) fly(ctx context.Context, name, key string, src Reader, f *readFlig
 	}
 }
 
-// takeBatch claims the joiners still waiting on f's next read, retiring f when none is.
 func (h *Hub) takeBatch(name string, f *readFlight) []joiner {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -128,13 +111,11 @@ func (h *Hub) takeBatch(name string, f *readFlight) []joiner {
 	return batch
 }
 
-// readSafely is src's read, a panic in it failing the read rather than the flight.
 func readSafely(ctx context.Context, src Reader, key string) (snap Snapshot, err error) {
 	defer safego.RecoverFn("stream.read", func(r any) { err = fmt.Errorf("stream: read panicked: %v", r) })
 	return src.Read(ctx, key)
 }
 
-// answerLocked finishes j's snapshot, unless its hold was let go of meanwhile.
 func (h *Hub) answerLocked(ctx context.Context, j joiner, name string, unread []string, frames []stream.Frame, err error) {
 	if j.c.reads[name] != j.read {
 		return
@@ -149,7 +130,6 @@ func (h *Hub) answerLocked(ctx context.Context, j joiner, name string, unread []
 	}
 }
 
-// attachLocked queues src's own snapshot frames, stamped with the current seq.
 func (h *Hub) attachLocked(ctx context.Context, c *connection, name string, src Source, key string, since int64) bool {
 	full := false
 	err := src.Attach(ctx, key, since, func(f stream.Frame) {
@@ -166,7 +146,6 @@ func (h *Hub) attachLocked(ctx context.Context, c *connection, name string, src 
 	return true
 }
 
-// encodeRead encodes outside the lock; one value that will not encode is left out.
 func (h *Hub) encodeRead(entities []Entity) []stream.Frame {
 	frames := make([]stream.Frame, 0, len(entities))
 	for _, e := range entities {
@@ -180,7 +159,6 @@ func (h *Hub) encodeRead(entities []Entity) []stream.Frame {
 	return frames
 }
 
-// emitReadLocked queues every read frame no live frame superseded, then synced.
 func (h *Hub) emitReadLocked(c *connection, name string, read *pendingRead, frames []stream.Frame, unread []string) bool {
 	for _, f := range frames {
 		if h.stamps[entityKey(name, f.Kind, f.ID)].v > read.since {

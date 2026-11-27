@@ -1,5 +1,3 @@
-//! Menus opened from a trigger: context menus, dropdowns and selects.
-
 mod context_menu;
 mod dropdown_menu;
 mod select;

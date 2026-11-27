@@ -1,5 +1,3 @@
-// Package purge holds the one function allowed to delete a workspace root under the crowbar home; the
-// delete reactor and the boot sweep both reach it through reactors.Purger, so its guards hold everywhere.
 package purge
 
 import (
@@ -14,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// WorktreeRemover builds the bounded delete a workspace purge uses. It removes a directory only when it
-// proves it is ONE workspace's own root (ownRoot); anything shared, foreign or outside the home is left,
-// its checkout being git's to remove. rows lists every workspace row, tombstones included.
 func WorktreeRemover(
 	crowbarHome string,
 	rows func(ctx context.Context) ([]domain.Workspace, error),
@@ -34,8 +29,6 @@ func WorktreeRemover(
 	}
 }
 
-// ownRoot returns the directory that belongs to tomb alone: managed leaf shape, not a symlink, not itself
-// a checkout, and claimed by no other row. A root already gone is false.
 func ownRoot(
 	ctx context.Context,
 	crowbarHome string,
@@ -77,9 +70,6 @@ func ownRoot(
 	return root, true, nil
 }
 
-// claimsOf lists the directories a row may own: its own root for the leaf
-// shape; otherwise its checkout and the chats tree resolved beside it, which
-// for a pre-leaf row is shared by every sibling.
 func claimsOf(
 	ws domain.Workspace,
 	crowbarHome string,
@@ -94,14 +84,10 @@ func claimsOf(
 	return []string{path, worktreepath.ChatsDir(path)}
 }
 
-// overlaps reports whether a and b are the same directory or one holds the
-// other.
 func overlaps(a, b string) bool {
 	return a == b || worktreepath.UnderHome(a, b) || worktreepath.UnderHome(b, a)
 }
 
-// resolvesInPlace reports whether root, with every symlink resolved, is still
-// root: no component of it leads somewhere else in (or out of) the home.
 func resolvesInPlace(
 	root string,
 	crowbarHome string,
@@ -118,13 +104,8 @@ func resolvesInPlace(
 	return err == nil && resolved == filepath.Join(resolvedHome, rel)
 }
 
-// workspaceRootOwned are the entries a workspace root may lose: Crowbar's own directories, plus
-// .DS_Store, which Finder drops the moment the root is browsed.
 var workspaceRootOwned = []string{"worktree", "chats", "storages", "threads", ".DS_Store"}
 
-// removeWorkspaceRoot deletes the workspace's own entries, then the root, which succeeds only once empty:
-// a foreign entry (a hand-made checkout beside it) keeps the root and is reported. A worktree leaf still
-// holding a `.git` link is registered with git, which alone may remove it without losing work.
 func removeWorkspaceRoot(
 	root string,
 ) error {
@@ -155,8 +136,6 @@ func removeWorkspaceRoot(
 	return nil
 }
 
-// pruneEmptiedWorkspaceParents removes the directories a root removal emptied, walking up; os.Remove only
-// deletes empty ones, and <home>/projects/<projectID> (live project state) is the floor.
 func pruneEmptiedWorkspaceParents(
 	root string,
 	crowbarHome string,
@@ -172,9 +151,6 @@ func pruneEmptiedWorkspaceParents(
 	}
 }
 
-// projectDirOf returns <home>/projects/<projectID> for a path beneath it, and
-// false for anything not laid out that way — an adopted checkout, or a path the
-// managed layout does not explain, neither of which may be climbed.
 func projectDirOf(
 	path string,
 	crowbarHome string,

@@ -1,5 +1,3 @@
-//! Asks develop's simple confirmations as GTK message dialogs, on the web views' platform thread.
-
 use std::rc::Rc;
 
 use gpui::{App, Task, Window};

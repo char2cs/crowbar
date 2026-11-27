@@ -10,8 +10,6 @@ interface ComposerChoiceCarouselProps {
   onOpenTerminal: () => void
 }
 
-/** The pending asks, one on screen at a time. Every card stays mounted so the picks, form
- *  values and errors of the one set aside are still there when the person comes back. */
 export function ComposerChoiceCarousel({
   asks,
   wsId,
@@ -20,7 +18,6 @@ export function ComposerChoiceCarousel({
   onOpenTerminal,
 }: ComposerChoiceCarouselProps) {
   const [index, setIndex] = useState(0)
-  // Clamped on read: an ask that resolves can leave the index past the end.
   const current = Math.min(index, asks.length - 1)
   const go = (to: number) => setIndex(Math.min(Math.max(to, 0), asks.length - 1))
   return (

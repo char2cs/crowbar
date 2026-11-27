@@ -1,5 +1,3 @@
-// Flavour text, not telemetry: no provider reports a spinner verb. Long on purpose: a short
-// loop is recognised within one turn and reads as stuck.
 const VERBS = [
   'Accomplishing',
   'Actioning',
@@ -191,7 +189,6 @@ const VERBS = [
 
 export const VERB_ROTATION_MS = 3_400
 
-/** Indexed rather than random so a re-render mid-tick never swaps the word. */
 export function verbAt(tick: number): string {
   return VERBS[Math.abs(Math.floor(tick)) % VERBS.length] ?? VERBS[0]
 }

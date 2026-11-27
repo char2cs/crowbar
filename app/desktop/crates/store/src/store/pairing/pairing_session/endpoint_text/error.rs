@@ -1,5 +1,3 @@
-//! Why a typed address cannot be used as a host.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum EndpointError {
     #[error(

@@ -1,6 +1,3 @@
-// From the Plate registry (`https://platejs.org/r/block-menu-kit.json`),
-// verbatim — the actual composition is trivial; the trimming happened in the
-// two files it pulls in (`block-selection-kit.tsx`, `block-context-menu.tsx`).
 'use client'
 
 import { BlockMenuPlugin } from '@platejs/selection/react'

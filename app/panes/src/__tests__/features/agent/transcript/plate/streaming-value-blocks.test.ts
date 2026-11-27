@@ -50,8 +50,6 @@ describe('trailingTextDivergence', () => {
     expect(trailingTextDivergence(prev, next)).toEqual({ keep: 7, replacement: ' text' })
   })
 
-  // closeAssistantTurn can reconcile a streamed tail against the hook's own text, a change no
-  // append describes; keeping the shared prefix avoids re-fading text that did not change.
   it('keeps the shared prefix and reports only the diverging tail when reconciliation changes wording partway through', () => {
     const prev = { type: 'p', children: [{ text: 'The cat sat on the mat' }] }
     const next = { type: 'p', children: [{ text: 'The cat sat on the rug' }] }

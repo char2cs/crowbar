@@ -1,5 +1,3 @@
-//! Text scanners for paths and URLs in a logical line.
-
 mod address_runs;
 mod path_match;
 mod paths;

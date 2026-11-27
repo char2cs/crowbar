@@ -9,11 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A folder started on the repo header is filed at the bare root (parentId
-// ""), with no workspace-owning row above it. Fork on that folder — and
-// "Make workspace" on a thread inside it — walked to "" and was refused with
-// no fork parent; the folder applies its parent's logic, and its parent is the
-// repo header, i.e. the repo's default checkout.
 func TestRegression_ForkUnderRepoRootFolderForksTheDefaultWorkspace(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

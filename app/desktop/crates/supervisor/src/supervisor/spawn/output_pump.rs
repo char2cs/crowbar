@@ -153,7 +153,6 @@ mod tests {
         sink.text()
     }
 
-    /// Fails `failures` times, then yields `data` and ends.
     struct Flaky {
         failures: u32,
         data: Option<&'static [u8]>,

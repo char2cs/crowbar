@@ -1,6 +1,3 @@
-//! A page selects keys only while the X server says it holds the keyboard, whoever moved it: the
-//! shell's own overlay hands the keyboard to the window, not through the page's host.
-
 use x11rb::CURRENT_TIME;
 use x11rb::NONE;
 use x11rb::connection::Connection as _;

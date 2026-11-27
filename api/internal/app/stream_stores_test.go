@@ -17,8 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// heldStore is a store whose Save of the held key lands, then waits for
-// release before it returns: the window a later write can overtake it in.
 type heldStore[T any] struct {
 	mu      sync.Mutex
 	rows    map[string]T
@@ -68,8 +66,6 @@ func (s *heldStore[T]) FindAll(context.Context) ([]T, error) { return nil, nil }
 
 func (s *heldStore[T]) FindWhere(context.Context, T) ([]T, error) { return nil, nil }
 
-// The last frame a client hears for a row is the row the store last saved,
-// though the write that saved it returns before an earlier one.
 func TestPublishingStores_AnOvertakenSaveDoesNotRepublishItsStaleRow(t *testing.T) {
 	lastName := func(out chan domainstream.Frame, n int) string {
 		var name string
@@ -119,9 +115,6 @@ func TestPublishingStores_AnOvertakenSaveDoesNotRepublishItsStaleRow(t *testing.
 	})
 }
 
-// A repo publish reads its row and its placement as one: a later save's
-// publish waits out an earlier one still reading, so the last frame is the
-// last save.
 func TestRepoEntities_ALaterPublishWaitsOutOneStillReading(t *testing.T) {
 	late, out := holdProjects(t)
 	rows := newHeldStore(func(r domain.Repository) string { return r.ID }, "")

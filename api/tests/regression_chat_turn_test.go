@@ -23,7 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// turnChat is a claude-fake chat whose CLI is running turn promptID.
 type turnChat struct {
 	h        *harness
 	imported importedRepo
@@ -42,7 +41,6 @@ func newTurnChat(t *testing.T, h *harness) turnChat {
 	return c
 }
 
-// hook posts event as l's CLI, on the session l was launched with.
 func (c turnChat) hook(t *testing.T, l kit.Launch, event string, payload map[string]any) {
 	t.Helper()
 	payload["session_id"] = argAfter(l.Argv, "--session-id")
@@ -52,8 +50,6 @@ func (c turnChat) hook(t *testing.T, l kit.Launch, event string, payload map[str
 	postSessionHook(t, l, c.h.url+repoBase(c.imported), "claude", event, payload)
 }
 
-// startTurn is the CLI reporting a prompt typed at its terminal: a turn
-// Crowbar did not submit.
 func (c turnChat) startTurn(t *testing.T, l kit.Launch, promptID string) {
 	t.Helper()
 	c.hook(t, l, "user_prompt", map[string]any{"prompt": "typed " + promptID, "prompt_id": promptID})
@@ -69,7 +65,6 @@ func (c turnChat) working(t *testing.T) bool {
 	return chat.Working
 }
 
-// Characterization: a CLI that dies mid-turn closes the turn it was running.
 func TestRegression_Symptom4_ARunnerExitClosesItsTurnAndTheNextPromptGoesThrough(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	l := promptLaunch(t, c.h, c.imported, c.fake, c.chatID, "one", "")
@@ -150,7 +145,6 @@ func TestRegression_Symptom4_CrashMidTurnLeavesTheChatUsable(t *testing.T) {
 	assert.NotEqual(t, c.launch.RunnerID, next.RunnerID, "the prompt launched a new CLI")
 }
 
-// chatDeadLetters is the daemon's count of hooks the ingress could not place.
 func chatDeadLetters(t *testing.T, h *harness) int {
 	t.Helper()
 	var health struct {
@@ -161,8 +155,6 @@ func chatDeadLetters(t *testing.T, h *harness) int {
 	return *health.ChatDeadLetters
 }
 
-// hookStatus posts payload as l's CLI and returns the status, -1 when the
-// request never got one: it runs off the test goroutine.
 func hookStatus(l kit.Launch, base, event, payload string) int {
 	url := fmt.Sprintf("%s/chats/runners/%s/hooks/claude/%s", base, l.RunnerID, event)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(payload))
@@ -237,7 +229,6 @@ func TestRegression_AHookRepliesOnlyAfterItsRowsAreReadable(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.hook(t, c.launch, "user_prompt", map[string]any{"prompt": "readable on the reply", "prompt_id": "R"})
 
-	// Read straight after the reply, with no quiesce: the rows must already be there.
 	feed := dialFeed(t, c.h, c.chatID, 0)
 	var texts []string
 	for f := nextFeedFrame(t, feed); f.T != stream.FrameSynced; f = nextFeedFrame(t, feed) {
@@ -249,8 +240,6 @@ func TestRegression_AHookRepliesOnlyAfterItsRowsAreReadable(t *testing.T) {
 	assert.Contains(t, texts, "readable on the reply")
 }
 
-// A plain turn, with the stop the CLI sends for its own untyped housekeeping
-// agent, keeps no dead letter: one is only kept when something went wrong.
 func TestRegression_APlainTurnKeepsNoDeadLetter(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.hook(t, c.launch, "user_prompt", map[string]any{"prompt": "plain", "prompt_id": "P"})

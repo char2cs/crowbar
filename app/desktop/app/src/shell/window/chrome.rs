@@ -39,7 +39,6 @@ mod tests {
         }
     }
 
-    /// Visibility and dock in; edge, toggle state and chat side out.
     type Case = (Visibility, DockSide, SidebarEdge, SidebarState, SidebarSide);
 
     const CASES: [Case; 4] = [

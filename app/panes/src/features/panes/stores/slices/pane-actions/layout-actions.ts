@@ -26,7 +26,6 @@ type LayoutActions = Pick<
   | 'navigateToPane'
 >
 
-/** Pane-level geometry and focus: split, focus, resize, fullscreen, navigate. */
 export function createLayoutActions(set: PaneSet, get: PaneGet): LayoutActions {
   return {
     splitPane(paneId, direction, bufferId?, placement = 'after') {

@@ -1,8 +1,5 @@
-//! One rebindable command.
-
 use chord::Chord;
 
-/// A command with its default chord; users rebind it through the keybindings page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shortcut {
     pub(crate) command: String,
@@ -13,7 +10,6 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-    /// The name of the command shown to the user.
     #[must_use]
     pub fn label(&self) -> &str {
         &self.label
@@ -50,13 +46,11 @@ impl Shortcut {
         self
     }
 
-    /// Whether the chord is shown but cannot be rebound.
     #[must_use]
     pub fn is_display_only(&self) -> bool {
         self.display_only
     }
 
-    /// The command id.
     pub fn command(&self) -> &str {
         &self.command
     }

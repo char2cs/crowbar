@@ -1,5 +1,3 @@
-//! What killing a wedged daemon logs when the goroutine dump or the kill does not happen.
-
 use std::fmt;
 use std::time::Duration;
 

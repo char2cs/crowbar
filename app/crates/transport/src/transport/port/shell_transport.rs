@@ -13,12 +13,6 @@ use crate::transport::port::reply::Reply;
 use crate::transport::port::stream_access::StreamAccess;
 use crate::transport::{PROXY_TIMEOUT, Transport};
 
-/// The [`DaemonTransport`] the shell holds: HTTP through [`Transport`], WebSocket access through
-/// a [`StreamAccess`] (the loopback relay today).
-///
-/// A request is answered once, from the runtime given to [`ShellTransport::new`]; if that
-/// runtime stops first the pane gets `Interrupted`. At most 32 requests per host are in flight,
-/// and the rest wait their turn within the proxy timeout.
 pub struct ShellTransport {
     runtime: Handle,
     transport: Arc<Transport>,
@@ -36,7 +30,6 @@ impl std::fmt::Debug for ShellTransport {
 }
 
 impl ShellTransport {
-    /// Serves requests on `runtime`, which the shell keeps alive for the app's life.
     #[must_use]
     pub fn new(
         runtime: Handle,

@@ -18,7 +18,6 @@ import { ToolRunRow } from '@/features/agent/transcript/rows/tool-run-row'
 
 const NO_IDS: string[] = []
 
-/** A subagent that ended any way but done says how, as a tool call's outcome does. */
 const OUTCOMES: Partial<
   Record<SubagentItem['status'], { kind: string; text: string; Glyph: Icon }>
 > = {
@@ -44,7 +43,6 @@ function took(card: SubagentItem): string {
   return ms > 0 ? formatClock(Math.round(ms / 1000)) : ''
 }
 
-/** The subagent's own rows, by the same components as the main transcript. */
 function Work({ chatId, scope }: { chatId: string; scope: string }) {
   const ids = useChatStore((s) => s.feeds[chatId]?.scoped[scope] ?? NO_IDS)
   const items = useChatItems(chatId)
@@ -125,7 +123,6 @@ function SubagentCardBody({ chatId, id }: { chatId: string; id: string }) {
     >
       <div className="assistant">
         {card.scope ? (
-          // The whole header is the toggle; the caret only shows which way it points.
           <button
             type="button"
             className="subagent-head"

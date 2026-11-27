@@ -1,5 +1,3 @@
-//! The find bar over the terminal's top-right corner.
-
 mod card;
 mod event;
 mod session;

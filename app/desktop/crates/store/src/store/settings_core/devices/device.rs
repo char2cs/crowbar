@@ -1,5 +1,3 @@
-//! A device paired with this computer's daemon, and how its row on the Devices page reads.
-
 use serde::Deserialize;
 use settings::{Confirm, Line, Record, RecordAction};
 
@@ -27,7 +25,6 @@ fn detail(device: &Device) -> String {
     }
 }
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/settings/components/tabs/devices-settings.tsx
 fn revoke(device: &Device) -> RecordAction {
     let confirm = Confirm::new(
         format!("Revoke {}?", device.name),

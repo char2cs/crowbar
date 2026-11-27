@@ -26,10 +26,6 @@ func TestLogger_PassesThrough(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestLogger_SkipsWebsocketRoutes proves a request whose path ends in "/ws"
-// is never access-logged: files/ws, terminals/:id/ws and every other
-// websocket handshake reconnect at ~1/s was 90% of a real daemon.log (10,153
-// of 11,254 lines) and drowned out everything else in it.
 func TestLogger_SkipsWebsocketRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -51,10 +47,6 @@ func TestLogger_SkipsWebsocketRoutes(t *testing.T) {
 	assert.NotEmpty(t, buf.String(), "a normal route must still be access-logged")
 }
 
-// TestLogger_SkipsWebsocketUpgrades pins that a websocket handshake is never
-// access-logged whatever its path: /v0/console/logs holds its socket open for
-// minutes, so logging it put a "slow request" Warn into the very console that
-// streams it every time it reconnected.
 func TestLogger_SkipsWebsocketUpgrades(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -78,8 +70,6 @@ func captureSlog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestLogger_LevelFollowsOutcome pins that a routine request is Debug while a
-// 5xx is Error, so a default-level reader sees failures and not polling.
 func TestLogger_LevelFollowsOutcome(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -96,8 +86,6 @@ func TestLogger_LevelFollowsOutcome(t *testing.T) {
 	assert.Contains(t, buf.String(), "level=ERROR")
 }
 
-// A pane closed mid-request cancels it, and the handler's "context canceled"
-// 500 is the client leaving, not a daemon failure.
 func TestLogger_AClientThatLeftIsNotAFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

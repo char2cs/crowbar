@@ -24,9 +24,6 @@ import {
   type AskRequest,
 } from '@/features/agent/composer/lib/ask-request'
 
-// The request the CLI is waiting on, drawn as the input box itself. Pending-but-not-answerable
-// has no controls; a sent answer stays "sent" until the server resolves it (the terminal may
-// race); terminal-only answers get a Terminal button.
 export function ComposerChoice({
   wsId,
   chatId,
@@ -42,24 +39,16 @@ export function ComposerChoice({
   wsId: string
   chatId: string
   choice: AgentChoice
-  /** What a permission is about to touch, from the call it gates. */
   toolTarget?: string
   providerLabel: string
   onOpenTerminal?: () => void
-  /** What a permission would let run, from the ask's own copy of the call. */
   request?: AskRequest
-  /** The gated call's family, which names what the permission is for. */
   family?: ToolFamily
-  /** False while another card of the carousel is the one on screen: it stays mounted, with its
-   *  picks, but answers no key. */
   active?: boolean
-  /** Where this card is among the requests waiting; absent when it is the only one. */
   position?: StepPosition
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
-  // The card replaces the composer the person sent from; with that focus gone to the page, the
-  // card takes it so its number keys answer. Focus held anywhere else is left alone.
   useEffect(() => {
     if (active && (!document.activeElement || document.activeElement === document.body))
       cardRef.current?.focus({ preventScroll: true })
@@ -93,7 +82,6 @@ export function ComposerChoice({
   const detail = choiceDetail(choice, toolTarget)
   const elicitation = choice.kind === 'elicitation'
   const title = choice.kind === 'question' ? 'Question' : describeChoice(choice, family)
-  // One prompt's several questions step like requests do, unless requests already do.
   const ownPosition: StepPosition | undefined =
     questions.length > 1 && !position
       ? {
@@ -139,8 +127,6 @@ export function ComposerChoice({
       <div className="rq-box">
         <div className="rq-head">
           <div className="rq-titles">
-            {/* `alert`, like the interruption banner: it appears unasked and will not move until
-              they act. */}
             <span className={elicitation ? 'rq-msg' : 'rq-title'} role="alert">
               {elicitation ? describeChoice(choice, family) : title}
             </span>

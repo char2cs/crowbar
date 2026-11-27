@@ -11,9 +11,6 @@ type selectionAPICarrier struct{}
 
 func (selectionAPICarrier) Name() string { return "selection_api_carrier" }
 
-// Check refuses an api-transport descriptor whose model/effort is declared only on
-// the argv carrier: such a spawn forks no process, so apply: would be dropped while
-// the runner records it as honoured. api_apply: carries it over the connection.
 func (selectionAPICarrier) Check(d *spec.Descriptor) error {
 	if d.Runtime.Transport != "api" {
 		return nil
@@ -30,8 +27,6 @@ func (selectionAPICarrier) Check(d *spec.Descriptor) error {
 	return nil
 }
 
-// dialed is a provider reached over its own socket or url, which forks no process
-// at all, so its choices can only ride the call that opens the session.
 func dialed(d *spec.Descriptor) bool {
 	if d.Runtime.Transport != "api" {
 		return false

@@ -1,5 +1,3 @@
-//! Replacing, composing and erasing the text of a buffer.
-
 use std::ops::Range;
 
 use super::Buffer;

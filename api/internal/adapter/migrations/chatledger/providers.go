@@ -8,8 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// legacySource is one table that once said which provider ran on a chat: its
-// chat, provider and time columns, and which rows.
 type legacySource struct {
 	db, table string
 	cols      legacyTable
@@ -25,14 +23,10 @@ var sources = []legacySource{
 
 func columns(cols ...legacyCol) legacyTable { return legacyTable{cols: cols} }
 
-// query reads src's columns from the table at hand, oldest first.
 func (src legacySource) query(has map[string]bool) string {
 	return "SELECT " + src.cols.selectList(has) + " FROM " + src.table + " " + src.where + " ORDER BY 3, 2"
 }
 
-// NewestProviders maps each chat the legacy history names to the provider it
-// names newest among its conversations, provider switches and placements; a
-// tie goes to the lowest provider id. Missing databases or tables are empty.
 func NewestProviders(ctx context.Context, h home.Home) (map[string]string, error) {
 	newest := map[string]placed{}
 	for _, src := range sources {
@@ -41,7 +35,6 @@ func NewestProviders(ctx context.Context, h home.Home) (map[string]string, error
 			if err != nil {
 				return err
 			}
-			// NULL, as a row an older build wrote before the column existed holds, is no time.
 			p := placed{ChatID: c.str(), ProviderID: c.str(), At: c.time(src.cols.cols[2].name)}
 			if c.err != nil {
 				return c.err

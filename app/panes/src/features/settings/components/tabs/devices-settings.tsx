@@ -43,7 +43,6 @@ function DeviceRow({ device, isThisComputer, onRevoke }: DeviceRowProps) {
         <div className="ui-font ui-text-sm truncate text-foreground">{device.name}</div>
         <div className={SECONDARY}>{deviceDetail(device, isThisComputer)}</div>
       </div>
-      {/* This computer's own key is how it reaches this instance: removing a host revokes it. */}
       {!isThisComputer && (
         <Button
           type="button"
@@ -61,15 +60,12 @@ function DeviceRow({ device, isThisComputer, onRevoke }: DeviceRowProps) {
   )
 }
 
-/** Settings → Devices: who may reach the connected instance, local or remote, from another device. */
 export function DevicesSettings() {
   const paired = useHostConfigStore((s) => s.hosts)
   const hostIds = sidebarHostIds(paired)
   const [chosen, setChosen] = useState<string | null>(null)
-  // Never the sidebar's filter: a stale offline host there would open this tab on an error.
   const hostId = chosen && hostIds.includes(chosen) ? chosen : LOCAL_HOST.id
   const { name } = useHostView(hostId)
-  // A remote reaches the daemon over TLS, which may read these settings but not change them.
   const remote = hostId !== LOCAL_HOST.id
   const thisComputerId = paired.find((h) => h.id === hostId)?.clientId
   const hostOptions = hostIds.map((id) => ({
@@ -92,7 +88,6 @@ export function DevicesSettings() {
     try {
       const failure = await view.setEnabled(enabled, address.trim())
       setError(failure)
-      // A refused address stays as typed so it can be corrected rather than retyped.
       if (!failure) setDraft(null)
     } finally {
       setBusy(false)
@@ -101,7 +96,6 @@ export function DevicesSettings() {
 
   function newCode() {
     setMinted({ state: 'minting' })
-    // A late answer lands only if the popup is still waiting for it.
     const settle = (next: Minted) => setMinted((cur) => (cur?.state === 'minting' ? next : cur))
     view.addDevice().then(
       (offer) => settle({ state: 'ready', offer }),
@@ -137,8 +131,6 @@ export function DevicesSettings() {
         </p>
       </div>
 
-      {/* The wrapper makes this the first section of its parent, so its own title stays hidden
-          under the tab's. */}
       <div>
         <Section title="Device connections">
           {hostIds.length > 1 && (

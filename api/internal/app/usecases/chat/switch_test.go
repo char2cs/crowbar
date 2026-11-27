@@ -23,9 +23,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// A switch sent between SubmitPrompt's 200 and the provider's user_prompt hook (the chat
-// still reads idle) waits for the ledger to decide the prompt: acknowledged, it opened
-// a turn, and a switch while a turn runs is refused.
 func TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer(t *testing.T) {
 	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
@@ -46,8 +43,6 @@ func TestRegression_SwitchInsideTheUnacknowledgedPromptWindowWaitsForTheAnswer(t
 		"the handoff carries the turn that ran")
 }
 
-// A prompt the provider goes idle without taking is settled, and the settle
-// releases the parked switch exactly as an acknowledgement would.
 func TestRegression_ASwitchParkedOnAPromptGoesAheadOnceThePromptSettles(t *testing.T) {
 	f, chatID, carrier, done := switchParkedOnAPendingPrompt(t)
 
@@ -62,8 +57,6 @@ func TestRegression_ASwitchParkedOnAPromptGoesAheadOnceThePromptSettles(t *testi
 	assert.Equal(t, ledger.ReasonNotAcknowledged, prompts[0].Reason)
 }
 
-// Stop, which cancels the chat's parked waits, is the one thing besides the ledger that
-// ends the wait, and it starts and kills nothing on the switch's behalf.
 func TestRegression_StopCancelsASwitchParkedOnAPendingPrompt(t *testing.T) {
 	f, chatID, _, done := switchParkedOnAPendingPrompt(t)
 	spawns := f.term.callCount()
@@ -76,8 +69,6 @@ func TestRegression_StopCancelsASwitchParkedOnAPendingPrompt(t *testing.T) {
 	assert.Equal(t, spawns, f.term.callCount(), "the preempted switch spawned nothing")
 }
 
-// switchParkedOnAPendingPrompt submits a prompt and starts a switch to codex,
-// returning once the switch has parked on that unacknowledged prompt.
 func switchParkedOnAPendingPrompt(t *testing.T) (testFixture, string, string, <-chan switchResult) {
 	t.Helper()
 	f := newFixture(t)
@@ -127,8 +118,6 @@ func assertSwitchedToCodex(t *testing.T, f testFixture, chatID, switched string)
 	assert.Equal(t, "codex", live.ProviderID)
 }
 
-// parkedOn is closed when the usecase logs message, which it does immediately
-// before it blocks: a test asserts at a moment it knows the switch has reached.
 func parkedOn(t *testing.T, message string) <-chan struct{} {
 	t.Helper()
 	prev := slog.Default()
@@ -157,9 +146,6 @@ func (h *parkHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
 
 func (h *parkHandler) WithGroup(string) slog.Handler { return h }
 
-// A switch's preflight resolves a bubble's cwd through the ancestor walk too.
-// The whole call list is asserted: the spawn resolves "ws1" last either way, and
-// fakeWorkspace answers "" as readily as a real id.
 func TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
 	f := newFixture(t)
 	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
@@ -187,24 +173,18 @@ func TestSwitchProvider_TerminatesOutgoingCLI_AndTakesOverTheChat(t *testing.T) 
 
 	assert.Contains(t, f.term.terminatedIDs(), oldTerm, "the outgoing CLI is quit gracefully")
 
-	// The chat did not move and was not written to; only the runner on it changed.
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
 	assert.Equal(t, newRunner, live.ID)
 	assert.Equal(t, "codex", live.ProviderID)
 	assert.NotEqual(t, oldTerm, live.TerminalSession, "the incoming CLI has its own PTY")
 
-	// The switch returned only once the outgoing CLI's exit was recorded: a
-	// replacement never lands beside it.
 	assert.False(t, f.isLive(oldRunner))
 	exit, ok := f.lastExit(t, chatID)
 	require.True(t, ok)
 	assert.Equal(t, ledger.RunnerExit{RunnerID: oldRunner, Reason: domain.AgentExitDisplaced, At: exit.At}, exit)
 }
 
-// TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch: when
-// TerminateGraceful fails because the terminal session is already gone (the one error
-// the real engine returns today), the switch must still proceed.
 func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *testing.T) {
 	f := newFixture(t)
 
@@ -221,9 +201,6 @@ func TestSwitchProvider_TerminateFailure_SessionAlreadyGone_ContinuesSwitch(t *t
 	assert.Equal(t, newRunner, live.ID)
 }
 
-// TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch: a TerminateGraceful
-// failure that is NOT "session already gone" must abort the switch entirely rather
-// than leave two live CLIs pointed at one chat.
 func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	f := newFixture(t)
 
@@ -240,8 +217,6 @@ func TestSwitchProvider_TerminateFailure_OtherError_AbortsSwitch(t *testing.T) {
 	assert.Equal(t, oldRunner, live.ID, "the chat still belongs to the CLI that would not die")
 }
 
-// The handoff is assembled BEFORE the terminate, so a failure there leaves the chat
-// untouched rather than spawning the new CLI with an EMPTY handoff.
 func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate(t *testing.T) {
 	f := newFixture(t)
 
@@ -251,7 +226,7 @@ func TestSwitchProvider_AssembleHandoffFailure_AbortsBeforeTerminate(t *testing.
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.Error(t, err)
 
-	f.ws.err = nil // let the assertion reads resolve the worktree again
+	f.ws.err = nil
 	assert.Empty(t, f.term.terminatedIDs(), "the outgoing CLI must never be terminated when the handoff fails first")
 	require.Equal(t, 1, f.term.callCount(), "and no new CLI is spawned")
 	live, err := f.liveRunnerFor(t, chatID)
@@ -271,14 +246,10 @@ func TestSwitchProvider_Forward_SpawnsTargetProviderWithHandoff(t *testing.T) {
 
 	require.Equal(t, 2, f.term.callCount())
 	newCall := f.term.calls[1]
-	// Basename: argv[0] is binpath.Resolve'd to the CLI's absolute path when installed.
 	assert.Equal(t, "codex", filepath.Base(newCall.argv[0]))
 	assert.Contains(t, strings.Join(newCall.argv, "\x00"), "prior turn content for handoff")
 }
 
-// The runner feed carries a handoff in order (the outgoing runner exits, then the
-// incoming one starts); the chat aggregate is written once, for its own vendor, and a
-// same-provider respawn emits nothing since the command refuses an unchanged value.
 func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
 	f := newFixture(t)
 
@@ -295,8 +266,6 @@ func TestSwitchProvider_Broadcasts_TheChatsOwnProviderChange(t *testing.T) {
 	assert.Equal(t, []string{"exited", "started"}, f.runnerKinds(t))
 }
 
-// A chat whose surface was never recorded shows the user's default (terminal): the switch
-// launches the incoming provider on the view the user is on, not its own default face.
 func TestSwitchProvider_LaunchesTheIncomingProviderOnTheUsersSurface(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -309,8 +278,6 @@ func TestSwitchProvider_LaunchesTheIncomingProviderOnTheUsersSurface(t *testing.
 	assert.Equal(t, domain.SurfaceTerminal, f.chat(t, chatID).Surface)
 }
 
-// InterruptProviderSwitched is recorded once the switch commits, and only when the
-// target differs from the chat's provider: Crowbar's own doing, not a provider hook's.
 func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -327,9 +294,6 @@ func TestSwitchProvider_RecordsAProviderSwitchedInterruption(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt, "Crowbar's own doing: opened and resolved together")
 }
 
-// TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing guards the
-// no-op case ResumeChat exercises every day: resuming into the provider the
-// chat is ALREADY on is not a switch worth marking.
 func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -343,9 +307,6 @@ func TestSwitchProvider_SwitchingToTheSameProvider_RecordsNothing(t *testing.T) 
 	assert.Empty(t, ints, "switching to the provider already on the chat is not a switch")
 }
 
-// With no api connection (as when app-server fails), the hooks PTY must carry the native
-// `resume {id}` itself, or codex mints a new thread on every switch back. Its sessions
-// live in its own home, which Crowbar must never own and so delete.
 func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
 	f := newFixture(t)
 
@@ -363,7 +324,6 @@ func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t
 	require.NoError(t, err)
 	f.wait()
 
-	// What codex misses while it is away.
 	turn(t, f, claudeRunner, "claude", "claude spoke while codex was away")
 
 	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
@@ -378,17 +338,12 @@ func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t
 	argv := f.term.calls[2].argv
 	assert.Equal(t, "sid-codex-native", argAfter(t, argv, "resume"),
 		"the resume subcommand must name codex's own prior thread: %v", argv)
-	// On the terminal surface no api connection carries the gap, so the TUI's own
-	// resume prompt must: the real gap, never a pointer to fetch it.
 	msg := argv[len(argv)-1]
 	assert.Contains(t, msg, "claude spoke while codex was away", "the gap rides the resume: %v", argv)
 	assert.NotContains(t, msg, "codex ledger content", "codex is not re-fed its own turns")
 	assert.NotContains(t, msg, "[Crowbar]", "the real gap, not a pointer: %v", argv)
 }
 
-// TestSwitchProvider_ForwardSwitch_CarriesWholeConversation is the other half of the
-// gap rule: a provider that has never run in this chat has no conversation to resume
-// and therefore no history at all, so it gets the ENTIRE ledger.
 func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 	f := newFixture(t)
 
@@ -402,8 +357,6 @@ func TestSwitchProvider_ForwardSwitch_CarriesWholeConversation(t *testing.T) {
 	require.Equal(t, 2, f.term.callCount())
 	argv := f.term.calls[1].argv
 
-	// codex is new to this chat: no resume, and the context rides the silent
-	// developer_instructions channel — never the positional user prompt.
 	assert.Equal(t, -1, slices.Index(argv, "resume"), "a provider new to the chat has no conversation to resume")
 
 	doc := configValue(t, argv, "developer_instructions=")
@@ -418,8 +371,6 @@ func TestSwitchProvider_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "switch provider: chat")
 }
 
-// A chat whose CLI is gone (exited, or died with the daemon) still switches: dormant
-// only means there is no outgoing CLI to quit, never a dead end.
 func TestSwitchProvider_DormantChat_SwitchesAnyway(t *testing.T) {
 	f := newFixture(t)
 
@@ -446,8 +397,6 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 
 	chatID, _ := f.spawn(t, "claude")
 
-	// A workspace-reader failure surfaces wrapped, at the preflight WorktreeDir
-	// read: the wait for a pending prompt reads only the chat ledger before it.
 	f.ws.err = errors.New("boom: workspace lookup")
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex", "")
 	require.Error(t, err)
@@ -455,8 +404,6 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 	assert.ErrorContains(t, err, "boom: workspace lookup")
 }
 
-// A switch moves the chat's pick onto the incoming provider: what it last ran as
-// here, else its default, never a model of the outgoing one the CLI is not on.
 func TestSwitchProvider_ThePickFollowsTheProvider(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -477,7 +424,6 @@ func TestSwitchProvider_ThePickFollowsTheProvider(t *testing.T) {
 	require.NoError(t, err, "the composer re-posts the held pick")
 }
 
-// ranAs sends a prompt carrying model and answers it, so the chat's CLI ran as it.
 func ranAs(t *testing.T, f testFixture, chatID, model string) {
 	t.Helper()
 	text := "run as " + model
@@ -490,7 +436,6 @@ func ranAs(t *testing.T, f testFixture, chatID, model string) {
 	turn(t, f, live.ID, live.ProviderID, "ran as "+model)
 }
 
-// switchedTo switches chatID to provider and returns the launched CLI's argv.
 func switchedTo(t *testing.T, f testFixture, chatID, provider string) []string {
 	t.Helper()
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, provider, "")

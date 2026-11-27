@@ -11,10 +11,8 @@ import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdow
 import { MessageBoundary } from '@/features/agent/transcript/rows/message-boundary'
 import { slashCommand } from '@/features/agent/transcript/lib/slash-command'
 
-/** What a person can do about a prompt that has not gone through. */
 export interface PromptActions {
   retry: (requestId: string) => void
-  /** Puts the text back in the composer. */
   edit: (requestId: string, text: string) => void
 }
 
@@ -24,20 +22,16 @@ interface PromptState {
   text?: string
   state?: Unsent
   error?: string
-  /** A fresh item already sends this row again. */
   retried?: boolean
-  /** The CLI ran it itself; what it did is on the terminal. */
   builtin?: boolean
 }
 
-/** A Stop ends a prompt the provider may already hold, so it must not say the provider never took it. */
 function refusedWords(reason: string) {
   if (reason === 'session_lost') return SESSION_LOST_TEXT
   if (reason === 'stopped') return 'Stopped before it was answered. Retry sends it again.'
   return 'The provider never took this prompt. Retry sends it again.'
 }
 
-/** One prompt's state, from the outbox until its row lands and from the rows after. */
 function usePromptState(chatId: string, id: string, item?: UserItem): PromptState {
   const requestId = item ? item.requestId : id.slice(2)
   const sending = useChatStore((s) =>
@@ -85,7 +79,6 @@ function MachineRow({ item, name }: { item: UserItem; name: string }) {
   )
 }
 
-/** A command the person ran is the session's event, not their words: a marker, not a bubble. */
 function SlashRow({
   id,
   command,
@@ -148,8 +141,6 @@ function PromptActs({
   )
 }
 
-/** A prompt, from Enter to its settle, under the one key `p:<requestId>`. A
- *  harness message or a provider note is not the user's, so it wears no bubble. */
 function UserRowBody({
   chatId,
   id,
@@ -161,7 +152,6 @@ function UserRowBody({
 }: {
   chatId: string
   id: string
-  /** Absent while the prompt is only in the outbox. */
   item?: UserItem
   providers: AgentProvider[]
   provider?: string

@@ -1,6 +1,3 @@
-// Monaco language-feature providers backed by the daemon's /lsp routes. Monaco owns every widget;
-// this only answers queries (through lsp-query.ts) and runs the server commands lenses and actions
-// carry.
 import { editor as monacoEditor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type {
@@ -41,14 +38,10 @@ import {
 import { applyWorkspaceEdit } from './workspace-edit'
 import { report } from '@/lib/errors/report'
 
-/** Monaco language ids the daemon's server registry covers. */
 const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 'cpp']
 
-/** Monaco command running a server command (and any edit it carries) for a lens or action. */
 const RUN_COMMAND = 'crowbar.lsp.runCommand'
 
-// Split a workspace edit into Monaco edits for files with a model (so they land
-// in the undo stack) and the rest, applied to the buffers/disk directly.
 function splitWorkspaceEdit(
   wsId: string,
   edit: DaemonWorkspaceEdit | null,
@@ -73,8 +66,6 @@ function splitWorkspaceEdit(
   return { monacoEdits, rest }
 }
 
-/** Apply a server edit: files open in Monaco are edited through their models (one undo step
- *  each), the rest through the buffers/disk. */
 async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void> {
   const rest: Record<string, TextEdit[]> = {}
   for (const [path, edits] of workspaceEditByPath(edit)) {
@@ -94,8 +85,6 @@ async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void>
   if (Object.keys(rest).length > 0) await applyWorkspaceEdit({ changes: rest }, wsId)
 }
 
-/** Run a lens's or action's server command: the daemon executes it and returns the edits the
- *  server applied through the editor meanwhile. */
 async function runCommand(
   wsId: string,
   path: string,
@@ -124,7 +113,6 @@ function runCommandFor(
   return { id: RUN_COMMAND, title, arguments: [target.wsId, target.path, edit, command] }
 }
 
-/** A lens command the daemon left empty is a label the server cannot run. */
 function lensCommand(
   target: { wsId: string; path: string },
   command: Command | undefined,
@@ -135,8 +123,6 @@ function lensCommand(
     : { id: '', title: command.title }
 }
 
-/** An LSP code action as Monaco's: edits to open files go through `edit` (the undo stack);
- *  other files' edits and the server command go through RUN_COMMAND. */
 function toCodeAction(
   target: { wsId: string; path: string },
   action: Command | CodeAction,
@@ -183,13 +169,11 @@ function positionOf(selectionOrPosition?: Monaco.IRange | Monaco.IPosition) {
 
 let registered = false
 
-/** Register the providers once per page (idempotent). */
 export function registerLspProviders(): void {
   if (registered) return
   registered = true
   const selector = LSP_LANGUAGES
 
-  // Page-lifetime registrations: Monaco is a page singleton and so are these.
   monacoEditor.registerCommand(
     RUN_COMMAND,
     (
@@ -205,7 +189,6 @@ export function registerLspProviders(): void {
     },
   )
 
-  // Cross-file navigation (go to definition, peek "open") lands in a tab.
   monacoEditor.registerEditorOpener({
     openCodeEditor(source, resource, selectionOrPosition) {
       const doc = refFromUri(resource.toString())
@@ -318,8 +301,6 @@ export function registerLspProviders(): void {
   languages.registerCodeActionProvider(selector, {
     async provideCodeActions(model, range, context, token) {
       const markers = context.markers
-      // The lightbulb asks on every cursor move; only go to the daemon when
-      // there is something to fix here or the user asked explicitly.
       if (context.trigger !== languages.CodeActionTriggerType.Invoke && markers.length === 0) {
         return { actions: [], dispose() {} }
       }

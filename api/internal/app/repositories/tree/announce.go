@@ -10,21 +10,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// ChatMoved hears a chat's new placement.
 type ChatMoved func(ctx context.Context, chatID string, p tree.Placement)
 
-// NodeMoved hears a chat, workspace or repo row whose position Node a Tree
-// write changed or minted. A chat with a Node is drawn where its Node is, so its
-// own record's moves are not heard.
 type NodeMoved func(ctx context.Context, n tree.Node)
 
-// FolderChanged hears a folder a Tree write created, renamed, moved or (gone)
-// deleted, at the event's version.
 type FolderChanged func(ctx context.Context, projectID string, f tree.Folder, at tree.Node, gone bool, rev int64)
 
-// Announce tells live clients what each Tree write moved: chatMoved hears every
-// chat whose placement changed, nodeMoved every row whose position Node moved,
-// folderChanged every folder that changed.
 func Announce(
 	ax asynx.Asynx[tree.Tree],
 	chatMoved ChatMoved,

@@ -1,5 +1,3 @@
-//! Snapshots of a GTK web view: surface pixels and bitmap rows.
-
 #[cfg(target_os = "linux")]
 mod bitmap_rows;
 #[cfg(target_os = "linux")]

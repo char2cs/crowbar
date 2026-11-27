@@ -104,12 +104,6 @@ func awaitPositionalPromptTurn(
 				}
 				continue
 			}
-			// An assistant message is NOT the end of the turn. The streaming path
-			// records one message per assistant message, so a model that narrates
-			// and then keeps working banks a message mid-flight — and the caller
-			// goes on to submit the next prompt, which the runner correctly refuses
-			// with ErrPromptBusy because the turn really is still open. Wait for the
-			// chat to stop working too: that is the turn CLOSING.
 			if message.Role == "assistant" && message.Seq > user.Seq && message.Text != "" {
 				if chatWorking(t, h, chatID) {
 					return result{}, false
@@ -122,8 +116,6 @@ func awaitPositionalPromptTurn(
 	return found.user, found.assistant
 }
 
-// A prompt sent while claude is mid-turn is delivered into that SAME process by
-// the Stop hook's reply: no respawn, one ledger row, in order.
 func TestAgent_ReactPromptMidTurnSteersTheRunningCLI(t *testing.T) {
 	requireCLI(t, "claude")
 	h := newHarness(t)

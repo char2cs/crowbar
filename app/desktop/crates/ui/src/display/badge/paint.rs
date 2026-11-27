@@ -1,5 +1,3 @@
-//! Colours of a badge variant.
-
 use gpui::{Hsla, hsla};
 
 use crate::display::badge::badge_variant::BadgeVariant;

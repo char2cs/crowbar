@@ -11,11 +11,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// TestDelete_Success proves Delete forwards the path id to the tree usecase's
-// cascading delete and responds 200 naming no chat taken beyond the selection.
-//
-// It goes through the TREE and not straight to PurgeChat because a chat's
-// children are threads of it and go with it — see Handlers.Delete.
 func TestDelete_Success(
 	t *testing.T,
 ) {
@@ -34,8 +29,6 @@ func TestDelete_Success(
 	assert.Empty(t, uc.purgeCalls, "the handler must not purge behind the tree's back")
 }
 
-// The chats the git cascade took beyond the selection are named in the reply,
-// so a client can tell the user what else went.
 func TestDelete_NamesTheChatsTheCascadeTookBeyondTheSelection(t *testing.T) {
 	tree := &fakeChatTree{deletion: agentusecase.ChatDeletion{Chats: []string{"c-1", "c-9"}, Taken: []string{"c-9"}}}
 	h := newFolderHandlersWith(&fakeAgentUsecase{}, tree)

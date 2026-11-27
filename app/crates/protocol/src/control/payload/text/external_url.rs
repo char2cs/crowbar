@@ -28,12 +28,7 @@ fn validate(value: &str) -> Result<()> {
     Ok(())
 }
 
-string_id!(
-    /// A link a pane asks the shell to open in the system's default application: an `http`,
-    /// `https`, `mailto` or `tel` URL of printable ASCII, at most 2048 bytes.
-    ExternalUrl,
-    validate
-);
+string_id!(ExternalUrl, validate);
 
 #[cfg(test)]
 mod tests {

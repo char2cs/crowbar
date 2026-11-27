@@ -1,6 +1,3 @@
-//! The daemon's `GET chats/:id/review/files` answer: every file the branch changed against its
-//! parent, committed or not, with its line counts.
-
 mod summary_file;
 
 use serde::Deserialize;

@@ -1,5 +1,3 @@
-// Package workspace mounts the workspace-addressed placement route: a locked branch's own sidebar
-// position, moved by workspace id because it is a fact about the workspace, not any chat in it.
 package workspace
 
 import (
@@ -8,8 +6,6 @@ import (
 	workspacehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspace/handlers"
 )
 
-// Register mounts PATCH .../workspaces/:wsId/placement on the repo-scoped group, whose
-// scopeWorkspaceToPath middleware already guards that :wsId belongs to :projectId/:repoId.
 func Register(
 	repoScoped *gin.RouterGroup,
 	placer workspacehandlers.Placer,

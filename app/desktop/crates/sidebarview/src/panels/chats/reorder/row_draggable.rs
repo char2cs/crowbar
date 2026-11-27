@@ -1,5 +1,3 @@
-//! Makes a tree row pressable, draggable and a drop target.
-
 use std::rc::Rc;
 
 use gpui::{

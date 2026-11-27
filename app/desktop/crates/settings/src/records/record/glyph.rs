@@ -2,7 +2,6 @@ use crate::records::record::Record;
 use crate::records::tone::Tone;
 
 impl Record {
-    /// Draws the Phosphor icon with this file stem before the title.
     #[must_use]
     pub fn icon(
         mut self,
@@ -12,8 +11,6 @@ impl Record {
         self
     }
 
-    /// Draws the SVG `markup` before the title, in place of a Phosphor icon. The caller vets the
-    /// markup: it is drawn as given.
     #[must_use]
     pub fn artwork(
         mut self,
@@ -23,7 +20,6 @@ impl Record {
         self
     }
 
-    /// Shows a status dot of `tone` on the icon.
     #[must_use]
     pub fn status(
         mut self,
@@ -33,19 +29,16 @@ impl Record {
         self
     }
 
-    /// File stem of the Phosphor icon drawn before the title, if any.
     #[must_use]
     pub fn icon_stem(&self) -> Option<&str> {
         self.icon.as_deref()
     }
 
-    /// SVG markup drawn before the title in place of a Phosphor icon, if any.
     #[must_use]
     pub fn artwork_svg(&self) -> Option<&str> {
         self.artwork.as_deref()
     }
 
-    /// The tone of the status dot on the icon, if any.
     #[must_use]
     pub fn status_tone(&self) -> Option<Tone> {
         self.status

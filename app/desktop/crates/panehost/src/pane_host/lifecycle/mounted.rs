@@ -1,12 +1,9 @@
-//! Whether a pane's page is listening for the shell's frames.
-
 use protocol::PaneId;
 
 use crate::pane_host::PaneHost;
 use crate::pane_host::lifecycle::pane_runtime::PaneRuntime;
 
 impl PaneHost {
-    /// Whether `pane`'s page registered and was sent its `mount`, so a frame sent now is heard.
     #[must_use]
     pub fn is_mounted(
         &self,

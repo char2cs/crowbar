@@ -1,5 +1,3 @@
-//! The glyph an idle chat or branch row leads with, shared with the view tab naming that chat.
-
 mod glyph_tone;
 
 use sidebar::{Lock, Row, WorkspaceStatus, Worktree};
@@ -7,20 +5,14 @@ use ui::{IconName, IconWeight};
 
 pub use glyph_tone::GlyphTone;
 
-/// The icon an idle chat or branch row leads with: its workspace's status, a lock, a branch or
-/// the chat bubble. A view tab naming the same chat shows the same glyph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChatGlyph {
-    /// The icon drawn.
     pub icon: IconName,
-    /// The weight it is drawn at.
     pub weight: IconWeight,
-    /// The colour it keeps whatever the text colour.
     pub tone: GlyphTone,
 }
 
 impl ChatGlyph {
-    /// The glyph for `row`, ignoring whether it is working: a spinner replaces it then.
     pub fn of(row: &Row) -> Self {
         if let Some(workspace) = &row.workspace {
             return Self::toned(status_icon(workspace.status));

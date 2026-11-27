@@ -18,24 +18,18 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// ConnectExec runs a descriptor's connect command and returns its stdout.
 type ConnectExec = connect.Exec
 
-// Endpoint is what a websocket or http descriptor needs to reach its server: the
-// connect command's argv, and the env both it and auth.bearer_env read.
 type Endpoint struct {
 	Argv []string
 	Env  []string
 	Run  ConnectExec
 }
 
-// Headers a descriptor may never set from connect output: the transport's own.
 var forbiddenHeaders = []string{
 	"Host", "Cookie", "Authorization", "Proxy-Authorization", "Connection", "Upgrade", "Content-Length", "Origin",
 }
 
-// StartAPIEndpoint connects a descriptor whose delivery is websocket or http,
-// with no serve process, and returns once its session can be established.
 func StartAPIEndpoint(ctx context.Context, d *spec.Descriptor, ep Endpoint, origin APISessionOrigin) (*APIConn, error) {
 	var (
 		drv *apidriver.Driver
@@ -61,8 +55,6 @@ func startWebsocket(ctx context.Context, d *spec.Descriptor, ep Endpoint, origin
 	return apidriver.StartDial(ctx, d, websocketDialer(d, ep), rc, origin)
 }
 
-// CallOnce reaches a websocket descriptor, runs its handshake, makes the one named
-// call and hangs up. It never creates a session.
 func CallOnce(ctx context.Context, d *spec.Descriptor, ep Endpoint, method string, params map[string]any) (json.RawMessage, error) {
 	if d.Runtime.API.Delivery != spec.APIDeliveryWebsocket {
 		return nil, fmt.Errorf("protocol: %s: delivery %q cannot make a one-off call", d.ID, d.Runtime.API.Delivery)
@@ -141,8 +133,6 @@ func startHTTP(ctx context.Context, d *spec.Descriptor, ep Endpoint, origin APIS
 	return apidriver.StartHTTP(ctx, d, httpdriver.New(cfg), origin)
 }
 
-// httpTarget is the base URL and bearer token of an http descriptor: static or
-// printed by connect, the token from auth.bearer_env or connect's own output.
 func httpTarget(ctx context.Context, d *spec.Descriptor, ep Endpoint) (base, bearer string, err error) {
 	api := d.Runtime.API
 	if name := api.Auth.BearerEnv; name != "" {

@@ -1,5 +1,3 @@
-//! The creates this shell started itself, shown until their chats arrive.
-
 use crate::live::held::PendingRow;
 use crate::live::state::State;
 

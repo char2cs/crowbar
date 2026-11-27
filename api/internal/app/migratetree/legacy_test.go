@@ -22,8 +22,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// legacy is a home as the retired build left it: the chat log at schema 1, the
-// node log, the folders table, and the facts that place them.
 type legacy struct {
 	h          home.Home
 	chatLog    asynxModels.Store
@@ -67,7 +65,6 @@ func (l *legacy) project(id, homeID string, made time.Time) {
 		domain.Workspace{ID: homeID, ProjectID: id, Kind: domain.WorkspaceKindHome, CreatedAt: made})
 }
 
-// branch is a workspace of the fixture's repo, in that repo's project.
 func (l *legacy) branch(id string) {
 	r := l.repos[0]
 	l.workspaces = append(l.workspaces, domain.Workspace{ID: id, ProjectID: r.ProjectID, RepoID: r.ID})
@@ -77,7 +74,6 @@ func (l *legacy) repo(id, projectID string) {
 	l.repos = append(l.repos, domain.Repository{ID: id, ProjectID: projectID})
 }
 
-// write is a schema-1 write of a whole document.
 type write[T any] struct {
 	id  string
 	doc T
@@ -103,8 +99,6 @@ func writeAll[T any](t *testing.T, log asynxModels.Store, docs map[string][]T) {
 	}
 }
 
-// schema1Chat is the whole chat document schema 1 wrote: its placement and
-// the turn state the ledger now folds.
 type schema1Chat struct {
 	legacyChat
 	Working            bool       `json:"working"`
@@ -114,8 +108,6 @@ type schema1Chat struct {
 	LedgerCursor       int        `json:"ledgerCursor"`
 }
 
-// chat writes c's history: its creation at the root, its placement, then a
-// turn, so the log holds real /parentId, /order and turn-state patches.
 func (l *legacy) chat(t *testing.T, id, workspaceID, parentID string, order int) {
 	t.Helper()
 	born := schema1Chat{legacyChat: legacyChat{Chat: domain.Chat{ID: id, WorkspaceID: workspaceID, Type: domain.ChatTypeChat}}}
@@ -169,7 +161,6 @@ func TestReadLegacy_ReadsEveryRetiredRecordAsWritten(t *testing.T) {
 	assert.Equal(t, []tree.Folder{{ID: "f-1", Name: "Ideas", HomeID: "h-1"}}, got.Folders)
 }
 
-// A build before home folders kept only repo folders, in a table with no home_id.
 func TestReadLegacy_ReadsTheFoldersTableABuildBeforeHomeFoldersWrote(t *testing.T) {
 	l := newLegacy(t)
 	require.NoError(t, l.view.Exec("CREATE TABLE folders (id text PRIMARY KEY, repo_id text, project_id text, parent_id text, name text, `order` integer)").Error)
@@ -181,8 +172,6 @@ func TestReadLegacy_ReadsTheFoldersTableABuildBeforeHomeFoldersWrote(t *testing.
 	assert.Equal(t, []tree.Folder{{ID: "f-1", Name: "Ideas", RepoID: "r-1"}}, got.Folders)
 }
 
-// The retire-legacy step deletes the node log only while it still matches the
-// backup, so reading it must not add the tables the live opener creates.
 func TestReadLegacy_LeavesTheNodeLogAsTheRetiredBuildWroteIt(t *testing.T) {
 	l := newLegacy(t)
 	l.nodes(t, legacyNode{ID: "f-1", Kind: "folder"})

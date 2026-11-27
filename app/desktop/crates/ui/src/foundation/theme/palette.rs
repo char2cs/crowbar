@@ -1,5 +1,3 @@
-//! The colour tokens of one theme in one mode.
-
 use gpui::{Hsla, Rgba};
 
 pub(crate) mod color;
@@ -13,7 +11,6 @@ const INK_WASH: u32 = 0x1010_0ea6;
 
 macro_rules! palette {
     ($($field:ident => $css:literal),* $(,)?) => {
-        /// Resolved colour tokens of one theme and mode; one accessor per CSS custom property.
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub struct Palette {
             $($field: Rgba,)*

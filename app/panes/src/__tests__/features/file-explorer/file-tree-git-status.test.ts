@@ -124,9 +124,6 @@ describe('file tree git status lookup', () => {
     ).toBeNull()
   })
 
-  // File-tree entries and backend git status are keyed by workspace-relative paths ("README.md"),
-  // while rootFolderPath is a synthetic `/repos/<repoId>` prefix; decorations must resolve even
-  // though no path starts with it.
   test('resolves decorations for workspace-relative paths under a synthetic /repos root', () => {
     const root = '/repos/81883222-d45f-44ca-80ed-9550d5228441'
     const lookup = createFileTreeGitStatusLookup({
@@ -147,7 +144,6 @@ describe('file tree git status lookup', () => {
     expect(
       getFileTreeEntryGitStatusDecoration(fileEntry('api/internal/api/container.go'), root, lookup),
     ).toEqual({ colorClassName: 'text-git-modified', label: 'Modified', statusLetter: 'M' })
-    // The parent folder inherits the descendant's status (folder tinting).
     expect(getFileTreeEntryGitStatusDecoration(fileEntry('api', true), root, lookup)).toEqual({
       colorClassName: 'text-git-modified',
       label: 'Modified',

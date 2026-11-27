@@ -55,7 +55,6 @@ import {
 const host = (path: string): DocumentRef => ({ authority: 'host', path })
 const NOTES = host('/tmp/s5/notes.md')
 
-/** The daemon resolves an absolute path to itself as a host document. */
 function readsAsHost(target: DocumentTarget) {
   const path = 'absolutePath' in target ? target.absolutePath : target.path
   return Promise.resolve({ ref: host(path), text: `text of ${path}` })
@@ -64,7 +63,6 @@ function readsAsHost(target: DocumentTarget) {
 const editors = () => windowPaneStore.getState().buffers.filter(isEditorContent)
 const bufferOf = (id: string) => editors().find((b) => b.id === id)!
 const A = workspaceRef('ws-a', 'src/a.ts')
-/** A tab whose document is not open yet. */
 const openContent = (doc: DocumentRef) =>
   windowPaneStore.getState().bufferActions.openContent({ type: 'editor', doc, name: doc.path })
 const pane = () => windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]

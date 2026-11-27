@@ -1,6 +1,3 @@
-//! Completion from the document's language server, as develop's Monaco completion provider
-//! asks it: while typing a word, after one of its trigger characters, and on ctrl+space.
-
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Task, Window};

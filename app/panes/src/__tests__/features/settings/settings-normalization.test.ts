@@ -30,7 +30,6 @@ describe('settings normalization', () => {
     expect(normalizeSettingValue('uiFontFamily', 'Geist Sans')).toBe('Geist Sans')
   })
 
-  // Only the variable cut is bundled; a saved static choice would fall back to platform mono.
   it('maps the removed static Geist Mono to the bundled variable cut', () => {
     const normalized = normalizeSettings({
       ...getDefaultSettingsSnapshot(),

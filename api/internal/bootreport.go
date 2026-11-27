@@ -8,17 +8,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/migrate"
 )
 
-// startingMessage is what the gate says while no migration step has run.
 const startingMessage = "Crowbar is starting"
 
-// bootReport is what the gate says while the daemon is not serving: how far
-// the migration has got, or why it halted. The gate asks it from request
-// goroutines, so the session is published atomically.
 type bootReport struct {
 	session atomic.Pointer[migrate.Session]
 }
 
-// progressDetail is a migration's progress as the health route shows it.
 type progressDetail struct {
 	Phase string     `json:"phase"`
 	Step  migrate.ID `json:"step"`
@@ -26,7 +21,6 @@ type progressDetail struct {
 	Total int        `json:"total"`
 }
 
-// report is the gate's Reporter.
 func (b *bootReport) report() bootgate.Report {
 	s := b.session.Load()
 	if s == nil {

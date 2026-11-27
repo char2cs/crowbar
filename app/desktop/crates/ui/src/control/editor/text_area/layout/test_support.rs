@@ -1,5 +1,3 @@
-//! Text layouts shaped in a test window, shared by the text area layout tests.
-
 use gpui::{TestAppContext, TextRun, VisualTestContext, px};
 
 use crate::control::editor::text_area::layout::Layout;

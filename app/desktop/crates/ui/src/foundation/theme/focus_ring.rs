@@ -1,5 +1,3 @@
-//! The 2px focus ring with a 1px background offset.
-
 use gpui::{BoxShadow, point, px};
 
 use crate::foundation::theme::palette::Palette;
@@ -7,7 +5,6 @@ use crate::foundation::theme::palette::Palette;
 const OFFSET: f32 = 1.0;
 const WIDTH: f32 = 2.0;
 
-/// The two stacked shadows of the focus ring: 2px of `ring` outside a 1px page-coloured offset.
 pub fn focus_ring(palette: &Palette) -> Vec<BoxShadow> {
     let layer = |color, spread| BoxShadow {
         color,

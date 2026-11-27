@@ -27,7 +27,6 @@ function editorTab(id: string, isDirty: boolean): EditorContent {
   }
 }
 
-/** Two chats split side by side; the left one holds a dirty README beside another tab. */
 function twoPanesWithDirtyReadme() {
   const { paneActions } = windowPaneStore.getState()
   paneActions.openChat('c1', { workspaceId: 'ws-a' })
@@ -47,7 +46,6 @@ function twoPanesWithDirtyReadme() {
 beforeEach(() => resetWindowPaneStoreForTests())
 afterEach(() => cleanup())
 
-// Every pane's tab strip mounts a confirm; the one asked must be the only one to answer.
 describe('TabCloseConfirm', () => {
   it('asks once, and Discard closes the tab in its own pane and selects its neighbour', () => {
     const { left, right } = twoPanesWithDirtyReadme()

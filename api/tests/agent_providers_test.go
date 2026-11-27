@@ -10,12 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegression_AgentProvidersEndpoint proves GET .../chats/providers returns the
-// enumerated providers (id/displayName/icon) so the FE can render the row glyph,
-// the New-chat rows, and the switch menu without N per-chat fetches.
 func TestRegression_AgentProvidersEndpoint(t *testing.T) {
 	h := newHarness(t)
-	writeStubProviderDescriptor(t, h) // adds the "stub" provider on disk
+	writeStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
 
 	var providers []struct {
@@ -34,8 +31,6 @@ func TestRegression_AgentProvidersEndpoint(t *testing.T) {
 	assert.True(t, ids["stub"], "an on-disk provider is also enumerated")
 }
 
-// providerPref is one entry of the PUT /v0/settings/chat/providers body: the
-// full ordered set, where the array position is the provider's priority.
 type providerPref struct {
 	ID       string `json:"id"`
 	Disabled bool   `json:"disabled"`
@@ -51,11 +46,6 @@ func putProviderPrefs(
 	h.put("/v0/settings/chat/providers", map[string]any{"providers": prefs}, &out)
 }
 
-// TestRegression_DisabledProviderIsRefusedNotJustHidden pins a preference that
-// was persisted and reported but never enforced: Disabled was read only by the
-// handler that binds it and the resolver that reports Enabled, so no spawn path
-// consulted it. A POST .../chats naming a disabled provider — from a stale
-// tab, a second window, or the CLI — launched it exactly as if it were on.
 func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -63,7 +53,6 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 
 	putProviderPrefs(t, h, providerPref{ID: "livestub", Disabled: true})
 
-	// The catalog still reports it, switched off — that half always worked.
 	var providers []struct {
 		ID      string `json:"id"`
 		Enabled bool   `json:"enabled"`
@@ -83,8 +72,6 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 	h.get(repoBase(imported)+"/chats", &chats)
 	assert.Empty(t, conversationsOnly(chats), "a refused spawn must not leave a chat behind")
 
-	// Re-enabling it makes the very same request work, so the guard is the
-	// preference and nothing else.
 	putProviderPrefs(t, h, providerPref{ID: "livestub", Disabled: false})
 	var created struct {
 		ID string `json:"id"`
@@ -94,7 +81,6 @@ func TestRegression_DisabledProviderIsRefusedNotJustHidden(t *testing.T) {
 	require.NotEmpty(t, created.ID, "an enabled provider must still spawn")
 }
 
-// providerEnabled indexes an enumerated provider list by id → enabled.
 func providerEnabled(
 	got []struct {
 		ID      string `json:"id"`

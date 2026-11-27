@@ -47,7 +47,6 @@ function resolution(call: () => unknown): HostNotResolvedError {
 }
 
 beforeEach(() => {
-  // addHost sets a persisted one-way bit; a later test must start never-paired.
   useHostConfigStore.setState({ hosts: [], remoteEverPaired: false })
   resetEntities()
   useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
@@ -151,8 +150,6 @@ describe('hosts paired but the host cannot be determined: HostNotResolvedError, 
   })
 })
 
-// Every project-id-bearing API call, with the bare path it built before it went through
-// the builders. The same table runs under both API bases and with a remote project.
 interface Mods {
   api: typeof api
   placement: typeof placement
@@ -234,7 +231,6 @@ function stubFetch(): void {
   )
   vi.stubGlobal('fetch', fetchMock)
 }
-/** What a call asked the network for. Shape errors after the request (the stub answers null) are not the point. */
 async function requested(call: () => Promise<unknown>): Promise<[string, string]> {
   await call().catch(() => undefined)
   const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit | undefined]
@@ -288,16 +284,12 @@ describe('hosts paired but the project list not loaded: a rejection, no request,
   })
 
   it.each(CALLS)('%s rejects (not a synchronous throw) and sends nothing', async (_n, call) => {
-    // Callers chain .then/.catch on these; a throw before the promise exists would skip all of it.
     const pending = call(mods)
     await expect(pending).rejects.toBeInstanceOf(HostNotResolvedError)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 
-// project-url sits in an import cycle with the transport (its icon URLs go through api.ts,
-// whose project calls go through it), so each member must work when it is the first loaded,
-// and desktop's API_BASE is itself `crowbar://localhost`, which must never reach qualify.
 const CYCLE = ['@/lib/api', '@/lib/project-url', '@/lib/crowbar-bridge', '@/lib/ws/url']
 describe.each([
   ['browser', ''],

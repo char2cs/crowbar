@@ -9,20 +9,11 @@ const MAX_THEME_TOKENS: usize = 256;
 
 const MAX_VALUE_BYTES: usize = 128;
 
-/// The design tokens a pane styles itself with: token name (`color-bg`, `radius.sm`) to CSS
-/// value (`#1a1b1e`, `6px`). Names are lower case words, values are at most 128 bytes without
-/// control characters, and there are at most 256 tokens; the limits hold for
-/// values read from the wire too.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct ThemeTokens(BTreeMap<String, String>);
 
 impl ThemeTokens {
-    /// Adds or replaces one token.
-    ///
-    /// # Errors
-    /// An [`Error`] when the name or value breaks its rules or the theme would pass
-    /// 256 tokens.
     pub fn with(
         mut self,
         name: impl Into<String>,
@@ -40,7 +31,6 @@ impl ThemeTokens {
         Ok(self)
     }
 
-    /// Looks up one token.
     #[must_use]
     pub fn get(
         &self,
@@ -49,13 +39,11 @@ impl ThemeTokens {
         self.0.get(name).map(String::as_str)
     }
 
-    /// The number of tokens.
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Whether there are no tokens.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()

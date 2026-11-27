@@ -18,7 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// fixtureLine is a recorded frame as serve sends it: one line, no indent.
 func fixtureLine(t *testing.T, name string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile("../../testdata/fixtures/codex/" + name)
@@ -37,14 +36,11 @@ func loadCodexAPIDescriptor(t *testing.T) *spec.Descriptor {
 	return d
 }
 
-// fakeCodexServer is serve on the far end of a stdio pipe: it answers the
-// initialize handshake as the real app-server does, reads the initialized
-// notification apidriver.Start sends, then hands the child's end to afterInit.
 func fakeCodexServer(t *testing.T, afterInit func(*testutil.LinePeer)) jsonrpc.Stdio {
 	t.Helper()
 	in, out, peer := testutil.StdioPipe(t)
 	go func() {
-		msg, err := peer.Read() // initialize; a failed read is the client hanging up
+		msg, err := peer.Read()
 		if err != nil {
 			return
 		}
@@ -55,7 +51,7 @@ func fakeCodexServer(t *testing.T, afterInit func(*testutil.LinePeer)) jsonrpc.S
 			!assert.NoError(t, peer.WriteJSON(map[string]any{"id": req.ID, "result": map[string]string{}})) {
 			return
 		}
-		if _, err := peer.Read(); err != nil { // initialized notification, discarded
+		if _, err := peer.Read(); err != nil {
 			return
 		}
 		afterInit(peer)
@@ -68,7 +64,7 @@ func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
 
 	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
 		require.NoError(t, conn.Write(turnCompleted))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -91,7 +87,7 @@ func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
 func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	replies := make(chan []byte, 1)
 	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
-		var msg []byte // left nil by a failed write or read, which fails the test's unmarshal
+		var msg []byte
 		if assert.NoError(t, conn.WriteJSON(map[string]any{
 			"id": 7, "method": "item/commandExecution/requestApproval",
 			"params": map[string]string{"command": "curl https://example.com"},
@@ -118,8 +114,6 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	require.JSONEq(t, `{"decision":"accept"}`, string(reply["result"]))
 }
 
-// codex's api permission payload names no tool on either wire method, so
-// by_wire: names it from the method that matched, through the live loop.
 func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 	for wire, want := range map[string]string{
 		"item/commandExecution/requestApproval": "commandExecution",
@@ -129,13 +123,10 @@ func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
 			stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
 				ask, _ := json.Marshal(map[string]any{
 					"id": 7, "method": wire,
-					// Neither real payload carries `tool` or `params` — see
-					// codex.yaml's own comment. reason is the one field both
-					// real captures share.
 					"params": map[string]string{"reason": "why"},
 				})
 				require.NoError(t, conn.Write(ask))
-				_, _ = conn.Read() // block until the client replies/closes
+				_, _ = conn.Read()
 			})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -161,8 +152,6 @@ func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
 	turnCompleted := fixtureLine(t, "turn_completed.json")
 
 	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
-		// A frame whose params is not a JSON object at all — must be skipped,
-		// not crash the translate loop, and the NEXT valid frame must still land.
 		bad, _ := json.Marshal(map[string]any{"method": "turn/completed", "params": "not-an-object"})
 		require.NoError(t, conn.Write(bad))
 		require.NoError(t, conn.Write(turnCompleted))
@@ -184,21 +173,13 @@ func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
 	}
 }
 
-// scriptedCall answers one JSON-RPC request by method name and returns the raw
-// params it was called with, so a test can assert on the ACTUAL wire payload a
-// Fresh/Resume/Action step sent — not just that some call happened.
 type scriptedCall struct {
-	method string
-	result string // raw JSON to return as this call's "result"
-	// errCode/errMessage answer with a JSON-RPC ERROR instead of a result.
-	// Non-zero errCode selects that branch; result is ignored then.
+	method     string
+	result     string
 	errCode    int
 	errMessage string
 }
 
-// scriptedServer replays call/response pairs in order, verifying each
-// incoming request's method matches the script and recording its raw params
-// for the test to inspect afterward.
 func scriptedServer(t *testing.T, script []scriptedCall) (stdio jsonrpc.Stdio, seenParams *[]string) {
 	t.Helper()
 	seen := make([]string, 0, len(script))
@@ -223,7 +204,7 @@ func scriptedServer(t *testing.T, script []scriptedCall) (stdio jsonrpc.Stdio, s
 			resp, _ := json.Marshal(body)
 			require.NoError(t, conn.Write(resp))
 		}
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 	return stdio, &seen
 }
@@ -251,8 +232,6 @@ func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.
 	require.Contains(t, (*seen)[0], `"approvalPolicy":"on-request"`)
 }
 
-// A codex chat switched to from another provider carries the handoff as
-// thread/start's developerInstructions, checked against the real codex.yaml.
 func TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstructions(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-123"}}`},
@@ -291,9 +270,6 @@ func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
 	require.Contains(t, (*seen)[0], `"threadId":"known-1"`)
 }
 
-// A resume carries the current permission level too: a restart that only
-// resumes would otherwise keep the sandbox the thread was created with after
-// the chat's level changed.
 func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"},"cwd":"/work","model":"m","modelProvider":"p","sandbox":{"type":"dangerFullAccess"},"approvalPolicy":"never","approvalsReviewer":"user"}`},
@@ -331,18 +307,12 @@ func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)
 
-	// A second call — as a later message on the SAME connection would make —
-	// must not call thread/start (or anything else) again: the script only
-	// declared one call, and scriptedServer's Read would block forever
-	// (failing the test's own deadline) if a second request arrived.
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-1", "cwd": "/work"})
 	require.NoError(t, err)
 	require.Equal(t, "t-1", out["session_id"])
 	require.Len(t, *seen, 1, "only the first EstablishSession may reach the wire")
 }
 
-// A resume rebinds no runner row, so the first prompt after one passes a blank
-// session id: an established connection falls back to the one it remembered.
 func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFallsBackToRemembered(t *testing.T) {
 	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"t-resumed"}}`},
@@ -358,7 +328,6 @@ func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFalls
 	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-resumed", "cwd": "/work"})
 	require.NoError(t, err)
 
-	// A blank session id, as a launch with nothing to resume hands it in.
 	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
 	require.NoError(t, err)
 	require.Equal(t, "t-resumed", out["session_id"],
@@ -398,8 +367,6 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 	require.Equal(t, "hello there", turnStartParams.Input[0].Text)
 }
 
-// The connection is the authority on which thread it has open: a caller's
-// stale session id must not steer a later turn away from it.
 func TestRegression_DispatchOnAnEstablishedConnectionUsesTheThreadItOpened(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-new"}}`},
@@ -445,8 +412,6 @@ func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t
 	require.Len(t, *seen, 3, "the second message must not re-run thread/start")
 }
 
-// The handshake is the descriptor's: its call, its params and the notification
-// that follows the answer, none of them named in Go.
 func TestStart_SpeaksTheHandshakeItsDescriptorDeclares(t *testing.T) {
 	d, err := descriptor.ParseV0([]byte(`
 id: declared
@@ -518,8 +483,6 @@ events:
 	require.ErrorIs(t, err, os.ErrClosed, "a refused start closes the stdio it was handed")
 }
 
-// turn/interrupt needs threadId and turnId, neither supplied by the caller:
-// Send sources both from what this connection remembered.
 func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-9"}}`},
@@ -543,8 +506,6 @@ func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	require.Contains(t, (*seen)[2], `"turnId":"turn-1"`)
 }
 
-// remembered turn_id is overwritten only by turn/start's reply, so a Stop racing
-// a new turn/start must not send the previous, finished turn's id.
 func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurnID(t *testing.T) {
 	turn2StartSeen := make(chan struct{})
 	interruptParams := make(chan string, 1)
@@ -566,29 +527,25 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 			require.NoError(t, conn.Write(resp))
 		}
 
-		id, method, _ := readReq() // thread/start
+		id, method, _ := readReq()
 		require.Equal(t, "thread/start", method)
 		respond(id, `{"thread":{"id":"t-9"}}`)
 
-		id, method, _ = readReq() // turn/start #1 (turn-1)
+		id, method, _ = readReq()
 		require.Equal(t, "turn/start", method)
 		respond(id, `{"turn":{"id":"turn-1"}}`)
 
-		// turn/start #2: read the request (this is what unblocks the test's own
-		// Dispatch goroutine below), but deliberately withhold the reply — the
-		// exact window a racing Stop would land in against a real, slower
-		// codex app-server.
 		id2, method, _ := readReq()
 		require.Equal(t, "turn/start", method)
 		close(turn2StartSeen)
 
-		idI, methodI, paramsI := readReq() // turn/interrupt races in here
+		idI, methodI, paramsI := readReq()
 		require.Equal(t, "turn/interrupt", methodI)
 		interruptParams <- paramsI
 		respond(idI, `{}`)
 
 		respond(id2, `{"turn":{"id":"turn-2"}}`)
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -598,13 +555,9 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 	require.NoError(t, err)
 	defer func() { _ = drv.Close() }()
 
-	// Turn 1 completes in full: remembered["turn_id"] == "turn-1".
 	_, err = drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work", "text": "first"})
 	require.NoError(t, err)
 
-	// Turn 2 begins on a separate goroutine — its turn/start reaches the wire
-	// but the fake server withholds the reply, mirroring a real turn that has
-	// only just started.
 	turn2Done := make(chan error, 1)
 	go func() {
 		_, err := drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "t-9", "cwd": "/work", "text": "second"})
@@ -617,7 +570,6 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 		t.Fatal("turn/start for the second turn never reached the fake server")
 	}
 
-	// A Stop landing in exactly this window.
 	require.NoError(t, drv.Send(ctx, "interrupt", nil))
 
 	var params string
@@ -632,10 +584,9 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 	require.NoError(t, <-turn2Done)
 }
 
-// Send waits for a reply: a rejected turn/interrupt is a JSON-RPC error it surfaces.
 func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 	stdio := fakeCodexServer(t, func(conn *testutil.LinePeer) {
-		msg, err := conn.Read() // thread/start
+		msg, err := conn.Read()
 		require.NoError(t, err)
 		var req struct {
 			ID json.RawMessage `json:"id"`
@@ -644,7 +595,7 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 		resp, _ := json.Marshal(map[string]any{"id": req.ID, "result": map[string]any{"thread": map[string]string{"id": "t-9"}}})
 		require.NoError(t, conn.Write(resp))
 
-		msg, err = conn.Read() // interrupt
+		msg, err = conn.Read()
 		require.NoError(t, err)
 		require.NoError(t, json.Unmarshal(msg, &req))
 		errResp, _ := json.Marshal(map[string]any{
@@ -652,7 +603,7 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 			"error": map[string]any{"code": -32600, "message": "missing field `turnId`"},
 		})
 		require.NoError(t, conn.Write(errResp))
-		_, _ = conn.Read() // block until the client closes
+		_, _ = conn.Read()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -670,9 +621,6 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 	require.Contains(t, err.Error(), "missing field")
 }
 
-// A resumed thread gets the gap through the declared inject step, templated from
-// the session this connection resumed. The exact item shape is pinned: a wrong
-// role is accepted and silently discarded.
 func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"sid-1"}}`},
@@ -717,7 +665,6 @@ func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	assert.Equal(t, "while you were away, this happened", params.Items[0].Content[0].Text)
 }
 
-// An inject moment the descriptor declares nothing for calls nothing.
 func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 	stdio, seen := scriptedServer(t, nil)
 
@@ -733,16 +680,12 @@ func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 	require.Empty(t, *seen, "an undeclared moment must never reach the wire")
 }
 
-// The two live-captured refusals (codex-cli 0.149.1) for a thread the server
-// no longer has: codex.yaml's session.refused names their code and wording.
 const (
 	lostSessionCode      = -32600
 	lostOnResumeMessage  = "no rollout found for thread id t-dead"
 	lostOnTurnStartError = "thread not found: t-1"
 )
 
-// A resume the provider refuses by a declared code is the session lost: the
-// caller is told so, and the driver never opens another thread in its place.
 func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
@@ -763,8 +706,6 @@ func TestRegression_LostSessionOnResumeIsReportedNotReplaced(t *testing.T) {
 	assert.Zero(t, origins.open, "the failed claim is closed")
 }
 
-// A refusal is the declared code AND a declared line: the same code on any other
-// error is a request the provider rejected, not a session it lacks.
 func TestEstablishSession_ARefusalNeedsTheDeclaredCodeAndLine(t *testing.T) {
 	for name, refusal := range map[string]scriptedCall{
 		"another error under the code": {method: "thread/resume", errCode: lostSessionCode, errMessage: "Invalid request: missing field `cwd`"},
@@ -785,8 +726,6 @@ func TestEstablishSession_ARefusalNeedsTheDeclaredCodeAndLine(t *testing.T) {
 	}
 }
 
-// recordedOrigins collects the sessions a connection reports producing itself,
-// asserting each claim opened before its id existed.
 type recordedOrigins struct {
 	open   int
 	claims int
@@ -804,9 +743,6 @@ func (r *recordedOrigins) claim() func(string) {
 	}
 }
 
-// establishAtSpawn runs the spawn-time establish the recovery tests below all
-// start from: it is what latches `established`, and the only call ever handed
-// the sandbox/approval/context settings a later message push does not carry.
 func establishAtSpawn(t *testing.T, ctx context.Context, drv *apidriver.Driver) {
 	t.Helper()
 	_, err := drv.EstablishSession(ctx, "prompt", map[string]string{
@@ -816,9 +752,6 @@ func establishAtSpawn(t *testing.T, ctx context.Context, drv *apidriver.Driver) 
 	require.NoError(t, err)
 }
 
-// A provider that says it lacks a thread has usually paged an idle one out of
-// memory, which thread/resume is for: an action refused that way re-enters the
-// same thread rather than losing it.
 func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
@@ -836,8 +769,6 @@ func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing
 	defer func() { _ = drv.Close() }()
 	establishAtSpawn(t, ctx, drv)
 
-	// A later message push: carries only the fields a prompt has, exactly as
-	// pushPromptOverAPI sends them.
 	out, err := drv.Dispatch(ctx, "prompt", map[string]string{
 		"session_id": "t-1", "cwd": "/work", "text": "are you there?",
 	})
@@ -859,8 +790,6 @@ func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing
 	assert.Zero(t, origins.open, "every claim must be closed")
 }
 
-// A thread the provider refuses on its own resume path too is lost: the
-// prompt fails with ErrSessionLost rather than landing in a new thread.
 func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
@@ -886,7 +815,6 @@ func TestRegression_LostSessionIsLostOnceResumeAlsoRefusesIt(t *testing.T) {
 	assert.Zero(t, origins.open, "every claim is closed, the refused resume's included")
 }
 
-// Only the codes the descriptor declares recover; any other failure is fatal.
 func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
@@ -909,8 +837,6 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	require.Len(t, *seen, 2, "a code the descriptor does not declare must not mint a new session")
 }
 
-// The thread a fresh establish mints is reported: the chat binds it, and the
-// hook ingress tells it from the child threads pushed down the same connection.
 func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T) {
 	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-minted"}}`},
@@ -936,8 +862,6 @@ func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T)
 	assert.Zero(t, origins.open, "the claim must be closed")
 }
 
-// A resume is claimed as a fresh mint is; it captures no id, so this checks
-// the id that went in.
 func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 	stdio, _ := scriptedServer(t, []scriptedCall{
 		{method: "thread/resume", result: `{"thread":{"id":"known-1"}}`},
@@ -958,8 +882,6 @@ func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
 	assert.Zero(t, origins.open, "the claim must be closed")
 }
 
-// The short-circuit on an established connection enters no session, so it
-// reports none.
 func TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim(t *testing.T) {
 	stdio, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},

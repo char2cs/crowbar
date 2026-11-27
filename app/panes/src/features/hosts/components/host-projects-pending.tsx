@@ -15,8 +15,6 @@ interface HostProjectsPendingProps {
   onAddHost: () => void
 }
 
-/** The phone app's landing while its paired hosts have listed no project: each host's status,
- *  and the active (or first) project opened the moment one lands. */
 export function HostProjectsPending({ onProject, onAddHost }: HostProjectsPendingProps) {
   const hosts = useHostConfigStore((s) => s.hosts)
   const projects = useSelect(selectProjects)
@@ -44,7 +42,6 @@ export function HostProjectsPending({ onProject, onAddHost }: HostProjectsPendin
   )
 }
 
-// A host whose projects scope has synced has said it holds none; until then it is pending.
 function HostLine({ hostId }: { hostId: string }) {
   const { name, state } = useHostView(hostId)
   const listed = useStore(entityStore, (s) => !!s.loaded[hostScope(hostId, 'projects')])

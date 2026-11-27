@@ -1,5 +1,3 @@
-//! A native menu that remembers each request and answers with one entry.
-
 use gpui::TestAppContext;
 use ui::testing::{Popped, answer_menus};
 use ui::{MenuPath, NativeEntry};

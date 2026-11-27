@@ -1,5 +1,3 @@
-//! A focused text area in a test window.
-
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -29,12 +27,10 @@ impl Render for Host {
     }
 }
 
-/// Opens a window holding a focused 300px wide [`TextArea`] with the default bindings installed.
 pub(crate) fn area(cx: &mut TestAppContext) -> (Entity<TextArea>, &mut VisualTestContext) {
     area_with(cx, |area| area)
 }
 
-/// Like [`area`], with the field configured by `build`.
 pub(crate) fn area_with(
     cx: &mut TestAppContext,
     build: impl FnOnce(TextArea) -> TextArea + 'static,
@@ -43,7 +39,6 @@ pub(crate) fn area_with(
     (area, cx)
 }
 
-/// Like [`area`], in the active window, with the number of times the window was drawn.
 pub(crate) fn drawn_area(cx: &mut TestAppContext) -> Drawn<'_, TextArea> {
     let (area, draws, cx) = hosted(cx, |area| area);
     cx.update(|window, _| window.activate_window());
@@ -71,7 +66,6 @@ fn hosted(
     (area, draws, cx)
 }
 
-/// The text currently in `area`.
 pub(crate) fn area_text(
     area: &Entity<TextArea>,
     cx: &mut VisualTestContext,

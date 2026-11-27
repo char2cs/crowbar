@@ -3,9 +3,7 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 
 describe('ui-state-store focus registry', () => {
   beforeEach(() => {
-    // Reset module-level registry singletons between tests
     for (const id of ['term-1', 'term-2']) useUIState.getState().clearTerminalFocus(id)
-    // Reset bottomPaneHeight to default
     useUIState.setState({ bottomPaneHeight: 240 })
   })
 
@@ -29,9 +27,9 @@ describe('ui-state-store focus registry', () => {
     const fn2 = vi.fn()
     useUIState.getState().registerTerminalFocus('term-1', fn1)
     useUIState.getState().registerTerminalFocus('term-2', fn2)
-    useUIState.getState().clearTerminalFocus('term-2') // clear the latest
+    useUIState.getState().clearTerminalFocus('term-2')
     useUIState.getState().requestTerminalFocus()
-    expect(fn1).toHaveBeenCalledOnce() // should fall back to term-1
+    expect(fn1).toHaveBeenCalledOnce()
     expect(fn2).not.toHaveBeenCalled()
   })
 

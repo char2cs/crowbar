@@ -1,5 +1,3 @@
-//! The selected page and keyboard movement along the rail.
-
 mod paging;
 mod rail_move;
 

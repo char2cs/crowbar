@@ -1,5 +1,3 @@
-//! Searching the scrollback and screen.
-
 use alacritty_terminal::index::Line;
 
 use crate::error::Error;
@@ -9,11 +7,6 @@ use crate::find::SearchSummary;
 use crate::terminal::Terminal;
 
 impl Terminal {
-    /// Searches the scrollback and screen; the first match at or below the top of the view is current.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Pattern`] when a regular-expression query does not compile; the previous search is kept.
     pub fn search(
         &mut self,
         query: SearchQuery,
@@ -25,12 +18,10 @@ impl Terminal {
         Ok(summary)
     }
 
-    /// Moves to the next match, scrolling it into view.
     pub fn search_next(&mut self) -> SearchSummary {
         self.step_search(SearchState::advance)
     }
 
-    /// Moves to the previous match, scrolling it into view.
     pub fn search_previous(&mut self) -> SearchSummary {
         self.step_search(SearchState::retreat)
     }
@@ -49,7 +40,6 @@ impl Terminal {
         state.summary()
     }
 
-    /// Ends the search and removes its highlights.
     pub fn clear_search(&mut self) {
         self.search = None;
     }

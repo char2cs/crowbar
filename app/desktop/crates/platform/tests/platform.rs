@@ -1,9 +1,3 @@
-//! `AppkitParent` against real `AppKit` views and windows.
-//!
-//! `AppKit` views exist only on the main thread and libtest runs every test on a spawned one, so
-//! this target has no harness and `main` runs the cases. Like a `real-infra` test it runs only
-//! under `--ignored` or `--include-ignored`, and it is empty off macOS.
-
 #[cfg(target_os = "macos")]
 fn main() -> Result<(), String> {
     if std::env::args().any(|arg| arg == "--ignored" || arg == "--include-ignored") {
@@ -24,7 +18,6 @@ mod appkit {
     use platform::{AppkitParent, ClipShape, ContextMenu, Frost, MenuRow, PageClip};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    /// Runs every case on the main thread; the first failure is the error `main` exits with.
     pub(crate) fn run() -> Result<(), String> {
         let main_thread =
             MainThreadMarker::new().ok_or("the AppKit cases must run on the main thread")?;
@@ -103,7 +96,6 @@ mod appkit {
 
     const HOLE: [f64; 4] = [60.0, 0.0, 69.0, 20.0];
 
-    /// A window, its content view and a shaped clip inside it.
     type Clipped = (Retained<NSWindow>, Retained<NSView>, PageClip);
 
     fn clipped(main_thread: MainThreadMarker) -> Result<Clipped, String> {
@@ -149,7 +141,6 @@ mod appkit {
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(200.0, 50.0)),
         );
         view.addSubview(&page);
-        // From the top-left of the content view, which is not flipped.
         let hit = |x: f64, y: f64| content.hitTest(NSPoint::new(x, 200.0 - y));
         if !is(hit(20.0, 30.0), &page) {
             return Err("the page does not take the pointer".into());

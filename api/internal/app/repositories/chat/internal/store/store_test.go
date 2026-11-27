@@ -60,8 +60,6 @@ func newStore(
 	return ctx, st, ax
 }
 
-// openChat drives a chat through Create -> SetSelection -> SetTitle so the read
-// model holds a chat with real folded state to assert on.
 func openChat(
 	t *testing.T,
 	ctx context.Context,
@@ -100,16 +98,12 @@ func TestStore_GetChatMissingReturnsErrNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-// TestStore_ListByWorkspace_ScopesToWorkspace proves ListByWorkspace returns
-// every chat anchored to the queried workspace and excludes chats in other
-// workspaces: c1+c2 (both w1) are returned, c3 (w2) is not.
 func TestStore_ListByWorkspace_ScopesToWorkspace(t *testing.T) {
 	ctx, st, ax := newStore(t)
 	_, err := ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c2", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
-	// c3 belongs to a DIFFERENT workspace — must never be returned for w1.
 	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c3", WorkspaceID: "w2", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 
@@ -122,10 +116,6 @@ func TestStore_ListByWorkspace_ScopesToWorkspace(t *testing.T) {
 	assert.ElementsMatch(t, []string{"c1", "c2"}, ids, "both w1 chats must be returned; the w2 chat excluded")
 }
 
-// TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty proves the lazy Replay
-// repair: after the durable read model is lost but the event log survives, a
-// read enumerates every aggregate id via the event store's AggregateLister and
-// Replays each back into state/store/agent_chat.db.
 func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	ctx, st, ax, db := newStoreWithDeps(t)
 	openChat(t, ctx, ax, "c1")
@@ -134,28 +124,19 @@ func TestStore_ReadRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "title-c1", got.Title, "read model populated by the live store projection")
 
-	// Simulate read-model loss with the event log intact.
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read").Error)
 
-	// GetChat heals the model via whole-model lazy Replay before concluding "not
-	// found", so it must still resolve the chat with its whole folded history.
 	rebuilt, err := st.GetChat(ctx, "c1")
 	require.NoError(t, err)
 	assert.Equal(t, "title-c1", rebuilt.Title, "GetChat must Replay the id back from the event log")
 	assert.Equal(t, "m1", rebuilt.Model)
 }
 
-// TestStore_GetChat_SelfHealsOnPerIDMiss proves the keyed GetChat's
-// rebuild-on-miss fallback works even when the read model is NOT empty: only
-// c2's row is dropped while c1's survives, so allHealed's empty-model rebuild
-// would never fire — GetChat("c2") must still Replay c2 back from the event log
-// on the per-id miss.
 func TestStore_GetChat_SelfHealsOnPerIDMiss(t *testing.T) {
 	ctx, st, ax, db := newStoreWithDeps(t)
 	openChat(t, ctx, ax, "c1")
 	openChat(t, ctx, ax, "c2")
 
-	// Drop only c2's row; the model stays non-empty (c1 remains).
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM agent_chats_read WHERE id = ?", "c2").Error)
 
 	got, err := st.GetChat(ctx, "c2")
@@ -183,12 +164,6 @@ func TestOpen_StorageError(t *testing.T) {
 	assert.Contains(t, err.Error(), "agentchat store")
 }
 
-// TestStore_GetChat_EmptyIDIsNotFound pins the guard ahead of the miss path:
-// an empty id is NOWHERE, never a chat, and it must be rejected WITHOUT
-// reaching healOne — healOne heals by Replaying the entire event log, and an
-// agent runner that has left its chat carries an empty chat id on every hook,
-// so an unguarded lookup would replay the whole log on every hook of every
-// dying CLI.
 func TestStore_GetChat_EmptyIDIsNotFound(t *testing.T) {
 	ctx, st, _ := newStore(t)
 	_, err := st.GetChat(ctx, "")
@@ -196,13 +171,6 @@ func TestStore_GetChat_EmptyIDIsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
 
-// TestStore_GetChat_HealFailsOnCorruptEvent proves a per-id miss whose heal
-// attempt itself fails (rather than simply finding nothing) is reported as
-// that failure, not folded into an ordinary ErrNotFound: the event log holds
-// bytes for "poison" that were never written by a domain.Chat command (asynx's
-// own InternalEvent envelope, not a raw domain.Chat blob — mirrors the
-// existing whole-model TestStore_Rebuild_SkipsUnreplayableAggregate fixture,
-// but exercised through the single-id healOne path GetChat takes on a miss).
 func TestStore_GetChat_HealFailsOnCorruptEvent(t *testing.T) {
 	es, err := eventsqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
@@ -234,11 +202,6 @@ func TestStore_GetChat_HealFailsOnCorruptEvent(t *testing.T) {
 		"a heal that FAILED is not the same fact as a chat that genuinely never existed")
 }
 
-// TestStore_ListByWorkspace_PropagatesReadFailure mirrors
-// TestStore_GetChat's own read-failure test at the ListByWorkspace/allHealed
-// layer: a read-model that cannot be queried must surface as an error from
-// both ListByWorkspace and the ListChats/allHealed call it makes internally,
-// never silently reported as "this workspace has no chats".
 func TestStore_ListByWorkspace_PropagatesReadFailure(t *testing.T) {
 	ctx, st, _, db := newStoreWithDeps(t)
 	sqlDB, err := db.DB()
@@ -249,7 +212,6 @@ func TestStore_ListByWorkspace_PropagatesReadFailure(t *testing.T) {
 	require.Error(t, err)
 }
 
-// appendTombstone writes the marker a Forget leaves when it fails before the erase.
 func appendTombstone(t *testing.T, es asynxModels.Store, id string) {
 	t.Helper()
 	ctx := context.Background()

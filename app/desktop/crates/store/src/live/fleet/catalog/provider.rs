@@ -1,5 +1,3 @@
-//! The part of a provider record that decides what a new chat may do.
-
 use serde::Deserialize;
 
 use daemonapi::Switch;

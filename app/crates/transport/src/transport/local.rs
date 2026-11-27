@@ -157,7 +157,6 @@ mod tests {
             .unwrap()
     }
 
-    /// (attempt, the wait before the next one)
     const CASES: [(u32, Duration); 6] = [
         (1, Duration::from_millis(25)),
         (40, Duration::from_millis(25)),

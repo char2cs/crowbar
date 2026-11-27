@@ -1,5 +1,3 @@
-//! The on-disk root of the workspace the Files panel follows.
-
 use std::path::PathBuf;
 
 use crate::live::state::State;

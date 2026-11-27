@@ -1,5 +1,3 @@
-//! Hover from the document's language server, as develop's Monaco hover provider asks it.
-
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Task, Window};

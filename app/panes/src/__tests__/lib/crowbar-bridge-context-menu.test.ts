@@ -19,11 +19,6 @@ const fakeResource = (kind: string, options: Record<string, unknown>): FakeResou
   close: closeMock,
 })
 
-// Tauri 2.12 drops an item's click channel as soon as the item's Rust wrapper
-// is dropped, and an item passed INLINE to `Menu.new` is dropped right after
-// the menu is built. Only items created through their own constructor stay in
-// the resource table and keep a live click channel, so the bridge must build
-// every entry that way and hand `Menu.new` the instances.
 vi.mock('@tauri-apps/api/menu', () => ({
   Menu: { new: async (o: Record<string, unknown>) => fakeResource('Menu', o) },
   MenuItem: { new: async (o: Record<string, unknown>) => fakeResource('MenuItem', o) },
@@ -33,13 +28,6 @@ vi.mock('@tauri-apps/api/menu', () => ({
   },
 }))
 
-// showNativeContextMenu pops the menu via `popup_native_context_menu`, this
-// app's own command — not the JS `menu.popup()` method — because Tauri's
-// built-in `plugin:menu|popup` command holds the webview's resources-table
-// lock across the whole blocking popup call, deadlocking every other
-// resource-backed command for as long as the menu stays open. See the doc
-// comment on `showNativeContextMenu` and on `popup_native_context_menu` in
-// `desktop/src-tauri/src/lib.rs`.
 const invokeMock = vi.fn().mockResolvedValue(undefined)
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: { invoke: typeof invokeMock } }
@@ -124,9 +112,6 @@ describe('showNativeContextMenu', () => {
     expect(onClick).toHaveBeenCalledOnce()
   })
 
-  // Tauri delivers a click to the item's action via the event loop, after the
-  // blocking popup call has already returned, and closing an item removes its
-  // click channel. So nothing is closed on popup return.
   it('keeps every resource alive after popup resolves and closes them once the chosen action has run', async () => {
     const onClick = vi.fn()
     const { entries } = await show([
@@ -137,7 +122,6 @@ describe('showNativeContextMenu', () => {
     expect(closeMock).not.toHaveBeenCalled()
     ;(entries[0].options.action as () => void)()
     expect(onClick).toHaveBeenCalledOnce()
-    // menu + two items
     await vi.waitFor(() => expect(closeMock).toHaveBeenCalledTimes(3))
   })
 
@@ -159,10 +143,6 @@ describe('showNativeContextMenu', () => {
     expect(closeMock).toHaveBeenCalledTimes(2)
   })
 
-  // React StrictMode double-invokes effects (setup → cleanup → setup again)
-  // synchronously, before this function's first `await` can resolve. Without
-  // the `isCancelled` check, BOTH invocations would go on to build a menu and
-  // invoke a REAL popup — two live, stacked native menus from one right-click.
   it('closes everything without popping it up when cancelled before the menu is built', async () => {
     await show([{ id: 'a', label: 'A', onClick: vi.fn() }], () => true)
 
@@ -170,10 +150,6 @@ describe('showNativeContextMenu', () => {
     expect(closeMock).toHaveBeenCalledTimes(2)
   })
 
-  // Tauri keys an item's click channel by the item's id, and dropping any item
-  // removes the channel registered under that id. Two menus built from the same
-  // rows (React StrictMode double-invokes the open effect) must not share ids,
-  // or closing the cancelled one silences the one that is popped up.
   it('gives every menu its own item ids, even when built from the same rows', async () => {
     const item: ContextMenuItem = { id: 'rename', label: 'Rename', onClick: vi.fn() }
     const first = await show([item])

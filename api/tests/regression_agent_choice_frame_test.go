@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// A prompt the agent is blocked on is an ask row on the chat's feed, and its
-// answer an ask_resolved row.
-
 const answerStubProviderDescriptorYAML = `id: answerstub
 events:
   session_start:
@@ -58,8 +55,7 @@ type choiceFrameChat struct {
 	imported importedRepo
 	chatID   string
 	runnerID string
-	// held is each ask's held hook, by choice id: its CLI's answer arrives on it.
-	held map[string]<-chan heldHook
+	held     map[string]<-chan heldHook
 }
 
 func newChoiceFrameChat(t *testing.T, descriptor string) choiceFrameChat {
@@ -78,8 +74,6 @@ func (c choiceFrameChat) ask(t *testing.T, promptID string) (choiceID string) {
 	return c.askAs(t.Context(), t, "s1", promptID)
 }
 
-// askAs opens a permission ask from session; the daemon holds its hook open
-// until it is decided, or until ctx hangs it up.
 func (c choiceFrameChat) askAs(ctx context.Context, t *testing.T, session, promptID string) (choiceID string) {
 	t.Helper()
 	seen := make([]string, 0, len(c.held))
@@ -94,7 +88,6 @@ func (c choiceFrameChat) askAs(ctx context.Context, t *testing.T, session, promp
 	return choiceID
 }
 
-// reply is what the CLI held on choiceID was answered.
 func (c choiceFrameChat) reply(t *testing.T, choiceID string) string {
 	t.Helper()
 	got := <-c.held[choiceID]
@@ -103,14 +96,12 @@ func (c choiceFrameChat) reply(t *testing.T, choiceID string) string {
 	return got.body
 }
 
-// askState is one ask that offers a choice, as the chat's feed records it.
 type askState struct {
 	ID, Resolution string
 	Answerable     bool
 	Options        []struct{ ID, Kind string }
 }
 
-// asksOf are chatID's asks that offer a choice, each with its resolution.
 func asksOf(t *testing.T, h *harness, chatID string) []askState {
 	t.Helper()
 	var out []askState
@@ -139,18 +130,15 @@ func asksOf(t *testing.T, h *harness, chatID string) []askState {
 			ledger.KindSessionLost, ledger.KindMarker, ledger.KindRunnerStarted, ledger.KindRunnerExited,
 			ledger.KindTurnEnded, ledger.KindTurnFailed, ledger.KindAssistantText, ledger.KindReasoning,
 			ledger.KindToolCall, ledger.KindSubagent, ledger.KindPlan, ledger.KindMove:
-			// not an ask
 		}
 	}
 	return out
 }
 
-// openAsks are the asks of asks no row resolved.
 func openAsks(asks []askState) []askState {
 	return slices.DeleteFunc(asks, func(a askState) bool { return a.Resolution != "" })
 }
 
-// untilOpen waits for the chat's open asks to satisfy want.
 func (c choiceFrameChat) untilOpen(t *testing.T, want func([]askState) bool) {
 	t.Helper()
 	require.Eventually(t, func() bool { return want(openAsks(asksOf(t, c.h, c.chatID))) },
@@ -213,8 +201,6 @@ func TestRegression_SeveralChoicesAreOpenAndEachAnswerClosesOne(t *testing.T) {
 	})
 }
 
-// A CLI that hangs up its held ask has asked the question itself: the choice
-// closes as proceeded, and no card is left.
 func TestRegression_AHeldAskWhoseCLIHungUpIsClosedAsProceeded(t *testing.T) {
 	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
 
@@ -231,7 +217,6 @@ func TestRegression_AHeldAskWhoseCLIHungUpIsClosedAsProceeded(t *testing.T) {
 	require.Equal(t, "proceeded", all[0].Resolution, "its CLI went on without Crowbar's answer")
 }
 
-// The CLI holding an ask receives the bytes Crowbar's record says it was given.
 func TestRegression_AnAnsweredAskRepliesOnItsHeldHook(t *testing.T) {
 	c := newChoiceFrameChat(t, answerStubProviderDescriptorYAML)
 	choiceID := c.ask(t, "p1")

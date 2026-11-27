@@ -7,16 +7,10 @@ import {
 } from '@/features/editor/lib/asset-data-url'
 import { siblingRef } from '@/features/editor/documents/document-ref'
 
-/** Loads one local asset reference (as written in the HTML) as a `data:` URL the sandboxed
- *  preview can fetch, or null to leave it as-is. */
 export type LoadAsset = (reference: string) => Promise<string | null>
 
-/** A local reference inlined: as a `data:` URL, or a stylesheet link as its CSS. */
 type Inlined = { url: string } | { css: string }
 
-// The preview iframe is sandboxed with an opaque origin and loads from srcdoc,
-// so a relative `src` resolves against nothing and a path is not a URL the
-// frame can fetch. Local references are therefore inlined as data: URLs.
 const TAG_PATTERN = /<([a-z][a-z0-9-]*)\b[^>]*>/gi
 const URL_ATTRIBUTE_PATTERN = /\b(src|href|poster)=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
 const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset=(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi
@@ -28,8 +22,6 @@ function escapeHtmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
 
-// A whole document rides in one attribute value: a single pass over one entity
-// map, so the quote that would end the attribute is handled by the only step.
 const SRCDOC_ENTITIES = new Map([
   ['&', '&amp;'],
   ['"', '&quot;'],
@@ -41,13 +33,10 @@ function escapeSrcdoc(text: string): string {
   return text.replace(/[&"<>]/g, (char) => SRCDOC_ENTITIES.get(char) ?? char)
 }
 
-/** `href` is a resource only on <link>; on <a> it is navigation and stays. */
 function isResourceAttribute(tag: string, attribute: string): boolean {
   return attribute.toLowerCase() !== 'href' || tag.toLowerCase() === 'link'
 }
 
-// A frame's `src` is a navigation, and the desktop shell cancels data:
-// navigations in every frame; a text document goes in `srcdoc` instead.
 function frameSrcdoc(tagSource: string, tag: string, attribute: string, url: string) {
   const isFrameSrc = tag.toLowerCase() === 'iframe' && attribute.toLowerCase() === 'src'
   if (!isFrameSrc || SRCDOC_ATTRIBUTE_PATTERN.test(tagSource)) return null
@@ -78,7 +67,6 @@ function collectLocalReferences(html: string): Set<string> {
   return references
 }
 
-/** A stylesheet `<link>` whose CSS was read, as the `<style>` that applies it. */
 function inlineStylesheet(
   tag: string,
   tagSource: string,
@@ -89,7 +77,6 @@ function inlineStylesheet(
     const inlined = attribute.toLowerCase() === 'href' ? resolved.get(dq ?? sq ?? uq ?? '') : null
     if (!inlined || !('css' in inlined)) continue
     const media = MEDIA_ATTRIBUTE_PATTERN.exec(tagSource)?.[0]
-    // A `</style` inside the CSS would close the element early.
     const css = inlined.css.replace(/<\/style/gi, '<\\/style')
     return `<style${media ? ` ${media}` : ''}>${css}</style>`
   }
@@ -131,7 +118,6 @@ function rewriteTags(html: string, resolved: Map<string, Inlined>): string {
   })
 }
 
-/** `html` with every local reference `load` inlines; the rest are left untouched. */
 async function inlineReferences(
   html: string,
   load: (reference: string) => Promise<Inlined | null>,
@@ -144,16 +130,13 @@ async function inlineReferences(
         const inlined = await load(reference)
         if (inlined) resolved.set(reference, inlined)
       } catch {
-        return // an optional asset that fails stays as written; a toast per image would bury the preview
+        return
       }
     }),
   )
   return resolved.size === 0 ? html : rewriteTags(html, resolved)
 }
 
-/** The preview document for `html`: every local resource reference (src, poster, srcset,
- *  `<link href>`) inlined via `loadAsset`, an iframe's local text document as its `srcdoc`.
- *  References that fail to load are left untouched. */
 export function buildHtmlPreviewDocument(html: string, loadAsset: LoadAsset): Promise<string> {
   return inlineReferences(html, async (reference) => {
     const url = await loadAsset(reference)
@@ -164,22 +147,18 @@ export function buildHtmlPreviewDocument(html: string, loadAsset: LoadAsset): Pr
 const HOST_PREVIEW_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
 const DOCTYPE_PATTERN = /^\s*<!doctype[^>]*>/i
 
-/** The meta goes after any doctype so the document keeps its standards mode. */
 function withHostPreviewPolicy(html: string): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${HOST_PREVIEW_POLICY}">`
   const doctype = DOCTYPE_PATTERN.exec(html)?.[0] ?? ''
   return doctype + meta + html.slice(doctype.length)
 }
 
-/** The asset `reference` names inside `doc`'s own directory subtree, else null. */
 function subtreeRef(doc: DocumentRef, reference: string): DocumentRef | null {
   const ref = siblingRef(doc, reference)
   const dir = doc.path.slice(0, doc.path.lastIndexOf('/') + 1)
   return ref.path.startsWith(dir) ? ref : null
 }
 
-/** A host document's preview, under a policy of inline styles and data images: only its own
- *  subtree's stylesheets (as `<style>`) and images (as `data:` URLs) are read. */
 export async function buildHostPreviewDocument(
   html: string,
   doc: DocumentRef,

@@ -12,12 +12,10 @@ function fitBytes(text: string, limit: number): string {
   return `${cut}${ELLIPSIS}`
 }
 
-/** Cleans a title for the shell tab: control characters become spaces, and a title over the shell's byte limit is cut with an ellipsis. */
 export function fitTitle(title: string): string {
   return fitBytes(title.replace(/\p{Cc}/gu, ' ').trim(), MAX_TITLE_BYTES)
 }
 
-/** Cuts toast text over the shell's byte limit, with an ellipsis. */
 export function fitDisplayText(text: string): string {
   return fitBytes(text, MAX_DISPLAY_TEXT_BYTES)
 }

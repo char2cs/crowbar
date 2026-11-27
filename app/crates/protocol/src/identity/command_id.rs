@@ -7,11 +7,7 @@ fn validate(value: &str) -> Result<()> {
     })
 }
 
-string_id!(
-    /// A shell command id, for example `ext.git.openReview`.
-    CommandId,
-    validate
-);
+string_id!(CommandId, validate);
 
 #[cfg(test)]
 mod tests {

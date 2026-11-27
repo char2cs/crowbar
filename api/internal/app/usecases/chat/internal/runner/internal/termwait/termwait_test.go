@@ -42,7 +42,6 @@ func (f *fakeRunners) AllLive(context.Context) ([]engineagents.Runner, error) {
 	return f.live, nil
 }
 
-// fakeWork is the ledger's answer, the same for every chat.
 type fakeWork struct {
 	mu             sync.Mutex
 	busy, awaiting bool
@@ -200,7 +199,6 @@ func (f *fakeNotices) MatchTerminalNotice(
 	return engineagents.TerminalNotice{}, false
 }
 
-// ended records each notice the detector reports as ending a turn.
 type ended struct {
 	mu   sync.Mutex
 	seen []engineagents.TerminalNotice
@@ -295,7 +293,6 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 	return r
 }
 
-// wedged is a busy codex chat whose screen shows the usage-limit banner.
 func (r *rig) wedged() {
 	r.runners.live[0].ProviderID = "codex"
 	r.busy.set(true)
@@ -340,8 +337,6 @@ func TestDetector_Sweep_AWorkingChatWithNoDialogIsNotWaiting(t *testing.T) {
 	assert.Zero(t, r.choices.asked, "a busy tick with no dialog must not reach the choices read")
 }
 
-// A dialog no hook covers (claude's plan dialog, a command's) holds a running
-// turn too: without the banner the chat looks stuck.
 func TestDetector_Sweep_ADialogOverARunningTurnIsWaiting(t *testing.T) {
 	r := newRig(t)
 	r.busy.set(true)

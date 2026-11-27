@@ -12,7 +12,6 @@ export type InputProps = Omit<
   size?: 'sm' | 'default' | 'lg' | number
   unstyled?: boolean
   nativeInput?: boolean
-  /** Icon rendered inside the field, before the text. */
   leftIcon?: Icon | React.ComponentType<{ className?: string }>
 }
 
@@ -29,7 +28,6 @@ export function Input({
     'h-8.5 w-full min-w-0 rounded-[inherit] px-[calc(--spacing(3)-1px)] leading-8.5 outline-none [transition:background-color_5000000s_ease-in-out_0s] placeholder:text-muted-foreground/72 sm:h-7.5 sm:leading-7.5',
     size === 'sm' && 'h-7.5 px-[calc(--spacing(2.5)-1px)] leading-7.5 sm:h-6.5 sm:leading-6.5',
     size === 'lg' && 'h-9.5 leading-9.5 sm:h-8.5 sm:leading-8.5',
-    // Clear the gutter the icon sits in, so text never runs underneath it.
     LeftIcon && (size === 'sm' ? 'ps-7' : 'ps-8'),
     props.type === 'search' &&
       '[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none [&::-webkit-search-results-button]:appearance-none [&::-webkit-search-results-decoration]:appearance-none',

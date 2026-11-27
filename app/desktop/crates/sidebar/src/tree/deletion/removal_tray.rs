@@ -1,5 +1,3 @@
-//! The rows hidden behind a removal countdown.
-
 use std::time::{Duration, Instant};
 
 use crate::frame::REMOVAL_DRAIN_SECONDS;
@@ -8,14 +6,12 @@ use crate::tree::deletion::deadline::Deadline;
 use crate::tree::deletion::hold::Hold;
 use crate::tree::deletion::removal_kind::RemovalKind;
 
-/// The removal holds in progress, at most one per row.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemovalTray {
     holds: Vec<Hold>,
 }
 
 impl RemovalTray {
-    /// How long a countdown runs before the delete is sent.
     pub const DRAIN: Duration = Duration::from_secs(REMOVAL_DRAIN_SECONDS);
 
     pub(crate) fn hold(
@@ -44,7 +40,6 @@ impl RemovalTray {
         Deadline::At(now + Self::DRAIN)
     }
 
-    /// The hold on `row`, if the row is being removed.
     pub fn get(
         &self,
         row: &RowId,
@@ -52,7 +47,6 @@ impl RemovalTray {
         self.holds.iter().find(|hold| &hold.row == row)
     }
 
-    /// Drop the row's hold so it shows again and nothing is sent.
     pub fn keep(
         &mut self,
         row: &RowId,
@@ -74,7 +68,6 @@ impl RemovalTray {
             .collect()
     }
 
-    /// Mark the row's hold committed: its delete has been sent and it stays hidden until gone.
     pub fn commit(
         &mut self,
         row: &RowId,
@@ -93,7 +86,6 @@ impl RemovalTray {
         }
     }
 
-    /// The earliest countdown deadline, so one timer serves every hold; `None` when none counts.
     pub fn next_deadline(&self) -> Option<Instant> {
         self.holds
             .iter()
@@ -111,7 +103,6 @@ impl RemovalTray {
         self.holds.retain(|hold| exists(&hold.row));
     }
 
-    /// Whether any hold is still counting down.
     pub fn is_counting(&self) -> bool {
         self.holds
             .iter()

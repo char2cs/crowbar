@@ -10,15 +10,12 @@ fn command_id(slot: u8) -> String {
     format!("{COMMAND_PREFIX}{slot}")
 }
 
-/// The projects slot a command id names (`navigation.selectProject.3` is slot 3).
 #[must_use]
 pub fn project_slot_of_command(id: &str) -> Option<u8> {
     let slot: u8 = id.strip_prefix(COMMAND_PREFIX)?.parse().ok()?;
     SLOTS.contains(&slot).then_some(slot)
 }
 
-/// The slot a `mod+shift+<digit>` key press selects, by the digit key's position when the
-/// windowing layer reports it, whatever shift and the layout make it type; never rebound.
 #[must_use]
 pub fn project_slot_of_stroke(stroke: &Keystroke) -> Option<u8> {
     let (modifiers, key) = stroke
@@ -53,7 +50,6 @@ mod tests {
     use crate::test_support::stroke;
     use chord::PhysicalKey;
 
-    /// `typed`, at the key position and with the modifiers of `physical`.
     fn at(
         typed: &str,
         physical: &str,

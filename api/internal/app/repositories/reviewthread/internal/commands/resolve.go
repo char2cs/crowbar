@@ -8,7 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ResolveReviewThread marks an open thread resolved.
 type ResolveReviewThread struct {
 	ID string
 }

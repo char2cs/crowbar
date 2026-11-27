@@ -34,7 +34,6 @@ describe('describeChoice', () => {
     expect(describeChoice(choice({ toolName: '' }))).toBe('The agent is asking for permission')
   })
 
-  // A provider's internal tool name ("commandExecution") is not words; the call's kind is.
   it('names the kind of call a permission gates when its call is known', () => {
     const run = choice({ toolName: 'commandExecution' })
     expect(describeChoice(run, 'execute')).toBe('Run a command')
@@ -52,8 +51,6 @@ describe('describeChoice', () => {
     expect(describeChoice(asked)).toBe('Which option do you prefer?')
   })
 
-  // With three questions no single one is what the prompt is asking, and naming
-  // one of them would be a lie a reader could act on — so the count is said.
   it('counts the questions when there is no single one to quote', () => {
     const asked = choice({
       kind: 'question',
@@ -73,8 +70,6 @@ describe('describeChoice', () => {
     )
   })
 
-  // A kind this build has never heard of falls through to whatever the provider
-  // did say, never to a guess about what it meant.
   it('degrades to the provider’s own text for an unknown kind', () => {
     expect(describeChoice(choice({ kind: 'something_new', question: 'Well?' }))).toBe('Well?')
     expect(describeChoice(choice({ kind: 'something_new', question: '', title: 'T' }))).toBe('T')
@@ -82,7 +77,6 @@ describe('describeChoice', () => {
 })
 
 describe('choiceQuestions', () => {
-  // A prompt recorded since questions were modelled carries them directly.
   it('reports every question of a multi-question prompt', () => {
     const asked = choice({
       kind: 'question',
@@ -99,8 +93,6 @@ describe('choiceQuestions', () => {
     ])
   })
 
-  // The graceful fallback, and NOT a migration: a row written before questions
-  // existed is a single question described by the prompt's own text and options.
   it('presents a prompt recorded before questions existed as a question of one', () => {
     const legacy = choice({
       kind: 'question',
@@ -123,8 +115,6 @@ describe('choiceQuestions', () => {
     ])
   })
 
-  // A permission's allow/deny and an elicitation's verbs are not a pick from a
-  // list the agent offered, so neither is a question in this sense.
   it('reports nothing for a permission or an elicitation', () => {
     expect(choiceQuestions(choice())).toEqual([])
     expect(choiceQuestions(choice({ kind: 'elicitation', options: [] }))).toEqual([])
@@ -194,7 +184,6 @@ describe('describeResolvedChoice', () => {
     expect(describeResolvedChoice(answered)).toMatch(/· A$/)
   })
 
-  // An unrecognised label beats dropping the fact that something was picked.
   it('falls back to the raw id when it names no known option', () => {
     const answered = choice({ pending: false, resolution: 'answered', answeredOptionIds: ['x'] })
 

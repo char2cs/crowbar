@@ -1,6 +1,3 @@
-//! The branch import dialog's data: a repository's remote branches and open pull requests, and the
-//! batch import call.
-
 mod availability;
 mod branch_listing;
 mod entry;
@@ -37,7 +34,6 @@ use crate::store::branch_import::pr_link::PrLink;
 use crate::store::settings_core::Loadable;
 use crate::{plan::runner, store::branch_import::rows as branch_rows};
 
-/// The branches of one repository's remote, loaded once and shown by the import dialog.
 pub struct BranchImport {
     scope: ImportScope,
     client: daemonapi::Client,
@@ -147,7 +143,6 @@ impl BranchImport {
         self.hold(|held| held.links = links);
     }
 
-    /// The branches as far as the daemon has answered; protected ones first.
     pub fn listing(&self) -> BranchListing {
         let Ok(held) = self.held.lock() else {
             return BranchListing::Failed;
@@ -159,7 +154,6 @@ impl BranchImport {
         }
     }
 
-    /// What importing `selected` would do.
     pub fn plan(
         &self,
         selected: &[String],
@@ -178,8 +172,6 @@ impl BranchImport {
         )
     }
 
-    /// Imports `branches` as one batch, each under a chat id minted here; those in `locked` come
-    /// in locked.
     pub fn import(
         &self,
         branches: &[String],

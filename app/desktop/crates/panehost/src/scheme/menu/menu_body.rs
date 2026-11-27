@@ -1,5 +1,3 @@
-//! The body of a page's menu ask.
-
 use serde::Deserialize;
 
 use crate::scheme::menu::page_entry::PageEntry;

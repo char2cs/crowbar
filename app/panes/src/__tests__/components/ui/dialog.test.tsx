@@ -21,7 +21,6 @@ describe('Dialog backdrop', () => {
     expect(backdrops()).toHaveLength(1)
   })
 
-  // Settings opens "Add remote host" from inside its own dialog: the inner one must still dim.
   it('renders its own backdrop for a dialog opened inside another dialog', async () => {
     render(
       <Dialog open>

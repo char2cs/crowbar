@@ -8,11 +8,6 @@ use crate::transport::remote::secrets::token_store::TokenStore;
 
 type Remembered = Result<Option<String>, ReadError>;
 
-/// Reads each host's entry from the keychain at most once per process, because every read can
-/// raise its own OS access prompt and callers read on every request and socket open. Found,
-/// missing and user-denied outcomes are remembered; pairing again clears a denial. Any other
-/// failure (a locked keychain) is retried. The lock is held across a read so concurrent first
-/// reads prompt once.
 #[derive(Debug)]
 pub struct CachedTokenStore<K: Keychain> {
     keychain: K,
@@ -20,7 +15,6 @@ pub struct CachedTokenStore<K: Keychain> {
 }
 
 impl<K: Keychain> CachedTokenStore<K> {
-    /// Wraps `keychain` with an empty cache.
     pub fn new(keychain: K) -> Self {
         Self {
             keychain,
@@ -185,7 +179,6 @@ mod tests {
         assert_eq!(keychain.reads.load(Ordering::SeqCst), 2);
     }
 
-    /// (failure, keychain reads after two lookups): a denial is remembered, a locked keychain is retried.
     const CASES: [(Failure, usize); 2] = [(Failure::Denied, 1), (Failure::Locked, 2)];
 
     #[test]

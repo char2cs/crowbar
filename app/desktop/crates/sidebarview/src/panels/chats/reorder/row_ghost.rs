@@ -1,5 +1,3 @@
-//! The lifted clone of a row that follows the pointer while it is dragged.
-
 use std::rc::Rc;
 
 use gpui::{AnyElement, App, Context, IntoElement, Pixels, Render, Window};

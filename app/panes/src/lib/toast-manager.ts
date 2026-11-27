@@ -3,8 +3,6 @@ import { Toast } from '@base-ui/react/toast'
 type ToastManager = ReturnType<typeof Toast.createToastManager>
 type ToastOptions = Parameters<ToastManager['add']>[0]
 
-// base-ui's manager only emits: a toast added while nothing shows it (no viewport or shell
-// forwarder yet: a boot failure) would be lost, so it waits for the first listener.
 function heldUntilShown(manager: ToastManager): ToastManager {
   const held = new Map<string, ToastOptions>()
   const heldPromises: (() => void)[] = []

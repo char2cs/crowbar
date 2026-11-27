@@ -1,5 +1,3 @@
-//! What one pop-up window shows in its last frame, and where the pointer reaches it.
-
 use crate::floating::layers::float_region::FloatRegion;
 
 #[derive(Debug, Clone, Default)]

@@ -5,25 +5,15 @@ import type { FileOutline, HunkShape } from '@/features/git/api/review-window-ap
 import { PATCH_LINE_CAP } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
 
-// Pure layout for the windowed Branch Review: file classification, the content-free placeholder
-// a file occupies before its patch arrives, and patch parsing.
-
-// ── File classification ─────────────────────────────────────────────
-
-/** How a changed file is rendered: as a diff, as an image, or as a bare row. */
 type ReviewFileKind = 'diff' | 'image' | 'binary'
 
 export interface ReviewFileEntry {
   path: string
   kind: ReviewFileKind
-  /** The summary row — status flags and ± counts, never line content. */
   file: GitDiff
-  /** Hunk geometry for the path, absent only if the outline disagrees with the summary. */
   outline?: FileOutline
 }
 
-/** Classifies files in summary order. Binary-ness comes from the outline (git emits no `@@` for a
- *  binary); image-ness from the extension, since the daemon doesn't tell a PNG from a `.bin`. */
 export function partitionReviewFiles(
   files: readonly GitDiff[],
   outline: readonly FileOutline[],
@@ -43,11 +33,6 @@ export function partitionReviewFiles(
   })
 }
 
-// ── Placeholder geometry ────────────────────────────────────────────
-
-// CodeView sizes items from hunk row counts alone, so hunks carry counts and empty content. Context
-// per hunk = (Σ oldLines − deletions) spread under min(old, new); no ± counts → zero context, an
-// over-reserve (jumps are worse). isPartial stops expand-unchanged indexing the empty line arrays.
 export function buildPlaceholderFileDiff(
   file: GitDiff,
   outline: FileOutline | undefined,
@@ -59,15 +44,11 @@ export function buildPlaceholderFileDiff(
     buildPlaceholderHunks(shapes, distributeContext(shapes, file.deletions)),
   )
 
-  // A capped outline is a lower bound on the file; every changed line is one unified row, so
-  // the summary's ± counts are the floor it is topped up to.
   const room = PATCH_LINE_CAP - sumBy(hunks, (h) => h.unifiedLineCount)
   if (outline?.isPartial && room > 0) {
     const missingAdditions = Math.max(0, additions - sumBy(hunks, (h) => h.additionLines))
     const missingDeletions = Math.max(0, deletions - sumBy(hunks, (h) => h.deletionLines))
     if (missingAdditions + missingDeletions > 0) {
-      // The tail reports the true missing counts but reserves only the room under the cap
-      // (reserveAtMost): more collapses on materialisation, none makes the scrollbar lie.
       hunks.push(reserveAtMost(buildTailHunk(hunks, missingAdditions, missingDeletions), room))
     }
   }
@@ -87,7 +68,6 @@ export function buildPlaceholderFileDiff(
   }
 }
 
-/** A summary count, or 0 when it is absent or the binary sentinel (-1). */
 function countOf(value: number | undefined): number {
   return typeof value === 'number' && value > 0 ? value : 0
 }
@@ -105,8 +85,6 @@ function changeTypeOf(file: GitDiff): ChangeTypes {
   return 'change'
 }
 
-// Reserve only what the capped patch request will deliver: a placeholder taller than its patch
-// shrinks on materialising and shifts everything below it, scrambling the scroll position.
 function trimToPatchCap(hunks: Hunk[]): Hunk[] {
   const kept: Hunk[] = []
   let unified = 0
@@ -116,15 +94,10 @@ function trimToPatchCap(hunks: Hunk[]): Hunk[] {
     unified += hunk.unifiedLineCount
   }
   if (kept.length > 0) return kept
-  // A first hunk over the cap (a whole-file rewrite) can't be dropped or the file occupies
-  // nothing; scale it down instead.
   const first = hunks[0]
   return first != null ? [reserveAtMost(first, PATCH_LINE_CAP)] : []
 }
 
-// Caps the space a hunk reserves (row counts) but not its ± (addition/deletion lines), so a
-// capped file still shows how much it really changed. A placeholder draws nothing, so the two
-// disagreeing costs nothing until the real patch replaces it.
 function reserveAtMost(hunk: Hunk, room: number): Hunk {
   if (hunk.unifiedLineCount <= room || room <= 0) return hunk
   const scale = room / hunk.unifiedLineCount
@@ -135,7 +108,6 @@ function reserveAtMost(hunk: Hunk, room: number): Hunk {
   }
 }
 
-/** Per-hunk context estimate (see `buildPlaceholderFileDiff`); only an unknown count gives 0. */
 function distributeContext(shapes: readonly HunkShape[], deletions = -1): number[] {
   const caps = shapes.map((s) => Math.min(s.oldLines, s.newLines))
   const capTotal = sumBy(caps, (c) => c)
@@ -170,7 +142,6 @@ function buildPlaceholderHunks(shapes: readonly HunkShape[], context: readonly n
       deletionCount: shape.oldLines,
       deletionLines,
       deletionLineIndex,
-      // Empty on purpose: the row counts below reserve the space; nothing draws until the patch.
       hunkContent: [],
       hunkSpecs: `@@ -${shape.oldStart},${shape.oldLines} +${shape.newStart},${shape.newLines} @@`,
       splitLineStart,
@@ -192,7 +163,6 @@ function buildPlaceholderHunks(shapes: readonly HunkShape[], context: readonly n
   return hunks
 }
 
-/** The synthetic hunk standing in for everything a capped outline omitted. */
 function buildTailHunk(hunks: readonly Hunk[], additions: number, deletions: number): Hunk {
   const previous = hunks[hunks.length - 1]
   return {
@@ -215,11 +185,6 @@ function buildTailHunk(hunks: readonly Hunk[], additions: number, deletions: num
   }
 }
 
-// ── Patch parsing ───────────────────────────────────────────────────
-
-/** Matching cacheKeys make the renderer keep the cached height, so the key must change with the
- *  content: the length tells a "Show all" refetch from its capped patch, while identical text
- *  still shares a key for the highlighter cache. */
 export function patchCacheKey(
   wsId: string,
   commit: string | undefined,
@@ -229,8 +194,6 @@ export function patchCacheKey(
   return `${wsId}:${commit ?? ''}:${path}:${patch.length}`
 }
 
-/** Parse one file's unified patch. A header-only body yields a hunkless file
- *  rather than nothing, which is what lets the truncation banner still render. */
 export function parseSingleFilePatch(
   patch: string,
   cacheKey: string,
@@ -246,7 +209,6 @@ export function parseSingleFilePatch(
   return undefined
 }
 
-/** A short, stable identity for an ordered path list (FNV-1a). */
 export function signatureOf(paths: readonly string[]): string {
   let hash = 0x811c9dc5
   for (const path of paths) {

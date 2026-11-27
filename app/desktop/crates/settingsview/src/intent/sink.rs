@@ -1,5 +1,3 @@
-//! The door the views use to hand an [`Intent`] to whoever owns the modal.
-
 use std::rc::Rc;
 
 use gpui::{App, Window};

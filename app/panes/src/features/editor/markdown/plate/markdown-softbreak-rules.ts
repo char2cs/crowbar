@@ -1,12 +1,8 @@
 import { defaultRules, type MdRules } from '@platejs/markdown'
 
-// A soft line break and a hard break both reach Plate as a "\n" in the text, and the default
-// paragraph rule writes every "\n" back as a hard break. A soft break keeps its own leaf, marked
-// `softBreak`, and is written back as the plain line ending it was.
 type Leaf = { text?: string; softBreak?: boolean }
 type MdNode = { value?: unknown; children?: MdNode[] }
 
-// Stands in for a soft line ending while the default rule runs, so marks still span the break.
 const SOFT = '\uE000'
 
 function restoreSoftBreaks(node: MdNode): void {

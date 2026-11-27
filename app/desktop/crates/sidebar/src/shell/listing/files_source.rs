@@ -1,17 +1,11 @@
-//! What the Files panel draws.
-
 use crate::shell::listing::file_row::FileRow;
 use crate::shell::listing::file_tree_view::FileTreeView;
 
-/// What the Files panel draws.
 pub trait FilesSource {
-    /// The visible rows of the Files panel.
     fn files(&self) -> Vec<FileRow>;
-    /// The absolute folder the Files panel shows; without it Copy Path copies the relative path.
     fn workspace_root(&self) -> Option<String> {
         None
     }
-    /// How the file-tree settings shape the Files and Changes panels; read on every render.
     fn file_tree_view(&self) -> FileTreeView {
         FileTreeView::default()
     }

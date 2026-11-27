@@ -1,5 +1,3 @@
-//! The unresolved review threads of the followed workspace.
-
 use std::collections::BTreeMap;
 
 const GENERAL: &str = "";

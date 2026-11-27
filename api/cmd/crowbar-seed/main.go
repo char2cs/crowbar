@@ -1,6 +1,3 @@
-// Command crowbar-seed fills a running DEV daemon with a throwaway git repo, a project, a feature
-// workspace with a real diff and two review threads on it. It is its own binary so dev tooling
-// never ships; run it via `make seed` (dev CROWBAR_HOME). Every step is idempotent.
 package main
 
 import (
@@ -67,9 +64,6 @@ func run(
 	return finish(ctx, d, fixture, rep)
 }
 
-// finish covers everything downstream of the imported repo: the base chat
-// import provisions, the feature chat forked off it, the commit that gives the
-// review surface something to render, and the threads on that commit.
 func finish(
 	ctx context.Context,
 	d *daemon,
@@ -112,9 +106,6 @@ func finish(
 	return rep.write()
 }
 
-// seedRoot puts the throwaway repo under CROWBAR_HOME. A dev home is required,
-// not defaulted: falling back to the user's real home would seed production when
-// the binary runs outside `make seed`.
 func seedRoot() (string, error) {
 	h, err := home.Resolve()
 	if err != nil {

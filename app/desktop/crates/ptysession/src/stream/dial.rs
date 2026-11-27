@@ -1,5 +1,3 @@
-//! The port that opens the byte stream a relay websocket runs over.
-
 use std::future::Future;
 use std::io;
 use std::pin::Pin;

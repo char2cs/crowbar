@@ -1,5 +1,3 @@
-//! A repository as the projects scope carries it.
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]

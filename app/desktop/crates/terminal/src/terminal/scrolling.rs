@@ -1,11 +1,8 @@
-//! Scrolling the emulator's history.
-
 use alacritty_terminal::grid::Scroll;
 
 use crate::terminal::Terminal;
 
 impl Terminal {
-    /// Scrolls the history by `lines` (positive goes back in time).
     pub fn scroll_lines(
         &mut self,
         lines: i32,
@@ -13,27 +10,22 @@ impl Terminal {
         self.term.scroll_display(Scroll::Delta(lines));
     }
 
-    /// Scrolls one screen back in time.
     pub fn scroll_page_up(&mut self) {
         self.term.scroll_display(Scroll::PageUp);
     }
 
-    /// Scrolls one screen forward.
     pub fn scroll_page_down(&mut self) {
         self.term.scroll_display(Scroll::PageDown);
     }
 
-    /// Jumps to the oldest line.
     pub fn scroll_to_top(&mut self) {
         self.term.scroll_display(Scroll::Top);
     }
 
-    /// Jumps to the live screen.
     pub fn scroll_to_bottom(&mut self) {
         self.term.scroll_display(Scroll::Bottom);
     }
 
-    /// Scrolls to exactly `offset` lines above the live screen.
     pub fn set_display_offset(
         &mut self,
         offset: usize,
@@ -43,7 +35,6 @@ impl Terminal {
         self.scroll_lines(i32::try_from(wanted - current).unwrap_or(0));
     }
 
-    /// Drops the scrollback and keeps the screen.
     pub fn clear_scrollback(&mut self) {
         self.term.grid_mut().clear_history();
         self.term.selection = None;

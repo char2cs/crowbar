@@ -30,8 +30,6 @@ export const TerminalSettings = () => {
     loadMonospaceFonts()
   }, [loadMonospaceFonts])
 
-  // Combine Nerd Fonts with system monospace fonts
-  // Only include Nerd Fonts if they are actually installed on the system
   const installedNerdFonts = COMMON_TERMINAL_NERD_FONTS.filter((nerdFont) =>
     monospaceFonts.some((sysFont) => sysFont.family === nerdFont),
   )
@@ -46,7 +44,6 @@ export const TerminalSettings = () => {
     }
   }
 
-  // Add custom option if current value is not in list
   if (
     settings.terminalFontFamily &&
     !fontOptions.some((opt) => opt.value === settings.terminalFontFamily)

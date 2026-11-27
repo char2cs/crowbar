@@ -1,5 +1,3 @@
-//! One frame's worth of data between layout and paint.
-
 use terminal::Snapshot;
 
 use crate::terminal_view::paint::shaping::Shaping;

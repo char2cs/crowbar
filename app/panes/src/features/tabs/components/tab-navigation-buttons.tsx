@@ -1,4 +1,3 @@
-// web/src/features/tabs/components/tab-navigation-buttons.tsx
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import React from 'react'
 import { Button } from '@/components/ui/button'
@@ -22,8 +21,6 @@ const TabNavigationButtons = React.memo(function TabNavigationButtons({
     <Button
       onClick={onToggleSidebar}
       variant="ghost"
-      // Same recipe (icon-sm, sidebar hover token) as TabAddButton / CloseViewButton and as the
-      // SidebarProjectHeader toggle it swaps places with; keep all four in sync.
       size="icon-sm"
       className={cn(
         'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',

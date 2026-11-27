@@ -1,5 +1,3 @@
-//! The shortcut currently waiting for a key press.
-
 use crate::keys::capture::Capture;
 use crate::keys::pressed::Pressed;
 use crate::keys::refusal::Refusal;

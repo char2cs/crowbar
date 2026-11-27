@@ -185,9 +185,6 @@ describe('buildRepoTree', () => {
     expect(tree[0].defaultWorkspaceId).toBeUndefined()
   })
 
-  // The default (repo-home) workspace is dropped from `workspaces` above, which
-  // would drop its live `working` overlay with it — leaving the repo header (its
-  // only tile) unable to spin while an agent works in it. Lift it onto the repo.
   it('lifts the isDefault workspace working overlay onto the repo', () => {
     const tree = buildRepoTree(
       [repo('r1', 'crowbar')],
@@ -209,9 +206,6 @@ describe('buildRepoTree', () => {
     expect(tree[0].defaultWorking).toBeUndefined()
   })
 
-  // Adopted protected branches are locked AND default (adoptMainWorktree) — the
-  // default ws is not a tree row, so its status must be lifted onto the repo or
-  // mutation gating (isWorkspaceLockedInSidebar) can't see the lock.
   it('lifts the isDefault workspace status onto the repo (locked default)', () => {
     const tree = buildRepoTree(
       [repo('r1', 'crowbar')],
@@ -247,7 +241,6 @@ function makeWs(over: Partial<WorkspaceDTO> & { id: string }): WorkspaceDTO {
     ...over,
   } as WorkspaceDTO
 }
-// A lone workspace as the sidebar renders it, built through the public tree entry.
 const toSidebarWorkspace = (dto: WorkspaceDTO) =>
   buildRepoTree([repo(dto.repoId, 'r')], [dto])[0].workspaces[0]
 const toSidebarRepo = (repoDto: RepoDTO, workspaces: WorkspaceDTO[]) =>
@@ -267,12 +260,6 @@ describe('toSidebarWorkspace heldByPath', () => {
   })
 })
 
-/**
- * The chat row that owns this workspace — the id the daemon resolves a
- * placement against (`WorkspaceDTO.owningChatId`). Mapped unconditionally like
- * every other field here: a frame that names none has to overwrite a stale id,
- * not silently keep it.
- */
 describe('toSidebarWorkspace owningChatId', () => {
   it('carries the owning chat id from the DTO', () => {
     const w = toSidebarWorkspace(ws('w1', 'r1', { owningChatId: 'c-owner' }))
@@ -301,10 +288,6 @@ describe('toSidebarRepo defaultBranch', () => {
   })
 })
 
-// The sidebar holds several projects at once now, so the builder is deliberately
-// project-agnostic: it groups whatever it is handed and tags each repo with its
-// own project. Deciding WHICH projects to hand it is the visibility layer's job
-// (lib/store/project-visibility.ts), not this one's.
 describe('buildRepoTree is project-agnostic', () => {
   it('keeps repos from more than one project, each tagged with its own', () => {
     const tree = buildRepoTree(
@@ -344,17 +327,12 @@ describe('folders and order', () => {
   })
 
   it('tolerates a frame from a backend that carries neither', () => {
-    // Set rather than omitted, for the same reason as heldByPath:
-    // applyWorkspaceDTO merges with {...w, ...ws}, so a workspace moved OUT of a
-    // folder has to overwrite the stale id instead of keeping it.
     const w = toSidebarWorkspace(ws('w1', 'r1'))
     expect(w.folderId).toBe('')
     expect(w.order).toBe(0)
   })
 })
 
-// `type` distinguishes a workflow row from an ordinary conversation.
-// Dropping it in the reshape is what made every chat row look alike.
 describe('toSidebarChat carries the row’s type', () => {
   it('keeps a workflow row’s type through the reshape', () => {
     const chat = toSidebarChat({
@@ -403,11 +381,6 @@ describe('a tied level sorts the way the daemon sorts it', () => {
     ])
   })
 
-  // The daemon compares time.Time; the wire form is RFC3339Nano with a local
-  // offset and trimmed fraction zeros, so the ISO STRING order is not the
-  // instant order ('Z' sorts above every digit; two offsets straddle a DST
-  // change). Compared as instants, or a tied level's first drop index names a
-  // different slot on each side.
   it('breaks a tie on the INSTANT, not the ISO string', () => {
     const level = [
       { id: 'a', order: 0, createdAt: '2026-11-01T01:30:00-07:00' },

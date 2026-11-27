@@ -1,12 +1,7 @@
-//! What fills a pane's content rectangle.
-
 use gpui::{AnyElement, App, IntoElement as _, Window};
 use protocol::PaneId;
 
-/// What fills a pane's content rectangle.
 pub trait PaneContent {
-    /// What fills the pane's content hole. The real shell returns an empty element, because the
-    /// pane host's web view covers the hole.
     fn content(
         &self,
         pane: &PaneId,
@@ -14,8 +9,6 @@ pub trait PaneContent {
         cx: &mut App,
     ) -> AnyElement;
 
-    /// Whether the pane is drawn by a native view that fills its whole content rectangle, so no
-    /// web view and no hole are reserved for it.
     fn is_native(
         &self,
         _pane: &PaneId,
@@ -23,8 +16,6 @@ pub trait PaneContent {
         false
     }
 
-    /// What fills the editor view of `chat`'s group while it is open with no tab: the New Tab
-    /// page. Nothing by default.
     fn empty_editor(
         &self,
         _chat: &PaneId,

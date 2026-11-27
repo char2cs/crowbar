@@ -1,5 +1,3 @@
-//! A multi-line text field with wrapping, selection, undo, clipboard and input-method support.
-
 mod binding;
 mod editing;
 mod enter_key;
@@ -28,10 +26,6 @@ use crate::control::editor::text_input_event::TextInputEvent;
 use crate::foundation::Surface;
 use crate::foundation::opaque_debug;
 
-/// A multi-line text field entity; render it as a child and subscribe to [`TextInputEvent`].
-///
-/// `Enter` inserts a newline, `Ctrl+Enter` (`Cmd+Enter` on macOS) emits `Submitted`, `Escape` emits
-/// `Cancelled`. The field grows with its text up to [`TextArea::max_height`], then scrolls.
 pub struct TextArea {
     pub(crate) buffer: Buffer,
     pub(crate) history: History,
@@ -65,7 +59,6 @@ impl Focusable for TextArea {
 }
 
 impl TextArea {
-    /// An empty field showing `placeholder` while empty.
     pub fn new(
         placeholder: impl Into<SharedString>,
         cx: &mut Context<'_, Self>,
@@ -92,7 +85,6 @@ impl TextArea {
         }
     }
 
-    /// Builds a field entity in one call.
     pub fn build(
         placeholder: impl Into<SharedString>,
         cx: &mut App,
@@ -100,7 +92,6 @@ impl TextArea {
         cx.new(|cx| Self::new(placeholder, cx))
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,
@@ -110,24 +101,20 @@ impl TextArea {
         self
     }
 
-    /// Makes `Enter` emit `Submitted` and `Shift+Enter` insert the newline, as a settings field does.
     #[must_use]
     pub fn submit_on_enter(mut self) -> Self {
         self.enter = EnterKey::Submit;
         self
     }
 
-    /// The current text.
     pub fn text(&self) -> &str {
         self.buffer.text()
     }
 
-    /// The placeholder shown while the text is empty.
     pub fn placeholder(&self) -> &SharedString {
         &self.placeholder
     }
 
-    /// Replaces the text and selects its end, without emitting `Changed`; the undo history starts over.
     pub fn set_text(
         &mut self,
         text: &str,
@@ -138,7 +125,6 @@ impl TextArea {
         self.restart_blink(cx);
     }
 
-    /// Moves keyboard focus to the field.
     pub fn focus(
         &self,
         window: &mut Window,

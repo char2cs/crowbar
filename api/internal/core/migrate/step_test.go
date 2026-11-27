@@ -37,8 +37,6 @@ func TestStep_IDCarriesNumberAndName(t *testing.T) {
 	assert.Equal(t, ID{Number: 7, Name: "chat-types"}, s.ID())
 }
 
-// A recurring step, once applied, runs again at each boot whose plan finds
-// work, seeing its earlier checkpoints and notes; a boot that finds none writes nothing.
 func TestRun_ARecurringStepRunsAgainWhileItsPlanFindsWork(t *testing.T) {
 	ctx := context.Background()
 	work := true
@@ -75,8 +73,6 @@ func TestRun_ARecurringStepRunsAgainWhileItsPlanFindsWork(t *testing.T) {
 	assert.Equal(t, map[string]Note{"note": {Detail: "k2"}}, last.Notes, "the latest note under a key is the one read back")
 }
 
-// recurringBench is a home whose recurring step 1 was applied once; plan and
-// apply stand in for what that step does on every later boot.
 func recurringBench(t *testing.T, plan, apply func() error) (*bench, *bytes.Buffer, Impls) {
 	t.Helper()
 	step := newStep(1, "sweep", PreOpen, 0, 0)
@@ -98,9 +94,6 @@ func recurringBench(t *testing.T, plan, apply func() error) (*bench, *bytes.Buff
 	return b, &logs, Impls{1: impl(func(*Checkpoints) (Counts, error) { return nil, apply() })}
 }
 
-// A step that was applied and only runs again for what was added since must
-// not stop a boot that already runs on what it did: a plan it cannot make is
-// a warning, and the boot writes nothing.
 func TestBegin_ARecurringStepWhosePlanFailsIsSkippedWithAWarning(t *testing.T) {
 	b, logs, impls := recurringBench(t, func() error { return errors.New("cannot look") }, func() error { return nil })
 	before := b.records()
@@ -114,8 +107,6 @@ func TestBegin_ARecurringStepWhosePlanFailsIsSkippedWithAWarning(t *testing.T) {
 	assert.Contains(t, logs.String(), "cannot look")
 }
 
-// A recurring step that fails once applied is skipped: the failure is in the
-// ledger as the step's and as a note it reads back, and the run completes.
 func TestRun_ARecurringStepThatFailsAgainIsSkippedNotAHalt(t *testing.T) {
 	b, logs, impls := recurringBench(t, func() error { return nil }, func() error { return errors.New("legacy file damaged") })
 
@@ -133,8 +124,6 @@ func TestRun_ARecurringStepThatFailsAgainIsSkippedNotAHalt(t *testing.T) {
 	assert.Contains(t, logs.String(), "level=WARN")
 }
 
-// A recurring step whose own check fails once applied is skipped as a failed
-// attempt is: rows normal use added since must not halt a home that runs.
 func TestRun_ARecurringStepWhoseCheckFailsAgainIsSkippedNotAHalt(t *testing.T) {
 	b, logs, impls := recurringBench(t, func() error { return nil }, func() error { return nil })
 	impls[1] = Impl{Apply: impls[1].Apply, Verify: func(context.Context, Env) error { return errors.New("holds 402 rows") }}
@@ -161,9 +150,6 @@ func TestRun_ANonRecurringStepIgnoresItsPlanOnceApplied(t *testing.T) {
 	assert.Equal(t, []int{1}, order, "stubPlan has work, and still the step ran once")
 }
 
-// A run killed while a recurring step ran again is closed as interrupted, not
-// completed, and the next boot redoes it from the backup that run took, or
-// takes the one it never got to.
 func TestBegin_ARunKilledWhileARecurringStepRanAgainIsInterrupted(t *testing.T) {
 	for _, kill := range []string{kindRunStart, kindBackup, kindCheckpoint} {
 		t.Run("after "+kill, func(t *testing.T) {

@@ -1,12 +1,9 @@
-//! One page of the settings rail.
-
 use crate::keys::ShortcutGroup;
 use crate::schema::block::Block;
 use crate::schema::page_id::PageId;
 use crate::schema::row::Row;
 use crate::schema::search_entry::SearchEntry;
 
-/// A rail entry and the blocks it shows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
     pub(crate) id: PageId,
@@ -17,13 +14,11 @@ pub struct Page {
 }
 
 impl Page {
-    /// File stem of the Phosphor icon shown in the rail.
     #[must_use]
     pub fn icon(&self) -> &str {
         &self.icon
     }
 
-    /// The blocks the page shows, in order.
     #[must_use]
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
@@ -61,7 +56,6 @@ impl Page {
         self
     }
 
-    /// The rows of every section on the page, in order.
     pub fn rows(&self) -> impl Iterator<Item = &Row> {
         self.blocks.iter().flat_map(|block| match block {
             Block::Section(section) => section.rows.as_slice(),
@@ -76,12 +70,10 @@ impl Page {
         })
     }
 
-    /// The page id.
     pub fn id(&self) -> &PageId {
         &self.id
     }
 
-    /// The rail label.
     pub fn label(&self) -> &str {
         &self.label
     }

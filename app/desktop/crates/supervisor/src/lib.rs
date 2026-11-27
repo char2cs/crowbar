@@ -1,6 +1,3 @@
-//! Supervises the Crowbar daemon sidecar: finds, spawns, health-checks, recovers and stops it,
-//! and reports its state as a stream of [`DaemonEvent`]s.
-
 mod config;
 mod error;
 mod health;

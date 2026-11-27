@@ -15,11 +15,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Two locked branches at order 0: the sidebar draws the OLDER first (a branch
-// row carries its workspace's createdAt), so a chat dropped "after the first
-// branch" is index 1. An anchor read off its Node alone carried a zero
-// CreatedAt and tied by id — the lexically earlier "aa" came first on the
-// daemon, and the chat landed after the wrong branch.
 func TestRegression_PlaceChat_TiedAnchorsSortByWorkspaceCreatedAtNotID(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
 	gitStatus.SetRepo(workspaceID, repoID)
@@ -43,9 +38,6 @@ func TestRegression_PlaceChat_TiedAnchorsSortByWorkspaceCreatedAtNotID(t *testin
 	assert.Equal(t, 2, newer.Order)
 }
 
-// A locked branch from before Node rows existed has none, so the repo-root
-// densify never counted it: a drop index computed over the drawn rows named a
-// different slot on the daemon.
 func TestRegression_PlaceChat_CountsALegacyNodelessLockedBranch(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
 	gitStatus.SetRepo(workspaceID, repoID)
@@ -62,7 +54,6 @@ func TestRegression_PlaceChat_CountsALegacyNodelessLockedBranch(t *testing.T) {
 		{ID: "c2", Kind: dtree.KindChat, ParentID: "", Order: 2},
 	}
 
-	// Drawn [legacy-locked, c1, c2]; drop c2 right after the branch.
 	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c2", tree.PlaceInput{ParentID: name(""), Order: index(1)})
 	require.NoError(t, err)
 	anchor := nodeRowFor(t, nodes, "legacy-locked")
@@ -72,8 +63,6 @@ func TestRegression_PlaceChat_CountsALegacyNodelessLockedBranch(t *testing.T) {
 	assert.Equal(t, 2, nodeRowFor(t, nodes, "c1").Order)
 }
 
-// A workspace read that fails is a failed placement, not a zero value: a
-// branch drawn at the oldest slot or at the root would misplace the drop.
 func TestPlaceChat_AFailedAnchorReadIsReturned(t *testing.T) {
 	for label, fail := range map[string]func(*mocks.AgentWorkspaceGitStatus, error){
 		"created at":  func(g *mocks.AgentWorkspaceGitStatus, err error) { g.CreatedAtErr = err },
@@ -99,8 +88,6 @@ func TestPlaceChat_AFailedAnchorReadIsReturned(t *testing.T) {
 	}
 }
 
-// A Node whose workspace is gone (deleted, its Node not yet swept) is not this
-// level's to draw; it must not fail the read of everything beside it.
 func TestPlaceChat_ANodeWhoseWorkspaceIsGoneIsSkipped(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newHomeUsecaseFull(t)
 	gitStatus.SetRepo(workspaceID, repoID)

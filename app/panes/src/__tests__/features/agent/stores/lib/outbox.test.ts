@@ -248,7 +248,6 @@ describe('deliveryPending', () => {
     expect(deliveryPending([item('a')], applyRows(pending, [l.start('t', 'r1')]).facts)).toBe(false)
   })
 
-  // Every store change re-asks it, and a long chat holds thousands of prompts.
   it('reads the prompts once until one of them changes', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [l.prompt('r1', 'one'), l.start('t', 'r1')])

@@ -2,13 +2,7 @@ use crate::error::Result;
 use crate::view::Id;
 use crate::view::Snapshot;
 
-/// Reading back the pixels of web views.
 pub trait ViewCapture {
-    /// The pixels the web view shows now, or `None` when this backend cannot read them back or
-    /// the page did not answer in time.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the view is unknown or the backend has stopped.
     fn snapshot(
         &self,
         _id: Id,

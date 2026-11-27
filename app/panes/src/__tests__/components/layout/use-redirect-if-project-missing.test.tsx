@@ -41,7 +41,6 @@ describe('useRedirectIfProjectMissing where no remote host was ever paired', () 
 })
 
 describe('useRedirectIfProjectMissing on an install that paired a remote host', () => {
-  // The projects scope is the local daemon's: a project in no row may be on the paired host.
   it('keeps a route to a project the synced list does not hold', () => {
     pairRemoteHost('h1')
     openRoute('p-remote')

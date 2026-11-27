@@ -15,8 +15,7 @@ export interface Terminal {
   selection?: string
   title?: string
   customName?: boolean
-  // Imperative handle ref attached by the terminal component (see terminal.tsx).
   ref?: Ref<unknown>
   splitMode?: boolean
-  splitWithId?: string // ID of the terminal to split with
+  splitWithId?: string
 }

@@ -12,14 +12,13 @@ import (
 
 func TestParseScope_AcceptsEveryKind(t *testing.T) {
 	cases := map[string]stream.Scope{
-		"projects": stream.Projects,
-		"chat:c1":  {Kind: "chat", Key: "c1"},
-		"ws:w1":    {Kind: "ws", Key: "w1"},
-		"git:w1":   {Kind: "git", Key: "w1"},
-		"files:w1": {Kind: "files", Key: "w1"},
-		"lsp:c1":   {Kind: "lsp", Key: "c1"},
-		"forge:w1": {Kind: "forge", Key: "w1"},
-		// A host path is the key as it is: it may hold the separator itself.
+		"projects":      stream.Projects,
+		"chat:c1":       {Kind: "chat", Key: "c1"},
+		"ws:w1":         {Kind: "ws", Key: "w1"},
+		"git:w1":        {Kind: "git", Key: "w1"},
+		"files:w1":      {Kind: "files", Key: "w1"},
+		"lsp:c1":        {Kind: "lsp", Key: "c1"},
+		"forge:w1":      {Kind: "forge", Key: "w1"},
 		"doc:/h/a:b.md": {Kind: "doc", Key: "/h/a:b.md"},
 	}
 	for raw, want := range cases {

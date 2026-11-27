@@ -1,5 +1,3 @@
-//! Settings of a terminal.
-
 use alacritty_terminal::term::Config as EmulatorConfig;
 use alacritty_terminal::vte::ansi::{CursorShape as EmulatorShape, CursorStyle};
 
@@ -8,20 +6,13 @@ use crate::snapshot::Palette;
 
 const WORD_SEPARATORS: &str = " ()[]{}',\"`│|<>\t";
 
-/// Size, history, cursor and colours of a terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    /// Grid width.
     pub columns: usize,
-    /// Grid height.
     pub lines: usize,
-    /// Lines of scrollback kept.
     pub scrollback: usize,
-    /// Cursor shape when the program has not chosen one.
     pub cursor_shape: CursorShape,
-    /// Whether the cursor blinks when the program has not chosen.
     pub cursor_blink: bool,
-    /// Colours.
     pub palette: Palette,
 }
 

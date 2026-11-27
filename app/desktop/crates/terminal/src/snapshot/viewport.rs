@@ -1,5 +1,3 @@
-//! Maps grid lines to visible rows.
-
 use std::cmp::Ordering;
 
 use alacritty_terminal::index::{Line, Point};

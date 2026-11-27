@@ -1,5 +1,3 @@
-//! Mouse events, their tracking modes and encodings, clicks and selection kinds.
-
 mod click_tracker;
 mod mouse_action;
 mod mouse_button;

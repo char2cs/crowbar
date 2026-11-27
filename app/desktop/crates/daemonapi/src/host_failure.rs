@@ -1,8 +1,3 @@
-//! Which of its host's own troubles failed a request, as develop's `hostFailureKind` tells it.
-//!
-//! Spec: develop `web/src/features/hosts/lib/classify-host-failure.ts` and
-//! `host-failure-notice.ts` (`carriesOnlyStatus`).
-
 use crate::client::proxy_failure::{
     HOST_IDENTITY_CHANGED_CODE, HOST_UNREACHABLE_CODE, UNEXPLAINED_CODE, UNKNOWN_HOST_CODE,
 };
@@ -12,15 +7,10 @@ const UNAUTHORIZED: u16 = 401;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HostFailure {
-    /// The host did not answer.
     Unreachable,
-    /// The host answered with another identity than the one pinned at pairing.
     IdentityChanged,
-    /// The host refuses this computer (HTTP 401): revoked, or its credential is gone.
     Refused,
-    /// The host is no longer paired with this computer.
     NotPaired,
-    /// The host, or the connection to it, failed with only a status and no words.
     Unexplained(u16),
 }
 

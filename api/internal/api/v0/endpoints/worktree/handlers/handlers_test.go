@@ -29,15 +29,12 @@ func TestMain(
 }
 
 type fakeReader struct {
-	list     []domain.Workspace
-	listErr  error
-	synced   domain.Workspace
-	syncErr  error
-	gotSync  string
-	syncDone chan struct{}
-	// The user's own lock decision: what the handler passed down, how often, and
-	// a canned refusal for the paths the daemon rejects (project home, a
-	// placeholder with no worktree of its own).
+	list      []domain.Workspace
+	listErr   error
+	synced    domain.Workspace
+	syncErr   error
+	gotSync   string
+	syncDone  chan struct{}
 	lockCalls int
 	gotLocked *bool
 	lockErr   error
@@ -207,7 +204,6 @@ func (f *fakeHierarchy) DetachHolder(
 	return domain.Workspace{}, f.detachErr
 }
 
-// fakeChats answers GetChat for the chat ids in taken; any other is not found.
 type fakeChats struct {
 	taken map[string]bool
 }
@@ -234,8 +230,6 @@ func (f *fakeRepos) FindByKey(
 	return f.repo, f.err
 }
 
-// fakeWorktrees stands in for the chat→workspace resolver spec §3 describes:
-// it records the chat id it was asked about and answers with ws, or with err.
 type fakeWorktrees struct {
 	ws      domain.Workspace
 	err     error
@@ -252,8 +246,6 @@ func (f *fakeWorktrees) Resolve(
 	return f.ws, f.err
 }
 
-// recordedOps is a real operation service whose every published row lands on
-// frames, so a test reads what the client would see on the operations stream.
 type recordedOps struct {
 	*operation.Service
 	frames chan domain.Operation
@@ -275,7 +267,6 @@ func newRecordedOps() *recordedOps {
 	}
 }
 
-// accepted decodes the operation a 202 answers with.
 func accepted(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	t.Helper()
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
@@ -288,8 +279,6 @@ func accepted(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	return env.Data.Operation
 }
 
-// settled reads frames until the operation the 202 answered with is settled;
-// its work has returned by then, so a negative after it is exact.
 func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	t.Helper()
 	id := accepted(t, rec).ID
@@ -307,9 +296,6 @@ func (o *recordedOps) settled(t *testing.T, rec *httptest.ResponseRecorder) doma
 	}
 }
 
-// newChatRouter mounts the nine surviving chat-keyed routes on ONE Handlers
-// value, under the repo-scoped prefix the production Register uses, and hands
-// back the operations they start.
 func newChatRouter(
 	reader worktreehandlers.Reader,
 	hierarchy worktreehandlers.Hierarchy,
@@ -332,8 +318,6 @@ func newChatRouter(
 	return r, ops
 }
 
-// waitClosed blocks until done is closed: the close IS the "the background
-// work ran" signal. The bound only turns a hang into a failure.
 func waitClosed(
 	t *testing.T,
 	done chan struct{},
@@ -346,7 +330,6 @@ func waitClosed(
 	}
 }
 
-// waitBound caps a wait on a signal the code under test must send.
 const waitBound = 10 * time.Second
 
 func do(

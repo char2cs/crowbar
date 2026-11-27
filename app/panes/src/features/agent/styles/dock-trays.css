@@ -1,5 +1,3 @@
-/* The trays tucked behind the pill: same surface as the pill, inset from its edges, rows 36px
-   (44px on a phone). `.tray-top` sits above the pill, `.tray-bottom` below it. */
 .agent-chat .tray-top,
 .agent-chat .tray-bottom {
   --tray-tuck: 22px;
@@ -17,8 +15,6 @@
   --tray-inset: 18px;
   --tray-radius: 16px;
   --tray-row-h: 44px;
-  /* With the keyboard up the viewport is short: the tray scrolls inside itself so the pill stays
-     on screen. The 330px is the pill, the model row and the pane's header. */
   max-height: calc(100dvh - 330px);
   overflow: hidden auto;
 }
@@ -34,7 +30,6 @@
   border-top: 0;
   border-radius: 0 0 var(--tray-radius) var(--tray-radius);
 }
-/* Sections of the top tray stack inside one surface, divided by a hairline. */
 .agent-chat .tray-section + .tray-section,
 .agent-chat .tray-top > :not(.tray-section) + .tray-section {
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
@@ -102,7 +97,6 @@
 .agent-chat .tray-section > .tray-head + .tray-list > li:first-child {
   margin-top: 6px;
 }
-/* One waiting message is a row of its own, the header's size. */
 .agent-chat .tray-top .tray-list[data-flat] {
   padding: 0;
 }
@@ -148,8 +142,6 @@
 .agent-chat .tray-list li i {
   font-style: normal;
 }
-/* Subagents, shells and monitors: the name and its action on one line, the clock at the end;
-   shells and monitors are named by their command, in the mono face. */
 .agent-chat .tray-lines {
   display: flex;
   flex: 1;
@@ -190,7 +182,6 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* The end-this-shell control: 24px, 44px on a phone. */
 .agent-chat .tray-stop {
   display: grid;
   flex: none;
@@ -212,7 +203,6 @@
   height: 44px;
   margin-right: -10px;
 }
-/* A rule above each group after the first, the group's name beneath it. */
 .agent-chat li.tray-group {
   min-height: 22px;
   margin-top: 2px;
@@ -268,7 +258,6 @@
     color: var(--foreground);
   }
 }
-/* The phone: 32px header, 36px rows (two lines: 50px), 15px text, 44px targets. */
 .agent-chat .dock:has(.pill[data-touch]) .tray-remove {
   width: 44px;
   height: 44px;
@@ -282,7 +271,6 @@
   padding: 0 16px 0 18px;
   font-size: 13px;
 }
-/* The 32px header keeps a 44pt target: the hit area reaches past its edges. */
 .agent-chat .dock:has(.pill[data-touch]) button.tray-head::after {
   content: '';
   position: absolute;
@@ -328,7 +316,6 @@
   min-height: 44px;
   font-size: 13px;
 }
-/* The folded phone tray is one quiet line: a 32px row whose 44pt hit area reaches past its edges. */
 .agent-chat .dock:has(.pill[data-touch]) .tray-bottom .tray-list:has(> li.tray-summary) {
   padding: 0 8px 2px;
 }
@@ -352,7 +339,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The answered requests' "Show"/"Hide" at the header's right, beside its chevron. */
 .agent-chat .tray-toggle {
   color: var(--muted-foreground);
   white-space: nowrap;

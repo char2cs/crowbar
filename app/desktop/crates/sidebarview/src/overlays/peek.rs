@@ -1,5 +1,3 @@
-//! The floating card shown while a closed sidebar is peeked at.
-
 mod exit;
 mod ops;
 mod zone;

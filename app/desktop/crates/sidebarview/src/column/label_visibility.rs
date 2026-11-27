@@ -1,5 +1,3 @@
-//! Which tab labels of the mode bar are drawn.
-
 const ACTIVE_LABEL_FROM: f32 = 280.0;
 const ALL_LABELS_FROM: f32 = 420.0;
 const BAR_PADDING: f32 = 16.0;

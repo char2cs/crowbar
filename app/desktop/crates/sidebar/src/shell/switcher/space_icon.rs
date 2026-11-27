@@ -1,16 +1,10 @@
-//! The mark of a space.
-
 mod icon_choice;
 
-/// What a space shows as its icon.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum SpaceIcon {
-    /// The generated default mark.
     #[default]
     Default,
-    /// An emoji of up to four characters.
     Emoji(String),
-    /// An image file on this computer (png, jpeg or webp), uploaded to the daemon.
     Image(String),
 }
 

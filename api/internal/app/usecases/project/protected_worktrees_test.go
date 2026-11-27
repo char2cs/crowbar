@@ -19,17 +19,10 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// noRefRunner is the RefRunnerFactory every test below that never resolves a
-// default branch via git plumbing can share.
 func noRefRunner(string) defaultbranch.RefRunner {
 	return func(...string) (string, bool) { return "", false }
 }
 
-// TestImport_HolderResolveFailsDuringProvisioning_SkipsThatBranchOnly proves a
-// git failure resolving a protected branch's holder (here, on the SECOND
-// WorktreeList call — the first, made by home adoption, must still succeed) is
-// logged and skipped for that branch alone; the repo (already home-adopted) is
-// kept.
 func TestImport_HolderResolveFailsDuringProvisioning_SkipsThatBranchOnly(t *testing.T) {
 	repos, ws, git, prov, uc := newImportForCoverage(t)
 	calls := 0
@@ -64,19 +57,10 @@ func TestImport_ProtectedBranchNameEscapesManagedTree_IsSkipped(t *testing.T) {
 	assert.Empty(t, git.WorktreeAdds, "no worktree is ever added for the escaping branch")
 }
 
-// TestImport_PlaceholderWorkspaceCreateFails_IsLoggedAndSkipped proves that
-// when a protected branch is HELD (so createPlaceholderWorkspace runs) and
-// that placeholder's own row-create fails, the failure is logged and the
-// branch is skipped — it does not roll back the repo, which already has its
-// home.
 func TestImport_PlaceholderWorkspaceCreateFails_IsLoggedAndSkipped(t *testing.T) {
 	repos, ws, _, prov, uc := newImportForCoverage(t)
-	// "main" is held BY THE HOME (git.Worktrees has home on "main"), so it goes
-	// through createPlaceholderWorkspace rather than the free-branch path.
 	prov.Protected = []string{"main"}
 	ws.CreateFn = func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
-		// Let both the project-level home (Kind=Home) and the repo home
-		// (IsDefault) through; only the placeholder create (neither) fails.
 		if in.Kind == domain.WorkspaceKindHome || in.IsDefault {
 			created := domain.Workspace{ID: in.ID, IsDefault: in.IsDefault, Kind: in.Kind, Branch: in.Branch}
 			ws.Created = append(ws.Created, created)
@@ -103,7 +87,7 @@ func TestImport_PlaceholderWorkspaceCreateFails_IsLoggedAndSkipped(t *testing.T)
 
 func TestImport_ProtectedWorktree_RevParseAfterAddFails_ForkPointEmptyButKept(t *testing.T) {
 	repos, ws, git, prov, uc := newImportForCoverage(t)
-	prov.Protected = []string{"develop"} // not on origin (RemoteTrackingBranches unset) -> plain WorktreeAdd path
+	prov.Protected = []string{"develop"}
 	git.RevParseErr = errors.New("rev-parse boom")
 
 	_, err := uc.Import(context.Background(), "P", "/root")
@@ -162,31 +146,19 @@ func TestImport_ProtectedWorktreeFromOrigin_SetUpstreamFails_IsBestEffort(t *tes
 	assert.Equal(t, "originsha", managed.ForkPointSha)
 }
 
-// TestImport_ProtectedBranchName_DisambiguatesAgainstRealSiblingDirectory
-// proves siblingWorktreePaths' success path actually finds a pre-existing
-// sibling: importing a protected branch whose derived directory name collides
-// case-insensitively with an ALREADY-EXISTING directory on disk (e.g. left
-// over from an earlier session) lands at the next free variant instead of
-// colliding with it — mirroring the analogous worktree.go create-path
-// regression, but for the project-import protected-branch provisioning path.
 func TestImport_ProtectedBranchName_DisambiguatesAgainstRealSiblingDirectory(t *testing.T) {
 	home := t.TempDir()
-	repoDir := t.TempDir() // no real .git -> RemoteURL is "", slug falls back to filepath.Base(repoDir)
+	repoDir := t.TempDir()
 	slug := filepath.Base(repoDir)
 
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
 
-	// A sibling directory already sits at the exact path "develop" would derive
-	// to, differing only in case — as if left over from an earlier session.
 	slugDir := filepath.Join(home, "projects", "proj-1", slug)
 	require.NoError(t, os.MkdirAll(filepath.Join(slugDir, "Develop"), 0o755))
 
 	git := mocks.NewGitEngine()
-	// Home sits on "main" (unprotected here), so only "develop" is provisioned —
-	// free, and thus routed through the on-disk managed-worktree path whose
-	// sibling scan must see the pre-existing "Develop" directory.
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 	ws := mocks.NewWorkspaceRepo()
 
@@ -218,16 +190,10 @@ func TestImport_ProtectedBranchName_DisambiguatesAgainstRealSiblingDirectory(t *
 	assert.DirExists(t, filepath.Join(slugDir, "Develop"), "the pre-existing sibling is left untouched")
 }
 
-// protectedProvider is a minimal ImportProviderEngine reporting a fixed
-// protected-branch list.
 type protectedProvider struct {
 	branches []string
 }
 
-// newImportForCoverage builds an ImportUsecase against repo "/repoA" (the home
-// checked out on "main"), matching the newImport() fixture's shape in
-// project_import_test.go, for tests in THIS file that need their own git/prov
-// handles without colliding with that helper's exact field set.
 func newImportForCoverage(
 	t *testing.T,
 ) (
@@ -259,11 +225,6 @@ func newImportForCoverage(
 	return repos, ws, git, prov, uc
 }
 
-// TestImport_ProtectedRowFailure_CleanupWorktreeRemoveAlsoFails mirrors
-// TestImport_ProtectedRowFailure_CleansUpOrphanedWorktree for the failure case:
-// when the best-effort cleanup of the orphaned worktree ALSO fails, that must be
-// logged and swallowed, never surfaced as an import failure — the repo already
-// has its home and stays imported either way.
 func TestImport_ProtectedRowFailure_CleanupWorktreeRemoveAlsoFails(t *testing.T) {
 	_, repos, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
@@ -284,10 +245,6 @@ func TestImport_ProtectedRowFailure_CleanupWorktreeRemoveAlsoFails(t *testing.T)
 	require.Len(t, git.WorktreeAdds, 1, "the managed worktree was attempted")
 }
 
-// TestImport_RemoteProtectedBranch_WorktreeAddAtRefError_IsBestEffort proves a
-// protected branch that exists on origin but fails its checkout AT origin's ref
-// is skipped like any other per-branch provisioning failure: the repo (already
-// holding its home) stays imported, and the failed branch simply gets no row.
 func TestImport_RemoteProtectedBranch_WorktreeAddAtRefError_IsBestEffort(t *testing.T) {
 	_, repos, ws, git, prov, uc := newImport(t)
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
@@ -307,8 +264,6 @@ func (p *protectedProvider) ProtectedBranches(context.Context, string) ([]string
 	return p.branches, nil
 }
 
-// A protected branch whose worktree cannot be set up is told to the caller,
-// with its cause; the repo, which has its home, is kept and the other branch lands.
 func TestImportRepo_AProtectedWorktreeFailureIsAFailedItem(t *testing.T) {
 	projects, repos, ws, git, prov, uc := newImport(t)
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
@@ -336,8 +291,6 @@ func TestImportRepo_AProtectedWorktreeFailureIsAFailedItem(t *testing.T) {
 	assert.NotContains(t, created, failed.ID)
 }
 
-// A protected name the repo has no branch for (the provider's defaults on a
-// repo with only main) is not part of the repo, so it is no item at all.
 func TestImportRepo_AProtectedNameTheRepoLacksIsSkipped(t *testing.T) {
 	projects, _, ws, git, prov, uc := newImport(t)
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))
@@ -358,7 +311,6 @@ func TestImportRepo_AProtectedNameTheRepoLacksIsSkipped(t *testing.T) {
 	}
 }
 
-// A branch only origin has is still part of the repo.
 func TestImportRepo_AProtectedBranchOnlyOriginHasIsProvisioned(t *testing.T) {
 	projects, _, _, git, prov, uc := newImport(t)
 	require.NoError(t, projects.Save(context.Background(), domain.Project{ID: "proj-1", Path: "/root"}))

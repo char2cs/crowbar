@@ -1,4 +1,3 @@
-//! Builds terminals with known content for the unit tests.
 #![cfg(test)]
 
 use alacritty_terminal::Term;

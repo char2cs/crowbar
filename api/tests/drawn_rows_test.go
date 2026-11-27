@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// drawnRow is one repo-root row with everything the sidebar's own comparator
-// (row-order.ts compareSidebarRows: order, kind rank, createdAt, id) reads.
 type drawnRow struct {
 	id        string
 	kind      string
@@ -29,9 +27,6 @@ func rankOfKind(kind string) int {
 	return 3
 }
 
-// drawnRepoRoot reads a repo's root level and sorts it exactly as the sidebar
-// draws it (rows-from-repo.ts: a locked branch row carries its WORKSPACE's
-// createdAt, a chat row its own).
 func drawnRepoRoot(t *testing.T, h *harness, imported importedRepo, defaultWS string) []drawnRow {
 	t.Helper()
 	var rows []drawnRow

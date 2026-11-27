@@ -9,9 +9,6 @@ interface UseTabBarScrollOptions {
 
 interface UseTabBarScrollResult {
   tabBarRef: RefObject<HTMLDivElement | null>
-  /** The actual horizontally-scrolling element — the editor-tab scroller,
-   *  because the pane-top row (`tabBarRef`) also hosts the split toggle
-   *  and the chat head, which never scroll. */
   scrollRef: RefObject<HTMLDivElement | null>
   isAtLeftEdge: boolean
   isAtRightEdge: boolean

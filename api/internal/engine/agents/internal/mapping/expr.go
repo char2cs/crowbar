@@ -7,26 +7,19 @@ import (
 	"strings"
 )
 
-// patternGroup names the capture group a pattern branch keeps.
 const patternGroup = "v"
 
-// Expr is the alternatives of one mapped field, in the order a descriptor lists them.
 type Expr []Branch
 
-// Branch is one alternative: a path read as is, or a value computed from the payload.
-// A pattern is compiled when it is built, so reading a payload never compiles anything.
 type Branch struct {
 	path  string
 	re    *regexp.Regexp
 	parts []string
-	// inner is the path selected inside the JSON the string at path encodes.
 	inner string
 }
 
-// Path is the branch that reads the dotted path as is.
 func Path(path string) Branch { return Branch{path: strings.TrimSpace(path)} }
 
-// Paths is the Expr of plain path branches.
 func Paths(paths ...string) Expr {
 	out := make(Expr, len(paths))
 	for i, path := range paths {
@@ -35,8 +28,6 @@ func Paths(paths ...string) Expr {
 	return out
 }
 
-// Pattern is the branch that keeps the (?P<v>...) group of pattern matched against the
-// string at from. A value that is no string, or that pattern does not match, is absent.
 func Pattern(from, pattern string) (Branch, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -48,8 +39,6 @@ func Pattern(from, pattern string) (Branch, error) {
 	return Branch{path: strings.TrimSpace(from), re: re}, nil
 }
 
-// Join is the branch whose value is the present, non-empty values of paths joined with
-// "/"; a missing part is skipped, so a leading gap leaves the bare remainder.
 func Join(paths ...string) Branch {
 	parts := make([]string, len(paths))
 	for i, path := range paths {
@@ -58,14 +47,10 @@ func Join(paths ...string) Branch {
 	return Branch{parts: parts}
 }
 
-// Decoded is the branch that decodes the JSON string at path, then selects inner in it; an
-// object at path is selected as it is.
 func Decoded(path, inner string) Branch {
 	return Branch{path: strings.TrimSpace(path), inner: strings.TrimSpace(inner)}
 }
 
-// Literal is the first branch's text as the descriptor wrote it, for a field whose value
-// is a constant rather than a payload path.
 func (e Expr) Literal() string {
 	if len(e) == 0 {
 		return ""
@@ -73,8 +58,6 @@ func (e Expr) Literal() string {
 	return e[0].path
 }
 
-// LookupKind finds key in kinds, else in each shorter key that drops its last "/part":
-// a composite key refines a plain one instead of replacing it.
 func LookupKind(kinds map[string]string, key string) (string, bool) {
 	for {
 		if kind, ok := kinds[key]; ok {

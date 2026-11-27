@@ -1,5 +1,3 @@
-//! Where the grid and the scrollbar sit inside the view.
-
 use gpui::{Bounds, Pixels, Point, point, px, size};
 use terminal::CellMetrics;
 

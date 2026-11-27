@@ -1,5 +1,3 @@
-//! The create-space panel that replaces the panels while a space is being made.
-
 mod daemon_picker;
 mod space_draft;
 mod space_panel_parts;
@@ -33,7 +31,6 @@ const PANEL_TOP: f32 = 16.0;
 const CHOOSE_FOLDER: &str = "Choose…";
 const CREATING: &str = "Creating…";
 
-// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule rfd's GTK folder chooser.
 const SPACE_FOLDER: FileChoice = FileChoice {
     title: "Select Folder",
     kind: ChoiceKind::Folder,
@@ -115,7 +112,6 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// Fills the create-space form's folder; the answer to [`Command::ChooseSpaceFolder`].
     pub fn set_space_folder(
         &mut self,
         folder: String,
@@ -181,8 +177,6 @@ impl Sidebar {
         self.send_checked(command, cx);
     }
 
-    /// Closes the create-space panel once the daemon added its folder; the answer to
-    /// `store::Outcome::Added`. A failed create keeps the panel for another try, as develop's.
     pub fn space_added(
         &mut self,
         folder: &str,

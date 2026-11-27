@@ -44,7 +44,6 @@ func TestFold_LiveRunnerAndLastExit(t *testing.T) {
 	assert.False(t, st.HasOpenWork())
 }
 
-// An exit naming another runner is late: it leaves the live one live.
 func TestFold_AnExitOfAnotherRunnerKeepsTheLiveOne(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t, started(t, "r2"), exited(t, "r1", "displaced", 0)))
 
@@ -96,8 +95,6 @@ func TestExit_EndsTheRunnerAndSettlesOnlyWhatItCarried(t *testing.T) {
 		"only the pending prompt run-1 carried; r3 was delivered")
 }
 
-// A runner's exit closes what that runner was asking and running; another
-// runner's asks and scopes stay its own.
 func TestFold_ARunnersExitClosesOnlyWhatItRan(t *testing.T) {
 	st := ledger.Fold("c1", sequenced(t,
 		started(t, "r1"), turnStarted(t, "T1", "r1"),

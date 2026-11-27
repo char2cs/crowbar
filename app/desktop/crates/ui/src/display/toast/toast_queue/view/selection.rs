@@ -1,5 +1,3 @@
-//! Which toasts a column shows when it has room for only a few.
-
 use crate::display::toast::toast_queue::entry::Entry;
 
 pub(crate) fn visible(

@@ -1,10 +1,3 @@
-// The viewport semantic-tokens provider for every language, consulted until a document provider
-// applies full tokens: server range tokens while a full request is in flight, else shiki. It is
-// synchronous: Monaco drops answers on scroll/resize, so tiers fire onDidChange to say more.
-
-// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
-// editor/languages singleton as the bare 'monaco-editor' specifier, without
-// eagerly bundling all built-in language contributions.
 import { editor, languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import { onGrammarReady } from '@/features/editor/lib/shiki-grammars'
 import { lspViewportTokens } from '@/features/editor/lsp/semantic-tokens'

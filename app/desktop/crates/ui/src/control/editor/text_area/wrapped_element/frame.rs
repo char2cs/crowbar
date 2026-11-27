@@ -1,5 +1,3 @@
-//! What a text area paints in one frame.
-
 use gpui::{PaintQuad, Pixels, Point};
 
 use crate::control::editor::text_area::layout::Layout;

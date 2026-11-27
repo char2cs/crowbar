@@ -31,9 +31,7 @@ import { IS_MOBILE } from '@/utils/platform'
 interface ComposerPlusButtonProps {
   onOpenExcalidraw: () => void
   onOpenAttachFile: () => void
-  /** Images from the clipboard, the photo library or the camera: uploaded like a paste. */
   onFiles: (files: File[]) => void
-  /** Types the character that opens the file or command picker. */
   onMentionFile: () => void
   onStartCommand: () => void
 }
@@ -42,17 +40,13 @@ interface PlusItem {
   id: string
   label: string
   icon: ReactElement
-  /** The Phosphor name the phone's native sheet draws; the rows without one stay off it. */
   glyph?: string
   hint?: string
   disabled?: boolean
-  /** Starts the group after the divider. */
   divider?: boolean
   run: () => void
 }
 
-/** Styled neutrally: it opens a choice and sends nothing, so it never borrows
- *  send's primary treatment. A menu on a desktop, the native sheet on the phone. */
 export function ComposerPlusButton({
   onOpenExcalidraw,
   onOpenAttachFile,
@@ -186,7 +180,6 @@ export function ComposerPlusButton({
         </>
       ) : (
         <DropdownMenu open={open} onOpenChange={setOpen}>
-          {/* composer-pill.css sizes it to send's diameter (PLUS_DIAMETER in handle-geometry.ts). */}
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" />} {...trigger}>
             {glyph}
           </DropdownMenuTrigger>

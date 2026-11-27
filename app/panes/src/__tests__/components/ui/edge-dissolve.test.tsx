@@ -2,11 +2,6 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { EdgeDissolve } from '@/components/ui/edge-dissolve'
 
-// The progressive-blur "glass" effect stolen from the chat composer's own
-// `.dissolve` (composer-dock.css) — content passing behind it should blur and
-// fade rather than being clipped by a hard edge. Ported generically (any
-// edge, any height) rather than reused in place, since the composer's own
-// version is hard-wired to its dock's measured height and scrollbar inset.
 describe('EdgeDissolve', () => {
   it('renders 7 layered blur bands, matching the composer’s own recipe', () => {
     render(<EdgeDissolve edge="top" height={100} />)

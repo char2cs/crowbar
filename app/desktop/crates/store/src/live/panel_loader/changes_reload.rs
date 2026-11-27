@@ -1,5 +1,3 @@
-//! Refreshing the Changes panel when the daemon changed what it shows.
-
 use daemonapi::Frame;
 use std::sync::Arc;
 

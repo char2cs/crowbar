@@ -95,7 +95,6 @@ describe('splitHostPath', () => {
     expect(() => splitHostPath(input)).toThrow(/scheme must be exactly "crowbar:\/\/"/)
   })
 
-  // Intentional divergences from the desktop proxy (see host-path.ts).
   it('is stricter than the proxy on a port or empty authority, and reads Monaco URIs as host ids', () => {
     expect(() => splitHostPath('crowbar://localhost:3737/v0/x')).toThrow(
       /invalid host id "localhost:3737"/,

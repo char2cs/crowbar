@@ -1,5 +1,3 @@
-//! What the dialog draws for the stage the session is at.
-
 use gpui::{Context, Div, IntoElement, ParentElement, Render, Styled, Window, div};
 use store::{PairingStage, PairingState};
 use ui::{Dialog, DialogSize, Palette, Surface, Theme};

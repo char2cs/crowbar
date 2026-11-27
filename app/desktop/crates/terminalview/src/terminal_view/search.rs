@@ -1,5 +1,3 @@
-//! The find bar of the view.
-
 use gpui::{AppContext, Context, Window};
 use terminal::{SearchQuery, SearchSummary};
 

@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// wrapFlags renders a model's wrap bits as text: the grid rows, then the scrollback lines.
 func wrapFlags(
 	t *testing.T,
 	m TerminalModel,
@@ -28,26 +27,21 @@ func wrapFlags(
 	return b.String()
 }
 
-// A keyframe written into a fresh terminal rebuilds every wrap bit and every cell, on the grid
-// and across the scrollback boundary.
 func TestSerialize_RoundTripPreservesWrapFlags(t *testing.T) {
 	const cols, rows = 20, 5
-	url := "see " + wrapTestURL // 62 cells: a 4-row chain at 20 columns
+	url := "see " + wrapTestURL
 	hardBreak := "see " + wrapTestURL[:16] + "\r\n" + wrapTestURL[16:]
 	chain3 := strings.Repeat("0123456789", 5)
-	// x/vt trims the printed space off the stored head, so only padding re-joins the line.
 	spaceHead := "0123456789012345678 abc"
-	blankCont := strings.Repeat("x", 20) + " " // the space alone wraps onto the next row
-	// Four history lines put the head on the client's bottom row, so the wrap into the red cell
-	// scrolls there and fills the new row with the pen's background; the model wrapped in place.
+	blankCont := strings.Repeat("x", 20) + " "
 	redCont := "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\x1b[H" + strings.Repeat("x", 20) + "\x1b[41mAB\x1b[m"
-	fullCont := strings.Repeat("x", 20) + strings.Repeat("y", 20) // the continuation ends at the last column
+	fullCont := strings.Repeat("x", 20) + strings.Repeat("y", 20)
 	wideCont := strings.Repeat("x", 20) + strings.Repeat("y", 18) + "日"
-	earlyWide := strings.Repeat("x", 19) + "日y" // the glyph does not fit the last column, so it wraps early
+	earlyWide := strings.Repeat("x", 19) + "日y"
 	tests := []struct {
 		name, bytes string
 		flags       string
-		holds       string // text a logical line of the model holds; empty means not checked
+		holds       string
 	}{
 		{name: "a soft-wrapped URL", bytes: url, flags: "grid F T T T F | scrollback"},
 		{name: "an exact-fit hard break", bytes: hardBreak, flags: "grid F F T T F | scrollback"},
@@ -128,8 +122,6 @@ func TestPadToCols(t *testing.T) {
 	})
 }
 
-// TestAppendChainRow pins the one row rule every writer shares: a head runs to the last column
-// with no break; a continuation keeps a cell and erases what it leaves short; the rest is trimmed.
 func TestAppendChainRow(t *testing.T) {
 	ab := []uv.Cell{{Content: "a", Width: 1}, {Content: "b", Width: 1}}
 	blank := []uv.Cell{uv.EmptyCell, uv.EmptyCell}
@@ -196,8 +188,6 @@ func TestChainEnd(t *testing.T) {
 	}
 }
 
-// assertSameCells compares content and style cell by cell, grid then scrollback. A scrollback
-// line reports as a row above the grid: -1 is the newest.
 func assertSameCells(
 	t *testing.T,
 	want TerminalModel,

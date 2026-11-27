@@ -20,8 +20,6 @@ describe('input tape', () => {
     ])
   })
 
-  // Control bytes are the whole point of the recording — an ESC that reads back
-  // as an invisible character makes a stream impossible to diff by eye.
   it('escapes control bytes so escape sequences stay legible', () => {
     recordInputTape('write', 'onData', '\u001b[A\r\n\t\u0003')
     expect(dumpInputTape().entries[0].data).toBe('\\e[A\\r\\n\\t\\x03')
@@ -48,7 +46,6 @@ describe('input tape', () => {
     expect(entries.map((e) => e.label)).toEqual(['keydown', 'beforeinput'])
     expect(entries[0].meta?.shift).toBe(true)
     expect(entries[1].meta?.inputType).toBe('insertText')
-    // The tape must never swallow or cancel what it observes.
     expect(keydown.defaultPrevented).toBe(false)
 
     stop()

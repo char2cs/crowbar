@@ -1,4 +1,3 @@
-// Package projects mounts the v0 project REST routes.
 package projects
 
 import (
@@ -7,9 +6,6 @@ import (
 	projecthandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/projects/handlers"
 )
 
-// Register mounts the project list, detail, import, and delete routes on the
-// supplied router group, backed by the project read, import, and delete
-// usecases.
 func Register(
 	rg *gin.RouterGroup,
 	reader projecthandlers.ListGetter,
@@ -24,8 +20,6 @@ func Register(
 	rg.GET("/projects/:projectId", h.Detail)
 	rg.PATCH("/projects/:projectId", h.Patch)
 	rg.DELETE("/projects/:projectId", h.Delete)
-	// The icon routes mirror the repo ones a level up, minus /icon/github: a
-	// project has no origin remote to read an owner avatar from. See icon.go.
 	rg.GET("/projects/:projectId/icon", h.Icon)
 	rg.PUT("/projects/:projectId/icon", h.PutIcon)
 	rg.DELETE("/projects/:projectId/icon", h.DeleteIcon)

@@ -19,7 +19,6 @@ pub(crate) const SETTINGS_PATH: &str = "/state/settings.json";
 
 pub(crate) const PROVIDERS: &str = r#"[{"id":"claude","displayName":"Claude","enabled":true,"mcpEnabled":true,"connected":true},{"id":"codex","enabled":true,"mcpEnabled":true}]"#;
 
-/// One canned daemon answer: method, path and the `data` it returns.
 pub(crate) type Route = (&'static str, &'static str, &'static str);
 
 pub(crate) const AGENTS: Route = ("GET", "/v0/settings/chat/providers", PROVIDERS);
@@ -37,7 +36,6 @@ pub(crate) const LEVEL_TRUSTED: Route = (
 pub(crate) const KILL_PATH: &str = "/v0/chats/bo/kill";
 pub(crate) const KILL: Route = ("POST", KILL_PATH, "{}");
 
-/// A settings core over a fake daemon and in-memory files, with what it told the shell.
 pub(crate) struct SettingsRig {
     pub(crate) core: Arc<SettingsCore>,
     pub(crate) daemon: Arc<FakeDaemon>,
@@ -86,7 +84,6 @@ impl SettingsRig {
         }
     }
 
-    /// Collects changes until `done` holds for them.
     pub(crate) async fn changes_until(
         &self,
         done: impl Fn(&[Change]) -> bool,
@@ -99,7 +96,6 @@ impl SettingsRig {
         all
     }
 
-    /// Waits until the daemon has been called at `path`.
     pub(crate) async fn called(
         &self,
         path: &str,

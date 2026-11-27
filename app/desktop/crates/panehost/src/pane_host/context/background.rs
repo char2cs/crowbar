@@ -4,12 +4,6 @@ use crate::error::Result;
 use crate::pane_host::PaneHost;
 
 impl PaneHost {
-    /// Sets the colour pane web views show before their page paints: on every live view now and
-    /// on every view created later. Browser views keep the engine default so a page without a
-    /// background of its own stays white.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::Error::WebView) when a view cannot be reached.
     pub fn set_background(
         &mut self,
         color: Color,

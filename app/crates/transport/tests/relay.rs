@@ -1,5 +1,3 @@
-//! Public-API tests of the relay over in-memory pipes and a fake daemon.
-
 #[path = "support/real_infra/echo_daemon.rs"]
 mod echo_daemon;
 #[path = "support/memory_listener.rs"]
@@ -198,7 +196,6 @@ async fn a_close_from_the_pane_is_echoed_with_its_code() -> TestResult {
 
 type Spoil = fn(&mut Dial);
 
-/// Each way a dial can be wrong, the single field it breaks, and the status it earns.
 const CASES: [(&str, Spoil, u16); 14] = [
     (
         "unknown token",

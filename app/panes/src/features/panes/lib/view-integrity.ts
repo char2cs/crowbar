@@ -1,7 +1,6 @@
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { showingLayout, type ViewState } from './view-state'
 
-/** Every broken invariant (views-as-tabs spec §Invariants 1-4), as text. */
 export function viewIntegrityViolations(state: ViewState): string[] {
   const out: string[] = []
   const placed = new Map<string, string>()

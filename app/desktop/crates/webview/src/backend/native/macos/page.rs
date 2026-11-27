@@ -1,5 +1,3 @@
-//! One live page: its web view, the clip that shapes it, and what is cut away.
-
 use std::cell::Cell;
 
 use platform::{ClipShape, PageClip};

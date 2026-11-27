@@ -1,5 +1,3 @@
-//! The "New thread" and "More…" rows under a space's tree.
-
 use std::rc::Rc;
 
 use gpui::{

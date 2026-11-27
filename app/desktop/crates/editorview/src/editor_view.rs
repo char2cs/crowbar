@@ -32,8 +32,6 @@ pub(crate) mod test_support;
 mod text_area;
 mod view_buttons;
 
-/// One pane's editor: the gpui-kit `Editor` drawn over a document, under the toolbar of its
-/// file. Several views over one document share its text, each with its own carets and history.
 pub struct EditorView {
     document: Entity<Document>,
     state: Entity<EditorState>,
@@ -50,7 +48,6 @@ pub struct EditorView {
 }
 
 impl EditorView {
-    /// A view over `document`, coloured by its language, with the caret on `opening`'s line.
     pub fn new(
         document: Entity<Document>,
         opening: Opening,
@@ -95,7 +92,6 @@ impl EditorView {
         view
     }
 
-    /// The document the view shows.
     #[must_use]
     pub const fn document(&self) -> &Entity<Document> {
         &self.document
@@ -148,7 +144,6 @@ impl EditorView {
         });
     }
 
-    /// The text the view holds now.
     #[must_use]
     pub fn text(
         &self,
@@ -157,7 +152,6 @@ impl EditorView {
         self.state.read(cx).value().to_string()
     }
 
-    /// Where the caret is.
     #[must_use]
     pub fn caret(
         &self,

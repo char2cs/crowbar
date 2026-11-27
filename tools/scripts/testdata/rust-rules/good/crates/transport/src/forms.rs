@@ -2,7 +2,7 @@ pub(crate) fn sum_pairs<T: Into<u32>>(
     (first, second): (u32, u32),
     extra: T,
 ) -> u32 {
-    // SPEC: docs/rabbyte-manifest.md#i-code a tuple pattern counts as two parameters
+    // SPEC: legal/NOTICE.md#third-party-notices a tuple pattern counts as two parameters
     // PLATFORM: macos needs this sum on the main thread
     first + second + extra.into()
 }

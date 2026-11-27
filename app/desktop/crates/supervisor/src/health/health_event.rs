@@ -1,5 +1,3 @@
-//! What the health wait logs about an attempt that got no usable answer.
-
 use std::fmt;
 use std::time::Duration;
 

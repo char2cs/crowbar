@@ -102,7 +102,6 @@ export function InlineEquationElement(props: PlateElementProps<TEquationElement>
 
   React.useEffect(() => {
     if (selected && isCollapsed) {
-      // Open the inline equation popover when editor selection enters it.
       setOpen(true)
     }
   }, [selected, isCollapsed])
@@ -209,12 +208,7 @@ const EquationPopoverContent = ({
   }
 
   return (
-    <PopoverContent
-      className="flex gap-2"
-      // No `onEscapeKeyDown` (a Radix prop): Base UI's Popover closes on Escape by default,
-      // so there is nothing to suppress.
-      contentEditable={false}
-    >
+    <PopoverContent className="flex gap-2" contentEditable={false}>
       <EquationInput
         className={cn('max-h-[50vh] grow resize-none p-2 text-sm', className)}
         state={{ isInline, open, onClose }}

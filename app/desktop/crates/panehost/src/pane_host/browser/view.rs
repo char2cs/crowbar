@@ -25,13 +25,6 @@ fn parked(pane: &PaneId) -> VisiblePane {
 }
 
 impl PaneHost {
-    /// Gives a browser pane that has never been shown a hidden web view, so its page can load
-    /// and be driven before anyone looks at it. A pane that already has a view is left alone;
-    /// showing the pane later places the same view.
-    ///
-    /// # Errors
-    /// [`Error::NotShown`] when `pane` is not a browser pane of `layout` and
-    /// [`Error::WebView`] when the web view layer fails.
     pub fn wake_browser(
         &mut self,
         parent: ParentWindow,
@@ -58,7 +51,6 @@ impl PaneHost {
         self.assign_slot(parent, &pane_type, (&parked(pane), layout))
     }
 
-    /// Whether a browser pane has a web view now, shown or hidden.
     #[must_use]
     pub fn has_view(
         &self,
@@ -67,12 +59,6 @@ impl PaneHost {
         self.browser_slot(pane).is_ok()
     }
 
-    /// The pixels the page of a browser pane shows now; `None` when the backend cannot read
-    /// them back.
-    ///
-    /// # Errors
-    /// [`Error::NotShown`] when `pane` is not a browser pane with a web view and
-    /// [`Error::WebView`] when the web view layer fails.
     pub fn capture_browser(
         &self,
         pane: &PaneId,

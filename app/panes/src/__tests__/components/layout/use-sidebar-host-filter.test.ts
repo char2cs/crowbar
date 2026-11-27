@@ -107,7 +107,6 @@ describe('useSidebarHostFilter', () => {
       expect(onSelectProject).toHaveBeenCalledExactlyOnceWith('b-new')
     })
 
-    // A deep link, the palette, the Recents view or a notification all just move the route.
     it('follows the active project to another host without writing the saved filter', () => {
       treeUiStore.setState({ hostFilter: 'h1' })
       const { result, rerender } = setup('b-old')
@@ -117,7 +116,6 @@ describe('useSidebarHostFilter', () => {
       expect(treeUiStore.getState().hostFilter).toBe('h1')
     })
 
-    // The filter is a view: the projects scope and a host's connection don't read it.
     it('leaves the hidden hosts’ projects subscribed and their connections alone', () => {
       loadProjects(...PROJECTS)
       getOrCreateHostRuntime('h2').getState().setStatus('up')

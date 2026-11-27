@@ -1,13 +1,8 @@
-//! A resolved light or dark appearance.
-
 use gpui::WindowAppearance;
 
-/// Resolved colour scheme of the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Appearance {
-    /// Light scheme.
     Light,
-    /// Dark scheme; also the fallback when the OS appearance is unreadable.
     #[default]
     Dark,
 }

@@ -1,6 +1,3 @@
-//! How an inline input looks for what it names: a branch name is mono, as develop's
-//! `branch-out-input.tsx` draws it, and a file name is framed, as `file-explorer-tree-item.tsx`.
-
 use sidebar::Editing;
 use ui::TextInputStyle;
 

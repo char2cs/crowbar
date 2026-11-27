@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// PlaceWorkspace moves a workspace's row within its repo's tree under the repo-scoped rule (see
-// checkWorkspaceMove). A workspace RepoOf cannot place in a repo, the project home included, is
-// problem.ErrNotFound; a row with no Node yet is minted at the decided slot.
 func (u *chatFolderUsecase) PlaceWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -23,15 +20,12 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	if repoID == "" {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place workspace %s: %w", workspaceID, problem.ErrNotFound)
 	}
-	// nodeID is the Node the panel reads this row's position from: a locked branch's anchor, but an
-	// ordinary fork's owning chat, since its anchor is never drawn.
 	nodeID := workspaceID
 	var current domain.Chat
 	if renders, rErr := u.workspaces.RendersAsBranch(ctx, workspaceID); rErr == nil && !renders {
 		if rows, cErr := u.chats.ListByWorkspace(ctx, workspaceID); cErr == nil {
 			if owner, ok := domain.ResolveOwningChat(rows); ok {
 				nodeID = owner.ID
-				// The real chat, not an anchor stand-in, whose ID == WorkspaceID would mislabel it.
 				current, err = u.correctHomePlacement(ctx, owner)
 				if err != nil {
 					return domain.Chat{}, nil, err

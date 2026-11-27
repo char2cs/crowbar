@@ -89,8 +89,6 @@ function parseBootstrapCache(raw: unknown): AppearanceBootstrapCache | null {
       ? normalizeConfiguredFontFamily(record.uiFontFamily, DEFAULT_UI_FONT_FAMILY)
       : DEFAULT_APPEARANCE_BOOTSTRAP_CACHE.uiFontFamily
   const uiFontSize = normalizeUiFontSize(record.uiFontSize)
-  // A cache written before this key existed normalizes to the default, which is
-  // the size those users are already looking at — no migration needed.
   const markdownFontSize = normalizeMarkdownFontSize(record.markdownFontSize)
   const headingFontFamily =
     typeof record.headingFontFamily === 'string'
@@ -133,10 +131,7 @@ export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void 
   const root = document.documentElement
   root.setAttribute('data-theme', cache.themeId)
   root.setAttribute('data-theme-type', cache.themeType)
-  // Lets theme CSS branch on host OS — e.g. crowbar.css's vibrancy-dependent
-  // surfaces need an opaque fallback where there's no native window blur.
   root.setAttribute('data-platform', currentPlatform)
-  // The .dark class gates all Tailwind dark: variants — keep it in sync with the theme type.
   root.classList.toggle('dark', cache.themeType === 'dark')
 
   const monoFallback = isWindowsPlatform() ? WINDOWS_MONO_FALLBACK : DEFAULT_MONO_FALLBACK
@@ -176,7 +171,6 @@ export function cacheThemeForBootstrap(theme: ThemeDefinition): void {
   writeAppearanceBootstrapCache(next)
 }
 
-/** Every field optional: an omitted one keeps whatever is already cached. */
 export interface BootstrapTypographyInput {
   editorFontFamily?: string
   uiFontFamily?: string
@@ -211,6 +205,5 @@ export function cacheFontsForBootstrap(typography: BootstrapTypographyInput): vo
         : normalizeMarkdownFontSize(typography.markdownFontSize),
   }
   writeAppearanceBootstrapCache(next)
-  // Apply immediately so font changes take effect without a reload
   applyBootstrapAppearance(next)
 }

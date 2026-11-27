@@ -1,5 +1,3 @@
-//! The sidebar's shell-local preferences, stored in one JSON file.
-
 mod adapters;
 mod storage;
 #[cfg(test)]
@@ -20,24 +18,15 @@ use crate::frame::visibility::Visibility;
 use crate::shell::RowId;
 use crate::tree::Tree;
 
-/// Width, visibility, dock side, chosen mode, folded rows, host filter and the last space per
-/// host. None of it goes to the daemon.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
-    /// Open or closed.
     pub visibility: Visibility,
-    /// The remembered width.
     pub width: f32,
-    /// The docked edge.
     pub side: DockSide,
-    /// The chosen mode, which may be unavailable right now.
     pub mode: Mode,
-    /// Ids of folded rows.
     pub folded: Vec<String>,
-    /// The host whose spaces are listed, when more than one host exists.
     pub host_filter: Option<String>,
-    /// The last space opened per host id.
     pub last_project_by_host: BTreeMap<String, String>,
 }
 
@@ -67,21 +56,10 @@ fn unreadable(
 }
 
 impl Preferences {
-    /// Reads the file; a missing file yields the defaults.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::ReadPreferences`] when the file exists but cannot be read, and
-    /// [`Error::ParsePreferences`] when it is not valid JSON of this shape.
     pub fn load(path: &Path) -> Result<Self, Error> {
         Self::load_from(&DiskStorage::at(path))
     }
 
-    /// Writes the file, replacing it.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::WritePreferences`] when the file cannot be written.
     pub fn save(
         &self,
         path: &Path,
@@ -114,18 +92,14 @@ impl Preferences {
         file.write(&json).map_err(write)
     }
 
-    /// The sidebar column these preferences describe, with the width clamped.
     pub fn panel(&self) -> Panel {
         Panel::restore(self.visibility, self.width, self.side)
     }
 
-    /// A tree state with the stored rows folded.
     pub fn tree(&self) -> Tree {
         Tree::with_folded(self.folded.iter().map(|id| RowId::from(id.as_str())))
     }
 
-    /// A copy with the panel, mode and folded rows taken from the running sidebar; the host
-    /// filter and last spaces are kept.
     #[must_use]
     pub fn updated(
         &self,

@@ -46,7 +46,6 @@ describe('parseTurnDiff', () => {
     expect(files.map((f) => f && f.prevName)).toEqual([undefined, undefined])
   })
 
-  // Git's header names it from the root (b/home/...); the call's target says it whole.
   it('names a file outside the workspace by the absolute path its call names', () => {
     const edit = '--- /dev/null\n+++ b/home/me/.claude/plans/p.md\n@@ -0,0 +1 @@\n+one\n'
     const named = (target?: string) =>

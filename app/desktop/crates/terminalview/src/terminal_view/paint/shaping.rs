@@ -1,5 +1,3 @@
-//! What text shaping needs to know.
-
 mod cached_row;
 pub(crate) mod line_cache;
 mod row_input;

@@ -128,8 +128,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
         ),
       }))
 
-      // The editor re-opens the document with the new language id on its
-      // own (its LSP document lifecycle is keyed by language).
       if (activeBuffer.path) {
         await setSyntaxHighlightingFilePath(activeBuffer.path)
       }
@@ -309,7 +307,6 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
           <div className="space-y-0.5">
             {displayOptions.map((option, index) => (
               <Fragment key={option.id}>
-                {/* The chrome toggles, then the editing aids. */}
                 {index === 2 ? <div className="my-1 border-t border-border/70" /> : null}
                 <Button
                   type="button"

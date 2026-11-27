@@ -1,5 +1,3 @@
-//! Where the macOS window buttons sit: centred in the top chrome row, as in the Tauri shell.
-
 use gpui::{Pixels, Point, point, px};
 
 const TRAFFIC_LIGHT_X: f32 = 12.0;

@@ -15,11 +15,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ErrOwnerMoves refuses moving a branch's own thread: it is the branch, and a
-// branch moves by reparenting its workspace.
 var ErrOwnerMoves = problem.New(problem.Conflict, "A branch's own thread moves with its branch")
 
-// moveSite is where a workspace's chats run: the resolved folder and what it belongs to.
 type moveSite struct {
 	Dir, ProjectID, RepoID string
 }
@@ -29,8 +26,6 @@ func (u *chatFolderUsecase) siteOf(ctx context.Context, workspaceID string) (mov
 	return moveSite{Dir: dir, ProjectID: projectID, RepoID: repoID}, err
 }
 
-// requestMove records a move of chatID, and of every thread under it still in workspaceID, to
-// in.WorkspaceID; each runs at its own turn boundary. The row stays where it is until then.
 func (u *chatFolderUsecase) requestMove(
 	ctx context.Context, workspaceID, chatID string, in PlaceInput,
 ) (domain.Chat, []domain.Chat, error) {
@@ -67,8 +62,6 @@ func (u *chatFolderUsecase) requestMove(
 	return current, nil, nil
 }
 
-// askSubtreeMoves asks base's move of chatID, to destination at order, and of every thread under it
-// still in base.From, each keeping its parent.
 func (u *chatFolderUsecase) askSubtreeMoves(
 	ctx context.Context, snapshot *treeSnapshot, chatID, destination string, order *int, base ledger.Move,
 ) error {
@@ -89,8 +82,6 @@ func (u *chatFolderUsecase) askSubtreeMoves(
 	return nil
 }
 
-// checkMoveTarget refuses what no move could make: a drop into the chat's own subtree, a container
-// the target workspace's chats cannot hang off, or a workspace with no folder to run in.
 func (u *chatFolderUsecase) checkMoveTarget(
 	ctx context.Context, snapshot *treeSnapshot, chatID, workspaceID, destination string,
 ) error {
@@ -113,8 +104,6 @@ func (u *chatFolderUsecase) checkMoveTarget(
 	return nil
 }
 
-// checkContainerRunsIn refuses a destination whose chats run elsewhere than workspaceID: the nearest
-// row above it that runs in a workspace decides; a folder at a repo's root runs in its checkout.
 func (u *chatFolderUsecase) checkContainerRunsIn(
 	ctx context.Context, snapshot *treeSnapshot, destination, workspaceID string,
 ) error {
@@ -126,7 +115,6 @@ func (u *chatFolderUsecase) checkContainerRunsIn(
 		destination, runsIn, workspaceID, ErrCrossWorkspace)
 }
 
-// containerWorkspace is the workspace chats filed under id run in, "" when the tree root decides.
 func (u *chatFolderUsecase) containerWorkspace(ctx context.Context, snapshot *treeSnapshot, id string) (string, error) {
 	repo := ""
 	for hops := 0; id != "" && hops < maxContainerDepth; hops++ {
@@ -149,10 +137,8 @@ func (u *chatFolderUsecase) containerWorkspace(ctx context.Context, snapshot *tr
 	return root, nil
 }
 
-// maxContainerDepth bounds the walk up a container chain the cycle check already keeps finite.
 const maxContainerDepth = 64
 
-// crossedInto names the repository workspaceID is in when it is another project than from's, "" otherwise.
 func (u *chatFolderUsecase) crossedInto(ctx context.Context, from moveSite, workspaceID string) (string, error) {
 	to, err := u.siteOf(ctx, workspaceID)
 	if err != nil || to.ProjectID == from.ProjectID {
@@ -183,13 +169,10 @@ func (u *chatFolderUsecase) askMove(ctx context.Context, chatID string, m ledger
 	return nil
 }
 
-// MoveWhenReady runs chatID's move if its turn boundary has come; the ledger's subscriber calls it
-// after every append, so a burst of rows starts one run.
 func (u *chatFolderUsecase) MoveWhenReady(ctx context.Context, chatID string) {
 	u.moves.kick(context.WithoutCancel(ctx), chatID, u.runMove)
 }
 
-// ResumeMoves runs every move a previous daemon left asked for and not finished.
 func (u *chatFolderUsecase) ResumeMoves(ctx context.Context) error {
 	ids, err := u.agent.MovesWaiting(ctx)
 	if err != nil {
@@ -201,7 +184,6 @@ func (u *chatFolderUsecase) ResumeMoves(ctx context.Context) error {
 	return nil
 }
 
-// runMove makes chatID's move under its lock, then records the thread it now reads, which needs the lock.
 func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 	var inherited, lineage []string
 	var left string
@@ -251,7 +233,6 @@ func (u *chatFolderUsecase) runMove(ctx context.Context, chatID string) {
 	}
 }
 
-// applyMove points chatID at m.To and files it under m.ParentID there; a failed placement points it back.
 func (u *chatFolderUsecase) applyMove(ctx context.Context, chatID string, m ledger.Move) ([]string, []string, error) {
 	current, err := u.chats.LoadChat(ctx, chatID)
 	if err != nil {
@@ -275,8 +256,6 @@ func (u *chatFolderUsecase) applyMove(ctx context.Context, chatID string, m ledg
 	return inherited, u.movedLineage(ctx, chatID), nil
 }
 
-// movedLineage is the chats chatID reads from its new place; nil when unreadable, which only
-// skips the best-effort lineage note: the move itself stands.
 func (u *chatFolderUsecase) movedLineage(ctx context.Context, chatID string) []string {
 	moved, err := u.chats.LoadChat(ctx, chatID)
 	if err == nil {
@@ -289,8 +268,6 @@ func (u *chatFolderUsecase) movedLineage(ctx context.Context, chatID string) []s
 	return nil
 }
 
-// threadsUnder are the chats directly under chatID, as the placement tree files them, in workspaceID.
-// It is read before chatID leaves workspaceID: after, the tree no longer files them under it.
 func (u *chatFolderUsecase) threadsUnder(ctx context.Context, chatID, workspaceID string) ([]domain.Chat, error) {
 	chat, err := u.chats.LoadChat(ctx, chatID)
 	if err != nil {
@@ -317,11 +294,8 @@ func (u *chatFolderUsecase) lineageOf(ctx context.Context, chat domain.Chat) ([]
 	return snapshot.chatLineage(chat.ID), nil
 }
 
-// StopMoves runs no further move: the daemon is shutting down, and a move it
-// cannot finish stays asked for, for the next boot.
 func (u *chatFolderUsecase) StopMoves() { u.moves.stop() }
 
-// CancelMove withdraws chatID's pending move.
 func (u *chatFolderUsecase) CancelMove(ctx context.Context, chatID string) error {
 	if err := u.agent.CancelMove(ctx, chatID, "cancelled"); err != nil {
 		return fmt.Errorf("agent chat folder: cancel move: %w", err)
@@ -329,11 +303,9 @@ func (u *chatFolderUsecase) CancelMove(ctx context.Context, chatID string) error
 	return nil
 }
 
-// moveRuns runs at most one move pass per chat; a kick during a pass runs one more after it, so
-// a boundary reached while a pass was deciding is never missed.
 type moveRuns struct {
 	mu      sync.Mutex
-	state   map[string]bool // chat id -> another pass owed
+	state   map[string]bool
 	stopped bool
 }
 

@@ -1,8 +1,5 @@
-//! A key press as the capture rule sees it.
-
 use crate::keys::modifier_key::ModifierKey;
 
-/// A key and the modifiers held with it; the key is a lowercase DOM-style name (`a`, `f5`, `escape`, `arrowleft`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pressed {
     pub(crate) key: String,
@@ -10,7 +7,6 @@ pub struct Pressed {
 }
 
 impl Pressed {
-    /// `key` pressed while `held` were down.
     pub fn new(
         key: impl Into<String>,
         held: &[ModifierKey],

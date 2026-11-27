@@ -80,7 +80,6 @@ function WorkspaceFeeds({ wsId }: { wsId: string }) {
   return null
 }
 
-/** A file or a review in the pane's one tab, placed in the workspace of the chat the shell named, with its workspace's feeds (files, git, review threads) held, the tab's name sent to the shell as the pane title and its unsaved edits reported so the shell asks before closing it. */
 export function BufferPaneHost({ client, open }: { client: Shell; open: OpenBuffer }) {
   const chatId = useStore(bufferSession, (s) => s.chatId)
   const saved = useStore(bufferSession, (s) => s.saved)

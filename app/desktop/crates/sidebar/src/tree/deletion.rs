@@ -1,5 +1,3 @@
-//! Removal countdown and confirmation: removals, the tray, holds, deadlines and work at risk.
-
 mod confirmation;
 pub(crate) mod deadline;
 mod hold;

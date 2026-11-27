@@ -1,11 +1,5 @@
 //go:build integration && unix
 
-// Package scripted_test proves the agent session lifecycle end to end against
-// both built-in descriptors, with the vendor CLIs replaced by a scripted
-// emulator of their real wire (fake_*_test.go): the shipped claude.yaml and
-// codex.yaml, a real daemon, real PTYs, real hooks posted to the daemon and a real
-// app-server over its stdio. No credentials and no
-// network — every healthy and faulty behaviour is declared per test.
 package scripted_test
 
 import (
@@ -48,8 +42,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// askTimeoutSeconds shortens both descriptors' answer budget so an
-// unanswered ask expires within a test.
 const askTimeoutSeconds = 2
 
 func TestMain(m *testing.M) {
@@ -83,8 +75,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// crowbarBin is the crowbar binary TestMain built, which every daemon here
-// hands its CLIs.
 var crowbarBin string
 
 func apiRoot() string {
@@ -92,8 +82,6 @@ func apiRoot() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..")
 }
 
-// daemon is one boot of the backend, served on the unix socket the CLI callbacks
-// dial. A restart is a second boot over the same home.
 type daemon struct {
 	t        *testing.T
 	app      *app.Container
@@ -105,8 +93,6 @@ type daemon struct {
 	hooks    *hookLog
 }
 
-// hookLog is every hook a CLI posted to this daemon, with the status it got
-// back — what a failure message needs to show.
 type hookLog struct {
 	mu      sync.Mutex
 	entries []string
@@ -157,7 +143,6 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
 	go func() { _ = http.Serve(ln, router) }()
-	// Published before anything can spawn a CLI, as the daemon does.
 	hookSrv, err := hookserver.Listen(ctx, router)
 	require.NoError(t, err)
 	require.NoError(t, hookserver.Publish(home, hookSrv.URL()))
@@ -165,8 +150,6 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	return &daemon{t: t, app: container, eng: eng, adapters: adapters, session: session, ln: ln, hookSrv: hookSrv, hooks: hooks}
 }
 
-// stop ends the daemon the way a crash does: no graceful drain, and every
-// CLI it spawned dies with it. The home is released last, as the OS would.
 func (d *daemon) stop() {
 	_ = d.hookSrv.Close()
 	_ = d.ln.Close()
@@ -178,21 +161,18 @@ func (d *daemon) stop() {
 	}
 }
 
-// rig is one test's daemon, workspace, fake CLIs and their script and log.
 type rig struct {
-	t      *testing.T
-	home   string
-	d      *daemon
-	wsID   string
-	script string
-	log    string
-	// providers is the temp dir the CLIs' own homes live under.
+	t         *testing.T
+	home      string
+	d         *daemon
+	wsID      string
+	script    string
+	log       string
 	providers string
 }
 
 func newRig(t *testing.T) *rig { return newRigWith(t, installFakes) }
 
-// newRigWith boots a rig whose providers install writes under home.
 func newRigWith(t *testing.T, install func(t *testing.T, home, bin string)) *rig {
 	t.Helper()
 	kit.RequireNoLeakedProcesses(t)
@@ -215,8 +195,6 @@ func newRigWith(t *testing.T, install func(t *testing.T, home, bin string)) *rig
 	return r
 }
 
-// installFakes links the test binary in as `claude` and `codex` and points
-// the SHIPPED descriptors at them — only the binary and the ask budget change.
 func installFakes(t *testing.T, home, bin string) {
 	t.Helper()
 	self, err := os.Executable()
@@ -253,7 +231,6 @@ func (r *rig) workspace(repoPath string) string {
 	return ws.ID
 }
 
-// restart kills the daemon mid-flight and boots it again over the same home.
 func (r *rig) restart() {
 	r.t.Helper()
 	r.d.stop()
@@ -298,7 +275,6 @@ func (r *rig) live(chatID string) (bool, string) {
 	return true, runner.ID
 }
 
-// said reports the ledger's user/assistant texts in order.
 func (r *rig) said(chatID string) []string {
 	r.t.Helper()
 	said := kit.Said(r.rows(chatID))
@@ -309,7 +285,6 @@ func (r *rig) said(chatID string) []string {
 	return out
 }
 
-// rows are chatID's ledger rows, as its feed carries them.
 func (r *rig) rows(chatID string) []ledger.Row {
 	r.t.Helper()
 	rows, err := r.d.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
@@ -317,7 +292,6 @@ func (r *rig) rows(chatID string) []ledger.Row {
 	return rows
 }
 
-// markers are the kinds of chatID's marker rows, in order.
 func (r *rig) markers(chatID string) []string {
 	r.t.Helper()
 	var out []string
@@ -327,7 +301,6 @@ func (r *rig) markers(chatID string) []string {
 	return out
 }
 
-// exitReason is how chatID's last runner ended, "" while one is live.
 func (r *rig) exitReason(chatID string) string {
 	r.t.Helper()
 	exit, _ := ledger.Fold(chatID, r.rows(chatID)).LastExit()
@@ -343,21 +316,18 @@ func (r *rig) choices(chatID string) []domain.ActivityChoice {
 	return ledger.Fold(chatID, r.rows(chatID)).OpenAsks()
 }
 
-// eventually waits for cond, polling what the test can observe.
 func (r *rig) eventually(cond func() bool, msg string) {
 	r.t.Helper()
 	require.Eventually(r.t, cond, 20*time.Second, 20*time.Millisecond, "%s\nCLI log:\n%s\nhooks:\n%s",
 		msg, logTail{r}, r.d.hooks)
 }
 
-// logTail renders the CLI log lazily, only when a wait fails.
 type logTail struct{ r *rig }
 
 func (l logTail) String() string { return l.r.dump() }
 
 type logEntry map[string]any
 
-// logged is every fact the fake CLIs recorded of kind, in order.
 func (r *rig) logged(kind string) []logEntry {
 	f, err := os.Open(r.log)
 	if err != nil {
@@ -376,7 +346,6 @@ func (r *rig) logged(kind string) []logEntry {
 	return out
 }
 
-// dump is everything the fake CLIs logged, for a failure message.
 func (r *rig) dump() string {
 	f, err := os.Open(r.log)
 	if err != nil {

@@ -1,8 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The mocked core captures each Channel the transport mints, so a test pushes frames
-// at it and reads which ws_* commands were invoked.
-
 interface MockChannel {
   onmessage: ((data: string | ArrayBuffer) => void) | null
 }
@@ -10,7 +7,6 @@ interface MockChannel {
 const channels: MockChannel[] = []
 const invoke = vi.fn(async (_command: string, _args?: unknown): Promise<unknown> => undefined)
 
-// convertFileSrc is only here because the manager imports the bridge, which re-exports it.
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => path,
   Channel: class {
@@ -38,7 +34,6 @@ const { destroyHostRuntime, getHostRuntime, getOrCreateHostRuntime } =
 const { pairRemoteHost, resetHostWorld } = await import('@/__tests__/__fixtures__/remote-host')
 const { startHostStatus } = await import('@/features/hosts/lib/host-status')
 
-/** Holds the next ws_open unresolved until `resolve`: Rust's reader may already be forwarding. */
 function gateOpen() {
   let resolve = () => {}
   let reject = (_err: unknown) => {}
@@ -52,7 +47,6 @@ function gateOpen() {
   return { resolve: () => resolve(), reject: (err: unknown) => reject(err) }
 }
 
-/** Records the shim's events in the order the manager would hear them. */
 function record(sock: InstanceType<typeof TauriWebSocket>) {
   const events: string[] = []
   sock.onopen = () => void events.push(`open@${sock.readyState}`)
@@ -77,7 +71,6 @@ describe('TauriWebSocket', () => {
     const onopen = vi.fn()
     sock.onopen = onopen
 
-    // Let the ws_open invoke promise resolve.
     await vi.waitFor(() => expect(invoke).toHaveBeenCalled())
     await Promise.resolve()
 
@@ -85,7 +78,6 @@ describe('TauriWebSocket', () => {
       connId: 'conn-fixed-id',
       path: '/v0/projects/p/repos/r/workspaces',
       onMessage: channels[0],
-      // No read-idle timeout unless the stream asks for one (only the terminal's does).
       idleTimeoutMs: null,
     })
     await vi.waitFor(() => expect(onopen).toHaveBeenCalled())
@@ -109,7 +101,6 @@ describe('TauriWebSocket', () => {
     const events = record(sock)
 
     await opened(sock)
-    // The Rust reader pushes this exact sentinel when the daemon closes the stream.
     channels[0].onmessage?.('\u0000crowbar-ws-close')
 
     expect(events).toEqual(['open@1', 'close'])
@@ -126,7 +117,6 @@ describe('TauriWebSocket', () => {
     )
   })
 
-  // ws_open reads an omitted host_id as the local daemon, so 'local' sends none.
   it('omits hostId from ws_open when the host is "local" (the default)', async () => {
     new TauriWebSocket('/v0/projects/p/repos/r/workspaces', { hostId: 'local' })
     await vi.waitFor(() =>
@@ -146,9 +136,6 @@ describe('TauriWebSocket', () => {
     )
   })
 
-  // ws_open rejects a remote host it cannot reach, or finds under another identity,
-  // as `<x-crowbar-proxy value>: <reason>` (ws_bridge/remote.rs); Tauri hands that
-  // string to JS as is. The app reads the marker from it, so it must not be altered.
   it('hands a refused open’s reason to onerror exactly as Rust phrased it, then closes', async () => {
     const reason = 'host-identity-changed: the certificate presented by box:3737 no longer matches'
     invoke.mockRejectedValueOnce(reason)
@@ -169,7 +156,6 @@ describe('TauriWebSocket', () => {
         invoke: async () => {},
       }
       useConnectionStore.setState(useConnectionStore.getInitialState())
-      // Only a paired host is dialled.
       pairRemoteHost('h1')
       pairRemoteHost('h2')
     })
@@ -198,7 +184,6 @@ describe('TauriWebSocket', () => {
         problem: { code: 'host_unreachable' },
         hostId: 'h2',
       })
-      // Armed with the bridge's read-idle close (two daemon pings): a half-open one reopens.
       expect(invoke).toHaveBeenCalledWith(
         'ws_open',
         expect.objectContaining({ hostId: 'h1', idleTimeoutMs: 60_000 }),
@@ -208,7 +193,6 @@ describe('TauriWebSocket', () => {
       stopDown()
     })
 
-    // A halted channel reopens when its host returns, whoever holds it.
     it('opens nothing more for a host whose identity changed, and reopens it once it is up', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       pairRemoteHost('h1')
@@ -242,8 +226,6 @@ describe('TauriWebSocket', () => {
       }
     })
 
-    // Measured: a remote daemon back after a short restart has its streams back within
-    // seconds of answering, not a probe interval later.
     it('reopens a restarted host’s streams within seconds of it answering again', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
       let daemonUp = true
@@ -325,8 +307,6 @@ describe('TauriWebSocket', () => {
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
   })
 
-  // Rust forwards frames as soon as the daemon sends them, and the Channel races the
-  // ws_open reply: a frame may land while the shim still says CONNECTING.
   describe('a frame that arrives before ws_open resolves', () => {
     it('is held until onopen has fired, then delivered once, while OPEN', async () => {
       const gate = gateOpen()
@@ -376,8 +356,6 @@ describe('TauriWebSocket', () => {
       expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
     })
 
-    // A close while CONNECTING (StrictMode's double mount) must still tear down what
-    // ws_open registers, or the daemon connection leaks.
     it('is never delivered when closed while connecting, and ws_close waits for ws_open', async () => {
       const gate = gateOpen()
       const sock = new TauriWebSocket('/v0/stream')
@@ -387,7 +365,6 @@ describe('TauriWebSocket', () => {
       expect(sock.readyState).toBe(TauriWebSocket.CONNECTING)
       sock.close()
       expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
-      // Rust has not registered the connection yet: an eager ws_close would be a no-op.
       expect(invoke).not.toHaveBeenCalledWith('ws_close', expect.anything())
       gate.resolve()
       await vi.waitFor(() =>
@@ -438,7 +415,6 @@ describe('the stream over the desktop transport', () => {
   })
 
   it('subscribes every held scope on a ready that beat ws_open, applies the snapshot, and again after a daemon restart', async () => {
-    // The real manager and stream, not setup's fake stream daemon.
     vi.doUnmock('@/core/stream/ws-manager')
     vi.doUnmock('@/core/stream/stream')
     vi.resetModules()

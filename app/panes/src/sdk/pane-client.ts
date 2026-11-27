@@ -53,7 +53,6 @@ function settling(timer: ReturnType<typeof setTimeout>, pending: Pending): Pendi
 
 const encoder = new TextEncoder()
 
-/** The SDK client of one pane page: registers the pane type with the shell, receives lifecycle, theme, event and response frames, and sends titles, state and requests. */
 export class PaneClient {
   private nextId = 1
   private readonly pending = new Map<number, Pending>()
@@ -78,112 +77,90 @@ export class PaneClient {
     channel.onmessage = (text) => this.receive(text)
   }
 
-  /** Tells the shell which pane type this page implements; the shell answers with `mount`. */
   register(): void {
     this.send({ kind: 'pane.register', typeId: this.typeId, sdkVersion: SDK_VERSION })
   }
 
-  /** Hears every lifecycle message; returns the stop. */
   onLifecycle(listener: Listener<LifecycleMessage>): () => void {
     return this.listen(this.lifecycle, listener)
   }
 
-  /** Hears the design tokens on mount and whenever the theme changes; returns the stop. */
   onTheme(listener: Listener<ThemeTokens>): () => void {
     return this.listen(this.themes, listener)
   }
 
-  /** Hears the breakpoints the shell's window clears, on mount and whenever the set changes; returns the stop. */
   onBreakpoints(listener: Listener<Breakpoint[]>): () => void {
     return this.listen(this.breakpoints, listener)
   }
 
-  /** Hears the window's chat zoom in percent, on mount and whenever it changes; returns the stop. */
   onChatZoom(listener: Listener<number>): () => void {
     return this.listen(this.chatZooms, listener)
   }
 
-  /** Hears whether this chat fills its group, on mount and whenever that changes; returns the stop. */
   onGroup(listener: Listener<boolean>): () => void {
     return this.listen(this.groups, listener)
   }
 
-  /** Hears the shell's settings on mount and whenever one changes, the whole set each time; returns the stop. */
   onSettings(listener: Listener<SettingValues>): () => void {
     return this.listen(this.shellSettings, listener)
   }
 
-  /** Hears the hosts the shell paired, on mount and whenever one is paired or removed; returns the stop. */
   onHosts(listener: Listener<PairedHost[]>): () => void {
     return this.listen(this.pairedHosts, listener)
   }
 
-  /** Hears the shell's request to save before it closes the pane; returns the stop. */
   onSave(listener: () => void): () => void {
     return this.listen(this.saves, listener)
   }
 
-  /** Hears the shell's viewed map of a workspace, on mount and whenever it changes; returns the stop. */
   onReviewViewed(listener: Listener<ReviewViewedFrame>): () => void {
     return this.listen(this.reviewViewed, listener)
   }
 
-  /** Hears the changed file the shell asks the review to show; returns the stop. */
   onReviewReveal(listener: Listener<string>): () => void {
     return this.listen(this.reviewReveals, listener)
   }
 
-  /** Asks the shell, which owns the viewed map, to mark or unmark files of this pane's workspace. */
   setReviewViewed(change: ViewedChange): void {
     this.send({ kind: 'review.setViewed', files: [...change.files], viewed: change.viewed })
   }
 
-  /** Hears the text of the file pane's document, which the shell owns, on mount and whenever it changes outside this page; returns the stop. */
   onDocumentText(listener: Listener<string>): () => void {
     return this.listen(this.documentTexts, listener)
   }
 
-  /** Hears each drop of files from the operating system on this page, which gets no drop event of its own; returns the stop. */
   onFilesDropped(listener: Listener<FileDrop>): () => void {
     return this.listen(this.fileDrops, listener)
   }
 
-  /** Hands the shell the whole text this page's view of the document holds now. */
   editDocument(text: string): void {
     this.send({ kind: 'document.edit', text })
   }
 
-  /** Asks the shell to show the file pane's document in its source editor instead of this page. */
   showSource(): void {
     this.send({ kind: 'document.showSource' })
   }
 
-  /** Asks the shell to save the file pane's document; send the pending edit first. */
   saveDocument(): void {
     this.send({ kind: 'document.save' })
   }
 
-  /** Tells the shell the pane holds work that closing would lose. */
   markDirty(): void {
     this.send({ kind: 'pane.setDirty', dirty: true })
   }
 
-  /** Tells the shell the pane holds nothing that closing would lose. */
   markClean(): void {
     this.send({ kind: 'pane.setDirty', dirty: false })
   }
 
-  /** Sets the pane's tab title, cutting it to the shell's limit. */
   setTitle(title: string): void {
     this.send({ kind: 'pane.setTitle', title: fitTitle(title) })
   }
 
-  /** Re-keys the pane on new params, as a draft chat does once its chat exists; the pane keeps its place. */
   setParams(params: PaneParams): void {
     this.send({ kind: 'pane.setParams', params })
   }
 
-  /** Replaces the persisted state; throws a RangeError when it is over the shell's state limit. */
   setState(state: unknown): void {
     const size = encoder.encode(JSON.stringify(state)).length
     if (size > MAX_STATE_BYTES) {
@@ -192,7 +169,6 @@ export class PaneClient {
     this.send({ kind: 'pane.setState', state })
   }
 
-  /** Shows a toast in the shell's toast host, or rewrites the one shown under the same key; text over the shell's limit is cut. */
   showToast(toast: PaneToast): void {
     const { description, ...rest } = toast
     const title = fitDisplayText(toast.title)
@@ -200,12 +176,10 @@ export class PaneClient {
     this.send({ kind: 'shell.toast', ...rest, key: fitDisplayText(toast.key), title, ...detail })
   }
 
-  /** Takes down the toast shown under `key`. */
   closeToast(key: string): void {
     this.send({ kind: 'shell.toastClose', key: fitDisplayText(key) })
   }
 
-  /** Tells the shell the pane could not read what the user just opened it on: the shell closes it and says why, as a toast titled `title`. */
   refuseOpen({ title, message }: { title: string; message: string }): void {
     if (!message) return this.send({ kind: 'pane.openRefused', message: fitDisplayText(title) })
     this.send({
@@ -215,27 +189,22 @@ export class PaneClient {
     })
   }
 
-  /** Asks the shell to open another pane; `target` names the file an editor pane opens and how. */
   open(typeId: string, params: PaneParams, target?: OpenTarget): void {
     this.send({ kind: 'pane.open', typeId, params, ...target })
   }
 
-  /** Runs a shell command by id. */
   runCommand(command: string): void {
     this.send({ kind: 'command.run', command })
   }
 
-  /** Calls a method of the pane's own backend; rejects with a PaneRequestError on failure or when no answer comes in time. */
   request(method: string, params: unknown = null): Promise<unknown> {
     return this.call((id) => ({ kind: 'request', id, method, params }))
   }
 
-  /** Asks the shell to store a setting it owns; the new value arrives with the shell's next `settings` frame. */
   setSetting(key: string, value: unknown): void {
     this.send({ kind: 'settings.set', version: SETTINGS_FRAME_VERSION, key, value })
   }
 
-  /** Follows a manifest-declared event, subscribing once per event name; returns the stop. */
   subscribe(event: string, listener: Listener<unknown>): () => void {
     const held = this.events.get(event) ?? this.openSubscription(event)
     held.listeners.add(listener)

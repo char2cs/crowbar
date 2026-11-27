@@ -15,8 +15,6 @@ func Match(d *spec.Descriptor, prompt string) (spec.InjectedPromptSpec, bool) {
 		return spec.InjectedPromptSpec{}, false
 	}
 
-	// A frame can arrive inside one wrapping tag, so the text under it is
-	// matched too.
 	inner := unwrap(body)
 
 	var generic spec.InjectedPromptSpec
@@ -36,7 +34,6 @@ func Match(d *spec.Descriptor, prompt string) (spec.InjectedPromptSpec, bool) {
 	return generic, found
 }
 
-// opens is whether text begins as p declares: by its needle, else its anchored match.
 func opens(p spec.InjectedPromptSpec, text string) bool {
 	if text == "" {
 		return false
@@ -47,7 +44,6 @@ func opens(p spec.InjectedPromptSpec, text string) bool {
 	return p.Match.Matches(text)
 }
 
-// unwrap drops one leading `<tag ...>` line, returning "" when there is none.
 func unwrap(body string) string {
 	if !strings.HasPrefix(body, "<") {
 		return ""

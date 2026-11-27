@@ -1,5 +1,3 @@
-//! What every component builds on: theme, tokens, motion, icons and shared callbacks.
-
 mod breakpoint;
 mod callbacks;
 pub(crate) mod caret_blink;

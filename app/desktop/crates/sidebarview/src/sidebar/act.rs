@@ -1,5 +1,3 @@
-//! Turning row interactions into view-state changes and commands.
-
 mod refusal;
 
 use gpui::TaskExt as _;

@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// accepted decodes a 202's operation.
 func accepted(t *testing.T, rec *httptest.ResponseRecorder) domain.Operation {
 	t.Helper()
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
@@ -67,7 +66,6 @@ func TestPush_AMalformedKeyIs400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// A push that fails after its 202 settles its operation with the reason.
 func TestPush_AFailureSettlesTheOperationWithItsReason(t *testing.T) {
 	frames := make(chan domain.Operation, 16)
 	r := newRouterWithOps(errGit{}, newOps(func(op domain.Operation) { frames <- op }))

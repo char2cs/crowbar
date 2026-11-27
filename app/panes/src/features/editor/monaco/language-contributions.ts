@@ -1,10 +1,4 @@
-// Monaco's editor-feature chain (find, folding, hover, suggest, …), eager on purpose: a
-// CodeEditorWidget snapshots the registered contributions and actions when it is built, and a pane
-// builds its widget before any language loads.
 import 'monaco-editor/esm/vs/editor/edcore.main.js'
-// Every language registers before a model can name it: Monaco asks for a language's tokenizer and
-// configuration once, when its first model is created, and never again. Each registration is a
-// stub; the grammar and language service behind it still load only when a model uses it.
 import 'monaco-editor/esm/vs/basic-languages/bat/bat.contribution'
 import 'monaco-editor/esm/vs/basic-languages/clojure/clojure.contribution'
 import 'monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution'

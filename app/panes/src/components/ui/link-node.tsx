@@ -24,8 +24,6 @@ export function LinkElement(props: PlateElementProps<TLinkElement>) {
       attributes={{
         ...props.attributes,
         ...linkAttributes,
-        // A bare <a> click navigates the whole WKWebView; route external URLs
-        // to the OS browser and cancel the in-app navigation instead.
         onClick: (e) => {
           handleMarkdownAnchorClick(e, linkAttributes.href, linkWorkspace)
         },

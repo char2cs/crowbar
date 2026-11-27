@@ -1,6 +1,3 @@
-//! The editor's text input as gpui-kit's, except that a press drops a composition still in
-//! progress, as develop's web view does through GTK's input method context.
-
 use std::ops::Range;
 
 use gpui::{

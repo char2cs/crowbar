@@ -1,5 +1,3 @@
-//! Geometry of the viewport-fixed 120 degree highlight stripe behind every skeleton.
-
 use gpui::{Pixels, Size, px};
 
 use crate::display::skeleton::stripe::Stripe;

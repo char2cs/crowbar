@@ -11,7 +11,6 @@ describe('font store — bundled fonts', () => {
 
     const families = useFontStore.getState().monospaceFonts.map((f) => f.family)
     expect(families).toContain('Geist Mono Variable')
-    // The sans bundled font is not monospace and must not appear here.
     expect(families).not.toContain('Geist Variable')
   })
 

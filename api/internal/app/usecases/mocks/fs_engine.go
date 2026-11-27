@@ -5,7 +5,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// FsEngine is a fake of the filesystem-engine surface used by the file usecase.
 type FsEngine struct {
 	TreeFn func(repoPath, dirPath string, provider file.FileStatusProvider) ([]domain.FileNode, error)
 
@@ -20,7 +19,6 @@ type FsEngine struct {
 	DeleteFn           func(repoPath, filePath string) error
 }
 
-// NewFsEngine returns an empty FsEngine.
 func NewFsEngine() *FsEngine {
 	return &FsEngine{}
 }

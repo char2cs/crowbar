@@ -1,4 +1,3 @@
-/* The reasoning toggle's caret turns when it opens. */
 .agent-chat .reasoning-toggle[aria-expanded='true'] svg {
   transform: rotate(90deg);
 }

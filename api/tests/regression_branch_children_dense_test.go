@@ -16,12 +16,6 @@ func liveAChatPlacement(t *testing.T, h *harness, imported importedRepo, chatID 
 	return detail.ParentID, detail.Order
 }
 
-// A fork created under a branch row is placed in the workspace-less scope
-// (createOwnWorktreeChat -> placeChat(ctx, "", ...)), whose forest walk never
-// reaches the destination container, so it lands at order 0 beside a thread
-// already at 0; and because the fork's row lives on the Chat aggregate, the
-// next thread's Node walk under the same owner never counts it either. The
-// level a user builds with the row's own "+" buttons is tied, not dense.
 func TestRegression_ThreadAndForkUnderBranchRowAreDense(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)

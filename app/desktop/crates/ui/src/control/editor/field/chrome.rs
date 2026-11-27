@@ -1,5 +1,3 @@
-//! Colours and shadows of the text field frame.
-
 use gpui::{BoxShadow, Hsla, point, px};
 
 use crate::foundation::Appearance;

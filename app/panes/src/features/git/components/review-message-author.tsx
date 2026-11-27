@@ -14,18 +14,13 @@ interface AuthorDisplay {
   login: string | null
   avatarUrl: string | null
   isAgent: boolean
-  /** Raw SVG for the agent provider that wrote this, when it is one we know. */
   providerIcon: string | null
 }
 
-/** Every field is '' when the message carries no attribution, names an unknown
- *  provider, or names a deleted chat: all three mean "we know nothing". */
 interface AgentAttribution {
   providerName: string
   providerIcon: string
-  /** '' when there is no chat id at all, or the id resolves to no chat. */
   chatTitle: string
-  /** The message names a chat that no longer exists — a link would open nothing. */
   chatDeleted: boolean
 }
 
@@ -36,8 +31,6 @@ const NO_ATTRIBUTION: AgentAttribution = {
   chatDeleted: false,
 }
 
-// An agent is named by its provider, resolved by id and never by branching on
-// the id; a message written before attribution existed falls through to "Agent".
 export function resolveAuthorDisplay(
   message: ReviewMessage,
   currentIdentity: IdentityDTO | null | undefined,
@@ -71,8 +64,6 @@ export function resolveAuthorDisplay(
   }
 }
 
-/** Narrow selectors, one per field: an object would re-render the thread on
- *  every unrelated chat write. */
 export function useAgentAttribution(message: ReviewMessage): AgentAttribution {
   const providerId = message.providerId ?? ''
   const chatId = message.chatId ?? ''
@@ -84,7 +75,6 @@ export function useAgentAttribution(message: ReviewMessage): AgentAttribution {
     providerId ? (s.providers.find((p) => p.id === providerId)?.icon ?? '') : '',
   )
   const chatTitle = useChatField(chatId, (chat) => (chat ? chat.title || UNTITLED_CHAT_LABEL : ''))
-  // "Deleted" is a claim only a landed list can back.
   const listReady = useChatListReady()
 
   if (!message.isAgent) return NO_ATTRIBUTION
@@ -97,7 +87,6 @@ export function useAgentAttribution(message: ReviewMessage): AgentAttribution {
 }
 
 export function MessageAvatar({ display }: { display: AuthorDisplay }) {
-  // The same glyph the chat's tab and sidebar row carry.
   if (display.providerIcon) {
     return (
       <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -116,8 +105,6 @@ export function MessageAvatar({ display }: { display: AuthorDisplay }) {
   )
 }
 
-/** The chat an agent message came out of: a link while it exists, inert text
- *  once deleted, since the id outlives the chat. */
 export function ChatOrigin({
   wsId,
   chatId,

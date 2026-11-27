@@ -1,5 +1,3 @@
-//! Pointer and keyboard control of the separator.
-
 use gpui::{Context, KeyDownEvent, Modifiers, MouseMoveEvent, Pixels, Window};
 use sidebar::{KeyStep, Panel, Presentation, ResizeDrag, ResizeKey, Resizing, Visibility};
 

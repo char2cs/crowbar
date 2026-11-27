@@ -1,5 +1,3 @@
-//! Where a remote daemon listens: the `host:port` form every typed address is normalised to.
-
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -16,8 +14,6 @@ const MAX_HOST_BYTES: usize = 253;
 const MAX_LABEL_BYTES: usize = 63;
 const CONNECT_STAGGER: Duration = Duration::from_millis(250);
 
-/// A DNS name, IPv4 address or bracketed IPv6 address, and a port. Parsing resolves nothing:
-/// a name is looked up only when it is dialled.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct Endpoint {
@@ -26,10 +22,6 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    /// Parses `host:port`, `a.b.c.d:port` or `[v6]:port`; nothing else is taken.
-    ///
-    /// # Errors
-    /// [`Error::MalformedEndpoint`] for anything else.
     pub fn parse(text: &str) -> Result<Self, Error> {
         let malformed = |why| Error::MalformedEndpoint {
             text: text.to_owned(),

@@ -33,7 +33,6 @@ func (f *fakeProvider) GitStatus(
 	return gitdomain.GitStatus{Files: f.files}, nil
 }
 
-// errorProvider simulates a StatusProvider that always returns an error.
 type errorProvider struct{}
 
 func (e *errorProvider) GitStatus(
@@ -131,7 +130,6 @@ func TestList_NilProvider(
 	assert.Nil(t, nodes[0].GitStatus)
 }
 
-// TestList_InvalidDir exercises the os.ReadDir error path.
 func TestList_InvalidDir(
 	t *testing.T,
 ) {
@@ -139,8 +137,6 @@ func TestList_InvalidDir(
 	require.Error(t, err)
 }
 
-// TestList_ProviderError verifies that a StatusProvider error is silently
-// swallowed (buildStatusMap returns nil) and List still succeeds.
 func TestList_ProviderError(
 	t *testing.T,
 ) {
@@ -153,8 +149,6 @@ func TestList_ProviderError(
 	assert.Nil(t, nodes[0].GitStatus)
 }
 
-// TestList_DirsBeforeFiles verifies the sort: directories first, then files,
-// all alphabetically within each group.
 func TestList_DirsBeforeFiles(
 	t *testing.T,
 ) {
@@ -178,8 +172,6 @@ func TestList_DirsBeforeFiles(
 	assert.Equal(t, "z.txt", nodes[3].Name)
 }
 
-// TestList_AllGitDecorations exercises every gitDecoration branch by providing
-// files with each possible GitFileStatus value.
 func TestList_AllGitDecorations(
 	t *testing.T,
 ) {
@@ -220,8 +212,6 @@ func TestList_AllGitDecorations(
 	}
 }
 
-// TestList_NestedSubdirs verifies that listing a subdirectory that itself
-// contains further nested subdirectories returns only one level.
 func TestList_NestedSubdirs(
 	t *testing.T,
 ) {
@@ -233,16 +223,12 @@ func TestList_NestedSubdirs(
 	require.NoError(t, err)
 	require.Len(t, nodes, 2)
 
-	// child dir first, then file
 	assert.Equal(t, domain.FileNodeTypeDirectory, nodes[0].Type)
 	assert.Equal(t, "child", nodes[0].Name)
 	assert.Equal(t, domain.FileNodeTypeFile, nodes[1].Type)
 	assert.Equal(t, "file.txt", nodes[1].Name)
 }
 
-// TestRegression_List_RejectsPathEscape verifies tree.List refuses a dirPath
-// that escapes the workspace root, so it cannot enumerate arbitrary host
-// directories (security finding R1).
 func TestRegression_List_RejectsPathEscape(
 	t *testing.T,
 ) {
@@ -263,8 +249,6 @@ func TestRegression_List_RejectsPathEscape(
 	}
 }
 
-// TestRegression_List_AllowsInWorkspace confirms a normal subdir listing still
-// works after the containment guard.
 func TestRegression_List_AllowsInWorkspace(
 	t *testing.T,
 ) {

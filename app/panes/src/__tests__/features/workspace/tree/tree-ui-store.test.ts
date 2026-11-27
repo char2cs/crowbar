@@ -77,7 +77,6 @@ describe('inline rename', () => {
     expect(state().renamingRole).toBeNull()
   })
 
-  // A row in Recents and in the tree renders twice under one id; exactly one draws the editor.
   it('the tree instance draws the editor when one is mounted, even beside a Recents copy', () => {
     mountRow('row-1', true)
     mountRow('row-1')
@@ -204,7 +203,6 @@ describe('the removal tray', () => {
     expect(state()).toBe(before)
   })
 
-  // A sent entry leaves the tray before its tombstones land; dropping its ids early is a ghost row.
   it('settle drops the tray row but keeps every one of its ids hidden until release', () => {
     state().hold([removal()])
     const [entry] = state().removals
@@ -300,8 +298,6 @@ describe('one store, independent parts', () => {
   })
 })
 
-// The sidebar's mode is saved in the same record as the folds, so either write must carry
-// the other or it would erase it.
 describe('the sidebar mode', () => {
   it('defaults to Chats', () => {
     expect(state().activeTab).toBe('chats')
@@ -334,7 +330,6 @@ describe('the sidebar mode', () => {
   })
 })
 
-// The host filter shares the record with the folds and the mode, so every write carries all.
 describe('the host filter', () => {
   it('defaults to no host chosen and nothing remembered', () => {
     expect(state().hostFilter).toBe('')

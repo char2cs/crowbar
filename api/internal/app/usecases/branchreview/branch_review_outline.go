@@ -8,9 +8,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GetOutline returns the branch diff's hunk geometry (`@@` shapes, no content), O(hunks), so the client
-// reserves scroll space before fetching patches. It resolves the ref exactly as GetFiles does so both
-// describe one diff, and caches when the key is exact. commit scopes it to one commit; empty = branch.
 func (u *branchReviewUsecase) GetOutline(
 	ctx context.Context,
 	wsID string,
@@ -28,8 +25,6 @@ func (u *branchReviewUsecase) GetOutline(
 	return u.outlineWithKey(ctx, ws, ref, key, cacheable)
 }
 
-// outlineWithKey serves the memoised outline or streams a fresh one for a resolved ref. Shared by
-// GetOutline and GetScope so the two cannot compute geometry differently.
 func (u *branchReviewUsecase) outlineWithKey(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -57,9 +52,6 @@ func (u *branchReviewUsecase) readOutline(
 	return files, nil
 }
 
-// cacheableOutlineKey reports the (repoPath, ref, headSHA) memo key and whether one exists. A branch
-// outline is keyed only on a provably clean tree, since it reads the working tree; a commit-scoped read
-// names both ends, so it stays cacheable even on a dirty tree.
 func (u *branchReviewUsecase) cacheableOutlineKey(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -76,8 +68,6 @@ func (u *branchReviewUsecase) cacheableOutlineKey(
 	return u.branchOutlineKey(ctx, ws, ref, !hasTrackedChanges(status))
 }
 
-// branchOutlineKey is the branch half of cacheableOutlineKey for a caller (GetScope) that already knows
-// the tree's state. treeClean is a precondition: a moved tree gets no key.
 func (u *branchReviewUsecase) branchOutlineKey(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -94,8 +84,6 @@ func (u *branchReviewUsecase) branchOutlineKey(
 	return outlineKey{repoPath: ws.WorktreePath, ref: ref, headSHA: head}, true
 }
 
-// hasTrackedChanges reports whether the working tree differs from HEAD in a way git diff sees.
-// Untracked files cannot change a hunk, and counting them would disable caching over a stray file.
 func hasTrackedChanges(
 	status gitdomain.GitStatus,
 ) bool {

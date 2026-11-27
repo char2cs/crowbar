@@ -1,5 +1,3 @@
-//! The settings side of the in-memory backend: reads, writes and subscriptions.
-
 use std::rc::Rc;
 
 use crate::records::fake_backend::FakeBackend;

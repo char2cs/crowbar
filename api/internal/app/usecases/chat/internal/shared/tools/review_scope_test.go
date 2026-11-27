@@ -26,14 +26,9 @@ func TestGetReviewScope_CapsTheChangedFileListAndSaysSo(t *testing.T) {
 		"Showing changed files 1-%d of %d. 50 not shown — call get_review_scope with offset=%d for the next page.",
 		tools.DefaultScopeFilesForTest, over, tools.DefaultScopeFilesForTest,
 	))
-	// The base ref survives the cap: it is the anchor for every finding, and a
-	// paged file list that lost it would describe a diff against nothing.
 	require.Contains(t, out, "abc123")
 }
 
-// A capped file list that could not be paged past would turn a large diff into a
-// review of its first hundred files — post_review_comment rejects a path that is
-// not in the review, so an unreachable file is an unwritable finding.
 func TestGetReviewScope_PagesPastTheCap(t *testing.T) {
 	over := tools.DefaultScopeFilesForTest + 50
 	stub := &stubReviewReader{base: "abc123", files: manyFiles(over)}
@@ -70,10 +65,6 @@ func TestGetReviewScope_ANegativeOffsetReadsAsTheFirstPage(t *testing.T) {
 	require.Contains(t, out, "src/f1.go")
 }
 
-// TestGetReviewScope_ReportsTheChangedLineRangesOfEachFile is the gap this
-// closes: before it, the tool a model calls before reviewing reported a status,
-// two counts and a path, and the ONLY thing on the surface that ever named a line
-// number was the rejection it got for guessing one.
 func TestGetReviewScope_ReportsTheChangedLineRangesOfEachFile(t *testing.T) {
 	files, outline := twoHunkScope()
 	f := scopeFixture(t, "abc123", files, outline)
@@ -92,10 +83,6 @@ func TestGetReviewScope_ReportsTheChangedLineRangesOfEachFile(t *testing.T) {
 		"a pure addition has no left side, and a zero-span range is not one anybody can anchor to")
 }
 
-// A file the review lists but the diff has no lines for — a binary, or an
-// untracked file, which the status merges into the file list and `git diff` never
-// reports — has to say so. Rendered as a bare row it reads as a file whose ranges
-// were merely not printed, and a model would spend a call being refused.
 func TestGetReviewScope_MarksFilesNoCommentCanBeAnchoredTo(t *testing.T) {
 	files := []gitdomain.ReviewFileSummary{
 		{Path: "assets/logo.png", Status: gitdomain.GitFileStatusModified},
@@ -111,25 +98,10 @@ func TestGetReviewScope_MarksFilesNoCommentCanBeAnchoredTo(t *testing.T) {
 	require.Equal(t, 2, strings.Count(out, "cannot carry an anchored comment"),
 		"both the binary file and the untracked one are unanchorable, and for the model's "+
 			"purposes they are the same answer")
-	// And the claim is true: the tool that would store the comment refuses it.
 	_, err = f.post(`{"filePath":"notes.txt","startLine":1,"endLine":1,"side":"right","body":"x"}`)
 	require.Error(t, err)
 }
 
-// TestGetReviewScope_EveryRangeItReportsIsAnAnchorPostReviewCommentAccepts is the
-// invariant the whole change exists for: the rejection becomes UNREACHABLE for a
-// model that read the scope, because the ranges the scope printed are exactly the
-// ranges the validator accepts.
-//
-// The two agree by construction — one outline, resolved once, feeding both the
-// listing and the check — and this is what proves the construction holds end to
-// end through the rendering, which is the one place it could still be lost: a
-// renderer that printed the wrong side's numbers, or an off-by-one on an
-// inclusive bound, would break the property while both halves still read the same
-// data.
-//
-// It is the same shape as TestPostReviewComment_TheRejectionsAdviceIsActuallyLegal,
-// which holds it on the recovery path. This holds it on the FIRST attempt.
 func TestGetReviewScope_EveryRangeItReportsIsAnAnchorPostReviewCommentAccepts(t *testing.T) {
 	files, outline := twoHunkScope()
 	f := scopeFixture(t, "abc123", files, outline)
@@ -155,9 +127,6 @@ func TestGetReviewScope_EveryRangeItReportsIsAnAnchorPostReviewCommentAccepts(t 
 	}
 }
 
-// The listing is only worth something if it distinguishes: a renderer that
-// declared the whole file changed would pass the test above and be useless.
-// The unchanged gap between the two hunks must still be refused.
 func TestGetReviewScope_TheLinesItDoesNotReportAreStillRefused(t *testing.T) {
 	files, outline := twoHunkScope()
 	f := scopeFixture(t, "abc123", files, outline)
@@ -171,9 +140,6 @@ func TestGetReviewScope_TheLinesItDoesNotReportAreStillRefused(t *testing.T) {
 	require.Empty(t, f.writer.opens)
 }
 
-// One file's ranges are capped per side, and the row says how many it left out —
-// a short list read as the whole list is how a model concludes the line it wanted
-// is not in the diff.
 func TestGetReviewScope_CapsTheRangesOfOneFileAndSaysSo(t *testing.T) {
 	over := tools.MaxScopeRangesPerFileForTest + 7
 	files := []gitdomain.ReviewFileSummary{
@@ -193,12 +159,7 @@ func TestGetReviewScope_CapsTheRangesOfOneFileAndSaysSo(t *testing.T) {
 		"the range past the cap must not be printed")
 }
 
-// A review of many hunk-heavy files must not spend the whole reply on geometry.
-// The page has its own budget, and — like every other cap here — it says which
-// files it stopped at and names the offset that fetches theirs.
 func TestGetReviewScope_CapsTheRangesOfAWholePageAndNamesTheOffsetForTheRest(t *testing.T) {
-	// Each file contributes maxScopeRangesPerFile ranges on each side, so the
-	// budget runs out well inside a page of 60 files.
 	const fileCount = 60
 	perFile := 2 * tools.MaxScopeRangesPerFileForTest
 	var files []gitdomain.ReviewFileSummary
@@ -223,8 +184,6 @@ func TestGetReviewScope_CapsTheRangesOfAWholePageAndNamesTheOffsetForTheRest(t *
 	))
 	require.Equal(t, fileCount, fileRows(out), "every file on the page is still listed")
 
-	// The recovery move works: the offset the note named starts a page whose
-	// budget begins again, so those files do get their ranges.
 	next, err := f.scope(fmt.Sprintf(`{"offset":%d}`, affordable))
 	require.NoError(t, err)
 	require.Contains(t, next, fmt.Sprintf("src/f%d.go", affordable+1))
@@ -232,9 +191,6 @@ func TestGetReviewScope_CapsTheRangesOfAWholePageAndNamesTheOffsetForTheRest(t *
 		"the file the previous page could not afford ranges for must have them here")
 }
 
-// The budget is spent on ranges, not on files: a page full of files nothing can
-// be anchored to must not exhaust it, or one binary-heavy review would silence
-// the geometry of the files that do have some.
 func TestGetReviewScope_UnanchorableFilesCostNoRangeBudget(t *testing.T) {
 	var files []gitdomain.ReviewFileSummary
 	var outline []gitdomain.FileOutline

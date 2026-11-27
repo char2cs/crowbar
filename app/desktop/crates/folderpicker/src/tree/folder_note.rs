@@ -1,5 +1,3 @@
-//! What an opened folder shows in place of children it does not have yet.
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FolderNote {
     Waiting,

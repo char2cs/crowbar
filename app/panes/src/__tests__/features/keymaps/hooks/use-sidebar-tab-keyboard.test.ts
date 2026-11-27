@@ -12,8 +12,6 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   APPLE_KEYBOARD: false,
 }))
 
-// Mirrors the registry defaults on purpose: the digit is the mode's position
-// in the mode bar (Chats, Files, Git).
 vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({
     'navigation.sidebarChats': 'mod+1',

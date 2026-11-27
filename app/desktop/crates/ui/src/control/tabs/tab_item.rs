@@ -1,11 +1,8 @@
-//! One entry of a [`crate::Tabs`] list.
-
 use gpui::SharedString;
 
 use crate::foundation::IconName;
 use crate::foundation::IconWeight;
 
-/// A tab: label, optional icon and the weight the icon takes while selected.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TabItem {
     pub(crate) label: Option<SharedString>,
@@ -15,7 +12,6 @@ pub struct TabItem {
 }
 
 impl TabItem {
-    /// A text tab.
     pub fn text(label: impl Into<SharedString>) -> Self {
         Self {
             label: Some(label.into()),
@@ -25,7 +21,6 @@ impl TabItem {
         }
     }
 
-    /// An icon-only tab; the icon turns `Fill` while selected like the sidebar mode switch.
     pub fn icon(icon: IconName) -> Self {
         Self {
             label: None,
@@ -35,7 +30,6 @@ impl TabItem {
         }
     }
 
-    /// Adds an icon next to the label.
     #[must_use]
     pub fn with_icon(
         mut self,
@@ -45,7 +39,6 @@ impl TabItem {
         self
     }
 
-    /// Adds a text label next to the icon; the selected weight is kept.
     #[must_use]
     pub fn with_label(
         mut self,
@@ -55,7 +48,6 @@ impl TabItem {
         self
     }
 
-    /// Marks the tab as not selectable.
     #[must_use]
     pub fn disabled(mut self) -> Self {
         self.disabled = true;

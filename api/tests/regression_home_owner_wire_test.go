@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The project-home owner rides no repo, and the home chat list used to be
-// served with no worktree enrichment at all — so nothing on the wire said
-// which home chat owned the home workspace, and the client drew the owner as
-// an "Untitled chat" ghost row.
 func TestRegression_HomeOwnerCarriesItsWorktreeOnTheWire(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)

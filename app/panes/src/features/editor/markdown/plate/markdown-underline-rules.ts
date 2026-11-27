@@ -1,8 +1,5 @@
 import type { MdRules } from '@platejs/markdown'
 
-// The default `underline` rule serializes to an MDX JSX node no stringify extension here handles,
-// so it throws on every onChange. A raw `html` node (`<u>…</u>`) is emitted verbatim instead;
-// `deserialize` is omitted on purpose, since Plate falls back to its default per field.
 export const underlineMarkdownRules: MdRules = {
   underline: {
     mark: true,

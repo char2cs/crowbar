@@ -60,7 +60,6 @@ describe('an action that failed because of its remote host', () => {
     expect(statusOf('h1')).toBe('down')
   })
 
-  // A changed identity can be an attack: it is never presented as routine re-pairing.
   it('warns that a host presenting another identity may be intercepted, to be confirmed before pairing again', () => {
     toastHostFailure(changed())
 
@@ -74,7 +73,6 @@ describe('an action that failed because of its remote host', () => {
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
-  // A 401 comes from the host refusing this client, or from the proxy holding no credential.
   it('says a host that refuses this computer (401) must be paired again, and records it so', () => {
     toastHostFailure(refused())
 
@@ -84,7 +82,6 @@ describe('an action that failed because of its remote host', () => {
     expect(statusOf('h1')).toBe('needs-repair')
   })
 
-  // The proxy's own plain-text 500/502/504 carry no daemon words: only a status.
   it('says an answer that carries only a status is the host’s error, never a bare number', () => {
     expect(toastHostFailure(new ApiError('502 ', 502, undefined, undefined, 'h1'))).toBe(true)
     expect(
@@ -117,7 +114,6 @@ describe('an action that failed because of its remote host', () => {
 })
 
 describe('an action whose host could not be told yet', () => {
-  // As the URL builders throw it: placed against the lists as they are at the throw.
   const thrown = (resolve: () => unknown): HostNotResolvedError => {
     try {
       resolve()
@@ -164,7 +160,6 @@ describe('an action whose host could not be told yet', () => {
   })
 })
 
-// A never-paired install, and every local failure, reads exactly as before hosts existed.
 describe('a failure that is not its host’s', () => {
   it.each([
     ['a local daemon’s 401', new ApiError('nope', 401, undefined, undefined, 'local')],

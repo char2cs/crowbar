@@ -1,20 +1,16 @@
 import type { Descendant, Value } from 'platejs'
 
-/** One top-level markdown block: its byte range in the source and the Plate nodes it parsed to. */
 interface SourceBlock {
   start: number
   end: number
-  /** Canonical keys of the block's nodes; empty for a block with no node (a link definition). */
   keys: string[]
 }
 
-/** The text a document was parsed from, split into its top-level blocks. */
 export interface MarkdownSource {
   text: string
   blocks: SourceBlock[]
 }
 
-/** A run of the output: an original block written back verbatim, or nodes serialized afresh. */
 type Piece = { block: number } | { nodes: Descendant[] }
 
 const keyCache = new WeakMap<object, string>()
@@ -29,7 +25,6 @@ function canonical(value: unknown): string {
   return `{${entries.join(',')}}`
 }
 
-/** Node identity survives every edit that does not touch the node, so a key is computed once. */
 export function nodeKey(node: Descendant): string {
   let key = keyCache.get(node)
   if (key === undefined) {
@@ -44,8 +39,6 @@ function runMatches(keys: string[], at: number, run: string[]): boolean {
   return run.every((key, i) => keys[at + i] === key)
 }
 
-/** Where each source block sits in the current value (or -1): prefix and suffix first, so a
- *  local edit aligns exactly, then a forward search through the edited middle. */
 function alignBlocks(keys: string[], blocks: SourceBlock[]): number[] {
   const at = blocks.map(() => -1)
   let head = 0
@@ -75,7 +68,6 @@ function alignBlocks(keys: string[], blocks: SourceBlock[]): number[] {
   return at
 }
 
-// Markdown has no empty paragraph: Plate would write one as a lone U+200B into the file.
 const isEmptyParagraph = (node: Descendant) =>
   (node as { type?: string }).type === 'p' &&
   !isListItem(node) &&
@@ -86,8 +78,6 @@ const isEmptyParagraph = (node: Descendant) =>
 const isListItem = (node: Descendant | undefined) =>
   !!node && typeof (node as { listStyleType?: unknown }).listStyleType === 'string'
 
-/** A kept block must not border a re-serialized list item of the same list: written apart, the
- *  two halves would no longer parse as one list. */
 function releaseSplitLists(value: Value, blocks: SourceBlock[], at: number[]): void {
   const owner = new Array<number>(value.length).fill(-1)
   at.forEach((pos, b) => {
@@ -132,7 +122,6 @@ function piecesOf(value: Value, blocks: SourceBlock[], at: number[]): Piece[] {
   let i = 0
   while (i <= value.length) {
     let kept: number | undefined
-    // A block with no node (a link definition) has nothing to edit, so it stays where it was.
     for (const b of startsAt.get(i) ?? []) {
       flushFresh()
       pieces.push({ block: b })
@@ -152,8 +141,6 @@ function piecesOf(value: Value, blocks: SourceBlock[], at: number[]): Piece[] {
   return pieces
 }
 
-/** Writes `value` back over the text it was parsed from: every block the user left alone is
- *  copied byte for byte, with its original spacing; only changed blocks are re-serialized. */
 export function serializeOverSource(
   value: Value,
   source: MarkdownSource,

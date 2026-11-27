@@ -1,6 +1,3 @@
-// Package migratetree is the placement-tree migration step: it copies the
-// retired placement records (the position aggregate's rows, the folders table,
-// each chat's own placement) into the per-project Trees, verbatim.
 package migratetree
 
 import (
@@ -25,46 +22,36 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// LegacySources are where the retired records and the facts that place them live.
 type LegacySources struct {
-	// ChatLog is the chat event log; its schema-1 events carry each placement.
-	ChatLog asynxModels.Store
-	// NodeLog is the path of the retired position aggregate's event log.
-	NodeLog string
-	// View holds the retired folders table.
+	ChatLog    asynxModels.Store
+	NodeLog    string
 	View       *gormdb.DB
 	Projects   func(ctx context.Context) ([]domain.Project, error)
 	Workspaces func(ctx context.Context) ([]domain.Workspace, error)
 	Repos      func(ctx context.Context) ([]domain.Repository, error)
 }
 
-// LegacyChat is the part of a chat the conversion reads.
 type LegacyChat struct {
 	ID, WorkspaceID string
 	Placement       tree.Placement
 }
 
-// LegacyHome is every retired placement record with the facts that place it.
 type LegacyHome struct {
-	Nodes   []tree.Node
-	Folders []tree.Folder
-	Chats   []LegacyChat
-	// UnreadChats are chats whose history does not replay: they still exist,
-	// listed from their row, but carry no placement of their own to copy.
+	Nodes       []tree.Node
+	Folders     []tree.Folder
+	Chats       []LegacyChat
 	UnreadChats []string
 	Workspaces  []domain.Workspace
 	Repos       []domain.Repository
 	Projects    []domain.Project
 }
 
-// legacyChat is the chat document as schema 1 wrote it, placement included.
 type legacyChat struct {
 	domain.Chat
 	ParentID string `json:"parentId,omitempty"`
 	Order    int    `json:"order"`
 }
 
-// legacyNode is the retired position aggregate's document.
 type legacyNode struct {
 	ID       string `json:"id"`
 	Kind     string `json:"kind"`
@@ -72,8 +59,6 @@ type legacyNode struct {
 	Order    int    `json:"order"`
 }
 
-// ReadLegacy reads every retired placement record. It writes nothing: its
-// asynx instances keep their snapshots in memory and are shut down after.
 func ReadLegacy(ctx context.Context, src LegacySources) (LegacyHome, error) {
 	var h LegacyHome
 	var err error
@@ -160,8 +145,6 @@ func readNodes(ctx context.Context, path string) ([]tree.Node, error) {
 	return out, err
 }
 
-// readFolders reads the folders table; one a build before home folders wrote
-// has no home_id, as its folders are all a repo's.
 func readFolders(ctx context.Context, db *gormdb.DB) ([]tree.Folder, error) {
 	var cols []string
 	if err := db.WithContext(ctx).Raw("SELECT name FROM pragma_table_info('folders')").Scan(&cols).Error; err != nil {
@@ -186,7 +169,6 @@ func readFolders(ctx context.Context, db *gormdb.DB) ([]tree.Folder, error) {
 	return out, nil
 }
 
-// eventKeyPrefix marks an aggregate's event stream among a log's keys.
 const eventKeyPrefix = "events:"
 
 type aggregateLister interface {

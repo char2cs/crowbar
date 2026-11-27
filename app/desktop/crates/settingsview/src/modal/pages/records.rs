@@ -1,5 +1,3 @@
-//! A list of backend records with its loading, failed and empty states.
-
 mod drag_record;
 mod hover;
 mod listed_record;

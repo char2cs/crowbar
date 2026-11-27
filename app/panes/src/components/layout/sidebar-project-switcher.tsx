@@ -14,20 +14,14 @@ import { cn } from '@/lib/utils'
 import type { Project } from '@/lib/types'
 import { EditableProjectIcon, ProjectIconMark } from './project-icon-mark'
 
-// One footprint for every mark on the line, so the active project, the others
-// and the `+` share a hit area (proportioned to the 19px name).
 const TILE = 'flex size-7 shrink-0 items-center justify-center rounded-[8px]'
 
-// Shared with the rename input so entering edit mode never changes the text.
 const PROJECT_NAME_TEXT = 'font-heading text-[19px] leading-6 font-normal tracking-tight'
 
-// 10px on a 12px line: under the 24px name it fits the h-11 line without clipping either.
 const HOST_LINE =
   'flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded-sm text-[10px]/[12px] ' +
   'outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
-/** A remote project's host under its name — its computer and dot, its name and, short of
- *  online, its state in its tone — and the way into Settings → Hosts. */
 function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => void }) {
   const { name, state } = useHostView(hostId)
   const stateWord = hostDotLabel(state)
@@ -64,20 +58,15 @@ function ProjectHostLine({ hostId, onOpen }: { hostId: string; onOpen: () => voi
 }
 
 interface SidebarProjectSwitcherProps {
-  /** Every open project. With none and no `onAddProject`, nothing renders. */
   projects: Project[]
-  /** The id the route tracks; that project is named, not listed as an icon. */
   activeProjectId?: string
   onSelectProject: (id: string) => void
-  /** The tree's only entry point for a SECOND project. */
   onAddProject?: () => void
-  /** The host line's way into Settings → Hosts. */
   onOpenHostSettings?: () => void
 }
 
 const openHostSettings = () => useUIState.getState().openSettingsDialog('hosts')
 
-// The phone's header scale (row-metrics.ts); null keeps the desktop's own classes.
 function useHeaderScale() {
   const metrics = useRowMetrics()
   if (!metrics) return null
@@ -116,7 +105,6 @@ function ProjectMark({
   )
 }
 
-// Dimmed by its icon, not its button: a host's dot keeps its full 3:1 on the sidebar.
 function MarkIcon({ project }: { project: Project }) {
   return (
     <span className="flex opacity-80 group-hover/mark:opacity-100">
@@ -125,7 +113,6 @@ function MarkIcon({ project }: { project: Project }) {
   )
 }
 
-/** Another project on a remote host: its mark wears the host's dot, which its label says. */
 function RemoteProjectMark({
   project,
   onSelect,
@@ -144,9 +131,6 @@ function RemoteProjectMark({
   )
 }
 
-// The active project's icon and name (host under it when remote), a leading `+`, then the other
-// projects' icons; the name truncates first. The mark edits the icon, double-clicking the name
-// renames. Memoized: every prop is a primitive or a stable callback.
 export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   projects,
   activeProjectId,
@@ -154,7 +138,6 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
   onAddProject,
   onOpenHostSettings = openHostSettings,
 }: SidebarProjectSwitcherProps) {
-  // Holds the project id, so switching spaces mid-edit drops the editor.
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const scale = useHeaderScale()
   if (projects.length === 0 && !onAddProject) return null
@@ -210,8 +193,6 @@ export const SidebarProjectSwitcher = memo(function SidebarProjectSwitcher({
           onClick={onAddProject}
           variant="ghost"
           size="icon-sm"
-          // With several projects the `+` is zero-width (and cancels the row's gap) until the
-          // row is hovered or holds focus; the row, not the `+`, owns the hover so it can't flicker.
           data-reveal={projects.length > 1 ? 'hover' : undefined}
           className={cn(
             TILE,

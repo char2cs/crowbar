@@ -6,11 +6,6 @@ use crate::pane_host::PaneHost;
 const UNZOOMED: u16 = 100;
 
 impl PaneHost {
-    /// Replaces the window's chat zoom, in percent, and pushes it to mounted panes; a pane
-    /// mounted later gets it on mount. An unchanged zoom sends nothing.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::Error::WebView) when a pane cannot be reached.
     pub fn set_chat_zoom(
         &mut self,
         percent: u16,
@@ -26,7 +21,6 @@ impl PaneHost {
             .try_for_each(|(id, _)| self.send(id, &frame))
     }
 
-    /// The window's chat zoom in percent: 100 until the first change.
     #[must_use]
     pub fn chat_zoom(&self) -> u16 {
         self.chat_zoom.unwrap_or(UNZOOMED)

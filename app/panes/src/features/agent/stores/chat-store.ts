@@ -8,13 +8,9 @@ import { fillFull, prependOlder } from '@/features/agent/stores/lib/older-rows'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 import type { ChatFeed } from '@/features/agent/stores/lib/transcript-items'
 
-/** What the client keeps per chat beyond its entity: the feed it folds and its unsent
- *  prompts. The chat itself lives in the entity store. */
 export interface ChatStoreState {
   feeds: Record<string, ChatFeed>
-  /** Prompts with no row yet, by chat; written only by chat-outbox. */
   outbox: Record<string, OutboxItem[]>
-  /** Each chat's last surface pick; session-lifetime, so a reopened pane lands where it was. */
   presentations: Record<string, ChatPresentation>
 }
 
@@ -28,7 +24,6 @@ export function useChatStore<T>(selector: (state: ChatStoreState) => T): T {
   return useStore(chatStore, selector)
 }
 
-// Rows replayed before `ready` fold into one draft and publish once, at ready.
 const drafts = new Map<string, FeedFold>()
 
 function publish(chatId: string, next: ChatFeed) {
@@ -36,7 +31,6 @@ function publish(chatId: string, next: ChatFeed) {
   if (feeds[chatId] !== next) chatStore.setState({ feeds: { ...feeds, [chatId]: next } })
 }
 
-/** Stop was pressed: the running turn reads as stopping until its end lands. */
 export function setStopping(chatId: string, stopping: boolean) {
   const feed = chatStore.getState().feeds[chatId]
   const turn = stopping ? (feed?.facts.running?.turnId ?? null) : null
@@ -44,12 +38,10 @@ export function setStopping(chatId: string, stopping: boolean) {
   publish(chatId, { ...feed, facts: { ...feed.facts, stopping: turn } })
 }
 
-/** Starts a chat's feed state, keeping one that is already there. */
 export function openFeed(chatId: string) {
   if (!chatStore.getState().feeds[chatId]) publish(chatId, emptyFeed())
 }
 
-/** Shows a stored feed in place of a feed nothing has filled yet; false when one already has. */
 export function showStoredFeed(chatId: string, stored: ChatFeed): boolean {
   const feed = chatStore.getState().feeds[chatId]
   if (!feed || feed.seq !== 0 || feed.status !== 'connecting' || drafts.has(chatId)) return false
@@ -57,8 +49,6 @@ export function showStoredFeed(chatId: string, stored: ChatFeed): boolean {
   return true
 }
 
-/** Lays an older page above the feed, which must still be the one the page was asked for
- *  (it begins at `heldFrom`) and not be replaying; false when it is not and the page is stale. */
 export function prependRows(chatId: string, heldFrom: number, rows: LedgerRow[], from: number) {
   const feed = chatStore.getState().feeds[chatId]
   if (!feed || drafts.has(chatId) || feed.from !== heldFrom || from >= heldFrom) return false
@@ -66,13 +56,11 @@ export function prependRows(chatId: string, heldFrom: number, rows: LedgerRow[],
   return true
 }
 
-/** Replaces item `id`'s preview with the whole row it was cut from. */
 export function fillRow(chatId: string, id: string, row: LedgerRow) {
   const feed = chatStore.getState().feeds[chatId]
   if (feed) publish(chatId, fillFull(feed, id, row))
 }
 
-/** Marks the feed failed; `error` is the daemon's word for why, when it gave one. */
 export function failFeed(chatId: string, error?: string) {
   const feed = chatStore.getState().feeds[chatId]
   if (feed) publish(chatId, { ...feed, status: 'error', error })
@@ -87,16 +75,12 @@ export function dropFeed(chatId: string) {
 }
 forgetWithChat(dropFeed)
 
-/** A frame the live feed folds as it comes: a row past the replay, or a delta. */
 export type LiveFrame = Extract<FeedFrame, { type: 'row' | 'delta' }>
 
-/** Whether a row would publish at once: the feed is live and no replay is folding. */
 export function foldsLive(chatId: string): boolean {
   return chatStore.getState().feeds[chatId]?.status === 'live' && !drafts.has(chatId)
 }
 
-/** Applies one animation frame's live rows and deltas, in order, in one store write.
- *  Rows are queued only while the feed folds live, and a replay starts behind a flush. */
 export function applyFeedBatch(chatId: string, frames: LiveFrame[]) {
   const feed = chatStore.getState().feeds[chatId]
   if (!feed) return
@@ -107,8 +91,6 @@ export function applyFeedBatch(chatId: string, frames: LiveFrame[]) {
   publish(chatId, next)
 }
 
-/** Replays the chat afresh behind what is shown: the feed it publishes at ready
- *  replaces this one, so a wider window lands in one write. */
 export function refoldFeed(chatId: string) {
   draftOf(chatId, emptyFeed())
 }
@@ -119,7 +101,6 @@ function draftOf(chatId: string, feed: ChatFeed): FeedFold {
   return draft
 }
 
-/** Applies one frame of the chat's ledger scope. */
 export function applyFeedFrame(chatId: string, frame: FeedFrame) {
   const feed = chatStore.getState().feeds[chatId] ?? emptyFeed()
   switch (frame.type) {
@@ -143,8 +124,6 @@ export function applyFeedFrame(chatId: string, frame: FeedFrame) {
       }
       return
     case 'resync': {
-      // Behind our seq: the ledger was reset, so rebuild from nothing. Either
-      // way the replay that follows folds into a fresh draft of what is published.
       const next = (frame.seq ?? 0) < feed.seq ? emptyFeed() : feed
       publish(chatId, next)
       draftOf(chatId, next)

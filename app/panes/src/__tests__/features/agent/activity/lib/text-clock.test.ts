@@ -4,7 +4,6 @@ import { formatClock, useTextClock } from '@/features/agent/activity/lib/text-cl
 
 afterEach(() => vi.useRealTimers())
 
-/** Mounts a clock from `since` on a fresh element; returns it and its unmount. */
 function mount(since: string) {
   const el = document.createElement('span')
   const ref = renderHook(() => useTextClock(since)).result.current

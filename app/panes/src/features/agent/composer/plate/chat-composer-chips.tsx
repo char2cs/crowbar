@@ -4,7 +4,6 @@ import { createPlatePlugin, PlateLeaf } from 'platejs/react'
 
 const CHIP = 'chip'
 
-// A command opens a word; an @path runs to the next space. Neither matches inside a path or URL.
 const TOKENS: { kind: 'slash' | 'ref'; pattern: RegExp }[] = [
   { kind: 'slash', pattern: /(?<=^|\s)\/[A-Za-z][\w:-]*(?![\w/:-])(?!\.\w)/g },
   { kind: 'ref', pattern: /(?<=^|\s)@[\w./-]+/g },
@@ -21,8 +20,6 @@ function ChipLeaf(props: PlateLeafProps) {
   )
 }
 
-/** Marks, as decorations only, the commands and file references typed into the draft: the
- *  markdown the chat sends is untouched. A code block's text is code, so it is left alone. */
 export const ChatComposerChipPlugin = createPlatePlugin({
   key: CHIP,
   node: { isLeaf: true },

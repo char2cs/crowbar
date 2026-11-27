@@ -1,6 +1,3 @@
-//! Wording of a confirmation before a destructive action.
-
-/// The question asked before an action runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Confirm {
     pub(crate) title: String,
@@ -9,13 +6,11 @@ pub struct Confirm {
 }
 
 impl Confirm {
-    /// The label of the confirming button.
     #[must_use]
     pub fn action(&self) -> &str {
         &self.action
     }
 
-    /// A confirmation with a title, an explanation and the label of the confirming button.
     pub fn new(
         title: impl Into<String>,
         message: impl Into<String>,

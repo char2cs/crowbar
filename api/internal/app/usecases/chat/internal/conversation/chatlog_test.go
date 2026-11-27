@@ -15,10 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// speaker is in-package, so this test is too. It is the one piece of the ledger
-// that is DISPLAY rather than data, and the harness case is the reason it exists:
-// an injected prompt rendered as "user" would let a model reading its own handoff
-// mistake the harness for a person.
 func TestSpeaker_AttributesAVendorReplyToItsProvider(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -51,7 +47,6 @@ func TestSpeaker_NeverRendersANonUserTurnAsTheUser(t *testing.T) {
 	}
 }
 
-// askedLock is the chat locks, telling asked of every chat a write asks for.
 type askedLock struct {
 	*ingress.Locks
 	asked chan<- string
@@ -62,8 +57,6 @@ func (l askedLock) Lock(ctx context.Context, chatID string) (func(), error) {
 	return l.Locks.Lock(ctx, chatID)
 }
 
-// A note lands after the hook holding its chat: it waits for the chat's lock,
-// so it never lands between that hook's check and its rows.
 func TestAppendNote_LandsAfterTheHookHoldingTheChat(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
@@ -71,7 +64,7 @@ func TestAppendNote_LandsAfterTheHookHoldingTheChat(t *testing.T) {
 	require.NoError(t, err)
 	locks, asking := ingress.NewLocks(), make(chan string, 1)
 	c := &Conversations{writes: ingress.NewWriter(l, askedLock{Locks: locks, asked: asking})}
-	unlock, err := locks.Lock(t.Context(), "chat-1") // a hook mid-record
+	unlock, err := locks.Lock(t.Context(), "chat-1")
 	require.NoError(t, err)
 
 	done := make(chan error, 1)
@@ -95,7 +88,6 @@ func TestAppendNote_LandsAfterTheHookHoldingTheChat(t *testing.T) {
 	assert.Equal(t, ledger.KindUserMessage, rows[1].Kind, "the note follows the hook's row")
 }
 
-// The handoff and get_chat_log read what was said off the ledger's rows.
 func TestChatLog_ReadsTextFromLedgerRows(t *testing.T) {
 	b := newRowBook(t)
 	b.open("T1", "what is two and two")

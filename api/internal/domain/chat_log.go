@@ -2,9 +2,6 @@ package domain
 
 import "time"
 
-// LedgerTurn is one message of a chat: who spoke, under which provider and
-// runner, and what was said. It outlives every runner that wrote it, so it
-// names the runner and session rather than pointing at one.
 type LedgerTurn struct {
 	ID       string `json:"id"`
 	Role     string `json:"role"`

@@ -1,5 +1,3 @@
-//! Terminal panes: ids, owners, sessions and their links.
-
 pub(crate) mod chat_hosts;
 pub(crate) mod file_target;
 pub(crate) mod link_choice;

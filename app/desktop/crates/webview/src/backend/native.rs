@@ -1,5 +1,3 @@
-//! The native backends of each OS and the wry builder steps they share.
-
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

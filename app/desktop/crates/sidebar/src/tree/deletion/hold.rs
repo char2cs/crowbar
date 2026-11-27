@@ -1,5 +1,3 @@
-//! A removal in progress: the row hides behind a countdown until the delete is sent.
-
 use std::time::{Duration, Instant};
 
 use crate::shell::RowId;
@@ -8,22 +6,15 @@ use crate::tree::deletion::removal_kind::RemovalKind;
 
 const MILLIS_PER_SECOND: u128 = 1000;
 
-/// One row held back from deletion until its countdown ends or the user confirms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hold {
-    /// The row being removed.
     pub row: RowId,
-    /// What the removal deletes.
     pub kind: RemovalKind,
-    /// The row's name, shown in the countdown and the confirmation.
     pub label: String,
-    /// Where the hold stands.
     pub deadline: Deadline,
 }
 
 impl Hold {
-    /// The whole seconds left on the countdown, rounded up; a hold with no clock (awaiting
-    /// confirmation or committed) reads 0, as develop's row does.
     pub fn seconds_left(
         &self,
         now: Instant,
@@ -38,7 +29,6 @@ impl Hold {
             .unwrap_or(u64::MAX)
     }
 
-    /// The title of the notice saying the daemon refused to remove the row, naming it.
     pub fn refusal_title(&self) -> String {
         format!("Couldn't remove {}", self.label)
     }
@@ -50,8 +40,6 @@ impl Hold {
         matches!(self.deadline, Deadline::At(at) if at <= now)
     }
 
-    /// The fraction of the countdown still left, from `1.0` at the start to `0.0` when due.
-    /// A hold without a clock reads `0.0`.
     pub fn drain(
         &self,
         now: Instant,

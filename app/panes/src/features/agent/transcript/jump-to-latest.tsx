@@ -14,7 +14,6 @@ interface JumpToLatestProps {
 const push = (owner: string, bottom: number | null) =>
   setNativeJumpToLatest({ owner, visible: bottom !== null, bottom: bottom ?? 0, label: LABEL })
 
-/** The phone's chrome draws this button; the web says when it is up, how high, and never under the IDE. */
 function NativeJumpToLatest({ onJump, dockTop }: JumpToLatestProps) {
   const onChat = useMobileScreenStore((s) => s.screen === 'chat')
   const bottom = onChat ? dockTop + 12 : null

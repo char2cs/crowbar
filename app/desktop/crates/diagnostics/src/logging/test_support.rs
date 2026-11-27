@@ -1,5 +1,3 @@
-//! In-memory log store for the logging unit tests.
-
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};

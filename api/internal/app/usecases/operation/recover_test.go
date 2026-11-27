@@ -54,7 +54,6 @@ func TestService_RecoverKeepsTheNewest500Settled(t *testing.T) {
 	all, err := f.store.FindAll(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, all, 500)
-	// 504 settled once the running row is failed: the four oldest go.
 	for _, gone := range []string{"op-000", "op-001", "op-002", "op-003"} {
 		got, err := f.store.FindByKey(context.Background(), gone)
 		require.NoError(t, err)
@@ -64,7 +63,6 @@ func TestService_RecoverKeepsTheNewest500Settled(t *testing.T) {
 	assert.Equal(t, domain.OpFailed, f.row(t, "old-running").State, "an interrupted row is never pruned at the boot that settles it")
 }
 
-// An item a restart cut short fails with its operation; one that had finished keeps its outcome.
 func TestService_RecoverFailsTheItemsTheRestartCutShort(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.store.Save(context.Background(), domain.Operation{
@@ -86,8 +84,6 @@ func TestService_RecoverFailsTheItemsTheRestartCutShort(t *testing.T) {
 	assert.Equal(t, problem.Interrupted, items[1].Error.Code)
 }
 
-// A parked save is about the boot that parked it: the restart redelivers the
-// aggregate, so the failure is gone at the next boot instead of shown forever.
 func TestService_RecoverDropsTheSavesTheLastBootParked(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.store.Save(context.Background(), domain.Operation{

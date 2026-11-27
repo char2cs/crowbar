@@ -11,7 +11,6 @@ import (
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
-// Search handles POST /v0/chats/:chatId/search.
 func (h *Handlers) Search(
 	ctx *gin.Context,
 ) {
@@ -60,9 +59,6 @@ func (h *Handlers) Search(
 	libs.WriteQueryOK(ctx, resp)
 }
 
-// failSearch answers an uncoded engine failure with a fixed message: it is
-// ripgrep's own output, the paths and files it read, not the client's to see.
-// The access log keeps the whole chain.
 func failSearch(ctx *gin.Context, err error) {
 	if problem.CodeOf(err) != problem.Internal {
 		libs.Fail(ctx, err)
@@ -72,7 +68,6 @@ func failSearch(ctx *gin.Context, err error) {
 	ctx.JSON(http.StatusInternalServerError, libs.Envelope{Success: false, Error: "search failed", Code: problem.Internal})
 }
 
-// Replace handles POST /v0/chats/:chatId/search/replace.
 func (h *Handlers) Replace(
 	ctx *gin.Context,
 ) {

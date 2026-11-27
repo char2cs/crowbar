@@ -1,11 +1,8 @@
-//! Builder methods that size and label a select.
-
 use gpui::{Pixels, SharedString, px};
 
 use super::{COMPACT_HEIGHT, Select};
 
 impl Select {
-    /// Text shown while nothing is selected.
     #[must_use]
     pub fn placeholder(
         mut self,
@@ -15,7 +12,6 @@ impl Select {
         self
     }
 
-    /// Sets the width of the trigger.
     #[must_use]
     pub fn width(
         mut self,
@@ -25,14 +21,12 @@ impl Select {
         self
     }
 
-    /// Stretches the trigger to the width of its parent.
     #[must_use]
     pub fn fill(mut self) -> Self {
         self.fills = true;
         self
     }
 
-    /// Makes the trigger 28px tall, as in a row of settings.
     #[must_use]
     pub fn compact(mut self) -> Self {
         self.height = px(COMPACT_HEIGHT);

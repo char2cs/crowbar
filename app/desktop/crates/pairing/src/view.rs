@@ -1,5 +1,3 @@
-//! The dialog: name and address, fingerprint, then the one-time code.
-
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -18,7 +16,6 @@ mod stage_render;
 
 const FIELDS: usize = 3;
 
-/// The Add Host dialog; it emits a [`Event`] when the host is paired or it is dismissed.
 pub struct View {
     source: Rc<dyn Source>,
     name: Entity<TextInput>,
@@ -43,7 +40,6 @@ impl std::fmt::Debug for View {
 impl EventEmitter<Event> for View {}
 
 impl View {
-    /// A dialog over `session`, with the name field focused.
     pub fn new(
         session: Arc<PairingSession>,
         window: &mut Window,
@@ -77,7 +73,6 @@ impl View {
         }
     }
 
-    /// Tells the dialog the session moved: it redraws and announces a finished pairing once.
     pub fn changed(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -153,7 +148,6 @@ impl View {
         }
     }
 
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
     fn press_primary(
         &mut self,
         window: &mut Window,

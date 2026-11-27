@@ -13,9 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// stubRunner replies to a fixed set of argv strings, and records every call it
-// received — used here to prove which detail commands a probe DID and did NOT
-// issue.
 type stubRunner struct {
 	mu      sync.Mutex
 	replies map[string][]byte
@@ -77,10 +74,6 @@ func TestEmptyInventory_InvalidPatternNeverMatches(t *testing.T) {
 		"a broken detail_empty_pattern must degrade to no match, never panic")
 }
 
-// TestProbe_RowsBeyondTheItemCeilingAreTruncatedBeforeFanOut pins that the row
-// truncation happens BEFORE any detail command is issued: a provider inventory
-// with more rows than the item ceiling must warn and drop the excess rows
-// up front, not fan out to every row and truncate the resulting items.
 func TestProbe_RowsBeyondTheItemCeilingAreTruncatedBeforeFanOut(t *testing.T) {
 	s := &spec.SlashCatalogSpec{
 		MaxItems: 1,
@@ -110,16 +103,6 @@ func TestProbe_RowsBeyondTheItemCeilingAreTruncatedBeforeFanOut(t *testing.T) {
 	assert.NotContains(t, calls, "detail c@x", "a row truncated away before fan-out must never be inspected")
 }
 
-// gateRunner answers the listing call immediately, but blocks every detail
-// call on the caller's context — closing entered (once) the moment the first
-// one is called, so a test can cancel the context only once it knows a detail
-// goroutine is actually holding the fan-out's one concurrency slot.
-//
-// once guards the close: once the slot-holder's Run unblocks on ctx.Done() and
-// releases its slot, the goroutine that had been parked waiting for that same
-// slot may ALSO win the race between the now-ready slot and the now-closed
-// ctx.Done() (select picks uniformly among ready cases) and call Run itself —
-// a second, harmless call this fixture must not panic on.
 type gateRunner struct {
 	listing []byte
 	entered chan struct{}
@@ -135,17 +118,6 @@ func (g *gateRunner) Run(ctx context.Context, argv []string) ([]byte, error) {
 	return nil, ctx.Err()
 }
 
-// TestProbe_ContextCancelledDuringFanOutIsPropagated pins BOTH halves of the
-// fan-out cancellation contract: a goroutine still waiting for a concurrency
-// slot when the context dies must give up on ctx.Done() rather than proceed
-// (fanOut's own select), and Probe must then report the cancellation rather
-// than assembling a result from whatever fanOut managed to collect.
-//
-// DetailConcurrency: 1 with two rows guarantees one goroutine holds the only
-// slot (blocked in gateRunner.Run on ctx.Done()) while the other is parked in
-// fanOut's select, unable to acquire it until the holder releases — which
-// happens only once the context is cancelled. No timing dependency: the
-// outcome is forced by the concurrency limit, not by scheduling luck.
 func TestProbe_ContextCancelledDuringFanOutIsPropagated(t *testing.T) {
 	s := &spec.SlashCatalogSpec{
 		Pipeline: spec.CatalogPipelineSpec{

@@ -11,7 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/browserbridge"
 )
 
-// fakePeer records every frame it is sent and answers through onSend.
 type fakePeer struct {
 	mu     sync.Mutex
 	frames []map[string]any

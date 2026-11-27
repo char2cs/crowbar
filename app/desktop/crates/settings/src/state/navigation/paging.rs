@@ -1,5 +1,3 @@
-//! The selected page, the search query and moving through the pages.
-
 use crate::schema::Page;
 use crate::schema::PageId;
 use crate::schema::Schema;
@@ -7,12 +5,10 @@ use crate::state::State;
 use crate::state::navigation::rail_move::RailMove;
 
 impl State {
-    /// The schema being shown.
     pub fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// The pages the rail lists: those whose condition holds and that the search leaves.
     pub fn visible_pages(&self) -> Vec<&Page> {
         let ids = self.visibility.pages();
         self.schema
@@ -22,14 +18,12 @@ impl State {
             .collect()
     }
 
-    /// The selected page, if any page is visible.
     pub fn page(&self) -> Option<&Page> {
         self.schema
             .page(self.navigation.active())
             .filter(|page| self.visibility.pages().contains(&page.id))
     }
 
-    /// Selects `id` when it is visible; a search keeps its first page selected, as develop's rail does.
     pub fn select_page(
         &mut self,
         id: &PageId,
@@ -41,7 +35,6 @@ impl State {
         self.navigation.select(id, &visible);
     }
 
-    /// Moves the rail selection with the keyboard.
     pub fn move_selection(
         &mut self,
         movement: RailMove,
@@ -53,13 +46,10 @@ impl State {
         self.navigation.step(movement, &visible);
     }
 
-    /// The search text.
     pub fn query(&self) -> &str {
         &self.query
     }
 
-    /// Searches the pages' index and the rows' text; a non-blank query selects the first page it
-    /// leaves, as develop's rail does.
     pub fn set_query(
         &mut self,
         query: &str,

@@ -1,6 +1,3 @@
-//! The proxy's routing: each message of a drag goes to the window, or to the XDND-aware window
-//! of a web view under the pointer, and that window's answers go back to the source.
-
 use std::sync::Arc;
 
 use x11rb::NONE;
@@ -226,7 +223,6 @@ mod tests {
     const WAIT: Duration = Duration::from_secs(20);
     const WAKE: &str = "CROWBAR_TEST_WAKE";
     const HEARD: usize = 7;
-    /// One type more than an `XdndEnter` carries, so the web view reads the list from its source.
     const TYPES: [&str; 4] = ["text/uri-list", "text/plain", "UTF8_STRING", "STRING"];
 
     #[derive(Clone, Copy)]

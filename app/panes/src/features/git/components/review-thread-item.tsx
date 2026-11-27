@@ -20,21 +20,15 @@ import { MessageRow } from './review-message-row'
 
 export interface ReviewThreadItemProps {
   thread: ReviewThread
-  /** The workspace a message's originating chat is opened in. */
   wsId: string
-  /** Resolved provider identity, used to show the author's real photo/name. */
   currentIdentity?: IdentityDTO | null
   isOutdated?: boolean
-  /** Card chrome for the conversation view: the header, then one reply-and-resolve footer row. */
   header?: ReactNode
   onReply: (threadId: string, body: string) => Promise<void>
   onResolve: (threadId: string) => Promise<void>
   onReopen: (threadId: string) => Promise<void>
-  /** Edit a message body (root or reply) by id. */
   onEditMessage?: (threadId: string, messageId: string, body: string) => Promise<void>
-  /** Delete a single reply by id. */
   onDeleteMessage?: (threadId: string, messageId: string) => Promise<void>
-  /** Delete the whole thread (used when deleting the root comment). */
   onDeleteThread?: (threadId: string) => Promise<void>
 }
 
@@ -55,13 +49,10 @@ export function ReviewThreadItem({
   const [isReplying, setIsReplying] = useState(false)
   const [outdatedExpanded, setOutdatedExpanded] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  // The message pending deletion (null = no confirmation open). isRoot deletes
-  // the whole thread; otherwise a single reply.
   const [pendingDelete, setPendingDelete] = useState<{ messageId: string; isRoot: boolean } | null>(
     null,
   )
 
-  // Show outdated collapsed state
   if (isOutdated && !outdatedExpanded) {
     return (
       <div className="my-1 flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground/40">
@@ -114,7 +105,7 @@ export function ReviewThreadItem({
       await onEditMessage?.(thread.id, messageId, body)
       setEditingId(null)
     } catch {
-      return // the handler toasted; the editor stays open with the user's text
+      return
     }
   }
 
@@ -160,8 +151,6 @@ export function ReviewThreadItem({
   return (
     <div
       className={cn(
-        // A thread sits in the diff's <pre>: without these it inherits the code font and
-        // `white-space: pre`, which turns every newline between rendered tags into a blank line.
         'ui-font whitespace-normal my-1 rounded-lg border border-border',
         header ? 'w-full overflow-hidden bg-card' : 'max-w-xl bg-muted/20',
         thread.isResolved && 'opacity-60',
@@ -180,7 +169,6 @@ export function ReviewThreadItem({
         </div>
       )}
 
-      {/* Messages */}
       <div className="flex flex-col">
         {thread.messages.map((message, index) => {
           const isRoot = index === 0
@@ -189,7 +177,6 @@ export function ReviewThreadItem({
             !message.isAgent &&
             Boolean(currentLogin) &&
             message.author === currentLogin
-          // Deleting the root removes the whole thread; a reply needs the reply handler.
           const canDelete = isRoot ? Boolean(onDeleteThread) : Boolean(onDeleteMessage)
           return (
             <MessageRow
@@ -209,7 +196,6 @@ export function ReviewThreadItem({
         })}
       </div>
 
-      {/* Actions */}
       <div className={cn(header && 'border-t border-border')}>
         <div className="px-3 py-2">
           {isReplying ? (
@@ -236,7 +222,6 @@ export function ReviewThreadItem({
         </div>
       </div>
 
-      {/* Delete confirmation */}
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {

@@ -1,6 +1,3 @@
-// Package outbound turns a Crowbar intent into the call a provider expects, mirroring inbound: an
-// `out:` event names the wire call and `send:` builds its payload from {braced} canonical values.
-// Pure functions, no IO or state.
 package outbound
 
 import (
@@ -10,10 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// Resolve returns the wire event and its filled payload for a canonical outbound
-// event, and whether the provider declares it: key-presence is the capability
-// check, so an undeclared event never reaches the wire as an empty call. Every
-// value is text; ResolveTyped keeps a number or bool as one.
 func Resolve(
 	d *spec.Descriptor,
 	canonical string,
@@ -38,9 +31,6 @@ func Resolve(
 	return wireEvent, send, true
 }
 
-// ResolveTyped is Resolve for a wire that carries JSON types. literals names the
-// values whose capture was a number or bool: a template that is exactly one such
-// {name} sends it as that type, anything else as text.
 func ResolveTyped(
 	d *spec.Descriptor,
 	canonical string,
@@ -58,9 +48,6 @@ func ResolveTyped(
 	return e.Out.Name(), send, true
 }
 
-// Substitute replaces every {name} with its value. An unsupplied name becomes EMPTY,
-// which the provider's validation rejects loudly, unlike a literal "{session_id}".
-// apidriver reuses it at every leaf of nested payloads.
 func Substitute(tmpl string, values map[string]string) string {
 	if !strings.ContainsRune(tmpl, '{') {
 		return tmpl
@@ -85,7 +72,6 @@ func Substitute(tmpl string, values map[string]string) string {
 	}
 }
 
-// wholePlaceholder reports the name when s is exactly one {name} and nothing else.
 func wholePlaceholder(s string) (string, bool) {
 	name, ok := strings.CutPrefix(s, "{")
 	if !ok {
@@ -95,8 +81,6 @@ func wholePlaceholder(s string) (string, bool) {
 	return name, ok && !strings.ContainsAny(name, "{}")
 }
 
-// ExpandTree substitutes {placeholder} at every string leaf of a nested payload. A
-// leaf that is exactly one {name} listed in literals is that value as raw JSON.
 func ExpandTree(node any, values map[string]string, literals map[string]bool) any {
 	switch v := node.(type) {
 	case string:

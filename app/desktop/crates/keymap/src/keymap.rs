@@ -7,22 +7,17 @@ use crate::project_slot::project_bindings;
 use crate::shell_command::ShellCommand;
 use chord::Keystroke;
 
-/// The chords bound to shell commands: the defaults with the user's overrides applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keymap {
     bound: BTreeMap<String, ShellCommand>,
 }
 
 impl Keymap {
-    /// The default chords of every shell command.
     #[must_use]
     pub fn defaults() -> Self {
         Self::with_overrides(std::iter::empty::<(&str, &str)>())
     }
 
-    /// The defaults with `overrides` applied. Each override is a `(command id, chord)` pair; an
-    /// empty chord unbinds the command, an unknown command or an unusable chord is ignored, and
-    /// a chord taken by an override frees the default command that held it.
     #[must_use]
     pub fn with_overrides<I, C, K>(overrides: I) -> Self
     where
@@ -51,7 +46,6 @@ impl Keymap {
         }
     }
 
-    /// The shell command a key press runs instead of the focused view, if any.
     #[must_use]
     pub fn resolve(
         &self,
@@ -61,8 +55,6 @@ impl Keymap {
             .filter(|command| !command.runs_alongside())
     }
 
-    /// The shell command a key press runs beside the focused view's own handling, if any: chat
-    /// zoom, which a focused terminal also takes for its font.
     #[must_use]
     pub fn alongside(
         &self,
@@ -79,8 +71,6 @@ impl Keymap {
         self.bound.get(&stroke.chord()?).copied()
     }
 
-    /// The bindings a pane forwards to the shell as `command.run`, with the `live` contextual
-    /// commands whose surface shows now.
     #[must_use]
     pub fn forwarded(
         &self,

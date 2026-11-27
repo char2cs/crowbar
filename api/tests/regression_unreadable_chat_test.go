@@ -15,10 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// One chat whose stored ledger row can no longer be read breaks that chat
-// alone: its repo's chat list still answers with every chat, a sibling still
-// opens, the projects scope snapshots both, and the broken chat's feed is
-// refused as unreadable.
 func TestRegression_AnUnreadableLedgerRowBreaksOnlyItsChat(t *testing.T) {
 	home := t.TempDir()
 	h1 := newHarnessAt(t, home)
@@ -61,8 +57,6 @@ func TestRegression_AnUnreadableLedgerRowBreaksOnlyItsChat(t *testing.T) {
 	assert.Equal(t, problem.Unavailable, refused.Problem.Code)
 }
 
-// One chat whose read-model row will not decode leaves its own repo's list and
-// nothing else: the repo and the project home still read, with every other row.
 func TestRegression_AnUndecodableChatRowLeavesOnlyThatChat(t *testing.T) {
 	home := t.TempDir()
 	h1 := newHarnessAt(t, home)
@@ -102,9 +96,6 @@ func TestRegression_AnUndecodableChatRowLeavesOnlyThatChat(t *testing.T) {
 	assert.True(t, snapshot["chat/"+homeChat], "and so is the home's chat")
 }
 
-// A workspace whose read-model row will not decode is still read from its own
-// history: its chats stay listed under its repo, the projects scope carries it
-// with nothing unread, and a repo delete still removes its worktree.
 func TestRegression_AnUndecodableWorkspaceRowIsStillListedAndDeleted(t *testing.T) {
 	home := t.TempDir()
 	h1 := newHarnessAt(t, home)

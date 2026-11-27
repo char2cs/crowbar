@@ -10,8 +10,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// A thought that names the message it came with is that message's; the turn keeps
-// each, and every thought naming none is the turn's last, the newest standing.
 func TestMap_ATurnStopRecordsEachThoughtWithTheMessageItNames(t *testing.T) {
 	c := liveChatRows(t)
 	turnID := c.typed("go")
@@ -44,8 +42,6 @@ func (f *recorderFixture) dispatchOn(t *testing.T, channel engineagents.Channel,
 	}
 }
 
-// transcript names the agent's rows in ledger order: a message by its id, a
-// call by its phase and id, a thought by the message it names.
 func transcript(t *testing.T, rows []ledger.Row) []string {
 	t.Helper()
 	name := map[ledger.Kind]func(ledger.Row) string{
@@ -71,8 +67,6 @@ func answer(messageID, text string) engineagents.CanonicalEvent {
 	return delta(engineagents.HookMessageDelta, messageID, false, false, text)
 }
 
-// A provider whose messages end at an action, and are never completed, has
-// each recorded above the calls that follow it, once, with its thought.
 func TestRecorder_TextStreamedBeforeACallIsRecordedAboveIt(t *testing.T) {
 	f := newRecorderFixture(t, "hermes")
 	f.dispatchOn(t, engineagents.ChannelAPI,
@@ -93,8 +87,6 @@ func TestRecorder_TextStreamedBeforeACallIsRecordedAboveIt(t *testing.T) {
 	assert.Equal(t, []string{"Listing files", "Reading", "50 lines"}, said(f.rows(t)))
 }
 
-// A provider that never said its messages end at an action may say more of one
-// after a call: its turn's end still records the whole of it.
 func TestRecorder_ACallLeavesOpenAStreamNotDeclaredToEndAtIt(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	f.dispatchOn(t, engineagents.ChannelAPI,
@@ -108,8 +100,6 @@ func TestRecorder_ACallLeavesOpenAStreamNotDeclaredToEndAtIt(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, said(f.rows(t)))
 }
 
-// A numbered stream's chunks are rows of their own: a call between them
-// records nothing more of it, and its message reads once.
 func TestRecorder_ACallBetweenNumberedChunksRecordsTheMessageOnce(t *testing.T) {
 	f := newRecorderFixture(t, "claude")
 	first := delta(engineagents.HookMessageDelta, "m1", true, false, "Running ")
@@ -125,7 +115,6 @@ func TestRecorder_ACallBetweenNumberedChunksRecordsTheMessageOnce(t *testing.T) 
 	assert.Equal(t, []string{"Running ls"}, said(f.rows(t)))
 }
 
-// A subagent's start and an ask end the text before them as a call does.
 func TestRecorder_TextStreamedBeforeASubagentOrAnAskIsRecordedAboveIt(t *testing.T) {
 	f := newRecorderFixture(t, "hermes")
 	f.dispatchOn(t, engineagents.ChannelAPI,
@@ -139,8 +128,6 @@ func TestRecorder_TextStreamedBeforeASubagentOrAnAskIsRecordedAboveIt(t *testing
 	assert.Equal(t, []string{"text m1", "subagent", "text m2", "ask"}, transcript(t, f.rows(t)))
 }
 
-// A turn's reply that never streamed is said after the call that ended the text
-// before it, once; a reply repeating that text says nothing more.
 func TestRecorder_AReplyThatNeverStreamedIsRecordedAfterTheCall(t *testing.T) {
 	for name, tc := range map[string]struct {
 		reply string
@@ -166,8 +153,6 @@ func TestRecorder_AReplyThatNeverStreamedIsRecordedAfterTheCall(t *testing.T) {
 	}
 }
 
-// A call that ends a message too early, as a child's unscoped call can, leaves
-// the rest of it to stream: the message still reads whole, once.
 func TestRecorder_TextAfterAnEarlyCallStillJoinsItsMessage(t *testing.T) {
 	for name, tc := range map[string]struct {
 		then []engineagents.CanonicalEvent

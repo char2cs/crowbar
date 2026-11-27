@@ -15,7 +15,6 @@ const ALL_THEME_CLASSES = [
 function applyFallbackTheme(theme: Theme) {
   ALL_THEME_CLASSES.forEach((cls) => document.documentElement.classList.remove(cls))
   document.documentElement.classList.add(`force-${theme}`)
-  // Keep .dark in sync so Tailwind dark: variants still apply in error cases.
   document.documentElement.classList.toggle('dark', !theme.includes('light'))
 }
 
@@ -86,9 +85,6 @@ async function applyTheme(theme: Theme) {
 
     const syncAppliedTheme = () => {
       themeRegistry.applyTheme(theme)
-      // The theme the registry resolved to, not a lookup of the raw id: applyTheme() degrades an
-      // unknown id to the default, while getTheme(id) would be undefined and hit the name-guess
-      // fallback below, pinning the window dark whatever Theme Mode says.
       const appliedTheme = themeRegistry.getActiveTheme()
       if (appliedTheme) {
         cacheThemeForBootstrap(appliedTheme)
@@ -96,8 +92,6 @@ async function applyTheme(theme: Theme) {
         return
       }
 
-      // Genuine registry failure: a stub that resolved to no theme at all.
-      // Derive dark/light from the theme name so Tailwind dark: variants apply.
       const isDark = !theme.includes('light')
       document.documentElement.classList.toggle('dark', isDark)
       syncMacOSWindowAppearance(isDark ? 'dark' : 'light')
@@ -159,7 +153,6 @@ export function applySettingSideEffect<K extends keyof Settings>(
     const settings = getSettings()
     applyThemeMode(settings.themeMode)
     syncThemeWithSystem(settings.themeMode, () => void applyTheme(settings.theme))
-    // Re-apply the theme's color palette for the new light/dark mode
     void applyTheme(settings.theme)
   }
 

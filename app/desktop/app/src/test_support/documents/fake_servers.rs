@@ -1,5 +1,3 @@
-//! Language servers that record what each chat's panes told them and answer `null`.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 

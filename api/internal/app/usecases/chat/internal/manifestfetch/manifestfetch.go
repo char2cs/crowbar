@@ -1,5 +1,3 @@
-// Package manifestfetch owns the one global row holding whether Crowbar may refresh
-// a model.manifest: catalogue over the network (engine half: SetManifestFetchEnabled).
 package manifestfetch
 
 import (
@@ -11,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ErrNoStore is Set's refusal with no backing store: Get degrades to the default,
-// but a write fails loudly rather than silently discard the change.
 var ErrNoStore = errors.New("agent: model manifest fetch: no store configured")
 
 type ManifestFetch struct {
@@ -27,8 +23,6 @@ func New(d Deps) *ManifestFetch {
 	return &ManifestFetch{prefs: d.Prefs}
 }
 
-// Get reports whether the network half of model.manifest: resolution is allowed.
-// Unset (no row, or no store) reports true, the shipped default.
 func (m *ManifestFetch) Get(
 	ctx context.Context,
 ) (bool, error) {
@@ -45,7 +39,6 @@ func (m *ManifestFetch) Get(
 	return row.Enabled, nil
 }
 
-// Set overwrites the global toggle.
 func (m *ManifestFetch) Set(
 	ctx context.Context,
 	enabled bool,

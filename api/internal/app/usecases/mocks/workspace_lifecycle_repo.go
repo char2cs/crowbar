@@ -9,8 +9,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// WorkspaceLifecycleRepo is a fake of the workspace repo surface used by the
-// workspace, file, and git usecases.
 type WorkspaceLifecycleRepo struct {
 	ListFn       func(ctx context.Context) ([]domain.Workspace, error)
 	ListInRepoFn func(ctx context.Context, projectID, repoID string) ([]domain.Workspace, error)
@@ -40,7 +38,6 @@ type WorkspaceLifecycleRepo struct {
 	) (domain.Workspace, error)
 }
 
-// NewWorkspaceLifecycleRepo returns an empty WorkspaceLifecycleRepo.
 func NewWorkspaceLifecycleRepo() *WorkspaceLifecycleRepo {
 	return &WorkspaceLifecycleRepo{}
 }
@@ -74,9 +71,6 @@ func (r *WorkspaceLifecycleRepo) SetMergeStrategy(
 	return r.SetMergeStrategyFn(ctx, id, strategy)
 }
 
-// SetLock records the lock decision the usecase passed down, so a test can read
-// back what it decided to persist. It answers with the row it was handed rather
-// than a stored one — the usecase resolves the status itself via the command.
 func (r *WorkspaceLifecycleRepo) SetLock(
 	ctx context.Context,
 	id string,

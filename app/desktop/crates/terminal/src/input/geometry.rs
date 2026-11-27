@@ -1,5 +1,3 @@
-//! Pixel and cell conversions: cell metrics, hits, sides, drag edges and view points.
-
 mod cell_hit;
 mod cell_metrics;
 mod cell_side;

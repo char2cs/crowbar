@@ -31,7 +31,6 @@ function makeStore() {
   }))
 }
 
-/** Fake editor whose listeners are captured so a test can fire them. */
 function makeEditor() {
   const handlers: Record<string, () => void> = {}
   const listen = (key: string) => (cb: () => void) => {
@@ -46,14 +45,12 @@ function makeEditor() {
   }
 }
 
-// The registry is a window singleton; a fresh module instance per test isolates it.
 let freshRegistry: ActiveEditorRegistry
 beforeEach(async () => {
   vi.resetModules()
   freshRegistry = (await import('@/features/editor/lib/active-editor-context')).activeEditors
 })
 
-/** Every document is open except those in `closed`; `open(uri)` opens one. */
 function makeDeps(store: ReturnType<typeof makeStore>, editor: ReturnType<typeof makeEditor>) {
   const registry = freshRegistry
   const closed = new Set<string>()
@@ -108,14 +105,14 @@ describe('usePaneEditorController', () => {
     act(() => store.getState().setActive('b'))
 
     expect(manager.showBuffer).toHaveBeenCalledWith('p1', documentUri(B))
-    expect(deps.mountPane).toHaveBeenCalledTimes(1) // still mounted once
+    expect(deps.mountPane).toHaveBeenCalledTimes(1)
     expect(deps.registry.get('p1')?.filePath).toBe('/b.ts')
   })
 
   it('does not swap when an unrelated store change keeps activeBufferId the same', () => {
     const { store, manager } = setup()
     ;(manager.showBuffer as ReturnType<typeof vi.fn>).mockClear()
-    act(() => store.setState({ buffers: { ...store.getState().buffers } })) // churn, same active
+    act(() => store.setState({ buffers: { ...store.getState().buffers } }))
     expect(manager.showBuffer).not.toHaveBeenCalled()
   })
 
@@ -150,7 +147,7 @@ describe('usePaneEditorController', () => {
 
     expect(deps.unmountPane).not.toHaveBeenCalled()
     expect(deps.mountPane).toHaveBeenCalledTimes(1)
-    expect(manager.showBuffer).toHaveBeenCalledTimes(1) // no re-apply either
+    expect(manager.showBuffer).toHaveBeenCalledTimes(1)
   })
 
   it('cleanup unmounts the pane, clears the registry and stops listening', () => {
@@ -162,8 +159,6 @@ describe('usePaneEditorController', () => {
     expect(openListeners.size).toBe(0)
   })
 
-  // Closing the last tab must clear the pane's registry entry, or satellites keep a disposed
-  // model's context ('Model is disposed!').
   it('clears the registry when the last tab closes (active buffer -> null)', () => {
     const { store, deps } = setup()
     expect(deps.registry.get('p1')?.filePath).toBe('/a.ts')
@@ -173,7 +168,6 @@ describe('usePaneEditorController', () => {
     expect(deps.registry.get('p1')).toBeUndefined()
   })
 
-  // Reopening the same file after a close re-publishes the context.
   it('re-publishes the context when the same file is reopened after a close', () => {
     const { store, deps } = setup()
 

@@ -1,5 +1,3 @@
-//! Registers the mobile capability set with the Tauri build.
-
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {

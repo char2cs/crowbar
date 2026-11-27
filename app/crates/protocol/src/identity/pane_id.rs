@@ -5,11 +5,7 @@ fn validate(value: &str) -> Result<()> {
     check_text("pane id", value, is_word_char)
 }
 
-string_id!(
-    /// Identifies one pane instance for its whole life, including while it is parked.
-    PaneId,
-    validate
-);
+string_id!(PaneId, validate);
 
 #[cfg(test)]
 mod tests {

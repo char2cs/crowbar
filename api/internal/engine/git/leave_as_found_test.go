@@ -14,8 +14,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// stackedWorktree builds main -> p1 -> child plus a sibling p2, with child
-// checked out in its own worktree, and returns (repo, child worktree).
 func stackedWorktree(t *testing.T) (string, string) {
 	t.Helper()
 	repo := initRepo(t)
@@ -32,8 +30,6 @@ func stackedWorktree(t *testing.T) (string, string) {
 	return repo, wt
 }
 
-// withoutIdentity makes every commit in repo fail the way a container with no
-// git identity does; the user's global identity must not fill the gap.
 func withoutIdentity(t *testing.T, repo string) {
 	t.Helper()
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
@@ -203,8 +199,6 @@ func TestRebaseOnto_NeverAbortsARebaseThatWasAlreadyInProgress(t *testing.T) {
 	assert.Equal(t, "rebase", op, "the user's own rebase is theirs to finish")
 }
 
-// The user's state each case starts from on main, which p1 diverged from: each
-// step writes a file ("write", name, content) or runs git.
 var userStates = map[string][][]string{
 	"staged":               {{"write", "mine.txt", "mine\n"}, {"add", "mine.txt"}},
 	"dirty":                {{"write", "base.txt", "dirty\n"}},
@@ -239,9 +233,8 @@ var stoppableVerbs = map[string]func(e git.Engine, repo, parent string) error{
 	"merge":       func(e git.Engine, r, _ string) error { return e.Merge(context.Background(), r, "p1") },
 	"mergecommit": func(e git.Engine, r, _ string) error { return e.MergeCommit(context.Background(), r, "p1") },
 	"squash":      func(e git.Engine, r, _ string) error { return e.MergeSquash(context.Background(), r, "p1", "s") },
-	// main fast-forwards to ahead, so git carries the user's staged work into it.
-	"squash ff": func(e git.Engine, r, _ string) error { return e.MergeSquash(context.Background(), r, "ahead", "s") },
-	"rebase":    func(e git.Engine, r, _ string) error { return e.Rebase(context.Background(), r, "p1") },
+	"squash ff":   func(e git.Engine, r, _ string) error { return e.MergeSquash(context.Background(), r, "ahead", "s") },
+	"rebase":      func(e git.Engine, r, _ string) error { return e.Rebase(context.Background(), r, "p1") },
 	"rebaseonto": func(e git.Engine, r, _ string) error {
 		return e.RebaseOnto(context.Background(), r, "p1", "base", "main")
 	},
@@ -252,7 +245,6 @@ var stoppableVerbs = map[string]func(e git.Engine, repo, parent string) error{
 	"pull rebase": func(e git.Engine, r, _ string) error { return e.Pull(context.Background(), r, "rebase") },
 }
 
-// userView is everything of the user's a failed command must leave unchanged.
 func userView(t *testing.T, e git.Engine, repo string) string {
 	t.Helper()
 	view := ""
@@ -264,12 +256,8 @@ func userView(t *testing.T, e git.Engine, repo string) string {
 	return view + "op=" + op
 }
 
-// forkSlots bounds the subtests forking git at once: under -race a child forked
-// beside many busy threads can hang or segfault before it execs.
 var forkSlots = make(chan struct{}, 4)
 
-// Every stoppable verb, refused by git or by a hook over each kind of the
-// user's own state, leaves that state exactly as it found it.
 func TestStoppableVerbs_AFailureLeavesTheUsersStateAsFound(t *testing.T) {
 	for verb, run := range stoppableVerbs {
 		for state, steps := range userStates {
@@ -328,7 +316,6 @@ func TestMerge_NeverAbortsAMergeTheUserIsResolving(t *testing.T) {
 	assert.Equal(t, "resolved", gitOutput(t, wt, "show", ":f.txt"))
 }
 
-// The request ends while git is stopped mid-rebase; the abort still runs.
 func TestRebaseOnto_ARequestCancelledMidRebaseStillLeavesTheWorktreeAsFound(t *testing.T) {
 	repo, wt := stackedWorktree(t)
 	before := headSHA(t, wt)

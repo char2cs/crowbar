@@ -1,5 +1,3 @@
-//! The Files panel's changes to the workspace's files, each a daemon file route.
-
 use std::sync::Arc;
 
 use daemonapi::Call;
@@ -18,7 +16,6 @@ use crate::sidebar_commands::SidebarCommands;
 use crate::sidebar_commands::file_session::{PATH_KEY, parent_of};
 use crate::sidebar_commands::new_entry::NewEntry;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx
 const MOVE_FAILED: &str = "Move Failed";
 
 fn titled(title: &str) -> impl FnOnce(Plan) -> Plan + '_ {

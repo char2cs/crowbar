@@ -1,31 +1,19 @@
-//! The daemon paths of one chat's terminal sessions.
-
 use crate::error::{Error, Result};
 
-/// Where a chat's terminal sessions live: `/v0/chats/:chatId/terminals`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionPaths(String);
 
 impl SessionPaths {
-    /// The sessions of `chat`.
-    ///
-    /// # Errors
-    /// [`Error::ChatId`] when `chat` is empty or holds a character that would change the path.
     pub fn chat(chat: &str) -> Result<Self> {
         checked(chat)?;
         Ok(Self(format!("/v0/chats/{chat}/terminals")))
     }
 
-    /// The sessions of the home of `project`, which has no chat.
-    ///
-    /// # Errors
-    /// [`Error::ChatId`] when `project` is empty or holds a character that would change the path.
     pub fn project_home(project: &str) -> Result<Self> {
         checked(project)?;
         Ok(Self(format!("/v0/projects/{project}/home/terminals")))
     }
 
-    /// `POST` creates a session here.
     #[must_use]
     pub fn create_path(&self) -> &str {
         &self.0

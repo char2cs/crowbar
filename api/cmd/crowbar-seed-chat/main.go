@@ -44,7 +44,6 @@ func main() {
 	fmt.Printf("seeded chat %s (%d turns, %d tool calls/assistant turn)\n", got, *turns, *toolCalls)
 }
 
-// run seeds the chat into the home a daemon has already migrated.
 func run(
 	ctx context.Context,
 	opts seedOptions,
@@ -59,9 +58,6 @@ func run(
 	return seedHeld(ctx, h, opts)
 }
 
-// seedHeld seeds holding the home, as the daemon does, while its stores are
-// open. The home can change after requireMigrated looked, so it looks again
-// under the lock: no store opens on a halted home or one with steps pending.
 func seedHeld(
 	ctx context.Context,
 	h home.Home,
@@ -86,9 +82,6 @@ func seedHeld(
 	return seedChat(ctx, adapters, opts)
 }
 
-// requireMigrated refuses a home with migration steps left: running them is the
-// daemon's boot, and a seeder that started a run and left it unfinished would
-// have the next boot close that run as interrupted.
 func requireMigrated(
 	ctx context.Context,
 	h home.Home,

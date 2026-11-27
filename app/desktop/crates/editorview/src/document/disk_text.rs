@@ -4,21 +4,16 @@ use super::Document;
 use crate::{DiskTake, SaveMark};
 
 impl Document {
-    /// The mark of the latest open or save; a disk read carries it to [`Self::take_disk_text`].
     #[must_use]
     pub const fn save_mark(&self) -> SaveMark {
         self.save_mark
     }
 
-    /// The text last saved (or opened) that dirtiness is measured against.
     #[must_use]
     pub fn saved_text(&self) -> String {
         self.saved.to_string()
     }
 
-    /// Text read from disk under `since`: a clean document takes it as saved, in one undo step
-    /// that keeps every view's carets; a dirty one keeps its edits and is flagged once, when disk
-    /// holds neither its saved text nor its own, as develop's `takeDiskText`.
     pub fn take_disk_text(
         &mut self,
         (disk, since): (&str, SaveMark),
@@ -38,8 +33,6 @@ impl Document {
         DiskTake::Conflicted
     }
 
-    /// Text read from disk for a reload the user asked for under `since`: the document shows it
-    /// as saved in one undo step, dropping its edits, unless a save landed after the read began.
     pub fn take_reloaded_text(
         &mut self,
         (disk, since): (&str, SaveMark),
@@ -51,8 +44,6 @@ impl Document {
         self.adopt(disk, cx)
     }
 
-    /// Text a rich view wrote: one undoable edit that keeps every view's carets, dirty against
-    /// the saved text as typing is. The same text again changes nothing.
     pub fn take_page_text(
         &mut self,
         text: &str,

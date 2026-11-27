@@ -1,5 +1,3 @@
-//! What pages post: IPC messages and envelopes, host events, the inbox gate, notices, frame kinds, hover, focus, pointer and drop reports, and browser page handlers.
-
 mod browser_page;
 mod drop_message;
 mod focus_message;

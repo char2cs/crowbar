@@ -22,12 +22,9 @@ function readTabPayload(e: React.DragEvent): TabDragPayload | null {
   }
 }
 
-/** A pane's drags: file ring, tab split overlay, sidebar/explorer hover, and their drops. A tab
- *  never crosses panes or makes a split (panes group chats, not tabs): only its own tab lands. */
 export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTMLElement | null>) {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isTabDragOver, setIsTabDragOver] = useState(false)
-  // A narrow selector: only the hovered pane re-renders.
   const internalHoverZone = useDragStore((s): DropZone =>
     s.hover.paneId === paneId ? s.hover.zone : null,
   )
@@ -37,7 +34,6 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
     e.stopPropagation()
     const types = e.dataTransfer.types
     const hasTabData = types.includes('application/tab-data')
-    // An OS file drag lands only on the desktop: a browser drop carries no host path.
     const accepts =
       hasTabData ||
       types.includes('text/plain') ||
@@ -80,7 +76,6 @@ export function usePaneDropHandlers(paneId: string, containerRef: RefObject<HTML
     [paneId],
   )
 
-  // Tab drops are handled by SplitDropOverlay; an OS file drop arrives through Tauri.
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()

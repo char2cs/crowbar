@@ -1,4 +1,3 @@
-// Package handlers serves the browser peer socket.
 package handlers
 
 import (
@@ -18,36 +17,27 @@ import (
 
 const (
 	writeTimeout = 10 * time.Second
-	// pingPeriod is how often the daemon pings the desktop; a peer that has said nothing,
-	// not even a pong, for pongWait is a half-open connection and is dropped.
-	pingPeriod = 20 * time.Second
-	pongWait   = 60 * time.Second
-	// readLimit admits a screenshot frame; the desktop app caps its pixel size.
-	readLimit = 16 << 20
+	pingPeriod   = 20 * time.Second
+	pongWait     = 60 * time.Second
+	readLimit    = 16 << 20
 )
 
-// upgrader rejects cross-origin upgrades: this socket can drive browser tabs.
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return origin.Allowed(r.Header.Get("Origin"), r.Host)
 	},
 }
 
-// Handlers serves GET /v0/browser/peer.
 type Handlers struct {
 	bridge *browserbridge.Bridge
 	ping   time.Duration
 	pong   time.Duration
 }
 
-// New builds the handlers around the bridge peers attach to.
 func New(bridge *browserbridge.Bridge) *Handlers {
 	return &Handlers{bridge: bridge, ping: pingPeriod, pong: pongWait}
 }
 
-// Peer upgrades to a WebSocket and attaches it to the bridge until it closes. It serves only
-// the local socket and the loopback dev bind, where the desktop shell runs: a client that came
-// over TLS is a paired network device, and it must not receive or answer browser requests.
 func (h *Handlers) Peer(c *gin.Context) {
 	if c.Request.TLS != nil {
 		libs.WriteErr(c, http.StatusForbidden, "the browser peer socket is only served over the local socket")
@@ -71,7 +61,6 @@ func (h *Handlers) Peer(c *gin.Context) {
 	p := &peer{conn: conn}
 	session := h.bridge.Attach(p)
 	defer session.Close()
-	// The peer reports its tabs in answer, so a reconnect needs no logic of its own.
 	if p.Send([]byte(`{"type":"hello"}`)) != nil {
 		return
 	}
@@ -89,7 +78,6 @@ func (h *Handlers) Peer(c *gin.Context) {
 	}
 }
 
-// keepAlive arms the read deadline and extends it on every pong.
 func (h *Handlers) keepAlive(conn *websocket.Conn) {
 	extend := func() error { return conn.SetReadDeadline(time.Now().Add(h.pong)) }
 	if err := extend(); err != nil {
@@ -98,7 +86,6 @@ func (h *Handlers) keepAlive(conn *websocket.Conn) {
 	conn.SetPongHandler(func(string) error { return extend() })
 }
 
-// pings keeps the peer's deadline alive until stop closes or a ping cannot be written.
 func (h *Handlers) pings(
 	conn *websocket.Conn,
 	stop <-chan struct{},
@@ -117,7 +104,6 @@ func (h *Handlers) pings(
 	}
 }
 
-// peer serialises writes: the bridge may send from several agents' goroutines.
 type peer struct {
 	mu   sync.Mutex
 	conn *websocket.Conn

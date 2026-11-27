@@ -117,8 +117,6 @@ func TestShutdown_StopsServing(t *testing.T) {
 	assert.ErrorIs(t, <-served, http.ErrServerClosed)
 }
 
-// A server closed before it ever served lets go of its port: a boot that fails
-// after Listen closes it without serving.
 func TestClose_BeforeServe_ReleasesThePort(t *testing.T) {
 	s, err := hookserver.Listen(t.Context(), http.NotFoundHandler())
 	require.NoError(t, err)

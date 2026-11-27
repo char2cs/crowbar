@@ -31,7 +31,6 @@ const initialDragState: DragState = {
 }
 
 export function useFileExplorerDragDrop(
-  /** The workspace whose tree this is: drops open and move its files, never the active one's. */
   workspaceId: string | null,
   rootFolderPath: string | undefined,
   onFileMove?: (oldPath: string, newPath: string) => void,
@@ -39,8 +38,6 @@ export function useFileExplorerDragDrop(
   onMoveError?: (message: string) => void,
 ) {
   const [dragState, setDragState] = useState<DragState>(initialDragState)
-  // Latest dragState for the document mouse handlers, so the listener effect need not resubscribe
-  // every frame. Assigned during render so it is current before any effect or handler runs.
   const dragStateRef = useRef<DragState>(dragState)
   dragStateRef.current = dragState
   const dragPreviewRef = useRef<HTMLDivElement | null>(null)
@@ -208,13 +205,9 @@ export function useFileExplorerDragDrop(
 
     const handleMouseUp = async (e: MouseEvent) => {
       const { draggedItem, dragOverPath, dragOverIsDir } = dragStateRef.current
-      // Check if dropping on a pane container (outside file tree)
       const elementUnder = document.elementFromPoint(e.clientX, e.clientY)
       const isOverPane = elementUnder?.closest('[data-pane-container]') !== null
       const isOverFileTree = elementUnder?.closest('.file-tree-container') !== null
-      // Dropped on a pane (not in the file tree): the file opens in THAT pane,
-      // whatever has focus, unless a pane of its view already shows it. A file
-      // never gets a pane of its own, so the zone is not consulted.
       if (isOverPane && !isOverFileTree && draggedItem && !draggedItem.isDir) {
         const { paneId } = resolveDropTarget({ x: e.clientX, y: e.clientY })
         if (paneId && workspaceId) {
@@ -271,8 +264,6 @@ export function useFileExplorerDragDrop(
       clearAutoExpand()
       clearEditorDropHover()
     }
-    // Of the drag state only isDragging is a dep, so the listeners stay bound for the whole drag
-    // (no gap where a mouseup is missed); handlers read live drag data from dragStateRef.
   }, [
     clearAutoExpand,
     clearEditorDropHover,

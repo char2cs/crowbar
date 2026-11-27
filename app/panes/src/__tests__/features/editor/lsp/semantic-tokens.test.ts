@@ -69,8 +69,6 @@ describe('lspDocumentSemanticTokensProvider', () => {
     expect(delta.edits[0]).toEqual({ start: 3, deleteCount: 1, data: Uint32Array.from([8]) })
   })
 
-  // Resolving null would mark the file's tokens complete-and-empty and stop
-  // the grammar tier; a cancellation leaves it running.
   it('rejects as cancelled when no server offers tokens', async () => {
     mockQuery.mockResolvedValue({ target, result: null })
 

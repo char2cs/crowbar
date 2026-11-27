@@ -1,5 +1,3 @@
-//! The widget of a row and how its value maps to text and back.
-
 mod choice_source;
 mod control_width;
 mod issue;
@@ -19,54 +17,33 @@ pub use validator::Validator;
 
 use crate::schema::button_spec::ButtonSpec;
 
-/// What a row shows on its right: the schema's fixed vocabulary of controls.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Control {
-    /// An on/off switch; `invert` flips it against the stored flag.
     Switch {
-        /// Whether the switch reads opposite to the stored value.
         invert: bool,
     },
-    /// A dropdown of options.
     Select {
-        /// Where the options come from.
         source: ChoiceSource,
-        /// Width class of the trigger.
         width: ControlWidth,
-        /// Shown while nothing matches the stored value.
         placeholder: Option<String>,
-        /// Tooltip text of an info icon after the trigger.
         hint: Option<String>,
     },
-    /// A stepper with a typed field between minus and plus buttons.
     Number {
-        /// Allowed numbers.
         range: NumberRange,
-        /// Width class of the whole stepper.
         width: ControlWidth,
     },
-    /// A single-line text field.
     Text {
-        /// Shown while empty.
         placeholder: String,
-        /// Width class.
         width: ControlWidth,
-        /// Check that flags invalid text.
         validator: Option<Validator>,
     },
-    /// A comma-separated list in a text field.
     TextList {
-        /// Shown while empty.
         placeholder: String,
-        /// Width class.
         width: ControlWidth,
     },
-    /// A value shown as text, never edited.
     Readout {
-        /// Whether the text uses the monospace family.
         mono: bool,
     },
-    /// A button.
     Button(ButtonSpec),
 }
 

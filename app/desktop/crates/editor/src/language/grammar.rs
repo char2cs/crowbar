@@ -1,12 +1,7 @@
-//! The highlight queries develop's Monaco grammars imply, as rewrites of gpui-kit's own:
-//! markdown headings and their underlines are titles and a quote marker a comment, and a
-//! TypeScript builtin type such as `string` is a keyword.
-
 mod query_patch;
 
 pub use query_patch::QueryPatch;
 
-/// Every rewrite of gpui-kit's highlight queries, by language.
 pub const PATCHES: [QueryPatch; 2] = [
     QueryPatch {
         language: "markdown",

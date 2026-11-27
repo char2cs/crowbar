@@ -1,5 +1,3 @@
-//! Shaped text kept between frames: only rows whose content changed are shaped again.
-
 use gpui::{ShapedLine, SharedString, TextRun, UnderlineStyle, Window, px};
 use terminal::{Row, Segment, StyleFlags, StyleSpan, Underline};
 

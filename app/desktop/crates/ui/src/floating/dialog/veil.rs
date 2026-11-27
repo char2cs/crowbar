@@ -1,5 +1,3 @@
-//! What a dialog paints beneath its card: the window behind, dimmed.
-
 use gpui::{Animation, App, Div, ParentElement, Pixels, Size, Styled, div, hsla};
 
 use crate::foundation::CubicBezier;

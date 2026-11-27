@@ -1,5 +1,3 @@
-// Copied verbatim from the Plate registry (block-menu-kit -> use-is-touch-device). BlockContextMenu
-// uses it to skip the right-click menu on touch devices.
 'use client'
 
 import * as React from 'react'

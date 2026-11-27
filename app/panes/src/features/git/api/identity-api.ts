@@ -7,7 +7,6 @@ export interface IdentityDTO {
   avatarUrl: string
 }
 
-/** GET the GitHub/GitLab identity associated with the active workspace's remote. */
 export async function getIdentity(wsId: string): Promise<IdentityDTO> {
   return apiFetch<IdentityDTO>(identityBaseForWorkspace(wsId))
 }

@@ -27,7 +27,6 @@ describe('uploadAttachmentMarkdown', () => {
       size: 999,
       contentType: 'text/csv',
     })
-    // Ragged rows -> resolveCsv rejects it as { kind: 'file' }.
     const file = new File(['a,b\n1\n'], 'huge.csv', { type: 'text/csv' })
 
     const markdown = await uploadAttachmentMarkdown('w1', 'c1', { file })
@@ -64,9 +63,6 @@ describe('uploadAttachmentMarkdown', () => {
     expect(markdown).toBe('[b.pdf](chats/c1/attachments/x-b.pdf)')
   })
 
-  // A Tauri host PATH has no client-side bytes to inspect before the daemon
-  // reads it, so CSV resolution never applies — it always uploads, even for
-  // a `.csv` path.
   it('always uploads a {path} input, never attempting CSV resolution', async () => {
     vi.mocked(uploadChatAttachment).mockResolvedValue({
       ref: 'chats/c1/attachments/x-report.csv',

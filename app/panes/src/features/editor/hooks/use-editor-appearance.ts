@@ -1,5 +1,3 @@
-// Settings → the retained Monaco widget's theme and options. Bound to the pane's editor instance
-// and re-applied only when a setting (or the instance) changes, never on a tab switch.
 import { useEffect, useSyncExternalStore } from 'react'
 import { editor as monacoEditor } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
@@ -12,14 +10,10 @@ import { getLanguageIdFromPath } from '../utils/language-id'
 import { calculateLineHeight } from '../utils/lines'
 import { IS_MOBILE } from '@/utils/platform'
 
-// Under 16px iOS zooms the page into whatever field takes focus, Monaco's input included.
 const MIN_PHONE_FONT_SIZE = 16
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
-// The app flips light/dark by toggling a class on <html>, not through a store,
-// so a MutationObserver is the only way an effect learns a mode change
-// happened (defineMonacoTheme reads the class itself; this only re-runs it).
 let darkModeVersion = 0
 const darkModeListeners = new Set<() => void>()
 let darkModeObserver: MutationObserver | null = null
@@ -47,7 +41,6 @@ function useDarkModeVersion(): number {
   )
 }
 
-/** Apply the color theme to the editor (and follow theme-registry changes). */
 export function useEditorTheme(editor: StandaloneEditor | null): void {
   const theme = useSettingsStore((s) => s.settings.theme)
   const darkMode = useDarkModeVersion()
@@ -69,7 +62,6 @@ export interface EditorOptionInputs {
   scrollable: boolean
 }
 
-/** Widget-level options from settings. */
 export function useEditorOptions(
   editor: StandaloneEditor | null,
   { readOnly, scrollable }: EditorOptionInputs,
@@ -135,8 +127,6 @@ export function useEditorOptions(
   ])
 }
 
-/** Model options a fresh model lacks, re-applied on each swap: language (the buffer's override
- *  beats the path's) and indentation. */
 export function useModelOptions(
   model: Monaco.editor.ITextModel | null,
   filePath: string,

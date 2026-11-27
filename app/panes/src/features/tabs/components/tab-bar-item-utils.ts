@@ -1,7 +1,5 @@
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
-// The set of buffer fields whose change should re-render a tab. Kept out of the
-// tab-bar-item component file so that file stays Fast-Refresh-safe.
 export function sameRenderedBuffer(a: PaneContent, b: PaneContent): boolean {
   if (a === b) return true
   if (

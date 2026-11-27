@@ -18,17 +18,8 @@ use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 use crate::tree::split_node::SplitNode;
 
-/// Most panes one tab may hold; bounds the tree depth and the cost of every tree walk.
 pub const MAX_PANES_PER_TAB: usize = 64;
 
-/// A tab: its panes arranged in a split tree of groups, and which pane has focus.
-///
-/// Invariants, kept by every operation and checked on load: the groups at the tree's leaves
-/// hold exactly the panes, each pane appears once, every group is non-empty and shows one of its
-/// members, every split has two children, the focused pane exists and is the one its group
-/// shows, and a tab without panes has no tree and no focus. A tab only changes through [`Layout::apply`].
-///
-/// [`Layout::apply`]: crate::Layout::apply
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", try_from = "TabRecord")]
 pub struct Tab {
@@ -87,31 +78,26 @@ impl Tab {
         Self::restored(shape, panes)
     }
 
-    /// The tab's id.
     #[must_use]
     pub fn id(&self) -> TabId {
         self.id
     }
 
-    /// The tab's title.
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
-    /// The split tree, or `None` while the tab has no panes.
     #[must_use]
     pub fn tree(&self) -> Option<&SplitNode> {
         self.tree.as_ref()
     }
 
-    /// The focused pane.
     #[must_use]
     pub fn focused(&self) -> Option<&PaneId> {
         self.focused.as_ref()
     }
 
-    /// Looks up a pane.
     #[must_use]
     pub fn pane(
         &self,
@@ -120,19 +106,16 @@ impl Tab {
         self.panes.get(id)
     }
 
-    /// Number of panes.
     #[must_use]
     pub fn len(&self) -> usize {
         self.panes.len()
     }
 
-    /// Whether the tab has no panes.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.panes.is_empty()
     }
 
-    /// Pane ids in layout order (left to right, top to bottom).
     #[must_use]
     pub fn pane_ids(&self) -> Vec<PaneId> {
         self.tree

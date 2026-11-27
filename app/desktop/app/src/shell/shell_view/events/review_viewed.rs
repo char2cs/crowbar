@@ -1,5 +1,3 @@
-//! The review's viewed marks between the store, which owns them, and the review panes.
-
 use std::collections::BTreeMap;
 
 use gpui::Context;

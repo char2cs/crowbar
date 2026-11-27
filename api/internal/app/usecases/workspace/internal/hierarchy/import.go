@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ImportInput carries a batch branch-import request: branches to import as
-// managed workspaces, PR-parented up to a protected/default root.
 type ImportInput struct {
 	RepoID        string
 	ProjectID     string
@@ -24,21 +22,16 @@ type ImportInput struct {
 	Branches      []ImportBranch
 }
 
-// ImportBranch is one requested branch, the chat id the caller draws it under,
-// and whether its workspace is created locked.
 type ImportBranch struct {
 	Name   string
 	ChatID string
 	Lock   bool
 }
 
-// ImportProgress hears each branch's outcome as the import settles it.
 type ImportProgress interface {
 	Branch(o ImportOutcome)
 }
 
-// ImportOutcome is one branch's result: the chat that now holds it, the
-// workspace (a placeholder when Err is set), and why it failed.
 type ImportOutcome struct {
 	Branch      string
 	ChatID      string
@@ -46,42 +39,31 @@ type ImportOutcome struct {
 	Err         error
 }
 
-// chainFor returns branch's ancestors-first chain of branches to create. It climbs the PR-base graph,
-// stopping (exclusive) at an existing workspace or the default branch; a visited set breaks cycles.
 func chainFor(branch, defaultBranch string, base, existing map[string]string) []string {
 	var leafFirst []string
 	visited := map[string]bool{}
 	cur := branch
 	for cur != "" && cur != defaultBranch {
 		if _, ok := existing[cur]; ok {
-			break // existing workspace is the parent terminal, not created here
+			break
 		}
 		if visited[cur] {
-			break // cycle
+			break
 		}
 		visited[cur] = true
 		leafFirst = append(leafFirst, cur)
-		cur = base[cur] // "" when no open PR → loop ends, terminal is the default branch
+		cur = base[cur]
 	}
-	// reverse to ancestors-first
 	for i, j := 0, len(leafFirst)-1; i < j; i, j = i+1, j-1 {
 		leafFirst[i], leafFirst[j] = leafFirst[j], leafFirst[i]
 	}
 	return leafFirst
 }
 
-// CreateFromImport imports each requested branch, PR-parented with missing
-// ancestors created first, and reports every branch to p once; a branch that
-// cannot be materialised becomes a placeholder its chat owns, with the cause.
 func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput, p ImportProgress) error {
-	// 1. Open-PR graph head→base (best-effort; empty on provider failure).
 	base := u.prBaseGraph(ctx, in.RepoPath)
 
-	// 2. Existing non-default workspaces: branch → id. Best-effort, like the PR
-	// graph: it only decides parenting and where a chain walk stops, so a read
-	// failure imports flat, which the PR-poll reparent then corrects.
 	existing := u.existingBranchWorkspaces(ctx, in.RepoID)
-	// Best-effort too: with no home found a branch imports unparented, as before.
 	home, _, err := u.repoHomeWorkspaceID(ctx, in.RepoID)
 	if err != nil {
 		slog.WarnContext(ctx, "import: repo home unavailable; importing without a home parent", "err", err)
@@ -97,8 +79,6 @@ func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput,
 		}
 	}
 
-	// 3. Global creation order, parents-before-children, deduped; 4. create each
-	// node, resolving its parent from existing / just-created.
 	created := map[string]string{}
 	for _, branch := range creationOrder(names, in.DefaultBranch, base, existing) {
 		parentID, parentBranch := resolveImportParent(branch, in.DefaultBranch, home, base, existing, created)
@@ -115,8 +95,6 @@ func (u *hierarchyUsecase) CreateFromImport(ctx context.Context, in ImportInput,
 	return ctx.Err()
 }
 
-// existingOutcome reports a branch that already has workspace wsID: its chat
-// is the one that owns that workspace.
 func (u *hierarchyUsecase) existingOutcome(
 	ctx context.Context,
 	branch string,
@@ -129,8 +107,6 @@ func (u *hierarchyUsecase) existingOutcome(
 	return ImportOutcome{Branch: branch, ChatID: owner, WorkspaceID: wsID, Err: err}
 }
 
-// prBaseGraph returns the open-PR head→base map used to parent imports. Best-effort: a provider
-// failure yields an empty graph, parenting everything under the default branch rather than refusing.
 func (u *hierarchyUsecase) prBaseGraph(ctx context.Context, repoPath string) map[string]string {
 	base := map[string]string{}
 	links, err := u.provider.OpenPullRequests(ctx, repoPath)
@@ -145,9 +121,6 @@ func (u *hierarchyUsecase) prBaseGraph(ctx context.Context, repoPath string) map
 	return base
 }
 
-// existingBranchWorkspaces maps branch → workspace id for the repo's managed workspaces, protected ones
-// included (they are the parents imports nest under); the adopted default folder is excluded. A read
-// failure yields an empty map, never an error.
 func (u *hierarchyUsecase) existingBranchWorkspaces(
 	ctx context.Context,
 	repoID string,
@@ -167,8 +140,6 @@ func (u *hierarchyUsecase) existingBranchWorkspaces(
 	return existing
 }
 
-// creationOrder flattens every requested branch's chain into one deduped,
-// parents-before-children creation order.
 func creationOrder(
 	branches []string,
 	defaultBranch string,
@@ -187,9 +158,6 @@ func creationOrder(
 	return order
 }
 
-// resolveImportParent picks the workspace of branch's PR base, else the default branch's workspace (so
-// PRs against main nest under main, not beside it). Only when that is missing does it parent under the
-// repo home workspace `home`, as a fork off the home does, so the branch can still merge back.
 func resolveImportParent(
 	branch string,
 	defaultBranch string,
@@ -206,8 +174,6 @@ func resolveImportParent(
 	if id, ok := created[parentBranch]; ok {
 		return id, parentBranch
 	}
-	// An unresolvable PR base (a cycle, or a base branch nobody imported) still
-	// belongs under the default branch's workspace when there is one.
 	if parentBranch != defaultBranch {
 		if id, ok := existing[defaultBranch]; ok {
 			return id, defaultBranch
@@ -216,8 +182,6 @@ func resolveImportParent(
 	return home, defaultBranch
 }
 
-// importNode is one branch of the batch's creation order: chatID is the
-// caller's for a requested branch, "" (daemon-minted) for an added ancestor.
 type importNode struct {
 	branch       string
 	chatID       string
@@ -226,8 +190,6 @@ type importNode struct {
 	locked       bool
 }
 
-// createImportNode materialises one branch, falling back to a placeholder the
-// attempt's chat owns; the outcome carries the cause (and the placeholder's).
 func (u *hierarchyUsecase) createImportNode(
 	ctx context.Context,
 	in ImportInput,
@@ -256,8 +218,6 @@ func (u *hierarchyUsecase) createImportNode(
 		outcome.WorkspaceID = wsID
 		return outcome
 	}
-	// A branch that got a workspace since the batch began keeps that one; the
-	// chat this attempt minted owns nothing and goes.
 	if errors.Is(createErr, ErrBranchWorkspaceExists) {
 		return u.concurrentOutcome(ctx, in.RepoID, node.branch, chatID)
 	}
@@ -269,8 +229,6 @@ func (u *hierarchyUsecase) createImportNode(
 	return outcome
 }
 
-// concurrentOutcome reports branch as the workspace someone else created for
-// it, discarding the chat this attempt minted.
 func (u *hierarchyUsecase) concurrentOutcome(
 	ctx context.Context,
 	repoID string,
@@ -290,9 +248,6 @@ func (u *hierarchyUsecase) concurrentOutcome(
 	return u.existingOutcome(ctx, branch, wsID)
 }
 
-// importPlaceholder records an unmaterialisable branch as a placeholder (empty WorktreePath), with the
-// holder path when a live worktree blocked it; chatID owns it ("" mints one). It is not locked: locked
-// survives provisioning, and the empty-WorktreePath guards already protect it.
 func (u *hierarchyUsecase) importPlaceholder(
 	ctx context.Context,
 	in ImportInput,
@@ -331,8 +286,6 @@ func (u *hierarchyUsecase) importPlaceholder(
 	return ws, nil
 }
 
-// resolveHolderPath returns the worktree dir holding branch when the user can free it (repo home or an
-// external checkout); "" otherwise, meaning there is no Detach to offer.
 func (u *hierarchyUsecase) resolveHolderPath(
 	ctx context.Context,
 	repoPath string,

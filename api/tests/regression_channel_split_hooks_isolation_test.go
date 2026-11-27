@@ -12,12 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// channelSplitStubProviderDescriptorYAML mirrors codex.yaml's OWN migrated
-// tool_pre shape (descriptors-v3/codex.yaml, since docs/plans/2026-09-22-
-// descriptor-channel-split.md P3): one canonical event, an api: block and a
-// hooks: block with DIFFERENT wire names and DIFFERENT field paths for the
-// same conversational fact. session_start/user_prompt/turn_stop stay
-// flat/hooks-only — only tool_pre is under test here.
 const channelSplitStubProviderDescriptorYAML = `id: channelsplitstub
 runtime:
   transport: hooks
@@ -52,7 +46,6 @@ events:
         tool_target: tool_input.command
 `
 
-// toolCalls are the tool calls chatID's feed records, each by its first row.
 func toolCalls(t *testing.T, h *harness, chatID string) []ledger.ToolCall {
 	t.Helper()
 	seen := map[string]bool{}
@@ -63,22 +56,6 @@ func toolCalls(t *testing.T, h *harness, chatID string) []ledger.ToolCall {
 	})
 }
 
-// TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields is
-// the chat-theft CLASS (docs/plans/2026-09-22-descriptor-channel-split.md 1.1),
-// proven at the black-box HTTP level against a descriptor using the SAME
-// api:/hooks: shape codex.yaml itself now ships for tool_pre (that plan's P3).
-//
-// The hook route always delivers on the HOOKS channel — the hook handler's
-// choice — regardless of what shape the BODY happens to carry. So a
-// payload shaped for the OTHER channel (api: threadId/item.*, exactly what a
-// real item/started notification carries) posted to this endpoint is exactly
-// the foreign-shape delivery the channel split exists to refuse: before the
-// split, the single flat map's `||` cross-shape fallback would have read
-// straight through it (this is the same mechanism, at the wire-payload
-// level, that let codex's internal memory-consolidation session steal a
-// user's chat — see TestRegression_InternalProviderSessionDoesNotStealTheChat
-// for that identity-level account; this test pins the field-resolution level
-// underneath it).
 func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "channelsplitstub", channelSplitStubProviderDescriptorYAML)
@@ -92,7 +69,6 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	post("user_prompt", `{"session_id":"sess-1","prompt":"do a thing"}`)
 	h.Quiesce()
 
-	// The GENUINE hooks-shaped delivery: resolves through the hooks: block.
 	post("tool_pre", `{"session_id":"sess-1","tool_use_id":"tool-hooks-1","tool_name":"Bash",`+
 		`"tool_input":{"command":"echo hi"}}`)
 	h.Quiesce()
@@ -103,18 +79,6 @@ func TestRegression_HooksDeliveryOfAChannelSplitEventCannotReadAPIShapedFields(t
 	assert.Equal(t, "Bash", calls[0].Name, "resolved via the hooks: block's tool_name: tool_name")
 	assert.Equal(t, "echo hi", calls[0].Target, "resolved via the hooks: block's tool_target: tool_input.command")
 
-	// THE ATTACK: an api-SHAPED tool_pre body posted to the SAME hook route. If channel selection degenerated back into reading both
-	// shapes at once — the old || cross-shape fallback this design replaces
-	// — this would resolve the attacker's own id/type/command.
-	//
-	// required: (design spec 2.3, P5) now makes this a HARDER isolation than
-	// "record it anonymously": tool_pre's own session_id/tool_id/tool_name
-	// are required, none of the hooks: block's paths (session_id/
-	// tool_use_id/tool_name) resolve against this api-shaped body, so the
-	// delivery is REJECTED outright (RequiredFieldError) rather than
-	// recorded under a fallback identity — strictly stronger than before:
-	// nothing attacker-controlled reaches the ledger AT ALL, not even a
-	// nameless placeholder row. The CLI is told so: 422.
 	resp := stubLaunch(t, h, "channelsplitstub", runnerID).PostHook(t, h.url+repoBase(ws), "channelsplitstub", "tool_pre", //nolint:bodyclose // PostHook closes the body and returns a buffered copy
 		[]byte(`{"threadId":"attacker-thread","item":{"type":"commandExecution",`+
 			`"id":"attacker-tool-id","command":"ATTACKER-COMMAND-LEAKED"}}`))

@@ -1,5 +1,3 @@
-//! The hosts being followed: a stream per host, started and stopped while the shell runs.
-
 pub(crate) mod catalog;
 mod host_desk;
 mod host_dialling;

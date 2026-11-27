@@ -11,10 +11,6 @@ use crate::link::serve;
 
 const RECONNECT_AFTER: Duration = Duration::from_secs(2);
 
-/// Keeps this window attached to the daemon as its browser peer until the window is gone.
-///
-/// The daemon speaks first on every connection and the window answers with its tabs, so a
-/// reconnect needs nothing more than a new connection.
 pub async fn run_peer<C: PeerConnector>(
     connector: &C,
     session: PeerSession,

@@ -56,8 +56,6 @@ export const TerminalSearch: React.FC<TerminalSearchProps> = ({
   }
 
   const toggleOption = (key: keyof TerminalSearchOptions) => {
-    // Search outside the setter: React may replay an updater (StrictMode), and a second real
-    // xterm search would move the match cursor an extra step.
     const next = { ...searchOptions, [key]: !searchOptions[key] }
     setSearchOptions(next)
     if (searchTerm) {

@@ -13,42 +13,30 @@ interface Versioned<T> {
   data: T
 }
 
-/** How many connections hold a chat's scope on its host, the viewing client's own among them. */
 interface PresenceDTO {
   viewers: number
 }
 
-/** The kinds this store holds, each as the daemon's list routes serve it. */
 interface EntityData {
   operation: Operation
   review_thread: ThreadDTO
-  /** `hostId` is the socket's that carried it, whatever the payload said. */
   project: Project
   repo: RepoDTO
   workspace: WorkspaceDTO
   chat: ChatEntity
   folder: FolderDTO
-  /** A chat's newest usage report, keyed by chat id. */
   telemetry: AgentTelemetry
-  /** A chat's viewers, keyed by chat id. */
   presence: PresenceDTO
 }
 export type StoredKind = keyof EntityData
 
-/** Every record is filed under `entityKey(host, id)` and every scope under
- *  `hostScope(host, scope)`: the local daemon's bare, a remote host's prefixed. */
 export interface EntityState {
-  /** host → the daemon epoch its versions are of. */
   epochs: Record<string, string>
   byKind: { [K in StoredKind]: Record<string, Versioned<EntityData[K]>> }
-  /** scope → "kind:key" it carries. */
   members: Record<string, Record<string, true>>
-  /** scope → "kind:key" seen since its latest sub, until its synced. */
   fresh: Record<string, Record<string, true>>
   synced: Record<string, true>
-  /** Scopes whose snapshot has landed once since boot: a resubscribe keeps what they hold. */
   loaded: Record<string, true>
-  /** scope → repos its latest snapshot could not read, so it said nothing of their rows. */
   unread: Record<string, readonly string[]>
 }
 
@@ -105,20 +93,16 @@ function unmarkEverywhere(members: EntityState['members'], key: string): EntityS
   return next
 }
 
-// A frame met before its scope's synced is a snapshot row, not a live change.
 function payload(hostId: string, f: EntityFrame, snapshot: boolean): unknown {
   if (f.kind === 'project') return { ...(f.data as object), hostId }
   return f.kind === 'operation' && snapshot ? { ...(f.data as Operation), snapshot: true } : f.data
 }
 
-/** A frame, with the host whose socket carried it. */
 interface HeardFrame {
   hostId: string
   f: EntityFrame
 }
 
-// One entity frame over `s`, filed under its socket's host whatever its payload says:
-// a newer version replaces, an older one is ignored, an equal one keeps the stored object.
 function withFrame(s: EntityState, { hostId, f }: HeardFrame): EntityState {
   const kind = f.kind
   if (!isStored(kind)) return s
@@ -148,16 +132,12 @@ function settleOperations(frames: readonly HeardFrame[]): void {
   }
 }
 
-/** Applies one entity frame `hostId`'s socket carried: a newer version replaces, an older
- *  one is ignored, an equal one keeps the stored object. */
 export function applyEntityFrame(hostId: string, f: EntityFrame): void {
   if (!isStored(f.kind)) return
   entityStore.setState((s) => withFrame(s, { hostId, f }))
   settleOperations([{ hostId, f }])
 }
 
-// A scope's snapshot rows wait for its synced and land in one write with it: one
-// store update, and one render, for a snapshot of any size.
 const snapshotRows = new Map<string, HeardFrame[]>()
 
 function heardEntity(hostId: string, f: EntityFrame): void {
@@ -166,7 +146,6 @@ function heardEntity(hostId: string, f: EntityFrame): void {
   else applyEntityFrame(hostId, f)
 }
 
-/** A sub for `bare` went out on `hostId`: what its snapshot leaves out is pruned at synced. */
 function beginSnapshot(hostId: string, bare: string): void {
   const scope = hostScope(hostId, bare)
   snapshotRows.set(scope, [])
@@ -176,8 +155,6 @@ function beginSnapshot(hostId: string, bare: string): void {
   }))
 }
 
-// A row the snapshot could not read stays: it did not say the row is gone. `unread` names
-// repos, and projects whose home rows (no repo) it could not read.
 function inUnreadScope(byKind: ByKind, kind: StoredKind, key: string, unread: ReadonlySet<string>) {
   if (unread.size === 0 || (kind !== 'workspace' && kind !== 'chat' && kind !== 'folder')) {
     return false
@@ -192,8 +169,6 @@ function splitMember(member: string): [string, string] {
   return [member.slice(0, colon), member.slice(colon + 1)]
 }
 
-/** The scope's snapshot is complete: its rows land, and an entity it no longer carries goes,
- *  unless it is a row of a repo or home the snapshot could not read. */
 function applySynced(hostId: string, bare: string, unread: readonly string[] = []): void {
   const scope = hostScope(hostId, bare)
   const rows = snapshotRows.get(scope) ?? []
@@ -226,7 +201,6 @@ function applySynced(hostId: string, bare: string, unread: readonly string[] = [
 
 const ofHost = (hostId: string, key: string) => splitHostKey(key).hostId === hostId
 
-/** Each kind's records, each mapped; `undefined` drops it. */
 function mapRecords(byKind: ByKind, map: (key: string, held: Versioned<unknown>) => unknown) {
   const next: Record<string, Record<string, unknown>> = {}
   for (const [kind, records] of Object.entries(byKind)) {
@@ -239,8 +213,6 @@ function mapRecords(byKind: ByKind, map: (key: string, held: Versioned<unknown>)
   return next as unknown as ByKind
 }
 
-/** A new epoch of `hostId`'s daemon: every version held of it is void, so any version
- *  replaces it; other hosts' versions stand. */
 function resetForEpoch(hostId: string, epoch: string): void {
   entityStore.setState((s) => {
     if (s.epochs[hostId] === epoch) return s
@@ -255,7 +227,6 @@ function withoutHostKeys<T>(record: Record<string, T>, hostId: string): Record<s
   return Object.fromEntries(Object.entries(record).filter(([key]) => !ofHost(hostId, key)))
 }
 
-/** `hostId` was removed: every row, scope and epoch of it goes, nothing else. */
 function forgetHost(hostId: string): void {
   for (const scope of [...snapshotRows.keys()]) {
     if (ofHost(hostId, scope)) snapshotRows.delete(scope)
@@ -294,7 +265,6 @@ registerScopeKind('ws', {
   },
 })
 
-/** `hostId`'s record of `kind` whose raw id is `id`. */
 export function entityOf<K extends StoredKind>(
   s: EntityState,
   kind: K,
@@ -304,9 +274,6 @@ export function entityOf<K extends StoredKind>(
   return (s.byKind[kind] as Record<string, Versioned<EntityData[K]>>)[entityKey(hostId, id)]?.data
 }
 
-/** Writes `patch` over the held records of `kind`, by entity key, without moving their
- *  versions, for a change the daemon has accepted but not yet sent; the returned revert
- *  restores each record no frame has replaced since. */
 export function patchEntities<K extends StoredKind>(
   kind: K,
   patches: Readonly<Record<string, Partial<EntityData[K]>>>,
@@ -335,8 +302,6 @@ export function patchEntities<K extends StoredKind>(
     })
 }
 
-/** Writes whole rows, by entity key, a write's answer carries: a held row keeps its version,
- *  and one no frame has carried yet waits at version 0, so the first frame of it replaces it. */
 export function placeEntities<K extends StoredKind>(
   kind: K,
   rows: Readonly<Record<string, EntityData[K]>>,
@@ -350,7 +315,6 @@ export function placeEntities<K extends StoredKind>(
   })
 }
 
-/** Drops rows, by entity key, a write's answer says are gone, before their frames land. */
 export function forgetEntities(kind: StoredKind, keys: readonly string[]): void {
   const held = entityStore.getState().byKind[kind]
   const gone = keys.filter((key) => key in held)
@@ -362,7 +326,6 @@ export function forgetEntities(kind: StoredKind, keys: readonly string[]): void 
   })
 }
 
-/** Whether the store holds `ref`'s row, its id an entity key. */
 export function holdsEntity(s: EntityState, ref: EntityRef): boolean {
   return ref.id in s.byKind[ref.kind]
 }

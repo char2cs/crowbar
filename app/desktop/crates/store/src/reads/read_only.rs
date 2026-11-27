@@ -1,6 +1,3 @@
-//! Whether a chat's files are read-only, as develop's `useWorkspaceReadOnly`: a locked
-//! workspace refuses every write.
-
 use crate::live::State;
 use crate::rows::workspace_view;
 

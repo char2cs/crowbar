@@ -50,7 +50,6 @@ describe('HostProjectsPending', () => {
   })
 })
 
-// The phone: no daemon of its own, so every project it lists is one a host streamed.
 describe('on the phone', () => {
   const h1 = streamDaemonFor('host-1')
   beforeEach(() => {

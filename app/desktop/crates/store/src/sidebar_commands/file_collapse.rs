@@ -1,5 +1,3 @@
-//! Folding directories of the Files panel.
-
 use crate::reads::files::followed_workspace_id;
 use crate::sidebar_commands::SidebarCommands;
 

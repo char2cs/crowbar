@@ -1,5 +1,3 @@
-//! Keeps the caret blink of the shell's own fields on the desktop's, as the web views report it.
-
 use std::sync::Arc;
 
 use gpui::{App, AsyncApp};

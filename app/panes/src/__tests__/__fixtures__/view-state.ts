@@ -25,7 +25,6 @@ export interface ViewSpec {
   panes: PaneSpec[]
 }
 
-/** Side-by-side columns, in order. */
 export function row(ids: readonly string[]): LayoutNode {
   let layout: LayoutNode = createLeaf(ids[0])
   for (const id of ids.slice(1)) layout = createSplit('horizontal', layout, createLeaf(id))
@@ -43,11 +42,6 @@ function toPane(spec: PaneSpec, viewId: string | null): PaneGroup {
   })
 }
 
-/**
- * A consistent ViewState: `views` in band order, the stage as the initial
- * empty pane unless `stage` is given, `active` (a view id, or null for the
- * stage) on screen.
- */
 export function buildViewState(opts: {
   views?: ViewSpec[]
   stage?: PaneSpec[]
@@ -79,21 +73,14 @@ export function buildViewState(opts: {
   return state
 }
 
-/** Load a built state into a real window pane store (integrity-checked). */
 export function seedStore(store: WindowPaneStore, state: ViewState): void {
   store.setState({ ...state })
 }
 
-/** The band's rows: every view id in order. */
 export function rowIds(state: Pick<ViewState, 'viewOrder'>): string[] {
   return [...state.viewOrder]
 }
 
-/**
- * A store holding only the pane slice (plus `extra`), asserting the view
- * invariants after every change — for tests that must run without a buffer
- * list (every tab id then counts as alive).
- */
 export function makePaneOnlyStore<E extends object = object>(extra?: E) {
   const store = createStore<PaneSlice & E>()(
     immer((set, get, api) => ({
@@ -105,7 +92,6 @@ export function makePaneOnlyStore<E extends object = object>(extra?: E) {
   return store
 }
 
-/** Throws when `state` breaks the view invariants, so a bad transition fails at its own step. */
 export function assertViewIntegrity(state: ViewState): void {
   const violations = viewIntegrityViolations(state)
   if (violations.length > 0) throw new Error(`view integrity: ${violations.join('; ')}`)
@@ -115,10 +101,6 @@ export function editorTab(id: string, type: 'editor' | 'terminal' = 'editor'): E
   return { id, type, name: `${id}.ts`, workspaceId: 'ws-test' } as EditorTabBase
 }
 
-/**
- * Put `paneId` holding `chatId` into `store` as a record of its own — how a
- * component harness seeds a chat pane without violating the view invariants.
- */
 export function seedChatPaneRecord(
   store: WindowPaneStore,
   paneId: string,
@@ -135,11 +117,6 @@ export function seedChatPaneRecord(
   })
 }
 
-/**
- * Create `tab`'s buffer (unless it exists) and seat it in `paneId` in ONE
- * write — a buffer exists only while a pane lists it (invariant C2), so a
- * harness cannot seed buffers first and place them later.
- */
 export function seatTab(store: WindowPaneStore, paneId: string, tab: EditorTabBase): void {
   store.setState((s) => {
     if (!s.buffers.some((b) => b.id === tab.id)) {

@@ -15,8 +15,6 @@ function WorkspaceRouteGuard() {
   const synced = useSelect(selectProjectsSynced)
   const merging = useOperations((state) => mergeRunsOn(state.ops, wsId))
 
-  // The IDE shell records this workspace's scope from the path before WorkspaceView renders
-  // (recordWorkspaceScopeFromPath); this guard only redirects an unknown workspace.
   const redirect = shouldRedirectUnknownWorkspace(
     { projectId, repoId, wsId },
     { repos, synced, merging },

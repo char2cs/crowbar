@@ -68,7 +68,6 @@ function openBrowser(url?: string): string {
   if (url) bufferActions.setBrowserLocation(id, { url })
   return id
 }
-/** The app's real root: the overlay watcher ignores the body child named #root. */
 function renderPane(ui: React.ReactElement) {
   const container = document.createElement('div')
   container.id = 'root'

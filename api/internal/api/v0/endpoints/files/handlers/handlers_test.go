@@ -113,10 +113,6 @@ func TestFileHandlers_Copy_MissingPaths(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// trackingFiles records which of CreateDir/CreateFile Create actually routed
-// to, proving the "dir"/"directory" type switch dispatches to CreateDir while
-// every other type (including the default "file") goes through CreateFile —
-// not just that both return 201.
 type trackingFiles struct {
 	stubFiles
 	dirCalls  []string
@@ -165,8 +161,6 @@ func TestFileHandlers_Create_RoutesByType(
 		"a \"file\" type must route to CreateFile, not CreateDir")
 }
 
-// TestFileHandlers_Create_MissingPath proves Create's own guard rejects an
-// empty path with 400 before ever dispatching to CreateFile/CreateDir.
 func TestFileHandlers_Create_MissingPath(
 	t *testing.T,
 ) {
@@ -177,8 +171,6 @@ func TestFileHandlers_Create_MissingPath(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestFileHandlers_Rename_MissingFields proves Rename's own guard rejects a
-// request missing either path or newPath with 400 before calling Rename.
 func TestFileHandlers_Rename_MissingFields(
 	t *testing.T,
 ) {
@@ -202,9 +194,6 @@ func TestFileHandlers_Delete_NoPathAnywhere_Returns400(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// nilTreeFiles reports success but no nodes, distinguishing "an empty
-// directory" (nodes == nil, which Tree must normalise to an empty array for
-// the wire) from an actual usecase error.
 type nilTreeFiles struct{ stubFiles }
 
 func (nilTreeFiles) Tree(
@@ -229,10 +218,6 @@ func TestFileHandlers_Tree_NilNodes_ReturnsEmptyArray(
 	assert.Empty(t, env.Data)
 }
 
-// doRaw posts a raw, possibly-malformed body — unlike do (which
-// json.Marshals a Go value, so it can never produce actually-invalid JSON),
-// this is how each handler's ShouldBindJSON decode-failure branch gets
-// exercised.
 func doRaw(
 	r *gin.Engine,
 	method, path, rawBody string,

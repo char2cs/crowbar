@@ -7,9 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// NewChatTreeAncestryReader climbs the chat/folder placement tree from chatID upward (CwdWorkspaceID's
-// walk, which is internal to usecases/chat), keeping the intermediate chat rows Resolve needs, so a
-// workspace-less chat under a folder reaches its worktree ancestor. nil folders/nodes walk chats only.
 func NewChatTreeAncestryReader(
 	lister ChatLister,
 	folders Folders,
@@ -24,9 +21,6 @@ type chatTreeAncestryReader struct {
 	nodes   Nodes
 }
 
-// Ancestors implements ChatAncestryReader: chatID itself first, then each
-// parent in turn, nearest first, stopping at the first row that carries a
-// WorkspaceID or once the tree runs out of parents.
 func (r chatTreeAncestryReader) Ancestors(
 	ctx context.Context,
 	chatID string,

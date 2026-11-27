@@ -1,5 +1,3 @@
-//! What a workspace record means for a branch row.
-
 use sidebar::{Workspace, WorkspaceStatus};
 
 use crate::live::WorkspaceRecord;

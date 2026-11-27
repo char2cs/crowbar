@@ -1,5 +1,3 @@
-//! A painted row: its top edge, its data and the lines shaped for it.
-
 use gpui::{Pixels, ShapedLine};
 use terminal::Row;
 

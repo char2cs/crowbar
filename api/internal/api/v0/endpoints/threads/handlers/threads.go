@@ -12,20 +12,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// newUUID is the default id factory for new threads and messages.
 func newUUID() string {
 	return uuid.NewString()
 }
 
-// scope reads the hierarchical project/repo/workspace ids from the request path.
 func scope(
 	ctx *gin.Context,
 ) (string, string, string) {
 	return ctx.Param("projectId"), ctx.Param("repoId"), ctx.Param("wsId")
 }
 
-// List handles GET /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads, returning the
-// workspace's review threads as scoped DTOs.
 func (h *Handlers) List(
 	ctx *gin.Context,
 ) {
@@ -38,8 +34,6 @@ func (h *Handlers) List(
 	libs.WriteQueryOK(ctx, dto.ThreadDTOList(threads, projectID, repoID))
 }
 
-// OpenThread handles POST .../workspaces/:wsId/threads, opening a thread anchored to a file
-// location. It returns 201 with the scoped DTO and broadcasts the same DTO.
 func (h *Handlers) OpenThread(
 	ctx *gin.Context,
 ) {
@@ -80,8 +74,6 @@ func (h *Handlers) OpenThread(
 	libs.WriteQueryWithStatus(ctx, http.StatusCreated, d)
 }
 
-// Detail handles GET .../workspaces/:wsId/threads/:threadId, returning the thread as a DTO with
-// its anchor and ordered replies.
 func (h *Handlers) Detail(
 	ctx *gin.Context,
 ) {
@@ -94,8 +86,6 @@ func (h *Handlers) Detail(
 	libs.WriteQueryOK(ctx, dto.ThreadDTOFrom(thread.NormalizedMessages(), projectID, repoID))
 }
 
-// SetResolved handles PATCH .../threads/:threadId, resolving or reopening a thread; it returns
-// 200 with the scoped DTO and broadcasts it.
 func (h *Handlers) SetResolved(
 	ctx *gin.Context,
 ) {
@@ -118,7 +108,6 @@ func (h *Handlers) SetResolved(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// setResolved dispatches to the resolve or reopen store method.
 func (h *Handlers) setResolved(
 	ctx *gin.Context,
 	threadID string,
@@ -130,9 +119,6 @@ func (h *Handlers) setResolved(
 	return h.store.Reopen(ctx.Request.Context(), threadID)
 }
 
-// Reply handles POST
-// /v0/projects/:projectId/repos/:repoId/workspaces/:wsId/threads/:threadId/replies,
-// appending a reply. It returns 200 with the scoped DTO and broadcasts it.
 func (h *Handlers) Reply(
 	ctx *gin.Context,
 ) {
@@ -147,8 +133,6 @@ func (h *Handlers) Reply(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	// No provider or chat on this user-facing route: agents reply through MCP, which attributes
-	// off the authenticated caller rather than a request body anyone could type.
 	thread, err := h.store.Reply(ctx.Request.Context(), reviewthread.ReplyInput{
 		ID:        threadID,
 		MessageID: h.newID(),
@@ -165,8 +149,6 @@ func (h *Handlers) Reply(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// EditMessage handles PATCH .../threads/:threadId/messages/:messageId, rewriting any message
-// body including the root comment; it returns 200 with the scoped DTO and broadcasts it.
 func (h *Handlers) EditMessage(
 	ctx *gin.Context,
 ) {
@@ -190,9 +172,6 @@ func (h *Handlers) EditMessage(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// DeleteMessage handles DELETE .../threads/:threadId/messages/:messageId, removing one reply
-// (the root is refused as unprocessable; delete the thread instead). It returns 200 with the
-// updated DTO and broadcasts it.
 func (h *Handlers) DeleteMessage(
 	ctx *gin.Context,
 ) {
@@ -209,8 +188,6 @@ func (h *Handlers) DeleteMessage(
 	libs.WriteQueryOK(ctx, d)
 }
 
-// DeleteThread handles DELETE .../threads/:threadId, forgetting the whole thread. It broadcasts
-// and returns a scoped tombstone DTO (Deleted=true) so subscribed clients drop it.
 func (h *Handlers) DeleteThread(
 	ctx *gin.Context,
 ) {
@@ -231,7 +208,6 @@ func (h *Handlers) DeleteThread(
 	libs.WriteQueryOK(ctx, tombstone)
 }
 
-// push forwards a thread DTO to the broadcaster when one is wired.
 func (h *Handlers) push(
 	d dto.ThreadDTO,
 ) {

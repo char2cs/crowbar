@@ -8,8 +8,6 @@ interface TauriDropPosition {
   y: number
 }
 
-/** Is `position` (Tauri's CSS-pixel, window-relative drop coordinate) inside `rect`, boundary
- *  included. */
 function pointInRect(position: TauriDropPosition, rect: DOMRect): boolean {
   return (
     position.x >= rect.left &&
@@ -24,8 +22,6 @@ interface RegisteredConsumer {
   onDrop: (paths: string[]) => void
 }
 
-// Every mounted `useTauriFileDrop` registers here for its effect's lifetime, so one drop is
-// arbitrated across instances (`resolveConsumer`) instead of each reacting in isolation.
 const consumers = new Set<RegisteredConsumer>()
 
 interface Hit {
@@ -38,8 +34,6 @@ function areaOf(el: HTMLElement): number {
   return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top)
 }
 
-// The most specific consumer containing the drop: a descendant beats its ancestor, and of two
-// unrelated containers (e.g. a Dialog portal outside the pane tree) the smaller wins.
 function pickBySpecificity(hits: Hit[]): RegisteredConsumer | undefined {
   if (hits.length === 0) return undefined
   return hits.reduce((champion, candidate) => {
@@ -49,7 +43,6 @@ function pickBySpecificity(hits: Hit[]): RegisteredConsumer | undefined {
   }).consumer
 }
 
-// The registered consumers whose live container satisfies `inside`.
 function hitsWhere(inside: (el: HTMLElement) => boolean): Hit[] {
   const hits: Hit[] = []
   for (const consumer of consumers) {
@@ -59,9 +52,6 @@ function hitsWhere(inside: (el: HTMLElement) => boolean): Hit[] {
   return hits
 }
 
-// The one consumer (if any) for a drop at `position`. elementFromPoint is the real hit-test, so
-// it respects stacking (a Dialog portal over the pane) and visibility (a hidden terminal buffer);
-// the geometric fallback covers jsdom, which lacks it, and points outside any rendered element.
 function resolveConsumer(position: TauriDropPosition): RegisteredConsumer | undefined {
   if (typeof document.elementFromPoint === 'function') {
     const elAtPoint = document.elementFromPoint(position.x, position.y)
@@ -70,9 +60,6 @@ function resolveConsumer(position: TauriDropPosition): RegisteredConsumer | unde
   return pickBySpecificity(hitsWhere((el) => pointInRect(position, el.getBoundingClientRect())))
 }
 
-// One Tauri subscription shared by all consumers (onDragDropEvent is window-wide anyway), giving
-// resolveConsumer one dispatch point. Ref-counted by `consumers.size`; `generation` guards an
-// unmount before the subscribe resolves (see releaseSharedSubscriptionIfIdle).
 let sharedUnlisten: (() => void) | undefined
 let sharedSubscribePromise: Promise<void> | undefined
 let generation = 0
@@ -87,8 +74,6 @@ function ensureSharedSubscription(): void {
       resolveConsumer(event.payload.position)?.onDrop(event.payload.paths)
     })
     if (myGeneration !== generation) {
-      // Every consumer unmounted (bumping `generation`) before this
-      // resolved — there is nothing left to hand the subscription to.
       stop()
       return
     }
@@ -96,8 +81,6 @@ function ensureSharedSubscription(): void {
   })()
 }
 
-/** Hands a drop the shell gave this page (its web view takes OS file drops, as Tauri's does) to
- *  the one registered consumer at `position`; false when none takes it. */
 export function deliverShellFileDrop(position: TauriDropPosition, paths: string[]): boolean {
   const consumer = resolveConsumer(position)
   consumer?.onDrop(paths)
@@ -114,9 +97,6 @@ function releaseSharedSubscriptionIfIdle(): void {
   }
 }
 
-/** Real OS file paths dropped on `containerRef`'s element, in Tauri or in a pane of the shell:
- *  either web view takes native file drags before any DOM `drop`. The event is window-wide, so it
- *  reaches only the one registered consumer `resolveConsumer` picks. */
 export function useTauriFileDrop(
   containerRef: RefObject<HTMLElement | null>,
   onDrop: (paths: string[]) => void,

@@ -8,8 +8,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// freeBytes reports the bytes an unprivileged process can still allocate on
-// the filesystem holding path.
 func freeBytes(
 	path string,
 ) (uint64, error) {

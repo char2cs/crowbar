@@ -1,5 +1,3 @@
-//! Whether a tooltip has taken the pointer move being dispatched, so the tooltips around it stay shut.
-
 use gpui::{App, DispatchPhase, Global, IntoElement, MouseMoveEvent, Styled, Window, canvas};
 
 #[derive(Debug, Default)]

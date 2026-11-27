@@ -1,5 +1,3 @@
-//! What a page clip cuts away: rounded corners and the handle's hole, as one even-odd path.
-
 use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGMutablePath;
 
@@ -7,12 +5,9 @@ pub(crate) const CORNERS: usize = 4;
 
 const HOLE_RADIUS: f64 = 8.0;
 
-/// What a [`PageClip`](crate::PageClip) cuts away, in logical pixels from its top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ClipShape {
-    /// Corner radii: top left, top right, bottom right, bottom left.
     pub corners: [f64; CORNERS],
-    /// A hole `[x, y, width, height]` with its bottom corners rounded.
     pub hole: Option<[f64; CORNERS]>,
 }
 
@@ -70,7 +65,6 @@ fn rounded(
     CGMutablePath::close_subpath(Some(path));
 }
 
-/// Rounds the `corner` on the way to `next`.
 #[expect(
     unsafe_code,
     reason = "CGPathAddArcToPoint takes a nullable matrix pointer"

@@ -3,14 +3,10 @@ import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-v
 
 export { useThemeVersion as useMermaidThemeVersion }
 
-// resolveCssVar can return null (before theme.css paints, or with no stylesheet), so each token
-// has a light/dark literal rather than letting mermaid get `undefined`.
 function color(name: string, light: string, dark: string): string {
   return resolveCssVar(name) ?? (isDarkMode() ? dark : light)
 }
 
-// `resolveCssVar` only resolves colors; `--font-sans` is a font stack, so it gets the same
-// "assign to a real property, read the computed value" trick on `font-family`.
 function resolveFontFamily(): string {
   if (typeof document === 'undefined') return 'inherit'
   const probe = document.createElement('span')
@@ -21,9 +17,6 @@ function resolveFontFamily(): string {
   return resolved || 'inherit'
 }
 
-/** Mermaid `theme: 'base'` variables taken wholly from the app's CSS tokens, so a diagram
- *  matches the painted theme. Pure; rebuilt before every render, so a theme change shows on the
- *  next one. */
 export function buildMermaidThemeVariables(): Record<string, string> {
   return {
     background: color('--background', '#faf9f5', '#141413'),

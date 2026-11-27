@@ -1,5 +1,3 @@
-//! The relay's end of in-memory terminal streams.
-
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::io::DuplexStream;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -10,7 +8,6 @@ use tokio_tungstenite::tungstenite::handshake::server::{
 };
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 
-/// The server ends of dialled pipes.
 pub(crate) type Accepted = UnboundedReceiver<DuplexStream>;
 
 const RELAY_SUBPROTOCOL: &str = "crowbar.relay.v1";
@@ -37,7 +34,6 @@ const SELECT_RELAY: SelectRelay = SelectRelay {
     subprotocol: RELAY_SUBPROTOCOL,
 };
 
-/// Sends "ok" and an exit on the next stream, then closes it.
 pub(crate) async fn serve_output(accepted: &mut Accepted) {
     let tcp = accepted.recv().await.unwrap();
     let mut socket = accept_hdr_async(tcp, SELECT_RELAY).await.unwrap();
@@ -48,7 +44,6 @@ pub(crate) async fn serve_output(accepted: &mut Accepted) {
     socket.close(None).await.unwrap();
 }
 
-/// Closes the first stream at once, then serves the second as [`serve_output`].
 pub(crate) async fn serve_then_drop(mut accepted: Accepted) {
     let tcp = accepted.recv().await.unwrap();
     let mut socket = accept_hdr_async(tcp, SELECT_RELAY).await.unwrap();
@@ -56,7 +51,6 @@ pub(crate) async fn serve_then_drop(mut accepted: Accepted) {
     serve_output(&mut accepted).await;
 }
 
-/// Sends "ok" and holds the stream until the client leaves.
 pub(crate) async fn serve_held(mut accepted: Accepted) {
     let tcp = accepted.recv().await.unwrap();
     let mut socket = accept_hdr_async(tcp, SELECT_RELAY).await.unwrap();

@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// boundTo is chat c1's ledger after Crowbar bound each provider's session, in order.
 func boundTo(t *testing.T, sessions ...[2]string) ledger.State {
 	t.Helper()
 	st := ledger.State{ChatID: "c1"}
@@ -47,8 +46,6 @@ func TestSnapshots_LedgerFactsBumpTheVersionOnlyWhenTheyChange(t *testing.T) {
 	assert.Len(t, rec.frames, 1, "the same facts announce nothing")
 }
 
-// Busy is the ledger's answer: its flip is reported once, with the chat's
-// workspace, and a moved turn announces a frame even when nothing changed.
 func TestSnapshots_ApplyLedgerReportsBusyFlips(t *testing.T) {
 	ctx := context.Background()
 	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", WorkspaceID: "ws1"}}})
@@ -80,7 +77,7 @@ func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing
 	stale := boundTo(t, [2]string{"p1", "S1"})
 	published := snapshot.FactsOf(boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"}))
 	rd.ledger = func(string) (ledger.State, error) {
-		s.ApplyLedger(ctx, "c1", published, false) // the writer publishing while this read is in flight
+		s.ApplyLedger(ctx, "c1", published, false)
 		return stale, nil
 	}
 
@@ -98,8 +95,6 @@ func TestSnapshots_AChatWithoutFactsReadsItsLedgerWithTheLockReleased(t *testing
 	require.Error(t, err)
 }
 
-// A chat whose stored ledger cannot be read is answered without its ledger
-// facts, read once; any other failure still fails the read.
 func TestSnapshots_AnUnreadableLedgerLeavesOnlyItsChatWithoutFacts(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", ProviderID: "p1"}, "c2": {ID: "c2"}, "c3": {ID: "c3"}}}
@@ -132,8 +127,6 @@ func TestSnapshots_AnUnreadableLedgerLeavesOnlyItsChatWithoutFacts(t *testing.T)
 	require.Error(t, err, "a failure that is not the rows' own is no verdict on the chat")
 }
 
-// A commit landing as the fill's writer is released, whose publication drops
-// the chat's entry, never leaves the fill's older facts behind.
 func TestSnapshots_NoStaleFillOutlivesAPublication(t *testing.T) {
 	ctx := context.Background()
 	c1 := domain.Chat{ID: "c1", ProviderID: "p1"}
@@ -144,7 +137,7 @@ func TestSnapshots_NoStaleFillOutlivesAPublication(t *testing.T) {
 	rd.released = func() {
 		rd.released = nil
 		head = boundTo(t, [2]string{"p1", "S1"}, [2]string{"p1", "S2"})
-		delete(rd.chats, "c1") // the publication's own read of the chat fails
+		delete(rd.chats, "c1")
 		s.ApplyLedger(ctx, "c1", snapshot.FactsOf(head), false)
 		rd.chats["c1"] = c1
 	}
@@ -158,8 +151,6 @@ func TestSnapshots_NoStaleFillOutlivesAPublication(t *testing.T) {
 	assert.Equal(t, "S2", c.SessionID)
 }
 
-// Held is what a ledger subscriber reads under the chat's writer: the ledger is
-// never read, so it cannot wait on that writer.
 func TestSnapshots_HeldNeverReadsTheLedger(t *testing.T) {
 	ctx := context.Background()
 	rd := &reader{chats: map[string]domain.Chat{"c1": {ID: "c1", WorkspaceID: "ws1"}}}
@@ -208,8 +199,6 @@ func TestSnapshots_TheConversationIsTheLiveRunnersProvidersElseTheChats(t *testi
 	assert.False(t, ok, "a provider the chat never bound has no conversation")
 }
 
-// How the last runner ended is a ledger fact: it survives the daemon, and it
-// is no answer while a runner is live.
 func TestSnapshots_TheSessionIsTheLedgersLastExit(t *testing.T) {
 	ctx := context.Background()
 	s, rec, rt := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})

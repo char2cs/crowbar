@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// v1Chat is the chat document as schema 1 wrote it, placement and the turn
-// state the ledger now folds included.
 type v1Chat struct {
 	domain.Chat
 	ParentID           string     `json:"parentId,omitempty"`
@@ -29,7 +27,6 @@ type v1Chat struct {
 	LedgerCursor       int        `json:"ledgerCursor"`
 }
 
-// v1Edit is any schema-1 write: the next document from the current one.
 type v1Edit struct {
 	id   string
 	name string
@@ -48,8 +45,6 @@ func (e v1Edit) EventName() string      { return e.name }
 func (e v1Edit) ShouldSnapshot() bool   { return false }
 func (e v1Edit) Validate(*v1Chat) error { return nil }
 
-// writeV1History appends, at schema 1, a chat's creation, a move, a renumber
-// and a turn: history that patches /parentId, /order and the turn state.
 func writeV1History(t *testing.T, es asynxModels.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
@@ -100,8 +95,6 @@ func TestRetiredFields_DropsPlacementAndTurnStatePatches(t *testing.T) {
 	assert.Zero(t, got.Order)
 }
 
-// Without the upcaster the same history does not load: a patch replaces a
-// field the chat document no longer has.
 func TestRetiredFields_IsWhatLetsSchema1HistoryLoad(t *testing.T) {
 	ctx := context.Background()
 	es, err := eventsqlite.NewEventStore(":memory:")

@@ -6,8 +6,6 @@ import {
 } from '@/features/editor/components/html/html-preview-document'
 import { mimeForPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
 
-// The preview frame is sandboxed with an opaque origin and loaded from srcdoc: a relative path
-// resolves against nothing, so local assets must be inlined.
 const loadAsset = vi.fn(async (reference: string) => `data:x;ref=${reference}`)
 
 describe('buildHtmlPreviewDocument', () => {
@@ -60,8 +58,6 @@ describe('buildHtmlPreviewDocument', () => {
     expect(loadAsset).toHaveBeenCalledTimes(1)
   })
 
-  // The desktop shell cancels every data: navigation, nested frames included,
-  // so a frame's local document must arrive as srcdoc, not as a data: src.
   describe('nested frames', () => {
     const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/></svg>'
     const HOSTILE_SVG =

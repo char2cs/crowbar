@@ -2,24 +2,16 @@ use layout::{Edge, Rect};
 
 const BAND: f32 = 0.25;
 
-/// The region of a pane a pointer is over while a chat is dragged across it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneZone {
-    /// The left quarter, outside the top and bottom corner triangles.
     Left,
-    /// The right quarter.
     Right,
-    /// The top quarter.
     Top,
-    /// The bottom quarter.
     Bottom,
-    /// Everything else.
     Center,
 }
 
 impl PaneZone {
-    /// The zone of `point` inside `rect`. Left and right win the corners inside their triangles;
-    /// top and bottom own the rest of their bands.
     #[must_use]
     pub fn at(
         point: (f32, f32),
@@ -44,8 +36,6 @@ impl PaneZone {
         Self::Center
     }
 
-    /// The side a chat dropped here lands on. The centre of an open pane adds the chat beside
-    /// it on the right.
     #[must_use]
     pub fn edge(self) -> Edge {
         match self {

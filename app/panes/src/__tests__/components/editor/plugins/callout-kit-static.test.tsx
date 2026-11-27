@@ -8,12 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { CalloutKit } from '@/components/editor/plugins/callout-kit'
 import { CalloutKitStatic } from '@/components/editor/plugins/callout-kit-static'
 
-/** Parity between the interactive editor (mounted as MarkdownMessage mounts it) and the PlateStatic
- *  read path. Both share one node component, so a divergence is a real bug, not a fixture issue. */
-
 function InteractiveHarness({ plugins, value }: { plugins: AnyPlatePlugin[]; value: Value }) {
-  // Same construction MarkdownMessage uses: usePlateEditor(..., []) then a
-  // read-only Plate + PlateContent, not a bespoke test-only setup.
   const editor = usePlateEditor({ plugins, value }, [])
   return (
     <Plate editor={editor} readOnly>

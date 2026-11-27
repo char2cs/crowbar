@@ -14,7 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 )
 
-// TestHelperProcess is the subprocess entry point used by detectFakeCmd.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -27,7 +26,6 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// detectFakeCmd creates a cmd that prints output and exits with code.
 func detectFakeCmd(
 	output string,
 	exitCode int,
@@ -39,7 +37,6 @@ func detectFakeCmd(
 	) *exec.Cmd {
 		cs := []string{"-test.run=TestHelperProcess", "--", output, fmt.Sprint(exitCode)}
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		// A coverage build exits warning on stderr without GOCOVERDIR; share the parent's.
 		cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1", "GOCOVERDIR=" + flag.Lookup("test.gocoverdir").Value.String()}
 		return cmd
 	}
@@ -50,7 +47,6 @@ type detectFakeResponse struct {
 	code   int
 }
 
-// detectSequentialFake sequences detectFakeCmd responses, one per call.
 func detectSequentialFake(
 	responses []detectFakeResponse,
 ) func(ctx context.Context, name string, args ...string) *exec.Cmd {
@@ -92,8 +88,6 @@ func TestRepoKey_WorktreesOfOneRepoShareAKey(t *testing.T) {
 	assert.Equal(t, other, repoKey(other), "a non-repo path keys as itself")
 }
 
-// A bare "git" goes through the macOS xcrun shim, which execs the real binary:
-// two process spawns per call. Detection must ask the resolved one directly.
 func TestDetect_AsksTheResolvedGitBinary(t *testing.T) {
 	var names []string
 	inner := detectSequentialFake([]detectFakeResponse{
@@ -139,7 +133,7 @@ func TestDetect_GitError(t *testing.T) {
 	execFn := detectFakeCmd("", 1)
 
 	res, err := detectWithExec(context.Background(), dir, execFn)
-	require.NoError(t, err) // graceful degradation
+	require.NoError(t, err)
 	assert.Equal(t, "none", res.Kind)
 	assert.False(t, res.Enabled)
 }
@@ -187,7 +181,6 @@ func TestFallbackProtectedBranches(t *testing.T) {
 	branches := FallbackProtectedBranches()
 	assert.Equal(t, []string{"main", "develop", "master"}, branches)
 
-	// Ensure it returns a copy, not the original slice.
 	branches[0] = "mutated"
 	assert.Equal(t, "main", DefaultProtectedBranches[0])
 }

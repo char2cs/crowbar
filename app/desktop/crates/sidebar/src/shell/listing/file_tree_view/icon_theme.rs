@@ -1,25 +1,15 @@
-//! Which glyph set the Files panel draws, from the `iconTheme` setting.
-
-/// The glyph set of the file tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IconTheme {
-    /// Glyphs chosen by file name.
     #[default]
     Material,
-    /// The material glyphs with amber folders.
     ColorfulMaterial,
-    /// Folders and text files.
     Classic,
-    /// Folders and plain files.
     Compact,
-    /// Folders and plain files.
     Minimal,
-    /// Folders and plain files.
     None,
 }
 
 impl IconTheme {
-    /// The theme a stored setting names; anything unknown is the default one.
     #[must_use]
     pub fn from_setting(text: &str) -> Self {
         match text {

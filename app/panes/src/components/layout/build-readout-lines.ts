@@ -3,10 +3,8 @@ import type { BuildInfo } from '@/lib/build-info'
 import type { FrameStats } from '@/lib/frame-stats'
 import type { ConnectionStatus } from '@/lib/ws/connection-store'
 
-/** `idle`: no channel has reported yet, so there is nothing to say. */
 export type NetState = 'ok' | 'reconnecting' | 'down' | 'idle'
 
-/** A remote host's net state: a host can also refuse this client until paired again. */
 export type HostNetState = NetState | 'repair'
 
 export interface ReadoutSnapshot {
@@ -20,7 +18,6 @@ export interface ReadoutSnapshot {
 export interface ReadoutLines {
   build: string
   net: string
-  /** `''` until the first reconnect. */
   reconnects: string
   stats: string
   netWarn: boolean
@@ -40,7 +37,6 @@ const NET_LABEL: Record<HostNetState, string> = {
   idle: '--',
 }
 
-// Answering with every live stream closed is a remote host's form of reconnecting.
 const HOST_NET: Record<HostDotState, HostNetState> = {
   up: 'ok',
   'no-live-stream': 'reconnecting',
@@ -57,7 +53,6 @@ export function hostNetStateOf(state: HostDotState): HostNetState {
 
 const HOST_NAME_MAX = 14
 
-/** One remote host in the readout's net segment; entries are joined by two spaces by the caller. */
 export function formatHostEntry(name: string, net: HostNetState): string {
   const short = name.length > HOST_NAME_MAX ? `${name.slice(0, HOST_NAME_MAX - 1)}…` : name
   return `${short} ${NET_LABEL[net]}`
@@ -85,7 +80,6 @@ function formatFrame({ fps, maxDt, drops }: FrameStats): string {
   return `${fps > 0 ? fps : '--'}fps ${max}${drops > 0 ? `/${drops}` : ''}`
 }
 
-/** Segments within a line are joined by two spaces by the caller. */
 export function formatReadout(s: ReadoutSnapshot): ReadoutLines {
   const frame = formatFrame(s.frame)
   const { pty, ag, ws } = s.counts
@@ -93,7 +87,6 @@ export function formatReadout(s: ReadoutSnapshot): ReadoutLines {
     build: formatBuild(s.info),
     net: `net ${NET_LABEL[s.net]}`,
     reconnects: s.reconnects > 0 ? `rc${s.reconnects}` : '',
-    // While DOWN nothing refreshes the counts, so they would be a guess.
     stats: s.net === 'down' ? frame : `${frame}  pty${pty} ag${ag} ws${ws}`,
     netWarn: s.net === 'reconnecting' || s.net === 'down',
   }

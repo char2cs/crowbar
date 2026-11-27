@@ -20,12 +20,7 @@ fn validate(value: &str) -> Result<()> {
     Ok(())
 }
 
-string_id!(
-    /// An absolute file system path (`/...`) a pane asks the shell to act on, at most 4096 bytes
-    /// and free of control characters. Windows paths are not supported.
-    FsPath,
-    validate
-);
+string_id!(FsPath, validate);
 
 #[cfg(test)]
 mod tests {

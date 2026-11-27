@@ -1,5 +1,3 @@
-//! The sdk@1 control frames a pane and the shell exchange, with their envelope and lifecycle.
-
 mod call;
 mod config;
 mod envelope;

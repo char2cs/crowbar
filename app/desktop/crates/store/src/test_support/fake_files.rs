@@ -5,7 +5,6 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use crate::live::Files;
 
-/// A [`Files`] kept in memory.
 #[derive(Debug, Default)]
 pub(crate) struct FakeFiles {
     files: Mutex<BTreeMap<PathBuf, Vec<u8>>>,
@@ -19,7 +18,6 @@ fn held<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Notes of paired hosts kept in memory.
 pub(crate) fn notes() -> crate::live::HostNotes {
     crate::live::HostNotes::open_on("/state/notes.json".into(), Arc::new(FakeFiles::default()))
         .unwrap()
@@ -46,12 +44,10 @@ impl FakeFiles {
         *held(&self.refuse_writes) = true;
     }
 
-    /// Makes every write wait, as a slow disk does, until [`Self::release_writes`].
     pub(crate) fn hold_writes(&self) {
         *held(&self.hold.0) = true;
     }
 
-    /// Lets held writes finish.
     pub(crate) fn release_writes(&self) {
         *held(&self.hold.0) = false;
         self.hold.1.notify_all();

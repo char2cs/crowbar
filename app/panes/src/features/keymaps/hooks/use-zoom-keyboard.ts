@@ -1,5 +1,3 @@
-// Chat zoom chords (mod+= / mod+- / mod+0 by default) resolve from the keymap registry, so a
-// preset switch or rebind takes effect live.
 import { useEffect } from 'react'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
@@ -11,7 +9,6 @@ export function useZoomKeyboard(): void {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // One zoom step per press, not per OS key-repeat tick.
       if (e.repeat) return
       const matches = (commandId: string): boolean => {
         const chord = chordMap[commandId]

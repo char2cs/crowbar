@@ -1,5 +1,3 @@
-//! The reset icon of a row whose value differs from its default.
-
 use gpui::{
     App, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled, div,
     px,

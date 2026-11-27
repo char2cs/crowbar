@@ -1,5 +1,3 @@
-//! Opening, previewing and moving panes in the layout.
-
 mod adopting;
 mod document_routing;
 mod file_panes;

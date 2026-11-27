@@ -1,5 +1,3 @@
-//! The Files and Changes panels' look, read from the stored settings.
-
 use settings::Value;
 use sidebar::{FileDensity, FileTreeFlag, FileTreeView, IconTheme, IndentGuides};
 

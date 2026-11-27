@@ -16,23 +16,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// Server→client wire format: PTY output is a BINARY message of one tag byte plus raw terminal
-// bytes (the client decodes UTF-8 as a stream). FrameOutput appends; FrameSnapshot is a ground-state
-// redraw applied onto a reset buffer. Control messages are TEXT JSON; the only one is exitMsg.
 const (
 	FrameOutput   byte = 0
 	FrameSnapshot byte = 1
 )
 
-// exitMsg tells the client the process EXITED, sent once before the conn closes, so it can tell
-// "shell ended" (close the tab) from a transport drop (reconnect).
 type exitMsg struct {
-	Type string `json:"type"` // always "exit"
+	Type string `json:"type"`
 	Code int    `json:"code"`
 }
 
-// inputMsg is the client→server frame for PTY input. A "theme" message carries the host's resolved
-// Bg/Fg ("#rrggbb", the OSC 11/10 answers) and Dark, the polarity for the CSI ?997;n report.
 type inputMsg struct {
 	Type string `json:"type"`
 	Data string `json:"data"`
@@ -53,9 +46,6 @@ func (e *terminalEngine) Attach(
 		return fmt.Errorf("terminal: attach: %w: %s", ErrSessionNotFound, sessionID)
 	}
 
-	// Resolve the session to attach to and register the client in ONE lifecycle-lock
-	// hold: a suspend (which requires no clients) cannot slip in between a restore and
-	// this client counting.
 	ent.mu.Lock()
 	var fx effects
 	switch ent.state {
@@ -67,7 +57,6 @@ func (e *terminalEngine) Attach(
 			return fmt.Errorf("terminal: attach: %w", err)
 		}
 	case stateLive:
-		// Already running: attach to it below.
 	case stateExited, stateRemoved:
 		ent.mu.Unlock()
 		return fmt.Errorf("terminal: attach: %w: %s", ErrSessionNotFound, sessionID)
@@ -77,8 +66,6 @@ func (e *terminalEngine) Attach(
 	ent.mu.Unlock()
 	fx.run()
 	if err != nil {
-		// The process exited and its reaper has not run yet. It is NOT restorable — tell
-		// the client it exited rather than leaving it to reconnect into nothing.
 		exitErr := e.writeExit(conn, s.ExitCode())
 		closeErr := conn.Close()
 		return errors.Join(fmt.Errorf("terminal: attach: %w", err), exitErr, closeErr)
@@ -95,14 +82,11 @@ func (e *terminalEngine) Attach(
 	return nil
 }
 
-// exitStatus reports whether s's clients should be told it exited, and with what code:
-// yes once its process is dead — unless the engine suspended it (Shutdown persisting it for
-// the next boot), in which case it did not exit and the client should reconnect.
 func (e *terminalEngine) exitStatus(ent *sessionEntry, s *session.Session) (int, bool) {
 	select {
 	case <-s.Done():
 	default:
-		return 0, false // dropped for overflow: the client reconnects to a fresh keyframe
+		return 0, false
 	}
 	ent.mu.Lock()
 	suspended := ent.state == stateSuspended
@@ -118,7 +102,6 @@ func (e *terminalEngine) writeExit(conn WSConn, code int) error {
 	return e.writeFrame(conn, websocket.TextMessage, payload)
 }
 
-// writeFrame sends one message under the write deadline (invariant B6).
 func (e *terminalEngine) writeFrame(conn WSConn, messageType int, payload []byte) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(e.cfg.writeWait)); err != nil {
 		return fmt.Errorf("terminal: set write deadline: %w", err)
@@ -129,20 +112,14 @@ func (e *terminalEngine) writeFrame(conn WSConn, messageType int, payload []byte
 	return nil
 }
 
-// warnUnlessClosed logs err, except that a connection already closed is not a failure.
 func warnUnlessClosed(msg string, err error) {
 	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrClosed) {
 		slog.Warn(msg, "err", err)
 	}
 }
 
-// maxCoalesceBytes caps the queued output writePump merges into one message: big enough to collapse
-// bursts, small enough to bound per-message memory and renderer work.
 const maxCoalesceBytes = 256 * 1024
 
-// writePump forwards frames, then sends the exit frame and closes the conn; every write has a deadline
-// (B6). Already-queued frames coalesce into one message without adding echo latency; a snapshot is
-// always its own message. One reused buffer keeps steady-state output allocation-free.
 func (e *terminalEngine) writePump(
 	conn WSConn,
 	ch <-chan session.OutputFrame,
@@ -165,7 +142,7 @@ func (e *terminalEngine) writePump(
 		buf = append(append(buf[:0], tag), data...)
 	}
 
-	var pending *session.OutputFrame // a snapshot that ended the previous drain
+	var pending *session.OutputFrame
 	recv := func() (session.OutputFrame, bool) {
 		if pending == nil {
 			f, ok := <-ch
@@ -218,7 +195,6 @@ func (e *terminalEngine) writePump(
 	}
 }
 
-// readPump reads client messages from the WebSocket and dispatches them.
 func (e *terminalEngine) readPump(
 	conn WSConn,
 	s *session.Session,
@@ -236,14 +212,10 @@ func (e *terminalEngine) readPump(
 
 		switch msg.Type {
 		case "resize":
-			// Resize sends every client a keyframe at the new size. The model reflows as
-			// the client's xterm does, so it matches what a live client already shows.
 			if err := s.Resize(msg.Cols, msg.Rows); err != nil {
 				slog.Warn("terminal: input: resize dropped", "session", s.ID(), "err", err)
 			}
 		case "theme":
-			// Host theme changed: update the OSC 10/11 answers and push CSI ?997;n if DEC 2031 is on. A Crowbar
-			// window has one theme, so record it for future births too.
 			bg, fg := ParseHexColor(msg.Bg), ParseHexColor(msg.Fg)
 			e.SetHostTheme(bg, fg)
 			if err := s.SetTheme(bg, fg, msg.Dark); err != nil {

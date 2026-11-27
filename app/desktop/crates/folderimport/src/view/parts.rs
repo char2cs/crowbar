@@ -1,5 +1,3 @@
-//! The body and footer of the dialog, laid out as develop's `DialogContent`.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Context, Div, FontWeight, InteractiveElement as _, ParentElement, SharedString, Styled, div,

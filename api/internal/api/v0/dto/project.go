@@ -1,6 +1,3 @@
-// Package dto holds the v0 REST data-transfer types and their converters from
-// the internal domain entities. Handlers serialize DTOs — never the domain
-// types directly — so the wire shape stays decoupled from persistence.
 package dto
 
 import (
@@ -12,35 +9,22 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ProjectDTO is the wire shape of a Project: the org-level node grouping
-// repositories.
 type ProjectDTO struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Path string `json:"path"`
-	// Status carries the tombstone marker on the Project broadcast channel: ""
-	// for a live project, "deleted" for a removal frame so the FE entity cache
-	// drops it (one type per channel). Read-path DTOs leave it empty.
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Path         string    `json:"path"`
 	Status       string    `json:"status,omitempty"`
 	LastActivity time.Time `json:"lastActivity"`
-	// Order is the project's dense index in the sidebar.
-	Order int `json:"order"`
-	// AvatarURL is the icon proxy "/v0/projects/<id>/icon", set only for an on-disk
-	// icon; otherwise the sidebar shows its Library glyph, so there is no label/colour pair.
-	AvatarURL string `json:"avatarUrl,omitempty"`
-	// AvatarEmoji passes the emoji icon through to the client, which renders it
-	// directly. Empty when the project uses an on-disk image or the default.
-	AvatarEmoji string `json:"avatarEmoji,omitempty"`
+	Order        int       `json:"order"`
+	AvatarURL    string    `json:"avatarUrl,omitempty"`
+	AvatarEmoji  string    `json:"avatarEmoji,omitempty"`
 }
 
-// ProjectDTOFrom converts a domain Project into its wire DTO.
 func ProjectDTOFrom(
 	p domain.Project,
 ) ProjectDTO {
 	avatarURL := ""
 	if p.AvatarHasIcon {
-		// ?v=<AvatarVersion> cache-busts the stable icon URL: uploads replace the bytes
-		// in place, and the webview's image cache would keep serving the old icon.
 		avatarURL = "/v0/projects/" + p.ID + "/icon?v=" + strconv.FormatInt(p.AvatarVersion, 10)
 	}
 	return ProjectDTO{
@@ -54,9 +38,6 @@ func ProjectDTOFrom(
 	}
 }
 
-// ProjectDTOList converts projects into a non-nil DTO slice in sidebar order. The sort
-// lives here because REST and the WS snapshot both use it, and differing orders would
-// reshuffle the sidebar on every reconnect.
 func ProjectDTOList(
 	projects []domain.Project,
 ) []ProjectDTO {
@@ -68,8 +49,6 @@ func ProjectDTOList(
 	return dtos
 }
 
-// compareProjectDTOs orders projects by dense index, then id, so rows all still at
-// the migration default of 0 stay stable (projects have no created-at to break ties).
 func compareProjectDTOs(
 	a ProjectDTO,
 	b ProjectDTO,

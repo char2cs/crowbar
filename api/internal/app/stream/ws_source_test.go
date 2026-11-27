@@ -31,7 +31,6 @@ func (t threadsByWorkspace) ListByWorkspace(_ context.Context, wsID string) ([]d
 	return t[wsID], nil
 }
 
-// encodeThread stands in for the API's encoder: the thread's id and the scope ids it names.
 func encodeThread(_ stream.EntityKind, v any) (json.RawMessage, error) {
 	th, ok := v.(appstream.ReviewThread)
 	if !ok {

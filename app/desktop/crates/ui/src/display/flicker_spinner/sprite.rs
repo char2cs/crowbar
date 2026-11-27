@@ -1,5 +1,3 @@
-//! One flip-dot sprite: its dots and the discrete opacity timeline they step through together.
-
 use std::time::Duration;
 
 use crate::display::flicker_spinner::dot::Dot;

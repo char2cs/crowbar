@@ -8,12 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// slowRequest is the duration past which a plain request is worth a Warn.
 const slowRequest = 2 * time.Second
 
-// Logger logs failures at Error, slow requests at Warn and the rest at Debug, since
-// the UI polls and Info-level access lines would drown the signal. WebSocket
-// handshakes are skipped: gin hijacks them, so their duration means nothing.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if strings.HasSuffix(c.Request.URL.Path, "/ws") ||
@@ -30,7 +26,6 @@ func Logger() gin.HandlerFunc {
 			"path", c.Request.URL.Path, "status", status, "took", took,
 		}
 		ctx := c.Request.Context()
-		// A canceled request's 500 is the client leaving (a pane closed), not a failure.
 		if status >= 500 && ctx.Err() != nil {
 			slog.DebugContext(ctx, "http: client went away", attrs...)
 			return

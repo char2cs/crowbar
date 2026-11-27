@@ -1,6 +1,3 @@
-// Package svgicon admits a provider icon only as inert, plain SVG. The webview
-// injects the icon as HTML, so markup that can run script, load a resource or
-// parse differently as HTML than as XML would run inside the app.
 package svgicon
 
 import (
@@ -12,7 +9,6 @@ import (
 	"strings"
 )
 
-// ErrUnsafe signals an icon that is not plain SVG.
 var ErrUnsafe = errors.New("svgicon: not plain SVG")
 
 const (
@@ -25,12 +21,8 @@ var elements = set(
 	"defs", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "title", "desc",
 )
 
-// textOnly elements are HTML integration points: an HTML parser reads their
-// content as HTML, so nothing but text may sit inside them.
 var textOnly = set("title", "desc")
 
-// attributes adds to the listed set only the gradient and opacity attributes a
-// gradient-filled icon needs; stroke-* is admitted by prefix.
 var attributes = set(
 	"d", "fill", "fill-opacity", "fill-rule", "stroke", "viewBox", "width", "height",
 	"transform", "opacity", "offset", "stop-color", "stop-opacity", "points",
@@ -52,9 +44,6 @@ var (
 	transformFunctions = set("matrix", "translate", "scale", "rotate", "skewX", "skewY")
 )
 
-// Validate reports why icon is not a single plain-SVG document, or nil. It
-// rejects comments, CDATA, doctypes and processing instructions outright: an
-// HTML parser ends those at a different byte than XML does.
 func Validate(
 	icon string,
 ) error {
@@ -189,9 +178,6 @@ func checkHref(
 	return nil
 }
 
-// checkValue admits only CSS functions that cannot fetch or run anything:
-// colours, transforms in a transform attribute, url(#id) outside style. No
-// escapes or at-rules, so no other function can be spelled past the check.
 func checkValue(
 	attr xml.Attr,
 ) error {

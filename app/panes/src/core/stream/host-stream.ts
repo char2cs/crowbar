@@ -5,36 +5,23 @@ import { decodeFrame, FrameError, type Frame } from '@/core/stream/frames'
 import type { Problem } from '@/lib/errors/problem'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 
-/** What the store owning a scope kind hears, per host; scopes and keys come bare, as the
- *  host's daemon names them. Core imports no feature, so stores register. */
 export interface ScopeKindHandler {
-  /** Where a held scope resumes from (chat scopes). */
   since?(hostId: string, key: string): number
-  /** The wire size a replay may fill, which the daemon sends as previews (chat scopes). */
   bytes?(hostId: string, key: string): number
-  /** A sub for `scope` was sent: its snapshot follows. */
   subscribed?(hostId: string, scope: string): void
-  /** Every frame of a scope of this kind. */
   frame(hostId: string, f: Frame): void
-  /** A new epoch of the host's daemon: every version held from it is void. */
   epoch?(hostId: string, epoch: string): void
-  /** The host was removed: whatever is held of it goes. */
   forget?(hostId: string): void
 }
 
-/** What one holder of a scope hears about it, beside its kind's store. */
 export interface ScopeWatch {
-  /** The scope's snapshot is complete: the first after a hold, and again after each resubscribe. */
   synced?(): void
-  /** The daemon will not serve the scope; a watch that hears it tells the user itself. */
   refused?(problem: Problem | undefined): void
-  /** The scope's snapshot ended before its synced, `times` in a row. */
   failed?(times: number): void
 }
 
 type SignalFrame = Extract<Frame, { t: 'signal' }>
 
-/** The scope every route reads: a running stream holds it. */
 const PROJECTS = 'projects'
 
 function kindOf(scope: string): string {
@@ -56,20 +43,14 @@ function listen<T>(registry: Map<string, Set<T>>, scope: string, listener: T): (
   }
 }
 
-/** One host's `/v0/stream`: its socket, the scopes held on it, and what they have heard.
- *  Holds taken before it starts, or while its socket is down, go out at its next ready. */
 export class HostStream {
   private readonly endpoint: string
   private readonly holds = new Map<string, number>()
   private readonly watches = new Map<string, Set<ScopeWatch>>()
   private readonly signals = new Map<string, Set<(f: SignalFrame) => void>>()
-  /** Held scopes whose snapshot has landed since their latest sub. */
   private readonly current = new Set<string>()
-  /** Held scopes subscribed on this socket whose synced has not come yet. */
   private readonly awaiting = new Set<string>()
-  /** scope → its snapshots in a row that ended before their synced. */
   private readonly failures = new Map<string, number>()
-  /** The current socket said ready, so a sub sent now is answered. */
   private ready = false
   private stopSocket: (() => void) | null = null
   epoch: string | undefined
@@ -81,7 +62,6 @@ export class HostStream {
     this.endpoint = qualify(hostId, '/v0/stream')
   }
 
-  /** Opens the socket and holds the projects scope until {@link stop}. */
   start(): void {
     if (this.stopSocket) return
     const stopDrops = wsManager.onDrop(this.endpoint, () => {
@@ -126,7 +106,6 @@ export class HostStream {
     this.send({ op: 'sub', scope, ...(since && { since }), ...(bytes && { bytes }) })
   }
 
-  /** Holds `scope` until the returned release; the first hold subscribes, the last unsubscribes. */
   hold(scope: string): () => void {
     const count = this.holds.get(scope) ?? 0
     this.holds.set(scope, count + 1)
@@ -140,7 +119,6 @@ export class HostStream {
         this.holds.set(scope, left)
         return
       }
-      // A dropped scope is no longer held; its holders' releases are no-ops.
       if (!this.holds.delete(scope)) return
       this.current.delete(scope)
       this.awaiting.delete(scope)
@@ -149,7 +127,6 @@ export class HostStream {
     }
   }
 
-  /** Asks again for a held scope from where its kind says it resumes. */
   resubscribe(scope: string): void {
     if (!this.holds.has(scope) || !this.ready) return
     this.current.delete(scope)
@@ -180,7 +157,6 @@ export class HostStream {
     for (const w of [...(this.watches.get(scope) ?? [])]) w.failed?.(times)
   }
 
-  /** Stops holding a scope the daemon will not serve, so no reconnect asks again. */
   private dropScope(scope: string, why: unknown, problem?: Problem): void {
     const told = [...(this.watches.get(scope) ?? [])].filter((w) => w.refused)
     if (told.length === 0) report(why, { action: `Stream ${scope}` })
@@ -220,8 +196,6 @@ export class HostStream {
     }
   }
 
-  // A projects frame this client cannot read is never a reason to stop reading the projects:
-  // told once, it is asked for again, and a second one in a row waits for Retry or a reconnect.
   private askAgain(scope: string, err: unknown): void {
     report(err, { action: `Stream ${scope}` })
     if (this.awaiting.has(scope)) this.snapshotFailed(scope)
@@ -229,7 +203,6 @@ export class HostStream {
   }
 
   private onMessage(raw: unknown): void {
-    // The manager's own note that the socket came back; the ready frame that follows says the rest.
     if ((raw as { reconnected?: unknown } | null)?.reconnected === true) return
     let f: Frame
     try {

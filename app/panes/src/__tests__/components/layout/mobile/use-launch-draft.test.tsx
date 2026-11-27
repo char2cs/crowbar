@@ -47,7 +47,6 @@ describe('useLaunchDraft', () => {
     await vi.waitFor(() => expect(isDraftChatId(activeChatId())).toBe(true))
   })
 
-  // A resume is a re-render, not a launch: what the user is looking at stays.
   it('opens the draft once per launch, not again on later renders', async () => {
     const { rerender } = renderHook(() => useLaunchDraft('p1', 'home-1', navigate))
     await vi.waitFor(() => expect(isDraftChatId(activeChatId())).toBe(true))

@@ -1,5 +1,3 @@
-//! The Tauri app of the phone: plugins, managed state and the command table.
-
 mod api_proxy;
 mod host_commands;
 mod host_error;

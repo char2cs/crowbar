@@ -33,10 +33,6 @@ fn parse_origin(value: &str) -> Result<PaneOrigin> {
     }
 }
 
-/// Namespaced pane type: `core.chat` or `ext.<extension>.<pane>`.
-///
-/// The owner is parsed once at construction, so [`PaneTypeId::origin`] cannot disagree with the
-/// text: an `ext.` type always names a valid [`ExtensionId`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PaneTypeId {
@@ -45,30 +41,22 @@ pub struct PaneTypeId {
 }
 
 impl PaneTypeId {
-    /// Validates and wraps `value`.
-    ///
-    /// # Errors
-    /// An [`Error`] when `value` is not `core.<name>` or `ext.<extension>.<name>` with a valid
-    /// extension id.
     pub fn new(value: impl Into<String>) -> Result<Self> {
         let text = value.into();
         let origin = parse_origin(&text)?;
         Ok(Self { text, origin })
     }
 
-    /// The type as a string slice.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.text
     }
 
-    /// Who owns the type.
     #[must_use]
     pub fn origin(&self) -> &PaneOrigin {
         &self.origin
     }
 
-    /// Whether the type belongs to the core app or to an extension.
     #[must_use]
     pub fn kind(&self) -> PaneKind {
         match self.origin {
@@ -77,7 +65,6 @@ impl PaneTypeId {
         }
     }
 
-    /// The extension that owns the type, or `None` for core types.
     #[must_use]
     pub fn extension(&self) -> Option<ExtensionId> {
         self.origin.extension().cloned()

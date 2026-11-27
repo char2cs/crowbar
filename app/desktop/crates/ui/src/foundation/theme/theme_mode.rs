@@ -1,22 +1,15 @@
-//! The user's light/dark preference.
-
 use crate::foundation::theme::appearance::Appearance;
 
-/// The `themeMode` setting: a fixed appearance or following the OS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub enum ThemeMode {
-    /// Always light.
     Light,
-    /// Always dark.
     Dark,
-    /// Follow the operating system appearance.
     #[default]
     System,
 }
 
 impl ThemeMode {
-    /// The appearance this preference yields when the OS reports `system`.
     pub fn resolve(
         self,
         system: Appearance,

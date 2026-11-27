@@ -1,5 +1,3 @@
-//! Where diagnostics read and write whole files.
-
 mod adapters;
 
 pub(crate) use adapters::DiskFiles;

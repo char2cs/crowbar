@@ -12,24 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestEmulatorDrainsDeviceQueryReplies proves the production emulator does not deadlock on a
-// device query. The pinned x/vt answers DA/DSR/colour-OSC queries by writing the reply into
-// an UNBUFFERED InputPipe; without the drainResponses reader that write blocks inside
-// model.Write forever (and, in the session, under the session lock — hanging every later
-// Attach). Because the pipe is unbuffered, this Write returns ONLY after the drain goroutine
-// has consumed the reply, so a non-blocking return is a direct witness that the drain ran.
 func TestEmulatorDrainsDeviceQueryReplies(t *testing.T) {
 	m := newVTModel(80, 24, 100)
 	done := make(chan struct{})
 	go func() {
-		// Primary DA + Cursor-Position (DSR) + foreground-colour OSC query — each makes
-		// x/vt write a reply into the InputPipe.
 		m.Write([]byte("\x1b[c\x1b[6n\x1b]10;?\x1b\\"))
 		close(done)
 	}()
-	// Block on the real signal. A hand-rolled deadline here would only be a second,
-	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
-	// -timeout` reports it with the blocked stack.
 	<-done
 	if m.Degraded() {
 		t.Fatal("draining a device query must not degrade the model")
@@ -37,9 +26,6 @@ func TestEmulatorDrainsDeviceQueryReplies(t *testing.T) {
 	m.Close()
 }
 
-// fakeEmu is a stand-in emulator used only to drive the parse-panic recover branch in
-// vtModel.Write: its Write panics on a sentinel byte that real PTY bytes are not
-// guaranteed to produce.
 type fakeEmu struct {
 	cols       int
 	rows       int
@@ -118,15 +104,6 @@ func TestWriteRecoversParsePanicAndRecreates(t *testing.T) {
 	}
 }
 
-// TestWriteRecoverDiscardsScrollbackContent pins the ACCEPTED RESIDUAL recorded in
-// UPSTREAM.md (D1a): at this pin scrollback is sourced entirely from the x/vt
-// emulator's own buffer, so the parse-panic recreate — which builds a brand-new blank
-// emulator via the newEmulator seam — discards the scrollback CONTENT (history) along with
-// the visible grid. Only the configured scrollback DEPTH and the title survive. This is a
-// self-healing degraded-path corner (the app repaints on its next frame; live clients
-// already received the raw bytes), but it is real history loss, so it is pinned here rather
-// than left as an undocumented surprise. If a future pin preserves history across recreate,
-// this test flips and the doc/UPSTREAM residual is removed.
 func TestWriteRecoverDiscardsScrollbackContent(t *testing.T) {
 	orig := newEmulator
 	t.Cleanup(func() { newEmulator = orig })
@@ -135,14 +112,13 @@ func TestWriteRecoverDiscardsScrollbackContent(t *testing.T) {
 	}
 
 	m := newVTModel(80, 24, 100)
-	// Simulate accumulated history on the live emulator's own scrollback buffer.
 	live := m.emu.(*fakeEmu)
 	live.scrollback = []uv.Line{{{Content: "h"}}, {{Content: "i"}}}
 	if m.emu.ScrollbackLen() != 2 {
 		t.Fatalf("setup: scrollback len = %d, want 2", m.emu.ScrollbackLen())
 	}
 
-	m.Write([]byte{0xff}) // parse panic -> recover -> recreate to a fresh blank emulator
+	m.Write([]byte{0xff})
 
 	if !m.Degraded() {
 		t.Fatal("model not degraded after recovered panic")
@@ -202,7 +178,7 @@ func TestCallbacksFeedShadowState(t *testing.T) {
 
 func TestObserveModeIgnoresANSIModes(t *testing.T) {
 	m := newVTModel(80, 24, 100)
-	m.Write([]byte("\x1b[4h")) // ANSI insert mode (IRM), not a DEC private mode
+	m.Write([]byte("\x1b[4h"))
 	if len(m.shadow.modes) != 0 {
 		t.Fatalf("ANSI mode leaked into shadow modes: %v", m.shadow.modes)
 	}
@@ -251,9 +227,6 @@ func TestResizeAndForegroundResetAndClose(t *testing.T) {
 	}
 }
 
-// gridSnapshot reads every visible cell content into a flat string so two screen states
-// can be compared exactly. It deliberately reads the emulator's own grid (not the shadow)
-// to prove OnForegroundReset leaves the visible buffer physically untouched.
 func gridSnapshot(m *vtModel) string {
 	var b strings.Builder
 	cols, rows := m.emu.Width(), m.emu.Height()
@@ -271,14 +244,7 @@ func gridSnapshot(m *vtModel) string {
 	return b.String()
 }
 
-// TestOnForegroundReset_PreservesScreen is the §13.1-mandated table over all three
-// alt-screen entry variants. It pins the coupled §4/§11.1 contract: after a foreground app
-// that entered the alt buffer dies, OnForegroundReset must drive x/vt itself out of the alt
-// buffer (so emu.IsAltScreen()==false — the serializer's single source of truth), while
-// leaving the primary grid, scrollback, title and cursor position legitimately on screen.
 func TestOnForegroundReset_PreservesScreen(t *testing.T) {
-	// The teardown is the load-bearing payload; assert directly it contains no RIS (ESC c),
-	// which would clear the grid+scrollback — the exact opposite of the method's contract.
 	if strings.Contains(foregroundResetTeardown, "\x1bc") {
 		t.Fatal("teardown contains RIS (ESC c); it must preserve grid + scrollback")
 	}
@@ -296,19 +262,15 @@ func TestOnForegroundReset_PreservesScreen(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newVTModel(20, 5, 100)
 
-			// Paint a distinctive primary screen, set a title, and park the cursor at a
-			// known interior position — all of which must survive the reset.
 			m.Write([]byte("\x1b]2;myshell\x07"))
 			m.Write([]byte("alpha\r\nbravo\r\ncharlie"))
-			m.Write([]byte("\x1b[2;4H")) // CUP -> row 2, col 4
+			m.Write([]byte("\x1b[2;4H"))
 
 			wantGrid := gridSnapshot(m)
 			wantCursor := m.emu.CursorPosition()
 			wantTitle := m.Title()
 			wantScrollback := m.emu.ScrollbackLen()
 
-			// A foreground app takes over the alt buffer, then dies WITHOUT resetting it
-			// (no ?1049l/?47l/?1047l ever emitted).
 			m.Write([]byte(tc.enter))
 
 			m.OnForegroundReset()
@@ -333,7 +295,6 @@ func TestOnForegroundReset_PreservesScreen(t *testing.T) {
 				t.Fatalf("scrollback length changed by reset: got %d want %d", got, wantScrollback)
 			}
 
-			// Idempotent: a second edge (e.g. another debounced sample) is a no-op.
 			m.OnForegroundReset()
 			if m.emu.IsAltScreen() || m.shadow.altScreen {
 				t.Fatal("second OnForegroundReset re-entered alt buffer")
@@ -348,9 +309,6 @@ func TestOnForegroundReset_PreservesScreen(t *testing.T) {
 	}
 }
 
-// TestOnForegroundReset_DrivesEmuOutOfAltScreen reproduces the reviewer's empirical repro:
-// entering ?1049h, calling OnForegroundReset, then Serialize must NOT yield an emulator that
-// reports alt-screen nor a payload that re-asserts ?1049h into the idle prompt.
 func TestOnForegroundReset_DrivesEmuOutOfAltScreen(t *testing.T) {
 	m := newVTModel(20, 5, 100)
 	m.Write([]byte("idle$ "))
@@ -371,9 +329,6 @@ func TestOnForegroundReset_DrivesEmuOutOfAltScreen(t *testing.T) {
 	}
 }
 
-// TestResponseSink_ReceivesCPRAnswer proves the model's SetResponseSink taps the
-// emulator's device-query replies (spec §3.8): a cursor-position-report query
-// (ESC[6n) written into the model must reach the installed sink as a CPR reply.
 func TestResponseSink_ReceivesCPRAnswer(t *testing.T) {
 	m, _ := New(20, 5, 100)
 	t.Cleanup(func() { m.Close() })
@@ -382,13 +337,8 @@ func TestResponseSink_ReceivesCPRAnswer(t *testing.T) {
 		cp := append([]byte(nil), p...)
 		got <- cp
 	})
-	m.Write([]byte("\x1b[6n")) // cursor position report query
+	m.Write([]byte("\x1b[6n"))
 
-	// Block on the sink itself: the reply arriving IS the thing under test. The emulator
-	// answers device queries on its own drain goroutine, so the receive below is the real
-	// hand-off signal — a deadline would only be a guess at how fast that goroutine is
-	// scheduled, and a reply that never comes is a hang `go test -timeout` reports with the
-	// blocked stack.
 	reply := <-got
 	assert.Regexp(t, `\x1b\[\d+;\d+R`, string(reply), "CPR reply expected")
 }

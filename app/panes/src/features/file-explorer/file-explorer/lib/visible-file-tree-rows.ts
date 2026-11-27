@@ -63,9 +63,6 @@ export function buildVisibleFileTreeRows(
         }
       }
 
-      // A brand-new inline-edit placeholder (isNewItem) must never count as an
-      // expanded directory — its path can be '' (the root), which would otherwise
-      // load the workspace root as its children and duplicate the whole tree.
       const isExpanded = !!(rowFile.isDir && !rowFile.isNewItem && expandedPaths.has(rowFile.path))
       rows.push({
         file: rowFile,
@@ -90,9 +87,6 @@ function normalizeSearchPath(path: string): string {
   return normalized.replace(/\/+$/g, '')
 }
 
-/** File-tree filter hits: every loaded, non-placeholder node (file or directory) whose name
- *  contains `query`, case-insensitively. Unexpanded lazy levels are not searched. Pass the
- *  result to filterFileTreeForFffHits to prune the tree to the hits and their ancestors. */
 export function computeFileTreeSearchHits(files: FileEntry[], query: string): FileTreeSearchHit[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
@@ -175,17 +169,12 @@ export function filterFileTreeForFffHits(
   }
 }
 
-/** The shape of a TanStack `VirtualItem` this needs — kept minimal so this
- *  file doesn't have to import `@tanstack/react-virtual` just for a type. */
 export interface VirtualRowExtent {
   index: number
   start: number
   size: number
 }
 
-/** The virtualized row truly at the top of the viewport, for the sticky header. Read from the
- *  virtualizer's `items` (never `scrollOffset / rowHeight`, which drifts from real positions);
- *  they include overscan, so it is the first row whose bottom edge is past `scrollOffset`. */
 export function findTopVisibleItemIndex(
   items: readonly VirtualRowExtent[],
   scrollOffset: number,
@@ -222,15 +211,10 @@ export function getStickyAncestorRows(
 }
 
 export interface StickyScrollLayout {
-  /** Height (px) to reserve above the first rendered row. */
   paddingTop: number
-  /** `items`, minus any rows that would render behind the sticky stack. */
   visibleItems: readonly VirtualRowExtent[]
 }
 
-/** Where content starts under a sticky-ancestor stack: the marker row and all after it snap to
- *  the stack's bottom, since the fixed overlay clips any row scrolled under it and no padding
- *  fixes that. `containerInset` must equal the `top` offset `.file-tree-sticky-ancestors` uses. */
 export function computeStickyScrollLayout(
   items: readonly VirtualRowExtent[],
   stickyMarkerIndex: number,

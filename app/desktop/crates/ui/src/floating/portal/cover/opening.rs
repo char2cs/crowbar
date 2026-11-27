@@ -1,5 +1,3 @@
-//! What a portal that covers native views opens in its window's cover.
-
 use gpui::ElementId;
 
 use crate::floating::portal::cover::Away;

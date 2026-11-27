@@ -11,11 +11,7 @@ fn validate(value: &str) -> Result<()> {
     Ok(())
 }
 
-string_id!(
-    /// Identifies an extension: lower case words separated by `-`, starting with a letter.
-    ExtensionId,
-    validate
-);
+string_id!(ExtensionId, validate);
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,6 @@ import type { PaneClient } from '@/sdk/pane-client'
 
 type Listener = (message: LifecycleMessage) => void
 
-/** A pane client that hands its lifecycle listeners the messages the test delivers. */
 export function lifecycleDriver(): {
   client: PaneClient
   deliver: Listener

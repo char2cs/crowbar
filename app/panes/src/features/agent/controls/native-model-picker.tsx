@@ -9,7 +9,6 @@ import { effortLevelsFor, resolveEffort } from './agent-selection-efforts'
 
 const ICON_PX = 60
 
-// The native sheet draws bitmaps: each provider's SVG icon, rasterised once.
 function rasterize(svg: string): Promise<string | null> {
   return new Promise((resolve) => {
     const image = new Image()
@@ -29,7 +28,6 @@ function rasterize(svg: string): Promise<string | null> {
 
 function useProviderIcons(providers: AgentProvider[]): Record<string, string | null> {
   const [icons, setIcons] = useState<Record<string, string | null>>({})
-  // Keyed by the icons themselves, not the array's identity.
   const key = JSON.stringify(providers.map((p) => [p.id, p.icon ?? '']))
   useEffect(() => {
     let live = true
@@ -48,12 +46,10 @@ function useProviderIcons(providers: AgentProvider[]): Record<string, string | n
 
 interface NativeModelPickerProps {
   open: boolean
-  /** The offered providers with a model catalogue, in order. */
   providers: AgentProvider[]
   provider: AgentProvider | undefined
   model: string
   effort: string
-  /** The chat's level choice, drawn as a section of the sheet; absent hides it. */
   permission?: {
     options: { value: PermissionLevel; label: string; description: string }[]
     level: PermissionLevel | ''
@@ -63,8 +59,6 @@ interface NativeModelPickerProps {
   onClose: () => void
 }
 
-/** The model and effort picker as the phone's native sheet: the catalogue pushed whole while it
- *  is open, picks staged exactly as the desktop menu stages them. */
 export function NativeModelPicker({
   open,
   providers,
@@ -98,7 +92,6 @@ export function NativeModelPicker({
     })
   }, [open, providers, icons, provider, model, effort, permission])
 
-  // Only the open picker speaks: a closed one says so once, and never again.
   useEffect(() => {
     if (!open) return
     return () => setNativeModelPicker(CLOSED)

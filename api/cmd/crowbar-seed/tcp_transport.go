@@ -12,9 +12,6 @@ import (
 	"time"
 )
 
-// tcpTransport talks to a daemon bound to a TCP address, the shape `make
-// dev-api` serves. It mirrors ipc.Client's contract exactly, non-2xx included,
-// so callers cannot tell the two wires apart.
 type tcpTransport struct {
 	base string
 	http *http.Client

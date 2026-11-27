@@ -12,15 +12,11 @@ import { hasNativeChrome, nativeConfirm } from '@/lib/native-chrome'
 import type { WorkAtRisk } from '@/lib/errors/api-error'
 import type { RemovalEntry } from '@/features/workspace/tree/tree-ui-store'
 
-// The last question before deleting a repo or project (no undo clock: their cascade is too large),
-// or work that exists nowhere else. It spells out the cascade; on an unsaved-work refusal it names
-// each branch's loss, and only "Delete anyway" sends the destroying delete.
 export function RemovalConfirmDialog({
   entry,
   onCancel,
   onConfirm,
 }: {
-  /** The entry awaiting confirmation, or null when nothing is. */
   entry: RemovalEntry | null
   onCancel: () => void
   onConfirm: (entry: RemovalEntry) => void
@@ -51,8 +47,6 @@ export function RemovalConfirmDialog({
         </AlertDialogHeader>
         {atRisk && <WorkAtRiskList atRisk={atRisk} />}
         <AlertDialogFooter>
-          {/* Cancel first and focused: this dialog exists to be dismissed more
-              often than it is confirmed. */}
           <Button variant="ghost" onClick={onCancel} autoFocus>
             Cancel
           </Button>
@@ -76,7 +70,6 @@ function confirmLabelOf(entry: RemovalEntry): string {
   return entry.atRisk ? 'Delete anyway' : `Delete ${NOUNS[entry.kind]}`
 }
 
-// One alert per held entry, however often the effect asking for it re-runs while it is up.
 const asked = new Map<string, Promise<boolean>>()
 
 function askNatively(entry: RemovalEntry): Promise<boolean> {
@@ -99,7 +92,6 @@ function askNatively(entry: RemovalEntry): Promise<boolean> {
   return answer
 }
 
-// The phone asks the same question in a native alert, over whichever sheet is on screen.
 function NativeRemovalConfirm({
   entry,
   onCancel,

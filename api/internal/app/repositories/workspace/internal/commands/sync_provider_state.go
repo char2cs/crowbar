@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SyncProviderState applies a provider poll result: PR status + protected flag.
-// It only ever writes pr-* statuses (never touches "new"; you cannot
-// have a PR without commits) and `locked`.
 type SyncProviderState struct {
 	ID             string
 	Protected      bool
@@ -63,9 +60,6 @@ func (c SyncProviderState) EmitEvent(
 	return ws
 }
 
-// nextProviderStatus applies the status precedence: deleted and pr-conflicts are
-// never clobbered; a user lock decision, then Protected, yields locked over any
-// pr-*; an existing lock is kept; otherwise a PR maps to its pr-* status.
 func nextProviderStatus(
 	current domain.WorkspaceStatus,
 	lockOverride *bool,
@@ -77,8 +71,6 @@ func nextProviderStatus(
 		current == domain.WorkspaceStatusPRConflicts {
 		return current
 	}
-	// The user's lock decision outranks the protected flag in both directions, or
-	// every poll would re-lock an unlocked branch or unlock a locked one.
 	if lockOverride != nil {
 		return nextLockStatus(current, lockOverride, protected)
 	}
@@ -94,9 +86,6 @@ func nextProviderStatus(
 	return current
 }
 
-// nextLockStatus resolves a status against a lock decision, shared by SetLock and
-// every poll so the two cannot drift. Unlocking falls back to `new`, the status
-// an unprotected branch is created with; the next poll refines it to pr-*.
 func nextLockStatus(
 	current domain.WorkspaceStatus,
 	lockOverride *bool,

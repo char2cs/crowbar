@@ -1,5 +1,3 @@
-//! Wires the keyboard actions of [`TextArea`] to its commands.
-
 mod actions;
 mod caret_motion;
 mod paging;

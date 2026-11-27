@@ -13,7 +13,6 @@ import { toastHostFailure } from '@/features/hosts/lib/host-failure-notice'
 import { useChatHost } from '@/lib/host-resolve'
 import { Dropdown } from '@/components/ui/dropdown'
 
-/** The default level of the chat's host while the chat pins none; null until it is known. */
 function useInheritedLevel(hostId: string | null, inherits: boolean): PermissionLevel | null {
   const [known, setKnown] = useState<{ hostId: string; level: PermissionLevel } | null>(null)
   useEffect(() => {
@@ -30,8 +29,6 @@ function useInheritedLevel(hostId: string | null, inherits: boolean): Permission
   return known?.hostId === hostId ? known.level : null
 }
 
-/** The level a spawn would run at: `wanted` if offered, else the nearest more
- *  permissive offered one, as the daemon resolves it. */
 function offeredLevel(wanted: PermissionLevel, offered: PermissionLevel[]): PermissionLevel {
   const order = PERMISSION_LEVEL_OPTIONS.map((opt) => opt.value)
   const offers = new Set(offered)
@@ -41,15 +38,10 @@ function offeredLevel(wanted: PermissionLevel, offered: PermissionLevel[]): Perm
 export interface PermissionTarget {
   wsId: string
   chatId: string
-  /** The levels the provider declares; absent or empty offers none. */
   levels?: PermissionLevel[]
-  /** A draft has no chat to write to: its host and the level it will start with, held by the
-   *  draft until the chat exists. */
   draft?: { hostId: string; level: PermissionLevel | ''; onPick: (level: PermissionLevel) => void }
 }
 
-/** The level the chat runs at and the write that changes it, for every surface offering the
- *  choice. A null `target` is inert, so a closed picker fetches nothing. */
 export function usePermissionLevel(target: PermissionTarget | null) {
   const wsId = target?.wsId ?? ''
   const chatId = target?.chatId ?? ''
@@ -57,13 +49,11 @@ export function usePermissionLevel(target: PermissionTarget | null) {
   const chatHost = useChatHost(chatId)
   const draft = target?.draft
   const pinned = draft ? draft.level : chatPinned
-  // The person's pick shows from the moment it is made; a failed one falls back.
   const [picked, setPicked] = useState<PermissionLevel | null>(null)
   const inherited = useInheritedLevel(
     draft?.hostId ?? chatHost,
     target !== null && !picked && !pinned,
   )
-  // A late settlement from an earlier pick must not roll back over a later one.
   const writeGeneration = useRef(0)
 
   const setLevel = useCallback(
@@ -73,7 +63,7 @@ export function usePermissionLevel(target: PermissionTarget | null) {
       const generation = ++writeGeneration.current
       setPicked(value)
       setChatPermissionLevel(wsId, chatId, value).catch((err: unknown) => {
-        if (writeGeneration.current !== generation) return // superseded by a later pick
+        if (writeGeneration.current !== generation) return
         setPicked(null)
         if (toastHostFailure(err)) return
         toast.error(
@@ -92,7 +82,6 @@ export function usePermissionLevel(target: PermissionTarget | null) {
   return { options, level, setLevel }
 }
 
-/** The footer's permission chip: the current level, opening the choice as a menu. */
 export function PermissionLevelChip({ target }: { target: PermissionTarget }) {
   const { options, level, setLevel } = usePermissionLevel(target)
   const anchorRef = useRef<HTMLButtonElement>(null)

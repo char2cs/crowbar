@@ -21,7 +21,6 @@ func TestTokenMinter_RejectsTokenForAnotherRunner(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)
 
-	// The whole point: holding runner A's token must not grant runner B's scope.
 	require.False(t, m.Verify("runner-b", m.Mint("runner-a")))
 }
 
@@ -34,8 +33,6 @@ func TestTokenMinter_RejectsGarbage(t *testing.T) {
 	require.False(t, m.Verify("", m.Mint("")))
 }
 
-// Two minters model two daemon boots. Runners never survive a boot, so a token
-// from the previous one must be dead on arrival.
 func TestTokenMinter_TokensDoNotSurviveAReboot(t *testing.T) {
 	first, err := tools.NewTokenMinter()
 	require.NoError(t, err)
@@ -64,8 +61,6 @@ func TestTokenMinter_RelayTokensAreKeyedByTheRelayAndLeaveRunnersAlone(t *testin
 	require.True(t, reboot.VerifyRelay("relay-a", reboot.MintRelay("relay-a")))
 }
 
-// The token travels in argv and in a JSON/TOML config value, so it must be safe
-// to embed in both without escaping.
 func TestTokenMinter_TokenIsURLSafeBase64(t *testing.T) {
 	m, err := tools.NewTokenMinter()
 	require.NoError(t, err)

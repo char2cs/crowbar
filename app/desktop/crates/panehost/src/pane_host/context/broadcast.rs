@@ -6,11 +6,6 @@ use crate::pane_host::PaneHost;
 use crate::pane_host::reconcile::Failures;
 
 impl PaneHost {
-    /// Replaces the active keybindings and pushes them to mounted panes. Unchanged bindings send
-    /// nothing.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
     pub fn set_keybindings(
         &mut self,
         bindings: Vec<KeyBinding>,
@@ -28,10 +23,6 @@ impl PaneHost {
             .try_for_each(|(id, _)| self.send(id, &frame))
     }
 
-    /// Replaces the theme tokens and pushes them to mounted panes. Unchanged tokens send nothing.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
     pub fn set_theme(
         &mut self,
         tokens: ThemeTokens,
@@ -49,11 +40,6 @@ impl PaneHost {
             .try_for_each(|(id, _)| self.send(id, &frame))
     }
 
-    /// Applies an extension's new status to its panes: errors in their frames while it is
-    /// unavailable or disabled, a fresh `mount` with the saved state when it is back.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::error::Error::WebView) when a pane cannot be reached.
     pub fn extension_status(
         &mut self,
         status: &ExtensionStatus,

@@ -1,5 +1,3 @@
-//! Paints cell ranges: selection, search matches, link underline.
-
 use gpui::{Hsla, Window, fill, point, px, size};
 use terminal::Highlight;
 

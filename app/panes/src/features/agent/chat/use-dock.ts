@@ -3,9 +3,6 @@ import { layoutHeight } from '@/lib/layout-size'
 import { playArrival } from '@/features/agent/chat/lib/arrival-animation'
 import { measureScrollbarWidth } from '@/features/agent/chat/lib/scrollbar-width'
 
-/** The dock's height and the scrollbar's width, published to CSS, plus its top edge above the
- *  viewport's bottom (Jump to latest floats there): the transcript runs under the dock and must
- *  reserve its room, and the dissolve stops at the scrollbar track. A first send slides it in. */
 export function useDock() {
   const [dockHeight, setDockHeight] = useState(0)
   const [dockTop, setDockTop] = useState(0)
@@ -14,7 +11,6 @@ export function useDock() {
   const observer = useRef<ResizeObserver | null>(null)
   const arrivalOrigin = useRef<DOMRect | null>(null)
   const measure = useRef<() => void>(() => {})
-  // The keyboard and the safe area move the dock without resizing it, but they resize the viewport.
   useEffect(() => {
     const onResize = () => measure.current()
     window.addEventListener('resize', onResize)
@@ -30,7 +26,6 @@ export function useDock() {
     }
     playArrival(node, arrivalOrigin.current)
     arrivalOrigin.current = null
-    // Zero is a parked (display:none) workspace, never the dock's height.
     const report = () => {
       const height = layoutHeight(node)
       if (height > 0) setDockHeight(height)

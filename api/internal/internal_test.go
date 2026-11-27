@@ -40,8 +40,6 @@ func TestNew_BootsFullStack(t *testing.T) {
 	assert.Nil(t, c.Halt())
 }
 
-// A callback is handed the address the daemon bound, so the daemon must say
-// which one that is: the socket of the home as given, even when it is not clean.
 func TestNew_ReportsTheSocketItBound(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir()+"/x/")
 	h, err := home.Resolve()
@@ -60,8 +58,6 @@ func TestNew_ReportsTheSocketItBound(t *testing.T) {
 	assert.Equal(t, derived, handed, "a callback handed the address dials the socket it derived before")
 }
 
-// The daemon binds the socket of the home it holds: a home given in code wins
-// over CROWBAR_HOME for the socket, as it does for the data behind it.
 func TestNew_BindsTheSocketOfTheHomeItWasGiven(t *testing.T) {
 	t.Setenv(home.EnvVar, t.TempDir())
 	given := testutil.FixtureHome(t)
@@ -82,8 +78,6 @@ func TestNew_ReportsItsBoundTCPAddress(t *testing.T) {
 	assert.Regexp(t, `^tcp://127\.0\.0\.1:[1-9][0-9]*$`, c.Address(), "the port it bound, not the one asked")
 }
 
-// An exposed bind, a wildcard included, serves TLS a callback cannot speak, so
-// the address a callback is handed is the home's socket bound beside it.
 func TestNew_AnExposedBindHandsCallbacksTheHomeSocket(t *testing.T) {
 	for _, host := range []string{"tcp://0.0.0.0:0", "tcp://[::]:0"} {
 		t.Run(host, func(t *testing.T) {
@@ -115,8 +109,6 @@ func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
 	assert.ErrorContains(t, err, "internal: migrate: migrate: create home")
 }
 
-// The daemon holds its home while it runs, so a second one is refused before
-// it opens a store, without keeping the socket it bound.
 func TestNew_RefusesASecondDaemonOnTheSameHome(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	_, err := boot(t.Context(), t, h)
@@ -146,8 +138,6 @@ func TestNew_RunsTheLegacyStepsBeforeServing(t *testing.T) {
 	assert.Equal(t, "ok", health.Data.Status, health.raw)
 }
 
-// A home newer than this binary is refused without a write: the daemon stays
-// up, holding the home, and says why on the one route it serves.
 func TestNew_HaltsOnANewerLayout(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
@@ -180,7 +170,6 @@ func TestNew_HaltsOnANewerLayout(t *testing.T) {
 	assert.NoError(t, d.Run(cancelled))
 }
 
-// The webview reads the gate's answers cross-origin, as it reads the API's.
 func TestNew_AHaltedDaemonAnswersTheWebview(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "LAYOUT", "9\n")
@@ -202,8 +191,6 @@ func TestNew_AHaltedDaemonAnswersTheWebview(t *testing.T) {
 	assert.Contains(t, preflight.header.Get("Access-Control-Allow-Methods"), "POST")
 }
 
-// A browser opening the daemon mid-migration is shown a page that waits for it,
-// while API calls keep reading the refusal they act on.
 func TestNew_AMigratingDaemonShowsABrowserAPageThatReloads(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	sock := testutil.ShortSocket(t)
@@ -268,8 +255,6 @@ func TestNew_HaltsWhenAStepFails(t *testing.T) {
 	require.ErrorIs(t, err, migrate.ErrHomeLocked, "the halted daemon still holds the home")
 }
 
-// A home the boot cannot put in order before any step halts the daemon instead
-// of exiting it: a supervisor would respawn an exited one into the same failure.
 func TestNew_HaltsOnAHomeItCannotPutInOrder(t *testing.T) {
 	partial := filepath.Join("migrate", "backups", "20261017T010203.000000000Z.partial")
 	tests := map[string]struct{ file, content, locked string }{
@@ -306,8 +291,6 @@ func TestNew_HaltsOnAHomeItCannotPutInOrder(t *testing.T) {
 	}
 }
 
-// A home whose lock cannot be taken halts the daemon too, though it holds
-// nothing: a daemon that exits would be respawned into the same failure.
 func TestNew_HaltsOnAHomeItCannotLock(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	testutil.WriteFile(t, h, "state", "a file, not a directory")
@@ -330,8 +313,6 @@ func TestNew_HaltsOnAHomeItCannotLock(t *testing.T) {
 	require.NoError(t, sess.Close())
 }
 
-// An interrupted boot is not a halt: the run ends interrupted, the home is let
-// go, and the next boot resumes.
 func TestNew_CancelledDuringMigrationReturnsTheContextError(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -348,9 +329,6 @@ func TestNew_CancelledDuringMigrationReturnsTheContextError(t *testing.T) {
 	requireHomeFree(t, h)
 }
 
-// A boot cancelled once the stores are open tears down everything it started,
-// all the way, though its context is done; every goroutine New starts inherits
-// its pprof label, so none may outlive it.
 func TestNew_CancelledDuringAPostOpenStepStopsWhatItStarted(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -368,7 +346,6 @@ func TestNew_CancelledDuringAPostOpenStepStopsWhatItStarted(t *testing.T) {
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
-	// openStack joins any close failure on, and Join gives it a line of its own.
 	assert.NotContains(t, err.Error(), "\n", "the teardown failed nothing")
 	records := readLedger(t, h)
 	assert.Equal(t, ledgerRecord{Kind: "run.end", Outcome: "interrupted"}, records[len(records)-1])
@@ -390,8 +367,6 @@ func TestNew_DefaultDirs_UsesHome(t *testing.T) {
 	assert.NotNil(t, c)
 }
 
-// writeFileInPlaceOfDir leaves path unusable as a directory, whoever runs the
-// test: unlike a permission bit, root cannot write through it.
 func writeFileInPlaceOfDir(
 	t *testing.T,
 	path string,
@@ -411,9 +386,6 @@ func writeCorruptIdentity(
 	}
 }
 
-// TestRegression_New_LocalDaemonNeverTouchesTheTLSDir proves a daemon serving
-// no TLS — the unix socket alone, or the loopback dev bind — boots whatever
-// state its TLS identity directory is in, and never creates one.
 func TestRegression_New_LocalDaemonNeverTouchesTheTLSDir(t *testing.T) {
 	spoilers := map[string]func(t *testing.T, tlsDir string){
 		"absent":    func(*testing.T, string) {},
@@ -444,9 +416,6 @@ func TestRegression_New_LocalDaemonNeverTouchesTheTLSDir(t *testing.T) {
 	}
 }
 
-// TestRegression_New_ExposedBindRefusesAnUnloadableIdentity proves a corrupt
-// identity is never silently replaced on a network-exposed daemon — every
-// paired client pins it — and that the refusal says what replacing it means.
 func TestRegression_New_ExposedBindRefusesAnUnloadableIdentity(t *testing.T) {
 	h := testutil.FixtureHome(t)
 	tlsDir := filepath.Join(h.Root(), "tls")

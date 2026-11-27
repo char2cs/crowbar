@@ -1,6 +1,3 @@
-// Buffering a few keys before redirecting tells a sentence starting apart from
-// a bare-key shortcut elsewhere in the app.
-
 export interface TypeBuffer {
   chars: string
   lastAt: number
@@ -8,9 +5,7 @@ export interface TypeBuffer {
 
 export const EMPTY_TYPE_BUFFER: TypeBuffer = { chars: '', lastAt: 0 }
 
-/** Redirect once buffered length exceeds this — i.e. on the 4th key. */
 const REDIRECT_THRESHOLD = 3
-/** A gap this long since the last qualifying key starts a fresh burst. */
 const BURST_GAP_MS = 1000
 
 export interface TypeToFocusKeyEvent {
@@ -26,8 +21,6 @@ export type TypeToFocusResult =
   | { action: 'buffer'; buffer: TypeBuffer }
   | { action: 'redirect'; buffer: TypeBuffer; text: string }
 
-/** Only an unmodified single printable character qualifies. A disqualifying key
- *  does not reset the buffer: a capital's bare "Shift" keydown would drop "a" from "aB". */
 export function advanceTypeToFocus(
   buffer: TypeBuffer,
   event: TypeToFocusKeyEvent,
@@ -48,7 +41,6 @@ export function advanceTypeToFocus(
   return { action: 'redirect', buffer: EMPTY_TYPE_BUFFER, text: chars }
 }
 
-/** Any field, not just the composer: this must never steal a keystroke. */
 export function isFocusInEditable(active: Element | null): boolean {
   if (!active) return false
   const tag = active.tagName

@@ -1,5 +1,3 @@
-//! Finds the link under a cell.
-
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};

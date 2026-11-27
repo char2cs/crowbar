@@ -1,5 +1,3 @@
-//! Components the user operates: buttons, toggles, tabs, dividers, drag handles and text fields.
-
 mod button;
 mod divider;
 mod drag;

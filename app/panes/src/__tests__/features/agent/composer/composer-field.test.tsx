@@ -28,7 +28,6 @@ function drawField(
   )
 }
 
-// What the page held as it went: the box is drawn again from nothing.
 function reload(chatId: string) {
   act(() => void window.dispatchEvent(new Event('pagehide')))
   cleanup()
@@ -112,7 +111,6 @@ describe('ComposerField — Enter', () => {
 
   const enter = (init: { metaKey?: boolean; ctrlKey?: boolean } = {}) => {
     const box = screen.getByRole('textbox')
-    // jsdom does not implement contentEditable; Slate checks it before dispatching a key.
     Object.defineProperty(box, 'isContentEditable', { value: true, configurable: true })
     act(() => box.focus())
     fireEvent.keyDown(box, { key: 'Enter', ...init })

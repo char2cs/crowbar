@@ -16,10 +16,6 @@ import (
 	engineprovider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
-// TestCreateFromImport_ProviderPRGraphError_FallsBackToDefaultParenting proves
-// prBaseGraph's degrade path: a provider failure fetching open PRs must not
-// abort the batch — the branch still imports, parented at the repo root under
-// the default branch instead of under a PR base that can no longer be read.
 func TestCreateFromImport_ProviderPRGraphError_FallsBackToDefaultParenting(t *testing.T) {
 	var created workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -43,14 +39,6 @@ func TestCreateFromImport_ProviderPRGraphError_FallsBackToDefaultParenting(t *te
 		"with no PR graph to resolve a base, the branch parents at the repo root")
 }
 
-// TestCreateFromImport_ExistingWorkspaceListError_DegradesToFlatImport proves
-// existingBranchWorkspaces' own degrade path: a List failure resolving already-
-// imported branches must not abort the batch, only fall back to importing flat
-// (no resolvable existing parent). The fake's List answers differently on its
-// FIRST call (existingBranchWorkspaces, which fails) than on later calls (made
-// from inside CreateChild's own guards, which must still succeed for the create
-// to go through) — modelling exactly the best-effort contract CreateFromImport
-// documents for this read.
 func TestCreateFromImport_ExistingWorkspaceListError_DegradesToFlatImport(t *testing.T) {
 	calls := 0
 	var created workspace.CreateInput
@@ -80,10 +68,6 @@ func TestCreateFromImport_ExistingWorkspaceListError_DegradesToFlatImport(t *tes
 	assert.Empty(t, created.ParentID, "with no existing parent resolvable, the branch imports at the repo root")
 }
 
-// TestCreateFromImport_ParentsUnderExistingDefaultBranchWorkspace proves the
-// positive side of existingBranchWorkspaces: an imported branch with no PR nests
-// under the repo's ALREADY-EXISTING default-branch workspace rather than the
-// repo root, once that lookup actually finds a match.
 func TestCreateFromImport_ParentsUnderExistingDefaultBranchWorkspace(t *testing.T) {
 	var created workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -111,8 +95,6 @@ func TestCreateFromImport_ParentsUnderExistingDefaultBranchWorkspace(t *testing.
 		"an imported branch with no PR nests under the existing default-branch workspace")
 }
 
-// An unprotected default branch has no managed workspace, only the repo home: the
-// import parents there, as a fork off the home does, so it can merge back.
 func TestCreateFromImport_ParentsUnderTheRepoHomeWhenTheDefaultBranchHasNoWorkspace(t *testing.T) {
 	var created workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -141,13 +123,6 @@ func TestCreateFromImport_ParentsUnderTheRepoHomeWhenTheDefaultBranchHasNoWorksp
 	assert.Equal(t, "ws-home", created.ParentID)
 }
 
-// TestCreateFromImport_BranchCreatedConcurrently_SkipsWithoutStranding proves
-// createImportNode's dedup: when CreateChild itself reports ErrBranchWorkspaceExists
-// (the branch got a workspace between the parent-resolution read and this create —
-// exactly the race a 202'd batch can hit), the branch is treated as already
-// represented, not as a batch failure. The fake's List disagrees with itself
-// across calls to model that race: empty for the up-front existing-parent scan,
-// then showing the new conflicting row by the time CreateChild checks.
 func TestCreateFromImport_BranchCreatedConcurrently_SkipsWithoutStranding(t *testing.T) {
 	calls := 0
 	createCalls := 0
@@ -176,10 +151,6 @@ func TestCreateFromImport_BranchCreatedConcurrently_SkipsWithoutStranding(t *tes
 	assert.Equal(t, 0, createCalls, "no new row (real or placeholder) is created for a branch that already has one")
 }
 
-// TestCreateFromImport_HolderPathUnresolvable_CrowbarHomeError proves
-// resolveHolderPath degrades to "no holder to name" (rather than propagating)
-// when crowbarHome itself cannot be resolved — the placeholder must still land,
-// just without a Detach… target.
 func TestCreateFromImport_HolderPathUnresolvable_CrowbarHomeError(t *testing.T) {
 	var placeholder workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -202,9 +173,6 @@ func TestCreateFromImport_HolderPathUnresolvable_CrowbarHomeError(t *testing.T) 
 	assert.Empty(t, placeholder.HeldByPath, "with no crowbar home, there is no basis to name a holder")
 }
 
-// TestCreateFromImport_HolderPathUnresolvable_ResolveError mirrors the above for
-// a genuine holder.Resolve failure (a broken `git worktree list`): the
-// placeholder still lands with no holder path rather than losing the row.
 func TestCreateFromImport_HolderPathUnresolvable_ResolveError(t *testing.T) {
 	var placeholder workspace.CreateInput
 	ws := &fakeWorkspace{
@@ -226,7 +194,6 @@ func TestCreateFromImport_HolderPathUnresolvable_ResolveError(t *testing.T) {
 	assert.Empty(t, placeholder.HeldByPath, "an unresolvable holder is reported as no holder to name")
 }
 
-// outcomes records every branch outcome an import reports.
 type outcomes struct {
 	mu  sync.Mutex
 	got []hierarchy.ImportOutcome
@@ -251,7 +218,6 @@ func (o *outcomes) of(t *testing.T, branch string) hierarchy.ImportOutcome {
 	return hierarchy.ImportOutcome{}
 }
 
-// branches names each requested branch with the chat id the client would mint.
 func branches(names ...string) []hierarchy.ImportBranch {
 	out := make([]hierarchy.ImportBranch, 0, len(names))
 	for _, n := range names {
@@ -260,8 +226,6 @@ func branches(names ...string) []hierarchy.ImportBranch {
 	return out
 }
 
-// importFixture is a usecase whose workspace store records each row it is
-// asked to create, and fails every create of a branch in fail.
 func importFixture(
 	t *testing.T,
 	g *fakeGit,
@@ -332,8 +296,6 @@ func TestCreateFromImport_UsesTheClientChatIDs(t *testing.T) {
 	assert.Equal(t, "chat-for-feat/a", owner, "the workspace is owned by the chat the client drew it as")
 }
 
-// The failed attempt's chat owns the placeholder: no purge and re-mint of an id
-// the client is already drawing.
 func TestCreateFromImport_AFailedBranchKeepsItsChatAsThePlaceholderOwner(t *testing.T) {
 	uc, chats, created := importFixture(t, &fakeGit{addErr: errBoom}, nil)
 	got := &outcomes{}
@@ -365,8 +327,6 @@ func TestCreateFromImport_AFailedPlaceholderStillReportsTheBranch(t *testing.T) 
 	assert.Empty(t, o.WorkspaceID)
 }
 
-// Each requested branch takes its own lock, whichever order the chain creates
-// them in: x's PR base is y, so y is created first either way.
 func TestCreateFromImport_EachRequestedBranchTakesItsOwnLock(t *testing.T) {
 	x := hierarchy.ImportBranch{Name: "x", ChatID: "chat-for-x"}
 	for name, asks := range map[string][]hierarchy.ImportBranch{

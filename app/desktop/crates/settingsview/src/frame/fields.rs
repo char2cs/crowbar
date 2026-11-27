@@ -1,5 +1,3 @@
-//! The text fields of the rows on screen, by setting key.
-
 use std::collections::BTreeMap;
 
 use gpui::App;

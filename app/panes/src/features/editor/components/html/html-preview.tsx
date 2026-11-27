@@ -5,9 +5,6 @@ import { usePreviewSource } from '@/features/editor/documents/use-preview-source
 import { mimeForPath, toDataUrl } from '@/features/editor/lib/asset-data-url'
 import { buildHostPreviewDocument, buildHtmlPreviewDocument } from './html-preview-document'
 
-// No `allow-same-origin`: combined with `allow-scripts` it lets the framed
-// document reach the parent Crowbar origin and remove its own sandbox. A host
-// document is any file on disk, so it gets no scripts at all.
 const WORKSPACE_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals'
 const HOST_SANDBOX = ''
 
@@ -23,13 +20,10 @@ export function HtmlPreview({ bufferId }: { bufferId?: string }) {
   return <HtmlPreviewView doc={doc} content={content} />
 }
 
-/** `content`, the HTML text of `doc`, rendered in a sandboxed frame with its local assets inlined. */
 export function HtmlPreviewView({ doc, content }: { doc: DocumentRef | null; content: string }) {
   const [iframeContent, setIframeContent] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Local assets are read as documents beside the file and inlined; the latest
-  // edit wins over a slower earlier build.
   useEffect(() => {
     let cancelled = false
     const read = async (ref: DocumentRef) => (await readDocument(ref)).text

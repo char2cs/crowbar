@@ -40,9 +40,6 @@ function getViewportBounds() {
   }
 }
 
-// Places an open menu against its anchor (or a point), flipping to the roomier side and clamping
-// to the visual viewport; follows resizes, scrolls and its own size. Width locks at first measure
-// so filtering doesn't make it jump.
 export function useDropdownPosition({
   isOpen,
   menuRef,
@@ -60,7 +57,6 @@ export function useDropdownPosition({
   anchorAlign: AnchorAlign
   point: { x: number; y: number } | null
   style?: CSSProperties
-  /** Repositions before paint whenever it changes: the content it measures did. */
   contentKey: unknown
 }) {
   const lockedWidthRef = useRef<number | null>(null)
@@ -178,8 +174,6 @@ export function useDropdownPosition({
     positionMenu()
   }, [isOpen, positionMenu, contentKey])
 
-  // The measurements belong to one opening, so release them in that opening's cleanup (which
-  // also covers unmounting while open), not on `isOpen` going false.
   useEffect(() => {
     if (!isOpen) return
     const menu = menuRef.current

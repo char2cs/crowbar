@@ -1,5 +1,3 @@
-//! GPUI view of one editor pane: the gpui-kit `Editor` over a document's text.
-
 mod chrome;
 mod document;
 mod editor_event;

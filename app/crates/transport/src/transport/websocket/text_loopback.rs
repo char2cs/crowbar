@@ -8,10 +8,6 @@ use crate::transport::websocket::text_stream::TextStream;
 const BUFFER: usize = 1 << 16;
 
 impl TextStream {
-    /// Two connected streams in memory, for tests of code that talks over a [`TextStream`].
-    ///
-    /// # Errors
-    /// [`Error::WebSocket`] when the in-memory handshake fails.
     pub async fn loopback() -> Result<(Self, Self), Error> {
         let (near, far) = duplex(BUFFER);
         let (near, far): (BoxedStream, BoxedStream) = (Box::new(near), Box::new(far));

@@ -14,12 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// The project-home level is ONE list of repo headers and home chats/folders.
-// These pin the repo-drag writer against the same member set the sidebar
-// renders: nothing of kind workspace (a locked branch's anchor shares the ""
-// root but is drawn inside its repo), no other project's folders, and every
-// home chat — Node-backed or not, minus the hidden home owner.
-
 func newHomeLevelFixture(t *testing.T) (*mocks.RepositoryStore, *mocks.NodePlacements, *mocks.AgentChatPlacements, *mocks.FolderStore, project.Usecase) {
 	t.Helper()
 	repos := mocks.NewRepositoryStore()
@@ -62,9 +56,6 @@ func TestRegression_UpdateRepo_NeverRenumbersAWorkspaceAnchorSharingTheRoot(t *t
 	}
 }
 
-// A home chat created at the root before Node rows existed has only its
-// frozen Chat.Order (0). The repo writer must still count it — and mint its
-// Node at the slot it lands on — or a repo can never be placed past it.
 func TestRegression_UpdateRepo_PassesANodelessHomeChat(t *testing.T) {
 	_, nodes, homeChats, _, uc := newHomeLevelFixture(t)
 	homeChats.Rows = []domain.Chat{
@@ -108,10 +99,6 @@ func TestRegression_UpdateRepo_IgnoresAnotherProjectsHomeFolder(t *testing.T) {
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-folder").Order, "a repo-internal folder is not a sibling")
 }
 
-// A home chat filed into a Chats-panel folder from before Node rows has no
-// Node and a frozen ParentID naming a folder that no longer exists. The
-// sidebar draws it at the top level; the repo writer skipped every chat with
-// a non-empty ParentID, so a repo could never be placed past it.
 func TestRegression_UpdateRepo_CountsAChatFiledUnderAGhostParent(t *testing.T) {
 	_, nodes, homeChats, _, uc := newHomeLevelFixture(t)
 	homeChats.Rows = []domain.Chat{
@@ -124,7 +111,6 @@ func TestRegression_UpdateRepo_CountsAChatFiledUnderAGhostParent(t *testing.T) {
 		{ID: "c2", Kind: tree.KindChat, Order: 2},
 	}
 
-	// Drawn [ghost-filed, repo-A, c2]; the repo to the very top.
 	err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(0)})
 	require.NoError(t, err)
 
@@ -134,9 +120,6 @@ func TestRegression_UpdateRepo_CountsAChatFiledUnderAGhostParent(t *testing.T) {
 	assert.Equal(t, 2, nodeRow(t, nodes, "c2").Order)
 }
 
-// Filing a repo INTO a home folder closed the gap it left over repo rows
-// only: the remaining repo was renumbered against its repo siblings alone
-// and collided with the untouched chats and folder sharing the level.
 func TestRegression_UpdateRepo_LeavingTheRootDensifiesTheWholeLevel(t *testing.T) {
 	repos, nodes, homeChats, folders, uc := newHomeLevelFixture(t)
 	require.NoError(t, repos.Save(context.Background(), domain.Repository{ID: "repo-B", ProjectID: "pA"}))
@@ -164,11 +147,6 @@ func TestRegression_UpdateRepo_LeavingTheRootDensifiesTheWholeLevel(t *testing.T
 	assert.Equal(t, 3, nodeRow(t, nodes, "F").Order)
 }
 
-// TestRegression_UpdateRepo_SiblingRepoFiledInAFolderIsNotReminted reproduces
-// the live "reorder repos: mint <id>: node: create: create node: exists:
-// asynx: validation failed" failure: once ANY repo of the project is filed
-// inside a home folder, every later root-level repo drag refused, because
-// withNodelessRows read "absent from ListByParent("")" as "has no Node row".
 func TestRegression_UpdateRepo_SiblingRepoFiledInAFolderIsNotReminted(t *testing.T) {
 	repos, nodes, _, _, uc := newHomeLevelFixture(t)
 	ctx := context.Background()

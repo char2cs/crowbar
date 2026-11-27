@@ -1,6 +1,3 @@
-//! Moving a file or folder by dragging its Files row, as develop's `use-file-explorer-drag-drop.ts`
-//! decides it: onto a folder, beside a file, or onto the root; never into itself.
-
 pub(crate) mod drop_spot;
 pub(crate) mod file_drop;
 
@@ -8,7 +5,6 @@ use crate::explorer::file_move::drop_spot::DropSpot;
 use crate::explorer::file_move::file_drop::FileDrop;
 use crate::shell::{Command, FileKind, PathText};
 
-/// The Files row being dragged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMove {
     path: String,
@@ -16,7 +12,6 @@ pub struct FileMove {
 }
 
 impl FileMove {
-    /// The row of `path`, a file or a folder.
     pub fn new(
         path: &str,
         kind: FileKind,
@@ -27,7 +22,6 @@ impl FileMove {
         }
     }
 
-    /// The dragged path.
     pub fn path(&self) -> &str {
         &self.path
     }
@@ -36,8 +30,6 @@ impl FileMove {
         matches!(self.kind, FileKind::Directory(_))
     }
 
-    /// The target a release over `spot` would land on, or `None` where develop accepts nothing:
-    /// the dragged row itself, and for a folder anything inside it.
     pub fn onto(
         &self,
         spot: DropSpot,
@@ -49,7 +41,6 @@ impl FileMove {
         (!refused).then(|| FileDrop::new(spot))
     }
 
-    /// The move a release on `target` sends, or `None` when the row is already in that folder.
     pub fn command(
         &self,
         target: &FileDrop,

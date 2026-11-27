@@ -25,14 +25,10 @@ func toolResultDiff(tool *engineagents.ToolEvent) string {
 	return patchDiff(tool.Target, tool.Cwd, tool.Patch)
 }
 
-// diffName is how a diff header names path, git's way: from cwd when the file is
-// inside it, else from the root (a/abs/path); the call's target keeps the slash.
 func diffName(path, cwd string) string {
 	return strings.TrimPrefix(sessionPath(path, cwd), "/")
 }
 
-// toolTarget is the call's target; a read or edit's is its file, named from
-// the session's directory.
 func toolTarget(tool *engineagents.ToolEvent) string {
 	if tool.Kind == ledger.ToolKindRead || tool.Kind == ledger.ToolKindEdit {
 		return sessionPath(tool.Target, tool.Cwd)
@@ -40,7 +36,6 @@ func toolTarget(tool *engineagents.ToolEvent) string {
 	return tool.Target
 }
 
-// sessionPath is path relative to cwd when it lies inside it, else path as given.
 func sessionPath(path, cwd string) string {
 	if rel, err := filepath.Rel(cwd, path); err == nil && cwd != "" && filepath.IsAbs(path) && filepath.IsLocal(rel) {
 		return filepath.ToSlash(rel)
@@ -48,9 +43,6 @@ func sessionPath(path, cwd string) string {
 	return path
 }
 
-// editDiff renders one edit's before/after text as a single-hunk unified diff.
-// The file itself is never read, so line numbers are relative to the snippet;
-// no text before is a new file's.
 func editDiff(path, cwd, before, after string) string {
 	if path == "" || before == after {
 		return ""
@@ -92,7 +84,6 @@ func editDiff(path, cwd, before, after string) string {
 		from, path, hunkRange(prefix-lead+1, oldCount), hunkRange(prefix-lead+1, newCount), body.String())
 }
 
-// patchDiff renders the provider's own hunks, keeping their true line numbers.
 func patchDiff(path, cwd string, hunks []engineagents.PatchHunk) string {
 	path = diffName(path, cwd)
 	if path == "" || len(hunks) == 0 {
@@ -121,7 +112,6 @@ func patchDiff(path, cwd string, hunks []engineagents.PatchHunk) string {
 	return out.String()
 }
 
-// hunkRange follows unified-diff convention: an empty side starts one line earlier.
 func hunkRange(start, count int) string {
 	if count == 0 {
 		start--

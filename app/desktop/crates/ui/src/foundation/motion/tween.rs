@@ -1,5 +1,3 @@
-//! Timing of one animated transition.
-
 use std::time::Duration;
 
 use crate::foundation::motion::Motion;

@@ -1,26 +1,15 @@
-//! One entry of the Changes panel.
-
 use crate::shell::listing::GitStatus;
 
-/// A file the branch changed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChangedFile {
-    /// Path relative to the repository.
     pub path: String,
-    /// Git status.
     pub status: GitStatus,
-    /// Added lines.
     pub added: u32,
-    /// Deleted lines.
     pub deleted: u32,
-    /// What a viewed mark holds against: see [`ChangedFile::signature_of`].
     pub signature: String,
 }
 
 impl ChangedFile {
-    /// The review's `kind|old path|additions|deletions` for a file, as develop's
-    /// `fileSignature` writes it: a viewed mark holds while this stays the same. Counts are the
-    /// daemon's, `-1` for a binary file.
     #[must_use]
     pub fn signature_of(
         status: GitStatus,

@@ -21,11 +21,6 @@ beforeEach(() => {
   resetChatStore()
 })
 
-/**
- * `resolveChatWorkspaceId` — "which workspace does this chat belong to". A
- * chat on screen answers from its view member's record; anything else
- * from the caller's own row. No workspace store is consulted.
- */
 describe('resolveChatWorkspaceId', () => {
   it('answers from the pane record the opening gesture wrote', () => {
     paneActions().openChat('c1', { workspaceId: 'ws-a' })
@@ -37,7 +32,6 @@ describe('resolveChatWorkspaceId', () => {
     expect(resolveChatWorkspaceId('c1', 'ws-other')).toBe('ws-a')
   })
 
-  // Branch-out and move re-point the chat; the pane keeps where it opened.
   it('answers with the workspace the chat moved to, not the pane record', () => {
     paneActions().openChat('c1', { workspaceId: 'ws-a' })
     writeChat({ id: 'c1', workspaceId: 'ws-b' })
@@ -65,10 +59,8 @@ describe('resolveOnscreenPaneForWorkspace', () => {
     paneActions().openChat('c1', { workspaceId: 'ws-a' })
     paneActions().dropChatOnPane('c2', ROOT_PANE_ID, 'right', 'ws-b')
     const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('c2')
-    // The user's last literal click landed in the ws-a pane...
     paneActions().setActivePane(ROOT_PANE_ID)
 
-    // ...but the file explorer is showing ws-b: target the OTHER on-screen pane.
     expect(resolveOnscreenPaneForWorkspace('ws-b')).toBe(secondPaneId)
   })
 
@@ -81,8 +73,6 @@ describe('resolveOnscreenPaneForWorkspace', () => {
 
   it('never targets a pane sitting in a PARKED (off-screen) view', () => {
     paneActions().openChat('c2', { workspaceId: 'ws-b' })
-    // A second chat takes the screen as a view of its own; the ws-b pane is
-    // off screen, and a file click must never reveal it.
     paneActions().openChat('c1', { workspaceId: 'ws-a' })
 
     expect(resolveOnscreenPaneForWorkspace('ws-b')).toBeNull()

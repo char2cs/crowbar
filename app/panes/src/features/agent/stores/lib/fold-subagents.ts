@@ -9,8 +9,6 @@ import {
   type SubagentStatus,
 } from '@/features/agent/stores/lib/transcript-items'
 
-// Mirrors the daemon's SubagentBook (domain/ledger/subagent.go): the same
-// edges, so a card never reads a status the daemon would refuse.
 const EDGES: Partial<Record<SubagentStatus, SubagentStatus[]>> = {
   starting: ['running', 'failed', 'abandoned', 'interrupted'],
   running: ['done', 'failed', 'interrupted'],
@@ -66,7 +64,6 @@ const cardOf = (fold: FeedFold, scope: string) => {
   return id ? fold.item<SubagentItem>(id) : undefined
 }
 
-/** The card a spawning call opens, in the call's own place and scope. */
 export function openSpawn(fold: FeedFold, row: LedgerRow, toolId: string, title?: string) {
   const known = fold.item<SubagentItem>(subagentItemId(toolId))
   if (known) {
@@ -77,7 +74,6 @@ export function openSpawn(fold: FeedFold, row: LedgerRow, toolId: string, title?
   fold.place(subagentItemId(toolId), row.scope ?? '')
 }
 
-/** A call that only waits on or closes a subagent says so on its card. */
 export function addressSubagent(fold: FeedFold, row: LedgerRow<'tool_call'>) {
   const card = cardOf(fold, row.body.addressesScope ?? '')
   const waiting = row.body.phase === 'pre'
@@ -88,7 +84,6 @@ function bind(fold: FeedFold, row: LedgerRow<'subagent'>, scope: string, spawnTo
   const spawned = fold.item<SubagentItem>(subagentItemId(spawnToolId))
   const announced = cardOf(fold, scope)
   if (announced && announced.id !== subagentItemId(spawnToolId)) {
-    // It announced itself first: its card stays, and takes the call's.
     fold.put({ ...announced, spawnToolId, title: announced.title || spawned?.title || '' })
     if (spawned) {
       fold.unplace(spawned.id)
@@ -111,13 +106,10 @@ function bind(fold: FeedFold, row: LedgerRow<'subagent'>, scope: string, spawnTo
   if (!spawned) fold.place(card.id, '')
 }
 
-/** A subagent that names its own scope: a spawn still unbound may be it, so it
- *  waits for the bind; else it is a card of its own. */
 function announce(fold: FeedFold, row: LedgerRow<'subagent'>, scope: string) {
   const { type, title } = row.body
   const known = cardOf(fold, scope)
   if (known) {
-    // A second start of a known scope is a follow-up when the card had ended.
     const named = { ...known, type: known.type || type || '', title: known.title || title || '' }
     fold.put(named)
     resume(fold, scope)
@@ -149,7 +141,6 @@ function claim(
   fold.place(card.id, '')
 }
 
-/** A follow-up runs an ended card again, where it is: its last end is not this run's. */
 function resume(fold: FeedFold, scope: string) {
   const card = cardOf(fold, scope)
   if (!card || !EDGES[card.status]?.includes('running')) return
@@ -197,12 +188,9 @@ export const applySubagent: Apply<'subagent'> = (fold, row) => {
   }
 }
 
-/** A turn's end abandons the spawns it never bound; a scope still waiting on
- *  one is a subagent of its own after all. */
 export function endSubagents(fold: FeedFold, row: LedgerRow) {
   for (const id of fold.facts.liveSubagents) {
     const card = fold.item<SubagentItem>(id)
-    // Only a starting card may be abandoned; an earlier turn's were at its end.
     if (card) moveTo(fold, card, 'abandoned', row.at)
   }
   for (const [scope, pending] of Object.entries(fold.facts.pendingScopes)) {
@@ -211,7 +199,6 @@ export function endSubagents(fold: FeedFold, row: LedgerRow) {
   }
 }
 
-/** The CLI that ran them is gone. */
 export function interruptSubagents(fold: FeedFold, row: LedgerRow) {
   for (const id of fold.facts.liveSubagents) {
     const card = fold.item<SubagentItem>(id)
@@ -219,7 +206,6 @@ export function interruptSubagents(fold: FeedFold, row: LedgerRow) {
   }
 }
 
-/** Recorded once at the turn's end, it reads above the turn's reply. */
 export const applyReasoning: Apply<'reasoning'> = (fold, row) => {
   if (row.scope) return
   const { messageId, text } = row.body
@@ -240,7 +226,6 @@ export const applyReasoning: Apply<'reasoning'> = (fold, row) => {
   if (!fold.placed(id)) fold.placeAbove(id, row.turnId ?? '')
 }
 
-/** The newest main plan of a turn, kept unplaced until the turn ends. */
 export function notePlan(fold: FeedFold, row: LedgerRow<'plan'>) {
   if (row.scope || !row.turnId) return
   const id = planItemId(row.turnId)
@@ -255,7 +240,6 @@ export function notePlan(fold: FeedFold, row: LedgerRow<'plan'>) {
   fold.put(snapshot)
 }
 
-/** The turn's end leaves its plan in the transcript and ends the live one. */
 export function endPlan(fold: FeedFold, turnId: string) {
   const id = planItemId(turnId)
   if (fold.item(id) && !fold.placed(id)) fold.place(id, '')

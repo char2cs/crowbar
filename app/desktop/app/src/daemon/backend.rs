@@ -1,6 +1,3 @@
-//! What the shell tells the user about its backend: develop's connection toast, the
-//! supervisor's restart and wedge toasts, and the crash-loop panel.
-
 mod backend_status;
 mod backend_watch;
 mod connection_notice;

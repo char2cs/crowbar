@@ -1,6 +1,3 @@
-//! A movable record as one item of develop's sortable list: lifted at 40%, the others make room.
-//! Spec: web/src/features/settings/components/tabs/sortable-provider-row.tsx.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Div, InteractiveElement, IntoElement, Stateful, StatefulInteractiveElement,

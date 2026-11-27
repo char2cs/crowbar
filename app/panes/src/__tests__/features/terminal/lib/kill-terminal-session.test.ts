@@ -13,7 +13,6 @@ beforeEach(() => {
 })
 
 describe('killTerminalSession', () => {
-  // Closing a terminal tab must terminate the backend PTY, or shells leak.
   it('closes the backend connection for the session and drops the store entry', async () => {
     useTerminalStore.getState().updateSession('tab-1', { connectionId: 'pty-42' })
 

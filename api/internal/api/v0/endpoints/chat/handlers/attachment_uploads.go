@@ -10,15 +10,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// A chunked upload is the single-shot upload cut into acknowledged pieces, so a client can report
-// the bytes the daemon holds and resume after a failure. The client-minted attachment id names the upload.
-
 type receivedDTO struct {
 	Received int64 `json:"received"`
 }
 
-// BeginAttachmentUpload handles POST .../chats/:id/attachments/uploads {"id","fileName","size"}; it
-// answers the bytes already held, nonzero when the id resumes an interrupted upload.
 func (h *Handlers) BeginAttachmentUpload(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -41,7 +36,6 @@ func (h *Handlers) BeginAttachmentUpload(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, receivedDTO{Received: received})
 }
 
-// AppendAttachmentUpload handles PUT .../uploads/:uploadId?offset=N with the chunk as the raw body.
 func (h *Handlers) AppendAttachmentUpload(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -61,7 +55,6 @@ func (h *Handlers) AppendAttachmentUpload(ctx *gin.Context) {
 	libs.WriteQueryOK(ctx, receivedDTO{Received: received})
 }
 
-// CompleteAttachmentUpload handles POST .../uploads/:uploadId/complete {"fileName","size"}.
 func (h *Handlers) CompleteAttachmentUpload(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {
@@ -86,7 +79,6 @@ func (h *Handlers) CompleteAttachmentUpload(ctx *gin.Context) {
 	})
 }
 
-// AbortAttachmentUpload handles DELETE .../uploads/:uploadId.
 func (h *Handlers) AbortAttachmentUpload(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {

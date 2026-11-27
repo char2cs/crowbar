@@ -11,8 +11,6 @@ import type { FileEntry } from '@/features/file-system/types/app'
 
 const SEARCH_DEBOUNCE_MS = 80
 
-/** The tree's filter box: open state, the debounced query, the narrowed tree, and its openers
- *  (the `file-tree-open-search` window event, Cmd/Ctrl+F while the tree is on screen). */
 export function useTreeSearch({
   workspaceId,
   filteredFiles,
@@ -66,9 +64,6 @@ export function useTreeSearch({
     return () => window.removeEventListener('file-tree-open-search', open)
   }, [])
 
-  // Cmd/Ctrl+F when focus is elsewhere (opening a file moves it into Monaco). The container's own
-  // onKeyDown handles the chord first; the visibility check keeps a folded or scrolled-away tree
-  // (Files and Git both stay mounted in the sidebar carousel) from stealing it.
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
@@ -82,9 +77,6 @@ export function useTreeSearch({
     return () => document.removeEventListener('keydown', handleGlobalKeyDown)
   }, [containerRef])
 
-  // While searching, expand every directory so the lazy loader fetches their
-  // children — otherwise files in unexpanded dirs are invisible to the search.
-  // The pre-search expansion is restored when the query clears.
   useEffect(() => {
     const wsId = workspaceId ?? ''
     const store = useFileTreeStore.getState()
@@ -114,8 +106,6 @@ export function useTreeSearch({
 
 export type TreeSearch = ReturnType<typeof useTreeSearch>
 
-/** The search cursor, derived: its own path while on a match, else the first match (scrolled
- *  into view). Enter / Shift+Enter step through matches; closing keeps the cursor where shown. */
 export function useTreeSearchNavigation({
   search,
   visibleRows,

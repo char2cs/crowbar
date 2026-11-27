@@ -83,7 +83,6 @@ function openMenu() {
 }
 
 describe('AgentSelectionPicker', () => {
-  // The open state is shared by chat id: a test leaving the menu open would toggle it shut next.
   afterEach(() => {
     const trigger = screen.queryByRole('button', { name: /Agent:/ })
     if (trigger?.getAttribute('aria-expanded') === 'true') fireEvent.click(trigger)
@@ -137,7 +136,6 @@ describe('AgentSelectionPicker', () => {
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
 
-    // sonnet declares high — the current effort survives the pick unchanged.
     expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith('claude', 'sonnet', 'high')
   })
 
@@ -147,19 +145,15 @@ describe('AgentSelectionPicker', () => {
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
 
-    // sonnet has no xhigh — lands on sonnet's own first declared level.
     expect(onSelectionChange).toHaveBeenCalledWith('claude', 'sonnet', 'low')
   })
 
-  // A cross-provider pick stages like any other; the switch happens server-side
-  // with the next send, never live on the click.
   it('picking a model on a DIFFERENT provider only stages it — no live switch, nothing async', () => {
     const onSelectionChange = vi.fn()
     draw({ onSelectionChange })
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'gpt-5.6-sol' }))
 
-    // gpt-5.6-sol declares high too, so the current effort survives the pick.
     expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-sol', 'high')
   })
 
@@ -192,18 +186,15 @@ describe('AgentSelectionPicker', () => {
     expect(within(effortSection).getByText('Ultra')).toBeInTheDocument()
   })
 
-  // An undeclared effort must not clamp to "Low": nobody picked that level.
   it('draws no thumb/fill for an effort the current model does not declare', () => {
     draw({ provider: codex, model: 'gpt-5.6-sol', effort: 'Default' })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
     expect(slider).not.toHaveAttribute('aria-valuenow')
     expect(slider.querySelector('.bg-primary')).not.toBeInTheDocument()
-    // A real pick is still possible; only nothing is highlighted as chosen.
     expect(screen.getByRole('button', { name: 'Low' })).toBeInTheDocument()
   })
 
-  // '' is "the provider's default": with that default stated, the slider shows the level it is.
   it("places the thumb on the model's stated default effort when none is chosen", () => {
     const onSelectionChange = vi.fn()
     const withDefault: AgentProvider = { ...codex, defaultEfforts: { 'gpt-5.6-sol': 'medium' } }
@@ -222,14 +213,11 @@ describe('AgentSelectionPicker', () => {
     expect(onSelectionChange).toHaveBeenLastCalledWith('codex', 'gpt-5.6-sol', 'high')
   })
 
-  // Tracking rides `window` pointer listeners, not Pointer Capture, which throws
-  // in WKWebView; so moves fire on `window` and capture is never stubbed.
   it('is an actually-draggable slider, not just a click-to-jump bar', () => {
     const onSelectionChange = vi.fn()
     draw({ effort: 'low', onSelectionChange })
     openMenu()
     const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
-    // opus: low, medium, high, xhigh, max — 5 stops across the track width.
     slider.getBoundingClientRect = () =>
       ({ left: 0, right: 100, width: 100, top: 0, bottom: 0, height: 0 }) as DOMRect
 
@@ -243,7 +231,6 @@ describe('AgentSelectionPicker', () => {
     expect(onSelectionChange).toHaveBeenLastCalledWith('claude', 'opus', 'high')
 
     fireEvent.pointerUp(window, { pointerId: 1 })
-    // A move AFTER release must not keep tracking.
     fireEvent.pointerMove(window, { clientX: 0, pointerId: 1 })
     expect(onSelectionChange).toHaveBeenLastCalledWith('claude', 'opus', 'high')
   })
@@ -282,8 +269,6 @@ describe('AgentSelectionPicker', () => {
     }
   })
 
-  // `efforts['']` is the backend's levels for an unselected model, so the raw
-  // unset model ('') must find it, where a baked-in label would not.
   it("finds the provider's own '' entry and draws the slider when no model is confirmed yet", () => {
     const withDefaultEfforts: AgentProvider = {
       ...claude,
@@ -302,14 +287,12 @@ describe('AgentSelectionPicker', () => {
     expect(within(effortSection).getByText('Medium')).toBeInTheDocument()
   })
 
-  // Without an '' entry there are no levels until a model is picked: absent, not disabled.
   it('renders no slider for an unconfirmed model when the provider declares no own-default entry', () => {
     draw({ model: '', effort: '' })
     openMenu()
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()
   })
 
-  // `reportedModel` names which model answered; it is display-only, never the selection.
   it('names the provider-reported model, not the unset label, when nothing is explicitly picked', () => {
     draw({ model: '', effort: '', reportedModel: 'Claude Sonnet 4.5' })
     const trigger = screen.getByRole('button', { name: /Agent:/ })
@@ -326,8 +309,6 @@ describe('AgentSelectionPicker', () => {
     expect(trigger).toHaveAccessibleName('Agent: Claude, model opus, effort high')
   })
 
-  // The report must not stand in for the '' model: the slider still finds
-  // `efforts['']`, and a pick stages the raw '' model.
   it("a reported model does not break the unset model's own efforts[''] slider or leak into a pick", () => {
     const withDefaultEfforts: AgentProvider = {
       ...claude,
@@ -380,7 +361,6 @@ describe('AgentSelectionPicker', () => {
       return onSelectionChange
     }
 
-    // The menu is a native sheet there: the page hands it the catalogue and draws no popover.
     it('opens the native picker with the catalogue, and no menu of its own', async () => {
       renderPhone()
       openMenu()

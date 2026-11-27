@@ -11,24 +11,17 @@ import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
 import { documentRefOf, documentUri } from '@/features/editor/documents/document-ref'
 import { clearDraft } from '@/features/editor/documents/draft-store'
 import { getEditorHost } from '@/features/editor/host/editor-host'
-// Leaf module (zustand only, no Plate) — a static import keeps the rich
-// editor's chunk out of the base bundle while still releasing the buffer's
-// rich/source preference synchronously.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { report } from '@/lib/errors/report'
 import { browserApi } from '@/lib/browser-bridge'
 import { unregisterWebview } from '@/features/browser/lib/webview-registry'
 
-/** The slice of window-pane state buffer ownership reads and writes. */
 export interface BufferOwnershipState {
   panes: Record<string, Pick<PaneGroup, 'editorTabIds'>>
   buffers: PaneContent[]
   closedBuffersHistory: ClosedBuffer[]
 }
 
-/** C2: a buffer exists only while some pane lists it. Drops the rest (file ones into the reopen
- *  history) and returns them for disposeBuffers. Runs in the same `set` as the pane write that
- *  unlisted them, so no observer sees an orphan. */
 export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneContent[] {
   if (!Array.isArray(state.buffers) || state.buffers.length === 0) return []
   const referenced = new Set<string>()
@@ -40,7 +33,6 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
   for (const buf of state.buffers) (referenced.has(buf.id) ? kept : released).push(buf)
   if (released.length === 0) return released
   state.buffers = kept
-  // Detached copies: drafts are revoked once the recipe returns.
   const detached = released.map((buf) => (isDraft(buf) ? current(buf) : buf))
   if (!Array.isArray(state.closedBuffersHistory)) return detached
   for (const buf of released) {
@@ -59,15 +51,11 @@ export function releaseUnreferencedBuffers(state: BufferOwnershipState): PaneCon
   return detached
 }
 
-/** An editor buffer's document closes with it: its model and undo history go. */
 function releaseDocumentOf(buf: PaneContent): void {
   if (!isEditorContent(buf) || !buf.path) return
   getEditorHost()?.documents.release(documentUri(documentRefOf(buf)))
 }
 
-/** Frees what a released buffer held outside the store: a terminal's PTY (never in the reopen
- *  history, so it dies here or leaks), a webview, an editor's document (model, undo, draft),
- *  blame data and the markdown view preference. */
 export function disposeBuffers(released: readonly PaneContent[]): void {
   for (const buf of released) {
     if (buf.type === 'terminal') {
@@ -77,7 +65,6 @@ export function disposeBuffers(released: readonly PaneContent[]): void {
       )
     }
     releaseDocumentOf(buf)
-    // A tab that was never shown has no webview to close.
     const webview = buf.type === 'browser' ? unregisterWebview(buf.id) : undefined
     if (webview) {
       void webview
@@ -100,7 +87,6 @@ async function stopTerminal(sessionId: string, workspaceId: string): Promise<voi
     import('@/features/terminal/lib/kill-terminal-session'),
     import('@/features/terminal/lib/terminal-reconnect-map'),
   ])
-  // A later tab reusing this sessionId must not pick up the dead connection.
   clearReconnect(workspaceId, sessionId)
   await killTerminalSession(sessionId)
 }

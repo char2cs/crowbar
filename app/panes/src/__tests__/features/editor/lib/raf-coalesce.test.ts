@@ -1,19 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRafCoalescer } from '@/features/editor/lib/raf-coalesce'
 
-/**
- * The cursor/selection sync primitive. The load-bearing guarantee: a BURST of
- * `schedule()` calls (one per cursor move / keystroke) collapses into exactly
- * ONE trailing flush per animation frame — so N keystrokes produce ≤1 store
- * write per frame instead of N. The task reads live state at flush time, so the
- * single flush always reflects the final position of the burst.
- */
 describe('createRafCoalescer', () => {
   let frame: (() => void) | null
 
   beforeEach(() => {
     frame = null
-    // Deterministic rAF: capture the callback; tests drive it via `runFrame`.
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       frame = () => cb(0)
       return 1
@@ -38,7 +30,6 @@ describe('createRafCoalescer', () => {
     const task = vi.fn()
     const coalescer = createRafCoalescer(task)
 
-    // Simulate a 10-keystroke burst within a single frame.
     for (let i = 0; i < 10; i++) coalescer.schedule()
     expect(task).not.toHaveBeenCalled()
 
@@ -82,7 +73,6 @@ describe('createRafCoalescer', () => {
     coalescer.flush()
     expect(task).toHaveBeenCalledTimes(1)
 
-    // The frame was cleared, so running it is a no-op.
     runFrame()
     expect(task).toHaveBeenCalledTimes(1)
   })
@@ -104,16 +94,7 @@ describe('createRafCoalescer', () => {
     expect(task).not.toHaveBeenCalled()
   })
 
-  /**
-   * `minIntervalMs` is what takes the cursor/selection sync off the pointer-move
-   * firehose of a Monaco drag-select: while it returns > 0 the trailing flush
-   * runs at most that often instead of once per frame. It is read at SCHEDULE
-   * time, so the same coalescer is per-frame outside the gesture and throttled
-   * inside it, with no second instance to keep in step.
-   */
   describe('minIntervalMs throttle', () => {
-    // Hand-driven clock + timer queue, in the same spirit as the rAF stub above:
-    // the throttle is a function of elapsed time, so the test owns both.
     let clock: number
     let timers: Array<{ id: number; at: number; fn: () => void } | null>
 
@@ -149,24 +130,19 @@ describe('createRafCoalescer', () => {
       const task = vi.fn()
       const coalescer = createRafCoalescer(task, { minIntervalMs: () => (dragging ? 100 : 0) })
 
-      // First schedule of the gesture: nothing has run yet, so it takes the
-      // frame path and lands on the next frame.
       coalescer.schedule()
       runFrame()
       expect(task).toHaveBeenCalledTimes(1)
 
-      // A burst spanning 90ms — one schedule per 10ms, all inside the interval.
       for (let i = 0; i < 9; i++) {
         coalescer.schedule()
         advance(10)
       }
       expect(task).toHaveBeenCalledTimes(1)
 
-      // The ONE held flush lands when the interval is up — not nine of them.
       advance(20)
       expect(task).toHaveBeenCalledTimes(2)
 
-      // Gesture over: straight back to the per-frame path.
       dragging = false
       coalescer.schedule()
       runFrame()
@@ -183,13 +159,12 @@ describe('createRafCoalescer', () => {
       expect(task).toHaveBeenCalledTimes(1)
 
       advance(10)
-      coalescer.schedule() // held behind the interval
+      coalescer.schedule()
       expect(task).toHaveBeenCalledTimes(1)
 
       coalescer.flush()
       expect(task).toHaveBeenCalledTimes(2)
 
-      // The held timer was cleared, not merely pre-empted.
       advance(500)
       expect(task).toHaveBeenCalledTimes(2)
     })

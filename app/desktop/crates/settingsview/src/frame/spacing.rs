@@ -1,5 +1,3 @@
-//! The spacing scale shared by the views of the modal.
-
 use gpui::{Pixels, px};
 
 pub(crate) const HAIRLINE: Pixels = px(2.0);

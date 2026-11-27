@@ -1,5 +1,3 @@
-//! Conversion between UTF-8 byte offsets and the UTF-16 offsets of the platform input protocol.
-
 use std::ops::Range;
 
 use super::Buffer;

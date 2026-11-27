@@ -1,6 +1,5 @@
 import { useCallback } from 'react'
 
-/** How long something has run, the one way the chat writes it: `58s`, `1m 42s`, `1h 05m`. */
 export function formatClock(seconds: number): string {
   const safe = Math.max(0, Math.floor(seconds))
   if (safe < 60) return `${safe}s`
@@ -18,8 +17,6 @@ function write(el: HTMLElement, clock: { since: number; format: (seconds: number
 
 const tick = () => clocks.forEach((clock, el) => write(el, clock))
 
-/** Writes the time since `since` into `el` every second, with no React render;
- *  one interval serves every clock on the page. Returns the clock's stop. */
 function startClock(
   el: HTMLElement,
   since: number,
@@ -37,7 +34,6 @@ function startClock(
   }
 }
 
-/** A ref that runs a clock from `since` (an ISO time) while its element is mounted. */
 export function useTextClock(since: string | undefined, format?: (seconds: number) => string) {
   return useCallback(
     (el: HTMLElement | null) => {

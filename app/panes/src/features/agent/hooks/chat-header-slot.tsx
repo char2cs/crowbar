@@ -9,15 +9,12 @@ interface ChatHeaderSlot {
 
 const ChatHeaderSlotContext = createContext<ChatHeaderSlot | null>(null)
 
-/** One per pane: the header row and the surface below it are siblings, so the
- *  surface reaches the row's slot through this rather than a second copy of its state. */
 export function ChatHeaderSlotProvider({ children }: { children: ReactNode }) {
   const [element, setElement] = useState<HTMLElement | null>(null)
   const value = useMemo(() => ({ element, setElement }), [element, setElement])
   return <ChatHeaderSlotContext value={value}>{children}</ChatHeaderSlotContext>
 }
 
-/** Where a header row lets the chat surface draw its own controls. */
 export function ChatHeaderSlot() {
   const slot = use(ChatHeaderSlotContext)
   return (
@@ -28,7 +25,6 @@ export function ChatHeaderSlot() {
   )
 }
 
-/** The mounted header slot, or null when this pane has no header row to host one. */
 export function useChatHeaderSlotElement(): HTMLElement | null {
   return use(ChatHeaderSlotContext)?.element ?? null
 }

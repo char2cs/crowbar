@@ -1,5 +1,3 @@
-//! Input toward the program: keys, mouse, paste, dropped paths, scrolling and the pixel to cell geometry.
-
 mod dropped_paths;
 mod geometry;
 mod keyboard;

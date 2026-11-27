@@ -33,9 +33,6 @@ const shared = {
 }
 
 describe('TabBarItem', () => {
-  // Spec §7.1: there is no "Editor"/New Tab placeholder tab any more — the
-  // sole-tab-in-a-pane invariant (isUncloseable) now applies to any real
-  // editor-tab content, exercised here with a plain editor buffer.
   it('renders an uncloseable tab with its label and no close button', () => {
     const buffer: EditorContent = { ...editorBuffer, isUncloseable: true }
     render(<TabBarItem buffer={buffer} isActive {...shared} />)
@@ -50,7 +47,6 @@ describe('TabBarItem', () => {
   })
 })
 
-// A locked branch's file says so on its tab before the user types, not only when a save fails.
 describe('TabBarItem on a locked workspace', () => {
   it('marks the tab read-only', () => {
     seedRepos([

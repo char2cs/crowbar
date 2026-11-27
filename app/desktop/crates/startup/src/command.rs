@@ -1,12 +1,9 @@
 use ui::{ButtonVariant, IconName};
 
-/// What the user can ask of the shell from the halt gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Command {
-    /// Show the daemon log.
     OpenLog,
-    /// Quit Crowbar.
     Quit,
 }
 

@@ -1,5 +1,3 @@
-//! The transport's registry and token store, seen as the host book pairing works against.
-
 use std::sync::Arc;
 
 use protocol::HostId;

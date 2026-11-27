@@ -12,7 +12,6 @@ import type { Project, WorkspaceDTO } from '@/lib/types'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 
-/** A project's home chats and folders. */
 export interface HomeTree {
   chats: Chat[]
   folders: Folder[]
@@ -22,16 +21,12 @@ export const EMPTY_CHATS: Chat[] = []
 export const EMPTY_FOLDERS: Folder[] = []
 export const EMPTY_HOME_TREE: HomeTree = { chats: EMPTY_CHATS, folders: EMPTY_FOLDERS }
 
-/** The sidebar as the entity store holds it, in the shapes its readers draw. */
 export interface SidebarViews {
   projects: Project[]
   repos: Repo[]
   homeTrees: Record<string, HomeTree>
-  /** Every chat as the chat surfaces read it, by id. */
   chats: Record<string, AgentChat>
-  /** runner id → the chat it runs. */
   byRunner: Record<string, string>
-  /** The projects scope's snapshot has landed. */
   synced: boolean
 }
 
@@ -43,7 +38,6 @@ function hostRank(hostId: string): number {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index
 }
 
-/** Grouped by host (each daemon numbers only its own projects), then as that daemon orders them. */
 function byOrder(a: Project, b: Project): number {
   const h = hostRank(a.hostId) - hostRank(b.hostId)
   if (h !== 0) return h
@@ -67,7 +61,6 @@ function sidebarChat(chat: ChatEntity, owners: ReadonlyMap<string, string>): Cha
   })
 }
 
-// One AgentChat per chat record, so a chat whose row did not change keeps its object.
 const agentChats = new WeakMap<object, AgentChat>()
 
 function agentChatOf(record: { data: ChatEntity }): AgentChat {
@@ -83,8 +76,6 @@ function isSameRow<T extends object>(existing: T, incoming: T): boolean {
   )
 }
 
-/** `incoming`, keeping each row of `existing` it matches field for field, and `existing`
- *  itself when nothing changed: a frame for one row re-renders that row alone. */
 function reconcileRows<T extends { id: string }>(existing: readonly T[], incoming: T[]): T[] {
   const byId = new Map(existing.map((row) => [row.id, row]))
   const next = incoming.map((row) => {
@@ -163,7 +154,6 @@ function derive(k: ByKind, synced: boolean): SidebarViews {
     if (data.repoId) repoChats.push(row)
     else home(data.projectId).chats.push(row)
   }
-  // A twin (one id on two hosts, as a copied database makes) is drawn once, at its first host.
   const seen = new Set<string>()
   const projects = Object.values(k.project)
     .map((r) => r.data)
@@ -187,7 +177,6 @@ function derive(k: ByKind, synced: boolean): SidebarViews {
 
 let memo: { key: unknown[]; views: SidebarViews } | undefined
 
-/** The sidebar's views of `s`, the same object until a kind they read changes. */
 export function viewsFromEntities(s: EntityState): SidebarViews {
   const k = s.byKind
   const hosts = useHostConfigStore.getState().hosts

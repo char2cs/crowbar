@@ -1,5 +1,3 @@
-//! Pixel and ratio constants of the sidebar.
-
 pub(crate) const DEFAULT_WIDTH: f32 = 294.0;
 pub(crate) const MIN_WIDTH: f32 = 250.0;
 pub(crate) const MAX_WIDTH: f32 = 640.0;

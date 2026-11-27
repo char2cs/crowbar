@@ -17,8 +17,6 @@ import { ShellRichEditor } from './shell-rich-editor'
 
 type Shell = Pick<PaneClient, 'editDocument' | 'showSource' | 'saveDocument'>
 
-/** A file pane's page: the rich view of its Markdown document, or the preview of a Markdown or
- *  HTML document, over the text the shell sends. The shell decides which one the pane shows. */
 export function DocumentPaneHost({ client }: { client: Shell }) {
   const chatId = useStore(bufferSession, (s) => s.chatId)
   const saved = useStore(bufferSession, (s) => s.saved)

@@ -10,8 +10,6 @@ import { userWords } from '@/lib/errors/report'
 
 const stop = () => treeUiStore.getState().stopBranching()
 
-/** A thread's title turned, in place, into the input naming the branch Make a branch cuts: Enter
- *  asks the daemon, which refuses a name it cannot take while the input stays open to fix it. */
 export function BranchOutInput({ row }: { row: SidebarRow }) {
   const metrics = useRowMetrics()
   const errorId = useId()

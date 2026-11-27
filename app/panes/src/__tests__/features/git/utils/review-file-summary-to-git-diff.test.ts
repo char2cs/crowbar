@@ -16,7 +16,6 @@ describe('reviewFilesSummaryToChangedFiles', () => {
     const b = reviewFilesSummaryToChangedFiles(undefined)
     const c = reviewFilesSummaryToChangedFiles(null)
     expect(a).toEqual([])
-    // Same reference each call (stable-empty rule) so consumers don't churn.
     expect(a).toBe(b)
     expect(b).toBe(c)
   })

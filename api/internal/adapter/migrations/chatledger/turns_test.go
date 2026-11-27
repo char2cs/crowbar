@@ -46,8 +46,6 @@ func TestConvertChat_AnInferredInterruptionOfATurnThatEndedIsRestatedByThatEnd(t
 	assert.Equal(t, ledger.ReasonDaemonRestart, ends[1].Reason, "the turn with no reply still ends")
 }
 
-// A stopped reply the CLI finished after the next prompt keeps its place: the
-// next turn begins after it ends.
 func TestConvertChat_ATurnBeginsAfterTheOneBeforeItEnds(t *testing.T) {
 	in := chatA()
 	in.Turns[1].EndedAt = ptr(at(10, 5, 30))
@@ -93,8 +91,6 @@ func TestConvertChat_AReplyEndsTheTurnAsItsStatusSays(t *testing.T) {
 	}
 }
 
-// A reply the old daemon kept with no prompt before it (the CLI's own turn)
-// is a turn of its own; a notice between turns is what the CLI told its user.
 func TestConvertChat_AReplyWithNoPromptIsATurnAndANoticeOutsideOneAMarker(t *testing.T) {
 	in := chatB()
 	in.Turns = in.Turns[1:2]
@@ -108,8 +104,6 @@ func TestConvertChat_AReplyWithNoPromptIsATurnAndANoticeOutsideOneAMarker(t *tes
 	assert.Equal(t, []ledger.Marker{{Kind: ledger.MarkerNotification, Detail: "rate limited"}}, bodies[ledger.Marker](t, res, ledger.KindMarker))
 }
 
-// A reply row the old daemon kept with no id still restates: its message is
-// named by its seq, as its turn is.
 func TestConvertChat_AReplyWithNoIDIsNamedByItsSeq(t *testing.T) {
 	in := chatB()
 	in.Turns[1].ID = ""
@@ -119,8 +113,6 @@ func TestConvertChat_AReplyWithNoIDIsNamedByItsSeq(t *testing.T) {
 	assert.Equal(t, "seq-2", bodies[ledger.AssistantText](t, res, ledger.KindAssistantText)[0].MessageID)
 }
 
-// A notice the old daemon kept before any turn, whose id a journalled prompt
-// names, is a marker; the prompt is still restated as one never delivered.
 func TestConvertChat_ANoticeBeforeAnyTurnNamedByAPromptIsAMarker(t *testing.T) {
 	in := chatB()
 	in.Turns[0].Role = roleNotice

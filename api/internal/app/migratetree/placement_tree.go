@@ -13,12 +13,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// namedInHalt caps how many ids a failed Verify names.
 const namedInHalt = 10
 
-// PlacementTreeImpl copies every retired placement record into its project's
-// Tree, a project per checkpoint. It deletes nothing, so a rolled-back daemon
-// still reads the records it left.
 func PlacementTreeImpl(ports *repotree.Ports, src LegacySources) migrate.Impl {
 	return migrate.Impl{
 		Apply: func(ctx context.Context, _ migrate.Env, cp *migrate.Checkpoints) (migrate.Counts, error) {
@@ -61,8 +57,6 @@ func seedAll(ctx context.Context, ports *repotree.Ports, h LegacyHome, cp *migra
 	return nil
 }
 
-// verify checks every record the conversion names is held by a Tree and no
-// held row hangs off a parent nothing names.
 func verify(ctx context.Context, ports *repotree.Ports, h LegacyHome) error {
 	want, _ := convert(h)
 	ids := []string{tree.Unplaced}
@@ -153,9 +147,6 @@ func mapKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// convert files every record in its project's Tree at its legacy parent and order;
-// an orphan hangs at its scope's root and a position row without a record is dropped.
-// It returns the trees by project and, per tree, the rows re-hung and dropped.
 func convert(h LegacyHome) ([]tree.Tree, map[string]map[string]int) {
 	pl := newPlacer(h)
 	trees := map[string]tree.Tree{}
@@ -213,8 +204,6 @@ func convert(h LegacyHome) ([]tree.Tree, map[string]map[string]int) {
 	return out, tally
 }
 
-// oldestProject is the project whose home was made first: a project keeps no
-// creation time of its own, and its home is made with it.
 func oldestProject(h LegacyHome) string {
 	var oldest *domain.Workspace
 	for i := range h.Workspaces {
@@ -233,9 +222,6 @@ func oldestProject(h LegacyHome) string {
 	return oldest.ProjectID
 }
 
-// placer names each record's project by the rules the live Locator follows: a
-// workspace and a repo directly, a chat through its workspace, a folder through
-// its repo or home, and anything else through its parent.
 type placer struct {
 	wsProject, repoProject, chatWS, homeOf map[string]string
 	parent                                 map[string]string
@@ -287,8 +273,6 @@ func newPlacer(h LegacyHome) *placer {
 	return pl
 }
 
-// positionsALiveRecord is whether n's chat, workspace, repo or folder still
-// exists: a delete that finished before the step leaves its row behind.
 func (pl *placer) positionsALiveRecord(n tree.Node) bool {
 	switch n.Kind {
 	case tree.KindChat:
@@ -307,8 +291,6 @@ func (pl *placer) positionsALiveRecord(n tree.Node) bool {
 	return true
 }
 
-// scopeLives is whether f's repo or home still exists; a legacy folder that
-// names neither is given a home later.
 func (pl *placer) scopeLives(f tree.Folder) bool {
 	if f.RepoID != "" {
 		_, ok := pl.repoProject[f.RepoID]
@@ -321,7 +303,6 @@ func (pl *placer) scopeLives(f tree.Folder) bool {
 	return true
 }
 
-// hang records id under parent; a Node row's parent wins over the chat's copy.
 func (pl *placer) hang(id, parent string) {
 	if parent == "" {
 		return
@@ -355,8 +336,6 @@ func (pl *placer) projectOf(id string, seen map[string]bool) string {
 	return ""
 }
 
-// homeNear is the home a legacy home folder's neighbours name: a chat above
-// or beneath it names its workspace, a folder its home, a repo its project's.
 func (pl *placer) homeNear(id string, seen map[string]bool) string {
 	seen[id] = true
 	for _, n := range append([]string{pl.parent[id]}, pl.children[id]...) {

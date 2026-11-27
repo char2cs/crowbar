@@ -13,8 +13,6 @@ import {
   seedRepos,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 
-// repo-1: its checkout ws-home (owned by home-row), branch ws-1 with a folder "Specs" under it,
-// a root folder "Bugs" and two threads; proj-1's home holds one chat.
 const REPO: Repo = {
   id: 'repo-1',
   projectId: 'proj-1',
@@ -63,8 +61,6 @@ beforeEach(() => {
   rows = [...homeRows('ws-proj', [homeChat], []), ...repoRows(REPO)]
 })
 
-// A chat lands in whatever workspace its container runs in; another than its own is a move there,
-// still addressed by the workspace it runs in now.
 describe('planRowDrop — a chat into another workspace', () => {
   it('moves a repo thread into a branch row, named by its branch', () => {
     expect(planRowDrop([row('root-thread')], row('ws-1'), 'into')).toEqual([

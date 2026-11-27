@@ -11,8 +11,6 @@ mod draft_file;
 pub use adapters::disk_draft_file::DiskDraftFile;
 pub use draft_file::DraftFile;
 
-/// The drafts of dirty documents, keyed by document, written through on each change, as
-/// develop's `IndexedDB` `editor-drafts` store.
 pub struct Drafts {
     file: Box<dyn DraftFile>,
     kept: BTreeMap<String, Draft>,
@@ -31,8 +29,6 @@ impl std::fmt::Debug for Drafts {
 }
 
 impl Drafts {
-    /// The drafts `file` holds, and why none could be read when it cannot be read or holds no
-    /// drafts: the drafts then start empty and the next draft kept replaces the file.
     pub fn open(file: Box<dyn DraftFile>) -> (Self, Option<std::io::Error>) {
         let (drafts, error) = match read_all(file.as_ref()) {
             Ok(drafts) => (drafts, None),
@@ -45,7 +41,6 @@ impl Drafts {
         (Self { file, kept }, error)
     }
 
-    /// The draft of `uri`, if one is kept.
     #[must_use]
     pub fn get(
         &self,
@@ -54,10 +49,6 @@ impl Drafts {
         self.kept.get(uri)
     }
 
-    /// Keeps `draft` in place of any earlier one of its document.
-    ///
-    /// # Errors
-    /// When the drafts file cannot be written; the draft is still kept for this run.
     pub fn keep(
         &mut self,
         draft: Draft,
@@ -69,11 +60,6 @@ impl Drafts {
         self.write()
     }
 
-    /// Drops every draft whose document is not in `held`: the drafts of tabs that were not
-    /// restored, as develop's `restoreDocuments` clears them.
-    ///
-    /// # Errors
-    /// When the drafts file cannot be written; the drafts are still dropped for this run.
     pub fn keep_only(
         &mut self,
         held: &std::collections::BTreeSet<String>,
@@ -86,10 +72,6 @@ impl Drafts {
         self.write()
     }
 
-    /// Drops the draft of `uri`: its document is clean or closed.
-    ///
-    /// # Errors
-    /// When the drafts file cannot be written.
     pub fn discard(
         &mut self,
         uri: &str,

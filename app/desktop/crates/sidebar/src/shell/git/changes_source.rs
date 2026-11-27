@@ -1,13 +1,8 @@
-//! What the Changes panel draws.
-
 use crate::shell::git::changes::Changes;
 use crate::shell::git::merge_box::MergeBox;
 
-/// What the Changes panel draws.
 pub trait ChangesSource {
-    /// What the Changes panel draws.
     fn changes(&self) -> Changes;
-    /// The merge box of the focused workspace, or `None` without a branch workspace.
     fn merge_box(&self) -> Option<MergeBox> {
         None
     }

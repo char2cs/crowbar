@@ -14,9 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// source is the legacy files held open for one conversion. It names every
-// legacy chat oldest first, then reads one chat at a time, so a home's whole
-// history is never in memory at once.
 type source struct {
 	h       home.Home
 	dbs     map[string]*sql.DB
@@ -27,7 +24,6 @@ type source struct {
 	written time.Time
 }
 
-// openSource opens the legacy databases read-only; a missing one is no rows.
 func openSource(ctx context.Context, h home.Home) (*source, error) {
 	s := &source{
 		h: h, dbs: map[string]*sql.DB{}, sel: map[string]string{}, byKey: map[string]bool{}, runners: map[string][]LegacyRunner{},
@@ -64,9 +60,6 @@ func (s *source) open(ctx context.Context) error {
 	return err
 }
 
-// addTable takes t on, as the columns its table has, when its database holds
-// it, and finds out whether a chat's rows can be looked up by the key the old
-// daemon gave each row.
 func (s *source) addTable(ctx context.Context, t legacyTable) error {
 	db := s.dbs[t.db]
 	if db == nil {
@@ -83,9 +76,6 @@ func (s *source) addTable(ctx context.Context, t legacyTable) error {
 	return err
 }
 
-// prefixKeyed reports whether every row of table is keyed <chat id>\x00<id>.
-// Only then does a range on the key find all of a chat's rows; a table any row
-// of which breaks the rule is read by chat id instead, which scans it.
 func prefixKeyed(ctx context.Context, db *sql.DB, table string) (bool, error) {
 	var hasKey int
 	if err := db.QueryRowContext(ctx,
@@ -106,7 +96,6 @@ func prefixKeyed(ctx context.Context, db *sql.DB, table string) (bool, error) {
 	return stray == 0, nil
 }
 
-// Close closes the legacy databases.
 func (s *source) Close() error {
 	var errs []error
 	for _, db := range s.dbs {
@@ -115,15 +104,11 @@ func (s *source) Close() error {
 	return errors.Join(errs...)
 }
 
-// chatKey is what orders a chat before it is read: its oldest record, and
-// whether a conversation of it has no time, which dated gives the files' own.
 type chatKey struct {
 	oldest  time.Time
 	undated bool
 }
 
-// ids lists every legacy chat, oldest first, as ConvertChat must meet them: an
-// older chat claims a session before a newer one. It keeps one key per chat.
 func (s *source) ids(ctx context.Context) ([]string, error) {
 	keys := map[string]*chatKey{}
 	fold := func(r *reader) {
@@ -172,7 +157,6 @@ func (s *source) ids(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// journals folds each chat's prompt journal, one chat at a time.
 func (s *source) journals(fold func(*reader)) error {
 	chatsDir := filepath.Join(s.h.Root(), "chats")
 	dirs, err := readDir(chatsDir)
@@ -192,7 +176,6 @@ func (s *source) journals(fold func(*reader)) error {
 	return nil
 }
 
-// load reads one chat's records.
 func (s *source) load(ctx context.Context, id string) (LegacyChat, error) {
 	r := &reader{chats: map[string]*LegacyChat{}}
 	r.chat(id)
@@ -216,7 +199,6 @@ func (s *source) load(ctx context.Context, id string) (LegacyChat, error) {
 	return dated(*r.chats[id], s.written), nil
 }
 
-// query runs SELECT t's columns FROM t WHERE where, handing each row to scan.
 func (s *source) query(
 	ctx context.Context, t legacyTable, where string, args []any, scan func(*sql.Rows) error,
 ) (err error) {
@@ -236,8 +218,6 @@ func (s *source) query(
 	return nil
 }
 
-// isDir reports whether path is a directory itself, not a link to one, as a
-// listing of its parent would say.
 func isDir(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.IsDir()

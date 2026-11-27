@@ -1,4 +1,3 @@
-// Thin imperative toast API over base-ui's toastManager; no store of its own.
 import { toastManager } from '@/lib/toast-manager'
 
 interface ShowOptions {

@@ -1,8 +1,5 @@
-//! A titled group of rows.
-
 use crate::schema::row::Row;
 
-/// Rows under a heading; the first section of a page usually hides its heading.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Section {
     pub(crate) title: String,
@@ -13,31 +10,26 @@ pub struct Section {
 }
 
 impl Section {
-    /// The heading text, also used for search when the heading is hidden.
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
-    /// Whether the heading is drawn.
     #[must_use]
     pub fn show_header(&self) -> bool {
         self.show_header
     }
 
-    /// The rows of the section, in order.
     #[must_use]
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }
 
-    /// The text under the heading, if any.
     #[must_use]
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
 
-    /// The paragraph under the rows, if any.
     #[must_use]
     pub fn note(&self) -> Option<&str> {
         self.note.as_deref()

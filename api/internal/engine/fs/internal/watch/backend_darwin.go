@@ -42,13 +42,8 @@ type event struct {
 	Op   op
 }
 
-// streamLatency is how long FSEvents coalesces after the first event of a
-// burst, which NoDefer delivers at once; the watcher debounces on top of it.
 const streamLatency = 0.05
 
-// fseventsBackend is one recursive FSEvents stream over the tree and git dirs, filtered
-// to what a per-directory watch would see, with no per-file descriptors or start walk.
-// Its callback writes events to a pipe one goroutine reads, so no Go runs on dispatch.
 type fseventsBackend struct {
 	spec   watchSpec
 	roots  []streamRoot
@@ -60,17 +55,12 @@ type fseventsBackend struct {
 	exited chan struct{}
 	once   sync.Once
 
-	// start is when the stream began; a file born earlier was not created by
-	// anything the stream reports.
 	start time.Time
 
-	// Owned by the reader goroutine.
 	skipped map[string]bool
 	inodes  map[string]inode
 }
 
-// streamRoot pairs a watched root as the caller spells it with the real path
-// FSEvents reports (macOS temp dirs sit behind the /var -> /private/var link).
 type streamRoot struct {
 	spelled string
 	real    string
@@ -104,7 +94,6 @@ func newBackend(
 
 	b.start = time.Now()
 	b.queue = C.watchQueueCreate()
-	// Fd puts the write end in blocking mode, which the C writer relies on.
 	b.stream = C.watchStreamStart(C.int(w.Fd()), C.CFArrayRef(cfPaths), streamLatency, b.queue)
 	if b.stream == nil {
 		C.watchQueueRelease(b.queue)
@@ -114,9 +103,6 @@ func newBackend(
 	return b, nil
 }
 
-// resolveRoots records every root's real path and returns the outermost ones:
-// a stream is recursive, so a main worktree's .git needs no root of its own. An
-// anchor is a root because a stream reports a rename of its root, not of an ancestor.
 func (b *fseventsBackend) resolveRoots() []string {
 	paths := append(append([]string{b.spec.tree}, b.spec.gitDirs...), b.spec.anchors...)
 	for _, p := range paths {
@@ -158,18 +144,14 @@ func (b *fseventsBackend) events() <-chan event {
 	return b.out
 }
 
-// errors is nil: a stream reports trouble as MustScanSubDirs events instead.
 func (b *fseventsBackend) errors() <-chan error {
 	return nil
 }
 
-// created and removed are no-ops: the stream is recursive.
 func (b *fseventsBackend) created(context.Context, string) {}
 
 func (b *fseventsBackend) removed(string) {}
 
-// close stops the stream, then closes the pipe's write end; the reader keeps draining
-// until EOF so a callback blocked on a full pipe can always finish. Later calls return nil.
 func (b *fseventsBackend) close() error {
 	var err error
 	b.once.Do(func() {
@@ -183,8 +165,6 @@ func (b *fseventsBackend) close() error {
 	return err
 }
 
-// read decodes the pipe's records (flags, path length, path) until EOF, then
-// closes the events channel.
 func (b *fseventsBackend) read() {
 	defer close(b.exited)
 	defer close(b.out)
@@ -216,8 +196,6 @@ func (b *fseventsBackend) deliver(
 	}
 }
 
-// spelled maps a reported real path back onto the caller's spelling of the
-// root it lies under, so relative paths and git-dir matching keep working.
 func (b *fseventsBackend) spelled(
 	path string,
 ) string {
@@ -236,9 +214,6 @@ func (b *fseventsBackend) spelled(
 	return b.roots[best].spelled + path[len(b.roots[best].real):]
 }
 
-// wanted reports whether a per-directory watch over spec would see path: anything in a
-// ref tree, a git dir's direct entries, an anchor itself, and working-tree entries whose
-// every ancestor survives spec.skip. A stream rooted at one file reports that file alone.
 func (b *fseventsBackend) wanted(
 	path string,
 ) bool {
@@ -278,8 +253,6 @@ func (b *fseventsBackend) wanted(
 	return true
 }
 
-// skipDir memoises spec.skip; the ignore matcher it consults never re-reads a
-// gitignore either, so a cached answer cannot go stale.
 func (b *fseventsBackend) skipDir(
 	dir string,
 ) bool {
@@ -291,9 +264,6 @@ func (b *fseventsBackend) skipDir(
 	return skip
 }
 
-// opFor maps a stream's flags onto fsnotify ops. FSEvents reports a path's history,
-// not the edge, so a gone path is a removal or move away, and an existing one counts as
-// created only when this stream first sees that inode there.
 func (b *fseventsBackend) opFor(
 	name string,
 	flags uint32,
@@ -334,7 +304,6 @@ func (b *fseventsBackend) opFor(
 	return o
 }
 
-// inode identifies the file at a path: its number and when it was born.
 type inode struct {
 	ino  uint64
 	born time.Time

@@ -1,5 +1,3 @@
-//! Requests to one daemon host through the shell's transport.
-
 mod call;
 mod decode;
 mod envelope;
@@ -21,9 +19,6 @@ use tokio::sync::oneshot;
 
 use crate::error::{Error, Result};
 
-/// Sends [`Call`]s to one daemon host through the shell's transport.
-///
-/// Every request goes out with the core origin; a clone shares the transport.
 #[derive(Clone)]
 pub struct Client {
     transport: Arc<dyn DaemonTransport>,
@@ -43,7 +38,6 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
-    /// A client of `host` that sends its requests through `transport`.
     pub fn new(
         transport: Arc<dyn DaemonTransport>,
         host: HostId,
@@ -51,15 +45,6 @@ impl Client {
         Self { transport, host }
     }
 
-    /// Sends `call` and returns the `data` of the envelope the daemon answers with.
-    ///
-    /// An empty success answer is `null`.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Request`] when the call is malformed or the host unreachable,
-    /// [`Error::Refused`] when the daemon refuses it, and [`Error::Body`] when a success
-    /// answer is not an envelope.
     pub async fn send(
         &self,
         call: Call,
@@ -72,12 +57,6 @@ impl Client {
         Envelope::unwrap(&path, &response)
     }
 
-    /// Sends `call` and returns the raw body of the answer, not read as an envelope.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Request`] when the call is malformed or the host unreachable, and
-    /// [`Error::Refused`] when the daemon answers with an error status.
     pub async fn bytes(
         &self,
         call: Call,

@@ -1,5 +1,3 @@
-//! Identifiers shared by every crate: hosts, panes, spaces, commands, extensions and pane types.
-
 mod command_id;
 mod extension_id;
 mod host_id;

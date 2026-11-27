@@ -4,8 +4,6 @@ import type { ReviewFileEntry } from '@/features/git/lib/review-placeholder'
 import { cn } from '@/utils/cn'
 import ImageDiffViewer from './git-diff-image'
 
-/** Binaries in their own block: CodeView renders files and diffs, and a binary is neither. Rows
- *  start collapsed so fifty images neither decode nor blow the pane's height open. */
 export function ReviewBinaryFiles({ entries }: { entries: readonly ReviewFileEntry[] }) {
   return (
     <section
@@ -24,8 +22,6 @@ const BINARY_ROW_CLASS = 'flex w-full items-center gap-2 px-3 py-2 text-left ui-
 function ReviewBinaryFile({ entry }: { entry: ReviewFileEntry }) {
   const [open, setOpen] = useState(false)
 
-  // A non-image binary has nothing to disclose, so it is a row and not a
-  // control — a disabled button would announce itself as one that is broken.
   if (entry.kind !== 'image') {
     return (
       <div className="border-border/70 border-b last:border-b-0">

@@ -72,7 +72,7 @@ func newContainerDeps(
 		newTestAsynx(t, adapters.WorkspaceES(), workspace.Subscriber(rm.Workspace)),
 		newTestAsynx(t, adapters.AgentChatES(), agentchat.Subscriber(rm.AgentChat)),
 		testutil.Placements(t),
-		nil, // git conflict-checker not exercised by this test
+		nil,
 		noChatWatch,
 		func(context.Context, string, *domain.Workspace, error) {},
 	)
@@ -87,10 +87,6 @@ func newContainerDeps(
 	require.NoError(t, err)
 	providerPrefs, err := storesqlite.NewFromDB[domain.AgentProviderPreference, string](globalView)
 	require.NoError(t, err)
-	// Required since repo import became chat-first: adopting a repo now MINTS a
-	// chat, and minting one resolves the default permission level off this
-	// store. Left nil, the import panics rather than failing — which is what a
-	// container fixture that lies about its wiring buys you.
 	permissionDefaults, err := storesqlite.NewFromDB[domain.AgentPermissionDefault, string](globalView)
 	require.NoError(t, err)
 	terminalSessions, err := storesqlite.NewFromDB[domain.TerminalSession, string](globalView)
@@ -133,19 +129,6 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	assert.NotNil(t, c.AgentProvider)
 }
 
-// TestContainer_ProductionMCPSurfaceAdvertisesEveryTool is the wiring guard as a
-// RUNNING DAEMON sees it, and the one below is not a substitute for it.
-//
-// That one rebuilds the Deps and fills Chats, ChatLogs and Lineage by hand. In
-// production nothing does: agentusecase.New binds the usecase to itself for all
-// three, because they are its own methods and no caller can supply them. So a
-// mistake in that self-wiring would leave the other test perfectly green while the
-// daemon quietly served a shorter tool list — an agent with fewer tools than it
-// should have, which nothing logs.
-//
-// This one asks the surface itself, over the same JSON-RPC dispatch a vendor CLI
-// uses. tools/list needs no authenticated caller (authentication is per CALL), so
-// the token is arbitrary and the answer is exactly what the daemon advertises.
 func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
@@ -183,16 +166,6 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 		"responsible for self-wiring is nil, so the tool that needs it was withdrawn")
 }
 
-// TestContainer_AgentToolMetricsAreReadableFromTheContainer closes the loop the
-// counters were missing: they were recorded into an instance buried inside
-// agentusecase.ToolDeps, which nothing outside the tool surface could reach, so the
-// number instrumentation exists to produce was unobtainable in a running daemon.
-//
-// The stimulus goes through DispatchMCP — the daemon's only entry point to the
-// tool surface — rather than through a Metrics the test made itself, because the
-// whole failure mode being guarded is an accessor wired to a DIFFERENT instance
-// than production records through. A forged token is fine as the stimulus: a
-// rejected call is counted too, and it is the datum this counter most exists for.
 func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
@@ -210,10 +183,6 @@ func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 		c.AgentToolMetrics())
 }
 
-// TestContainer_New_SurfacesAgentWiringError proves New itself propagates a
-// failure from newAgentWiring (here: a repos container missing the agent-chat
-// store) rather than returning a Container with a nil agentic surface a caller
-// would only discover on first use.
 func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
 	_, gormStores, eng := newContainerDeps(t)
 
@@ -223,9 +192,6 @@ func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// noopThreadBroadcast stands in for the app layer's stream adapter. These tests build
-// the usecases container without the api layer, and what the fan-out DOES is proved
-// in the agenttools package; here it only has to be non-nil so the wiring is complete.
 func noopThreadBroadcast(_ domain.ReviewThread, _, _ string) {}
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
@@ -290,5 +256,4 @@ func (containerStatusStub) GitStatus(
 	return gitdomain.GitStatus{}, nil
 }
 
-// noChatWatch is the announcement seam for tests that assert nothing about WS frames.
 func noChatWatch(_ agentchat.ChatEvent) {}

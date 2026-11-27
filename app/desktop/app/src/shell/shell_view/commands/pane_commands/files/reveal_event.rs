@@ -1,5 +1,3 @@
-//! What revealing a workspace path in the file manager tells the log.
-
 use std::fmt;
 
 use journal::Level;

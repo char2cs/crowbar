@@ -8,17 +8,11 @@ use crate::error::{Error, Result};
 
 const MAX_STATE_BYTES: usize = 64 * 1024;
 
-/// Opaque JSON a pane owns and gets back on `mount`. The cap holds for every value of the
-/// type, including ones read from the wire or from disk.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct PaneState(Value);
 
 impl PaneState {
-    /// Validates the size of `value` and wraps it.
-    ///
-    /// # Errors
-    /// [`Error::StateTooLarge`] when the serialized value exceeds 64 KiB.
     pub fn new(value: Value) -> Result<Self> {
         let mut counter = ByteCounter(0);
         serde_json::to_writer(&mut counter, &value)?;
@@ -28,7 +22,6 @@ impl PaneState {
         Ok(Self(value))
     }
 
-    /// The wrapped JSON value.
     #[must_use]
     pub fn as_value(&self) -> &Value {
         &self.0
@@ -54,7 +47,6 @@ mod tests {
         Value::String("x".repeat(len))
     }
 
-    /// (string length, accepted)
     const CASES: [(usize, bool); 2] = [(MAX_STATE_BYTES - 2, true), (MAX_STATE_BYTES - 1, false)];
 
     #[test]

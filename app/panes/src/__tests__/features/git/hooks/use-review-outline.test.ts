@@ -106,8 +106,6 @@ describe('useReviewOutline', () => {
     expect(result.current.loaded).toBe(false)
   })
 
-  // The route records a scope with no chat id (the sidebar attaches it later), and the outline
-  // route throws without one: the hook must wait for the id, then fetch.
   describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
     it('does not fetch before an owning chat id is recorded', async () => {
       setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
@@ -144,8 +142,6 @@ describe('useReviewOutline', () => {
   })
 })
 
-// The sidebar can draw a workspace from its cache before the project list says
-// whose host it is; a failed fetch there is swallowed and would never be retried.
 describe('useReviewOutline on an install that has paired a remote host', () => {
   beforeEach(() => {
     vi.clearAllMocks()

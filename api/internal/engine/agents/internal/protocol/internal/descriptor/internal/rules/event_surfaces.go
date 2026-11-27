@@ -2,8 +2,6 @@ package rules
 
 import "github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 
-// eventSurfaces validates per-event surfaces: SPELLING only — known surface
-// names. Which events a descriptor gates off a surface is its own policy.
 type eventSurfaces struct{}
 
 func (eventSurfaces) Name() string { return "event_surfaces" }

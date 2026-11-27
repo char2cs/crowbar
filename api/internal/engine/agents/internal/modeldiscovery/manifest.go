@@ -23,16 +23,11 @@ const (
 	manifestCacheSubdir = "model-manifest-cache"
 )
 
-// manifestDoc is one candidate copy of a manifest document — decoded just
-// enough to compare freshness before the real items_path walk.
 type manifestDoc struct {
 	updatedAt time.Time
 	root      any
 }
 
-// ProbeManifest resolves a model.manifest: catalogue as the newest "updatedAt" of the
-// embedded bundle, the on-disk cache (homeDir != "") and a live GET (fetchEnabled),
-// persisting a non-regressing fetch; missing candidates degrade, never empty the list.
 func ProbeManifest(
 	ctx context.Context,
 	man *spec.ModelManifestSpec,
@@ -60,9 +55,6 @@ func ProbeManifest(
 	return mapManifestDoc(best, man), nil
 }
 
-// readManifestCache returns the cache path for url — empty for a homeDir-less
-// caller, which skips the disk half entirely — and the last good document
-// parsed from it, if the file exists and still parses.
 func readManifestCache(homeDir, url string) (string, manifestDoc, bool) {
 	if homeDir == "" {
 		return "", manifestDoc{}, false
@@ -80,9 +72,6 @@ func readManifestCache(homeDir, url string) (string, manifestDoc, bool) {
 	return cachePath, doc, true
 }
 
-// mergeFetchedManifest GETs man.URL and returns the fresher of best and the
-// fetched document, persisting the fetch to cachePath on the way. A failed or
-// unparseable fetch leaves best exactly as it was.
 func mergeFetchedManifest(
 	ctx context.Context,
 	man *spec.ModelManifestSpec,
@@ -101,8 +90,6 @@ func mergeFetchedManifest(
 	if doc.updatedAt.After(best.updatedAt) {
 		best = doc
 	}
-	// Never regress the disk cache: only overwrite it when the fetch is at
-	// least as fresh as what is already there.
 	if cachePath != "" && (!diskOK || !doc.updatedAt.Before(diskDoc.updatedAt)) {
 		if err := writeManifestCache(cachePath, raw); err != nil {
 			slog.Warn("modeldiscovery: manifest cache not saved", "path", cachePath, "err", err)
@@ -131,7 +118,7 @@ func parseManifestDoc(raw []byte) (manifestDoc, bool) {
 	ts, _ := scalarString(obj["updatedAt"])
 	updatedAt, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
-		updatedAt = time.Time{} // an undated copy is the oldest candidate
+		updatedAt = time.Time{}
 	}
 	return manifestDoc{updatedAt: updatedAt, root: root}, true
 }
@@ -157,9 +144,6 @@ func fetchManifest(ctx context.Context, url string, timeoutMS int) (_ []byte, er
 	return io.ReadAll(io.LimitReader(resp.Body, maxManifestBytes+1))
 }
 
-// manifestCachePath is keyed by the URL's own hash rather than the
-// provider id: the descriptor, not Go, owns which provider(s) use this
-// source, and a future second manifest URL must not collide with this one.
 func manifestCachePath(homeDir, url string) string {
 	sum := sha256.Sum256([]byte(url))
 	return filepath.Join(homeDir, manifestCacheSubdir, hex.EncodeToString(sum[:8])+".json")

@@ -9,7 +9,6 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   forgetHostToken: vi.fn(),
   probeRemoteFingerprint: vi.fn(),
 }))
-// Every request this tab can make goes through here: a revoke's DELETE, and nothing else.
 vi.mock('@/lib/api/fetch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/fetch')>()),
   apiFetch: vi.fn(),
@@ -62,7 +61,6 @@ function renderSettings(extra?: React.ReactNode) {
   )
 }
 
-/** Clicks a host's trash and says yes to the question it asks first. */
 async function revoke(name = 'homelab') {
   fireEvent.click(screen.getByRole('button', { name: `Revoke ${name}` }))
   fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }))
@@ -80,8 +78,6 @@ beforeEach(() => {
 })
 
 describe('HostsSettings', () => {
-  // The app probes every host for its whole life; this tab lists Local and every saved host with
-  // what it found, in words as well as by the colour of its dot and address.
   it('lists each host with its status as the app last saw it, and probes nothing itself', () => {
     useHostConfigStore.setState({ hosts: [homelab] })
     useConnectionStore.setState({ status: 'connected' })
@@ -104,7 +100,6 @@ describe('HostsSettings', () => {
     act(() => getOrCreateHostRuntime('h1').getState().setStatus('up'))
     expect(row('h1')).toHaveTextContent(/^homelab10\.0\.0\.2:3737$/)
     expect(address()).toHaveAttribute('data-host-state', 'up')
-    // Local is the app itself: its dot says its state, its line is never tinted.
     expect(row('local')).toHaveTextContent(/^LocalThis computer$/)
     expect(screen.getByTestId('host-status-local')).toHaveAttribute('data-host-state', 'up')
     expect(screen.getByText('This computer')).not.toHaveAttribute('data-host-tone')
@@ -112,8 +107,6 @@ describe('HostsSettings', () => {
     destroyHostRuntime('h1')
   })
 
-  // A host can answer its probe while every stream asked of it is refused: what it shows is
-  // then not kept current, and the row says so.
   it('says when a host answers but none of its live streams is open', () => {
     useHostConfigStore.setState({ hosts: [homelab] })
     getOrCreateHostRuntime('h1').getState().setStatus('up')
@@ -154,8 +147,6 @@ describe('HostsSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /add.*host/i }))
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'again' } })
     fireEvent.change(screen.getByLabelText(/address/i), { target: { value: 'https://10.0.0.2/' } })
-    // The dialog is open while the probe is in flight, so finding it proves nothing:
-    // settle the probe's promise chain first, then read the verdict.
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /continue/i }))
     })
@@ -166,8 +157,6 @@ describe('HostsSettings', () => {
     expect(screen.queryByRole('button', { name: /confirm fingerprint/i })).toBeNull()
   })
 
-  // A fingerprint confirmed in one attempt must never carry into the next, even one opened
-  // while the last is still closing.
   it('opens a fresh add-host attempt each time, before the last has finished closing', async () => {
     vi.mocked(probeRemoteFingerprint).mockResolvedValueOnce('SHA256:aaaa')
     render(<HostsSettings />)
@@ -194,15 +183,11 @@ describe('HostsSettings', () => {
     renderSettings()
     await revoke()
     await waitFor(() => expect(hosts()).toEqual([]))
-    // Targets the host's OWN authed channel (the 4th positional hostId arg) — never the
-    // local daemon's.
     expect(apiFetch).toHaveBeenCalledWith(...DELETE)
     expect(unregisterRemoteHost).toHaveBeenCalledWith('h1')
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
   })
 
-  // A revoke cannot be undone from here: the trash asks first, and the safe answer is the
-  // default, so a stray Enter keeps the host.
   it.each(['{Enter}', '{Escape}'])(
     'asks before revoking, starting on Keep it: %s keeps the host and asks it nothing',
     async (key) => {
@@ -226,7 +211,6 @@ describe('HostsSettings', () => {
     },
   )
 
-  // One DELETE per host while it is out, however many hosts are being revoked at once.
   it('marks each host’s trash unavailable while its own revoke is out', async () => {
     useHostConfigStore.setState({ hosts: [homelab, { ...homelab, id: 'h2', name: 'office' }] })
     vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}))
@@ -241,7 +225,6 @@ describe('HostsSettings', () => {
   })
 })
 
-// Revoke as the running app meets it: the host's status kept and its providers read.
 describe('revoking a host the app is using', () => {
   let stops: Array<() => void> = []
 
@@ -289,10 +272,7 @@ describe('revoking a host the app is using', () => {
   })
 })
 
-// Revoke never leaves the user with a host they cannot remove, and never drops a live
-// credential silently: what could not be revoked or cleared is said, then the row goes.
 describe('revoking a host when something fails', () => {
-  /** Every request goes through the real transport, and the host answers `status` with `body`. */
   async function answerThrough(status: number, body: string) {
     const actual = await vi.importActual<typeof import('@/lib/api/fetch')>('@/lib/api/fetch')
     vi.mocked(apiFetch).mockImplementation(actual.apiFetch)
@@ -324,14 +304,11 @@ describe('revoking a host when something fails', () => {
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
     expect(toastErrorFn).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining('Removed homelab'),
-      // A client-side failure is logged, not worded: the toast points there.
       expect.stringContaining('details are in the log'),
     )
     expect(consoleError).toHaveBeenCalled()
   })
 
-  // "Remove anyway" deletes the token from this computer, but no tool lists or revokes clients on
-  // the host: the dialog says what is true, and promises nothing more.
   it.each([
     ['cannot reach it', proxyMarkerError('host-unreachable', 'h1'), 'Can’t reach homelab'],
     [
@@ -384,7 +361,6 @@ describe('revoking a host when something fails', () => {
     expect(forgetHostToken).toHaveBeenCalledWith('h1')
   })
 
-  // The proxy's own 401: no key here, so nothing reached the host, which still lists this computer.
   it('asks before removing a host this computer holds no key for, and says it stays paired there', async () => {
     const fetch = await answerThrough(401, 'no stored credential for this host — pair it again')
 
@@ -402,9 +378,6 @@ describe('revoking a host when something fails', () => {
     expect(toastInfoFn).not.toHaveBeenCalled()
   })
 
-  // Each as the real transport turns it into an error: the proxy's own plain-text answers carry
-  // only a status; the daemon's carry its words. A 404 comes from past the bearer check, so
-  // this computer's token still works there: it is a failed revoke, not an earlier one.
   it.each([
     ['the keychain refused the token (proxy 500)', 500, 'token lookup failed', 'error (500)'],
     ['the host never answered (proxy 504)', 504, 'request timed out', 'error (504)'],

@@ -28,7 +28,6 @@ describe('applyAsk', () => {
     expect((feed.items.get('a:q1') as AskItem).family).toBe('execute')
   })
 
-  // The call's row names a file inside the workspace from there; the ask's raw path does not.
   it('names the file an ask gates as the gated call’s row names it', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
@@ -54,7 +53,6 @@ describe('applyAsk', () => {
     expect((feed.items.get('a:q1') as AskItem).toolTarget).toBe('src/a.go')
   })
 
-  // codex says why its sandbox asks ("Allow the exact curl command to access example.com…").
   it('keeps the agent’s own sentence on why it asks', () => {
     const l = ledger()
     const why = 'Allow Git to update its read-only metadata so I can commit?'

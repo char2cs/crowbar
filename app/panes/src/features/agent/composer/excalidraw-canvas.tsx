@@ -11,10 +11,8 @@ export interface ExcalidrawSaveResult {
 }
 
 interface ExcalidrawCanvasProps {
-  /** Awaited before Attach re-enables, so a second click can't fire a second save. */
   onSave: (result: ExcalidrawSaveResult) => void | Promise<void>
   initialScene?: ParsedExcalidrawScene
-  /** Until this fires `save()` no-ops: Excalidraw's async init has no API yet. */
   onReady?: () => void
 }
 
@@ -25,7 +23,6 @@ export interface ExcalidrawCanvasHandle {
 export const ExcalidrawCanvas = forwardRef<ExcalidrawCanvasHandle, ExcalidrawCanvasProps>(
   function ExcalidrawCanvas({ onSave, initialScene, onReady }, ref) {
     const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null)
-    // Reactive so a theme flip while the takeover is open is picked up.
     useThemeVersion()
     const theme = isDarkMode() ? 'dark' : 'light'
 

@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Serve's stdin and stdout are the connection: what is written to one is what
-// the process reads, and what it prints is what the other returns.
 func TestForkServeProcess_ItsStdioIsTheConnection(t *testing.T) {
 	serve, stdio, err := forkServeProcess([]string{"sh", "-c", `read line; echo "got $line"`})
 	require.NoError(t, err)

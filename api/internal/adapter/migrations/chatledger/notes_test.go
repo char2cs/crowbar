@@ -70,8 +70,6 @@ func TestConvertChat_UnfinishedPromptsAreSettledNeverReplayed(t *testing.T) {
 	assert.Contains(t, res.Skipped, "prompt req-a: accepted, and no turn holds it")
 }
 
-// A runner the old daemon never saw exit is left live for the boot reconcile to
-// end; nothing else of the chat stays open.
 func TestConvertChat_ALegacyLiveRunnerIsAdopted(t *testing.T) {
 	in := chatB()
 	in.Runners = []LegacyRunner{{ID: "run-b", ChatID: in.ChatID, ProviderID: "codex"}}
@@ -86,8 +84,6 @@ func TestConvertChat_ALegacyLiveRunnerIsAdopted(t *testing.T) {
 	assert.True(t, st.HasOpenWork())
 }
 
-// A chat the old daemon recorded only a runner for is dated by that runner's
-// start; a runner that started after the chat's last record keeps its own time.
 func TestConvertChat_ARunnerIsDatedByItsStartWhenThatIsLater(t *testing.T) {
 	lone := LegacyChat{ChatID: "chat-r", Runners: []LegacyRunner{{ID: "run-r", ChatID: "chat-r", ProviderID: "codex", StartedAt: at(8, 0, 0)}}}
 	assert.Equal(t, at(8, 0, 0), convert(t, lone, nobody).Rows[0].At)
@@ -103,8 +99,6 @@ func TestConvertChat_ARunnerIsDatedByItsStartWhenThatIsLater(t *testing.T) {
 	assert.Equal(t, at(23, 0, 0), rows[1].At)
 }
 
-// A record the old daemon wrote with JSON the reader cannot decode keeps the
-// rest of its row and is named as skipped; an unknown kind is named too.
 func TestConvertChat_UnreadableColumnsAndUnknownKindsAreNamed(t *testing.T) {
 	in := chatA()
 	in.Tools[0].Locations = "{broken"
@@ -129,8 +123,6 @@ func TestConvertChat_UnreadableColumnsAndUnknownKindsAreNamed(t *testing.T) {
 	assert.Len(t, rowsOf(res, ledger.KindToolCall), 4, "the calls are still restated")
 }
 
-// Each record the reader could not read, and each part of one the converter
-// had to drop, is counted in one marker the chat shows after its history.
 func TestConvertChat_WhatCouldNotBeReadIsCountedInOneMarker(t *testing.T) {
 	in := chatA()
 	in.Unreadable = []string{"agent_turns u-9: seq \"x\": invalid syntax"}
@@ -148,9 +140,6 @@ func TestConvertChat_WhatCouldNotBeReadIsCountedInOneMarker(t *testing.T) {
 	}
 }
 
-// A record the converter leaves out for any reason, not only one it could not
-// read, is counted in the marker: nothing is dropped unseen. Records restated
-// elsewhere (an ask's interruption, an inferred end) are not left out.
 func TestConvertChat_EveryRecordLeftOutIsCounted(t *testing.T) {
 	in := chatA()
 	in.Turns = append(in.Turns, LegacyTurn{ID: "x-1", ChatID: in.ChatID, Role: "abc", Text: "what is 2+2", StartedAt: at(10, 50, 0)})

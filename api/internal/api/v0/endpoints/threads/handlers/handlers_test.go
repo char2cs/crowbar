@@ -29,8 +29,6 @@ func TestMain(
 	m.Run()
 }
 
-// fakeStore records the calls the handlers make and returns canned threads so
-// the broadcast + response assertions can be made without an event store.
 type fakeStore struct {
 	openIn         reviewthread.OpenInput
 	replyIn        reviewthread.ReplyInput
@@ -175,8 +173,6 @@ func do(
 	return rec
 }
 
-// doRaw issues a request with a verbatim (possibly malformed) JSON body so the
-// bind-error paths can be exercised.
 func doRaw(
 	r *gin.Engine,
 	method string,
@@ -207,9 +203,6 @@ func sampleThread() domain.ReviewThread {
 	}
 }
 
-// TestOpenThread_BroadcastsAndReturns asserts opening a thread persists via the
-// store, returns 201 with the scoped DTO, and broadcasts the same ThreadDTO so
-// the workspace-scoped stream converges (sync-mutate → broadcast).
 func TestOpenThread_BroadcastsAndReturns(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	bc := &fakeBroadcaster{}
@@ -241,8 +234,6 @@ func TestOpenThread_BroadcastsAndReturns(t *testing.T) {
 	assert.Equal(t, "p1", env.Data.ProjectID)
 }
 
-// TestReply_BroadcastsAndReturns asserts replying appends through the store,
-// returns 200 with the DTO, and broadcasts it.
 func TestReply_BroadcastsAndReturns(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	bc := &fakeBroadcaster{}
@@ -253,16 +244,12 @@ func TestReply_BroadcastsAndReturns(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "t1", store.replyIn.ID)
 	assert.Equal(t, "a reply", store.replyIn.Body)
-	// The user-facing reply route attributes nothing: a person has no provider and
-	// no originating agent chat, and the route must not become a way to claim one.
 	assert.Empty(t, store.replyIn.ProviderID)
 	assert.Empty(t, store.replyIn.ChatID)
 	require.Len(t, bc.pushed, 1)
 	assert.Equal(t, "t1", bc.pushed[0].ID)
 }
 
-// TestEditMessage_BroadcastsAndReturns asserts PATCH .../messages/:messageId
-// edits a message through the store, returns 200 with the DTO, and broadcasts it.
 func TestEditMessage_BroadcastsAndReturns(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	bc := &fakeBroadcaster{}
@@ -278,8 +265,6 @@ func TestEditMessage_BroadcastsAndReturns(t *testing.T) {
 	assert.Equal(t, "t1", bc.pushed[0].ID)
 }
 
-// TestEditMessage_BadJSON asserts a malformed edit body is rejected with 400
-// before the store is touched.
 func TestEditMessage_BadJSON(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	r := newRouter(store, &fakeBroadcaster{})
@@ -288,9 +273,6 @@ func TestEditMessage_BadJSON(t *testing.T) {
 	assert.Empty(t, store.editID)
 }
 
-// TestDeleteMessage_BroadcastsAndReturns asserts DELETE .../messages/:messageId
-// removes a reply through the store, returns 200 with the updated DTO, and
-// broadcasts it.
 func TestDeleteMessage_BroadcastsAndReturns(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	bc := &fakeBroadcaster{}
@@ -305,9 +287,6 @@ func TestDeleteMessage_BroadcastsAndReturns(t *testing.T) {
 	assert.Equal(t, "t1", bc.pushed[0].ID)
 }
 
-// TestDeleteThread_BroadcastsTombstone asserts DELETE .../threads/:threadId
-// forgets the thread and broadcasts a scoped tombstone (Deleted=true) so
-// subscribed clients drop it.
 func TestDeleteThread_BroadcastsTombstone(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	bc := &fakeBroadcaster{}
@@ -331,9 +310,6 @@ func TestDeleteThread_BroadcastsTombstone(t *testing.T) {
 	assert.True(t, env.Data.Deleted)
 }
 
-// TestDeleteThread_NotFound asserts the handler maps a not-found store error to
-// 404. (Note: the real ax.Forget path returns a validation error, not
-// ErrNotFound — see TestThreadMutations_Validation_400 for that production path.)
 func TestDeleteThread_NotFound(t *testing.T) {
 	store := &fakeStore{err: problem.ErrNotFound}
 	bc := &fakeBroadcaster{}
@@ -343,10 +319,6 @@ func TestDeleteThread_NotFound(t *testing.T) {
 	assert.Empty(t, bc.pushed)
 }
 
-// TestThreadMutations_ValidationIsUnprocessable asserts the production error
-// mapping: a command validation failure (asynx ErrValidation) — e.g. deleting the
-// root via the message route, editing a vanished message, or forgetting a missing
-// thread — answers 422 with the command's own reason and broadcasts nothing.
 func TestThreadMutations_ValidationIsUnprocessable(t *testing.T) {
 	declared := fmt.Errorf("delete review message: cannot delete root comment: %w", asynxModels.ErrValidation)
 	store := &fakeStore{err: fmt.Errorf("review thread: delete message t1: %w", declared)}
@@ -364,8 +336,6 @@ func TestThreadMutations_ValidationIsUnprocessable(t *testing.T) {
 	assert.Empty(t, bc.pushed)
 }
 
-// TestSetResolved_Resolve asserts a PATCH with isResolved=true resolves through
-// the store and broadcasts the resulting DTO.
 func TestSetResolved_Resolve(t *testing.T) {
 	resolved := sampleThread()
 	resolved.Status = domain.ReviewThreadStatusResolved
@@ -382,8 +352,6 @@ func TestSetResolved_Resolve(t *testing.T) {
 	assert.True(t, bc.pushed[0].Resolved)
 }
 
-// TestSetResolved_Reopen asserts a PATCH with isResolved=false reopens through
-// the store and broadcasts the resulting DTO.
 func TestSetResolved_Reopen(t *testing.T) {
 	store := &fakeStore{thread: sampleThread()}
 	bc := &fakeBroadcaster{}
@@ -397,8 +365,6 @@ func TestSetResolved_Reopen(t *testing.T) {
 	require.Len(t, bc.pushed, 1)
 }
 
-// TestDetail_ReturnsThreadWithReplies asserts GET .../threads/:threadId returns
-// the single thread as a DTO with its anchor + replies and does not broadcast.
 func TestDetail_ReturnsThreadWithReplies(t *testing.T) {
 	thread := sampleThread()
 	thread.Messages = append(thread.Messages, domain.ReviewMessage{
@@ -423,8 +389,6 @@ func TestDetail_ReturnsThreadWithReplies(t *testing.T) {
 	assert.Equal(t, "reply body", env.Data.Replies[0].Body)
 }
 
-// TestList_ReturnsWorkspaceThreads asserts GET .../threads lists the workspace's
-// threads as scoped DTOs and does not broadcast.
 func TestList_ReturnsWorkspaceThreads(t *testing.T) {
 	store := &fakeStore{listResult: []domain.ReviewThread{sampleThread()}}
 	bc := &fakeBroadcaster{}

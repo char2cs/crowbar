@@ -39,7 +39,6 @@ export const AppearanceSettings = () => {
   const [themeOptions, setThemeOptions] = useState<{ value: string; label: string }[]>([])
   const [iconThemeOptions, setIconThemeOptions] = useState<{ value: string; label: string }[]>([])
 
-  // Load color themes from registry
   useEffect(() => {
     const load = () => {
       const options = themeRegistry.getAllThemes().map((theme) => ({
@@ -52,7 +51,6 @@ export const AppearanceSettings = () => {
     return themeRegistry.onRegistryChange(load)
   }, [])
 
-  // Ensure the current theme appears even if it's not in the list yet
   const normalizedThemeOptions = useMemo(() => {
     if (themeOptions.some((o) => o.value === settings.theme)) return themeOptions
     const fallback = themeRegistry.getTheme(settings.theme)
@@ -60,7 +58,6 @@ export const AppearanceSettings = () => {
     return [{ value: fallback.id, label: fallback.name }, ...themeOptions]
   }, [themeOptions, settings.theme])
 
-  // Load icon themes from registry
   useEffect(() => {
     const load = () => {
       const options = iconThemeRegistry.getAllThemes().map((theme) => ({

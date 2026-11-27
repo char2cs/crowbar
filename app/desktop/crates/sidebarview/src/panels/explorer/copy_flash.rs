@@ -1,5 +1,3 @@
-//! The note a Files row shows for a moment after Copy Path or Copy Relative Path.
-
 use std::time::Duration;
 
 use gpui::{Context, TaskExt as _};
@@ -7,7 +5,6 @@ use sidebar::CopyNote;
 
 use crate::sidebar::Sidebar;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx
 const SHOWN_FOR: Duration = Duration::from_millis(1500);
 
 impl Sidebar {

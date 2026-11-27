@@ -17,10 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/migratetest"
 )
 
-// One legacy row whose history cannot be replayed used to fail app.New: the
-// boot backfill returned the first non-validation error and the daemon never
-// started. Boot writers are best-effort per row — the bad row is logged and
-// skipped, every other row is still upgraded, and the daemon serves.
 func TestRegression_Upgrade_AnUnreplayableRowNeverBlocksBoot(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -42,7 +38,7 @@ func TestRegression_Upgrade_AnUnreplayableRowNeverBlocksBoot(t *testing.T) {
 	seed.workspace(healthy)
 	seed.close()
 
-	h2 := newHarnessAt(t, home) // requires app.New to succeed
+	h2 := newHarnessAt(t, home)
 	h2.Quiesce()
 
 	row, err := h2.app.Repositories.Workspace.Get(context.Background(), healthy.ID)
@@ -51,9 +47,6 @@ func TestRegression_Upgrade_AnUnreplayableRowNeverBlocksBoot(t *testing.T) {
 	h2.get("/v0/projects", nil)
 }
 
-// The chat-types step meets an untyped chat whose history cannot be replayed:
-// it counts the row as skipped and completes, every other row is still typed,
-// and the step's own check passes over a row nothing could have upgraded.
 func TestRegression_Upgrade_AnUnreplayableUntypedChatIsSkippedNotFatal(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -74,7 +67,7 @@ func TestRegression_Upgrade_AnUnreplayableUntypedChatIsSkippedNotFatal(t *testin
 	seed.chat(healthy)
 	seed.close()
 
-	h2 := newHarnessAt(t, home) // requires the migration to complete
+	h2 := newHarnessAt(t, home)
 	h2.Quiesce()
 
 	got, err := h2.app.Usecases.AgentChat.GetChat(context.Background(), healthy.ID)
@@ -84,10 +77,6 @@ func TestRegression_Upgrade_AnUnreplayableUntypedChatIsSkippedNotFatal(t *testin
 	assert.Equal(t, []migrate.Counts{{"skipped_rows": 1}}, applied[migrations.StepChatTypes])
 }
 
-// Deleting a project home's only chat tombstones the home, and a tombstone
-// whose purge fails outlives the boot sweep. Its id is still taken, so the
-// project-homes step must not count the home as missing: creating it again
-// cannot succeed, and trying halted the boot.
 func TestRegression_Upgrade_AHomeTombstoneIsNotAMissingHome(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -99,10 +88,10 @@ func TestRegression_Upgrade_AHomeTombstoneIsNotAMissingHome(t *testing.T) {
 
 	tomb.Status = domain.WorkspaceStatusDeleted
 	seed := openBaseEra(t, home)
-	seed.unreplayableWorkspace(tomb) // no command replays it, so its purge fails
+	seed.unreplayableWorkspace(tomb)
 	seed.close()
 
-	h2 := newHarnessAt(t, home) // requires the migration to complete
+	h2 := newHarnessAt(t, home)
 	h2.Quiesce()
 
 	got, err := h2.app.Repositories.Workspace.GetHomeForProject(context.Background(), imported.projectID)

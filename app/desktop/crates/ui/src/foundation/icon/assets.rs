@@ -1,5 +1,3 @@
-//! Asset source serving the embedded icons.
-
 use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
@@ -19,7 +17,6 @@ const KIT: &[(&str, &str)] = &[
     ("icons/close.svg", "icons/regular/x.svg"),
 ];
 
-/// The [`AssetSource`] for `icons/<weight>/<stem>.svg` and the Crowbar wordmark; pass it to `Application::with_assets`.
 pub fn assets() -> impl AssetSource {
     Assets { files: FILES }
 }

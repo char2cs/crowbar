@@ -52,16 +52,11 @@ describe('useActivePaneWorkspaceId', () => {
     act(() => paneActions().setActivePane(paneOf('c1')))
     expect(result.current).toBe('ws-a')
     const afterMove = renders
-    // Another chat of the same workspace: the answer does not move.
     act(() => paneActions().setActivePane(paneOf('c2')))
     expect(renders).toBe(afterMove)
   })
 })
 
-/**
- * `WorkspaceHost`'s "in a view" retention input, read straight off the view
- * members' records — no workspace store is scanned.
- */
 describe('useViewWorkspaceIds', () => {
   it('is empty with no views', () => {
     const { result } = renderHook(() => useViewWorkspaceIds())
@@ -114,8 +109,6 @@ describe('useViewWorkspaceIds', () => {
   })
 })
 
-// An editor-only pane (chatId: null, real editorTabIds) names no chat, yet
-// its workspace's store must stay retained while its tab is on screen.
 describe('usePaneEditorWorkspaceIds', () => {
   it('names the workspace an editor-only pane (no chat) holds a file for', () => {
     act(() => {

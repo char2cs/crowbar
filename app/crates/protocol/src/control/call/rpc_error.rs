@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use crate::control::call::error_code::ErrorCode;
 use crate::control::payload::DisplayText;
 
-/// The error half of a `response` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcError {
     code: ErrorCode,
@@ -11,7 +10,6 @@ pub struct RpcError {
 }
 
 impl RpcError {
-    /// A failure with `code` explained by `message`.
     #[must_use]
     pub fn new(
         code: ErrorCode,
@@ -20,13 +18,11 @@ impl RpcError {
         Self { code, message }
     }
 
-    /// Machine readable code.
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         self.code
     }
 
-    /// Human readable explanation.
     #[must_use]
     pub fn message(&self) -> &DisplayText {
         &self.message

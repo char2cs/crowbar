@@ -16,7 +16,6 @@ impl ShellState {
         self.open_with((type_id, params), Self::apply);
     }
 
-    // SPEC: app/panes/src/features/agent/composer/composer-field.tsx: a chat mounts focused
     pub(crate) fn open_from_sidebar(
         &mut self,
         view: (PaneTypeId, Params),

@@ -1,5 +1,3 @@
-//! What answering one request logs when the client is gone.
-
 use std::fmt;
 
 use journal::{Event, Level};

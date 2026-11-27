@@ -1,5 +1,3 @@
-//! Turns the emulator's colour references into concrete colours.
-
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb as AnsiRgb};

@@ -8,19 +8,10 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
-// isUncloseable currently only hides the tab-bar-item's × button. Every
-// OTHER close affordance — middle-click, and the tab context menu's Close /
-// Close Others / Close All / Close to Right — must honour it too, or a pane's
-// sole editor tab (the one state the design calls unreachable: editorTabIds:
-// []) can still be closed out from under it.
-
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => createElement('span', { 'data-testid': 'file-icon' }),
 }))
 
-// TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
-// irrelevant here — stub it so the suite needn't stand up a SidebarProvider
-// (same stub tab-bar-rerender.test.tsx uses).
 vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
   return {
@@ -29,13 +20,6 @@ vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   }
 })
 
-// Stub TabContextMenu down to one plain button per close affordance it wires,
-// each invoking the prop it was handed with the open buffer's id. This
-// exercises TabBar's REAL handleCloseOtherTabs / handleCloseAllTabs /
-// handleCloseTabsToRight / handleContextMenuCloseTab — the exact functions I2
-// found unguarded — without depending on the real base-ui menu's
-// portal/positioning machinery (irrelevant to this suite, and already
-// exercised by other tests).
 vi.mock('@/features/tabs/components/tab-context-menu', () => ({
   default: ({
     isOpen,
@@ -81,10 +65,6 @@ function makeEditorBuffer(i: number): EditorContent {
   }
 }
 
-/** A real editor tab, marked `isUncloseable` the way `syncSoleEditorTabCloseability`
- *  would for the sole tab a pane holds. There is no "Editor"/New Tab placeholder
- *  type any more (spec §7.1) — the invariant under test applies to any editor
- *  tab, so a plain file buffer stands in for it. */
 function makeSoleTab(id: string, isUncloseable: boolean): EditorContent {
   return {
     id,
@@ -111,9 +91,6 @@ function renderTabBar(store: ReturnType<typeof createWorkspaceStore>, paneId: st
   )
 }
 
-/** A sole-editor-tab pane (isUncloseable exactly when it is the pane's only editor tab, as in
- *  syncSoleEditorTabCloseability). Panes live in `windowPaneStore`; the returned workspace store
- *  only feeds WorkspaceStoreContext. */
 function setupSoleTabStore() {
   const store = createWorkspaceStore('w1')
   const nt = makeSoleTab('nt-1', true)
@@ -130,10 +107,6 @@ function setupSoleTabStore() {
   return store
 }
 
-/** A second pane (BOTTOM_PANE_ID) with several editor buffers, alongside
- *  ROOT_PANE_ID's sole (uncloseable) tab — reproduces "Close Others/All/to
- *  Right operate over EVERY workspace buffer, not just this tab bar's own
- *  pane" sweeping up a tab it has no business touching. */
 function setupMultiPaneStore() {
   const store = createWorkspaceStore('w1')
   const editors = [0, 1, 2].map(makeEditorBuffer)
@@ -161,22 +134,12 @@ function expectSoleTabSurvived(_store: ReturnType<typeof createWorkspaceStore>) 
   expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('nt-1')
 }
 
-/** Two real (closeable — neither pinned nor the sole tab of its pane) editor
- *  tabs in EACH of ROOT_PANE_ID and BOTTOM_PANE_ID — the harness I4's fix
- *  needs: a tab that the OLD window-wide bug would have swept up (it is not
- *  pinned and not uncloseable) but that correctly-scoped Close All/Others/to
- *  Right must never touch because it belongs to a DIFFERENT pane. */
 function setupTwoPaneStore(bufferOrder: 'root-first' | 'bottom-first' = 'root-first') {
   const store = createWorkspaceStore('w1')
   const rootBufs = [makeEditorBuffer(0), makeEditorBuffer(1)]
   const bottomBufs = [makeEditorBuffer(2), makeEditorBuffer(3)]
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
-    // Order matters for "Close to Right": it must key off THIS PANE's own
-    // tab order (pane.editorTabIds), never the flat window-wide array's —
-    // bottom-first here specifically defeats an unscoped `slice(idx + 1)`
-    // over the flat array, which would otherwise coincidentally look correct
-    // whenever the active pane's own tabs already come last in that array.
     s.buffers =
       bufferOrder === 'bottom-first' ? [...bottomBufs, ...rootBufs] : [...rootBufs, ...bottomBufs]
     s.panes[ROOT_PANE_ID] = {
@@ -237,23 +200,15 @@ describe('TabBar Close Others/All/to Right stay scoped to their own pane', () =>
 
     const remaining = windowPaneStore.getState().buffers.map((b) => b.id)
     for (const b of rootBufs) expect(remaining).toContain(b.id)
-    // The kept tab (bottomBufs[0], right-clicked) survives; the other
-    // BOTTOM_PANE_ID tab is closed — but ROOT_PANE_ID's are untouched either way.
     expect(remaining).toContain(bottomBufs[0].id)
   })
 
   it('"Close to Right" orders by THIS PANE\'s own tabs, not the flat window-wide buffer array', () => {
-    // bottom-first: BOTTOM_PANE_ID's own tabs sit BEFORE ROOT_PANE_ID's in
-    // the flat buffers array, so an unscoped `slice(idx + 1)` over that array
-    // would incorrectly reach past bottomBufs[1] into rootBufs — exactly the
-    // bug this test exists to catch.
     const { store, rootBufs, bottomBufs } = setupTwoPaneStore('bottom-first')
     act(() => {
       renderTabBar(store, BOTTOM_PANE_ID)
     })
 
-    // Right-click BOTTOM_PANE_ID's FIRST tab — "to the right" must mean
-    // bottomBufs[1] only, never anything from ROOT_PANE_ID.
     const tabs = screen.getAllByRole('tab')
     act(() => {
       fireEvent.contextMenu(tabs[0])
@@ -346,9 +301,6 @@ describe('TabBar honours isUncloseable', () => {
     })
 
     const tabs = screen.getAllByRole('tab')
-    // buf-0 (index 0) — everything "to the right" in the global buffers array
-    // (buf-1, buf-2, nt-1) is a candidate, which is exactly what makes this
-    // case reach the sole editor tab in the first place.
     act(() => {
       fireEvent.contextMenu(tabs[0])
     })

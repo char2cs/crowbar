@@ -6,9 +6,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GitOpsEngine is a fake of the full git operation surface used by the git
-// usecase. Each method delegates to its Fn field; AnyWriteOK installs no-op
-// success closures for every mutating method.
 type GitOpsEngine struct {
 	StatusFn          func(ctx context.Context, repoPath string) (gitdomain.GitStatus, error)
 	DiffFn            func(ctx context.Context, repoPath string, staged bool) ([]gitdomain.FileDiff, error)
@@ -44,12 +41,10 @@ type GitOpsEngine struct {
 	OperationAbortFn    func(ctx context.Context, repoPath string) error
 }
 
-// NewGitOpsEngine returns an empty GitOpsEngine.
 func NewGitOpsEngine() *GitOpsEngine {
 	return &GitOpsEngine{}
 }
 
-// AnyWriteOK installs no-op success closures for every mutating method.
 func (g *GitOpsEngine) AnyWriteOK() {
 	g.StageFileFn = func(context.Context, string, string) error { return nil }
 	g.StageHunkFn = func(context.Context, string, string, string) error { return nil }

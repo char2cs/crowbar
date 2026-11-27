@@ -9,27 +9,19 @@ import { IS_MOBILE } from '@/utils/platform'
 interface ProviderBarProps {
   provider?: AgentProvider
   providers?: AgentProvider[]
-  /** A turn is in flight, or a switch is already running. */
   switchDisabled?: boolean
   model: string
   effort: string
   reportedModel?: string
   telemetry: AgentTelemetry | null
   onSelectionChange: (provider: string, model: string, effort: string) => void
-  /** The chat's permission level and the levels its provider offers: a chip on the desktop,
-   *  a section of the model picker sheet on the phone. */
   permission?: PermissionTarget
-  /** The conversation is being folded: named before the pill. The input stays usable. */
   compacting?: boolean
-  /** A stop another model gets past: the model chip is lit. */
   modelHot?: boolean
   onCompact?: () => void
-  /** The phone's chat/terminal switch, centred between the model chip and the pill. */
   viewSwitch?: ReactNode
 }
 
-/** The footer line under the pill. Every control renders nothing when the provider declares
- *  nothing — never a disabled control. */
 export function ProviderBar({
   provider,
   providers,

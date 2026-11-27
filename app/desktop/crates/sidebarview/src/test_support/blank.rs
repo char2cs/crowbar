@@ -1,5 +1,3 @@
-//! A flat view standing in for the panes area, counting how often it renders.
-
 use gpui::{Context, Hsla, IntoElement, Render, Styled, Window, div};
 
 #[derive(Default)]

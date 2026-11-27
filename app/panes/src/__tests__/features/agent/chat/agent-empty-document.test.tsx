@@ -9,7 +9,6 @@ import {
 
 type Overrides = Partial<Omit<AgentEmptyDocumentProps, 'docRef' | 'ref'>>
 
-// The composer writes its editor into `.doc`; here the document is empty.
 function DocumentHost(props: Overrides & { handle: React.Ref<AgentEmptyDocumentHandle> }) {
   const docRef = useRef<HTMLDivElement>(null)
   const { handle, ...rest } = props
@@ -50,8 +49,6 @@ describe('AgentEmptyDocument handle', () => {
     expect(ref.current?.getHandleRect()).toBe(rect)
   })
 
-  // A caller reading this off an unmounted instance gets "nothing to arrive
-  // from", never a thrown error or a stale rect.
   it('reports null once unmounted', () => {
     const { ref, unmount } = draw()
     unmount()
@@ -60,10 +57,7 @@ describe('AgentEmptyDocument handle', () => {
   })
 })
 
-// The handle always sits under the last written line, never the caret's: editing an earlier
-// sentence must not drag the send button up the page.
 describe('handle placement under the last line', () => {
-  /** Writes paragraphs into the rendered `.doc`, re-renders, and reads where the handle went. */
   function placedWith(bottoms: number[], docTop = 0, overrides: Overrides = {}, text = 'text') {
     const view = draw(overrides)
     const doc = view.container.querySelector('.doc') as HTMLElement
@@ -100,8 +94,6 @@ describe('handle placement under the last line', () => {
     expect(placedWith([100], 0, {}, '').handle.style.transform).toBe(under(48 + 40))
   })
 
-  // The overlay chat header takes no flex space, so an empty document's fallback position adds
-  // the same clearance as `.doc`'s top padding (`--agent-header-clearance`).
   it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
     expect(placedWith([], 0, { headerClearancePx: 52 }).handle.style.transform).toBe(
       under(48 + 52 + 40),
@@ -116,13 +108,10 @@ describe('handle placement under the last line', () => {
 })
 
 describe('AgentEmptyDocument header clearance', () => {
-  // An empty `.doc` takes the fresh chat's fallback, through the component's effect.
   it('positions the handle below the overlay header when headerClearancePx is set', () => {
     const { container } = draw({ headerClearancePx: 52 })
 
     const handle = container.querySelector('.dochandle') as HTMLElement
-    // 48 (doc's own top padding) + 52 (header clearance) + 40 (one line of the serif placeholder at
-    // 34px serif) + 4 (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
     expect(handle.style.transform).toBe('translateY(144px)')
   })
 
@@ -134,15 +123,9 @@ describe('AgentEmptyDocument header clearance', () => {
   })
 })
 
-// `selectionchange` is a document event that Monaco fires ~120/s during a drag-select; each
-// `place()` forces a layout, so the listener must ignore selections outside THIS document.
 describe('AgentEmptyDocument selectionchange gating', () => {
-  const FALLBACK_TRANSFORM = 'translateY(92px)' // 48 + 40 + HANDLE_LEAD, rounded
+  const FALLBACK_TRANSFORM = 'translateY(92px)'
 
-  /**
-   * Give the rendered `.doc` a measurable last line, so a `place()` that runs
-   * moves the handle somewhere the fallback never would.
-   */
   function giveMeasurableLastLine(container: HTMLElement, bottom: number) {
     const doc = container.querySelector('.doc') as HTMLElement
     vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
@@ -173,8 +156,6 @@ describe('AgentEmptyDocument selectionchange gating', () => {
     giveMeasurableLastLine(container, 300)
     expect(handleTransform(container)).toBe(FALLBACK_TRANSFORM)
 
-    // A selection anchored somewhere else entirely — the shape Monaco's hidden
-    // textarea produces on every step of a drag-select.
     const outside = document.createElement('div')
     outside.textContent = 'elsewhere'
     document.body.appendChild(outside)
@@ -198,7 +179,7 @@ describe('AgentEmptyDocument selectionchange gating', () => {
       selectContentsOf(doc)
       fireEvent(document, new Event('selectionchange'))
 
-      expect(handleTransform(container)).toBe('translateY(304px)') // 300 + HANDLE_LEAD
+      expect(handleTransform(container)).toBe('translateY(304px)')
     } finally {
       window.getSelection()?.removeAllRanges()
     }
@@ -206,7 +187,6 @@ describe('AgentEmptyDocument selectionchange gating', () => {
 })
 
 describe('AgentEmptyDocument stop control', () => {
-  // Same Stop / Queue rule as the dock composer: text typed into a running turn queues.
   it('queues the document while a turn runs, and stops when it is empty', () => {
     const onSubmit = vi.fn()
     const onStop = vi.fn()
@@ -251,8 +231,6 @@ describe('AgentEmptyDocument hasText', () => {
   })
 })
 
-// The reviving/idle/trust-wait signpost takes the control row's slot and shares its one
-// `place()` transform, so a resize cannot separate the two.
 describe('AgentEmptyDocument banner overlay', () => {
   it('renders the banner inside the handle in place of the control row when one is given', () => {
     const { container } = draw({

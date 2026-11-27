@@ -1,5 +1,3 @@
-//! Bounded values the frames carry: pane state, titles, params, display text, URLs, paths, statuses and toasts.
-
 mod breakpoint;
 mod extension_status;
 mod paired_host;

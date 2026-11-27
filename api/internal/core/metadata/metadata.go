@@ -14,7 +14,6 @@ var (
 	once         sync.Once
 )
 
-// MetadataInfo holds descriptive fields for the Crowbar application.
 type MetadataInfo struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -24,20 +23,16 @@ type MetadataInfo struct {
 	Copyright   string `yaml:"copyright"`
 }
 
-// Version holds the version number and codename.
 type Version struct {
 	Number   string `yaml:"number"`
 	Codename string `yaml:"codename"`
 }
 
-// Metadata is the top-level structure parsed from metadata.yaml.
 type Metadata struct {
 	Version  Version      `yaml:"version"`
 	Metadata MetadataInfo `yaml:"metadata"`
 }
 
-// Get returns the singleton Metadata parsed from the embedded metadata.yaml.
-// Falls back to defaultMetadata if parsing fails.
 func Get() *Metadata {
 	once.Do(func() {
 		metadata = &Metadata{}
@@ -48,7 +43,6 @@ func Get() *Metadata {
 	return metadata
 }
 
-// GetVersion returns the application version number.
 func GetVersion() string {
 	return Get().Version.Number
 }

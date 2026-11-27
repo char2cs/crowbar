@@ -1,6 +1,3 @@
-//! What the sidebar shows, for the chords that apply only while it does: Escape on a drawer and
-//! Mod+F on the Files tree.
-
 use gpui::{Context, Window};
 use sidebar::{Mode, Visibility};
 use ui::Motion;
@@ -9,7 +6,6 @@ use crate::sidebar::Sidebar;
 use crate::sidebar::layout::geometry::Geometry;
 
 impl Sidebar {
-    /// Whether the open sidebar lies over the content as a drawer, which Escape dismisses.
     pub fn is_drawer_open(
         &self,
         window: &Window,
@@ -17,7 +13,6 @@ impl Sidebar {
         self.geometry(window).is_drawer()
     }
 
-    /// Whether the Files tree is on screen, docked or in a drawer, so Mod+F opens its search.
     pub fn shows_files(
         &self,
         window: &Window,
@@ -26,7 +21,6 @@ impl Sidebar {
         self.mode == Mode::Files && (geometry.is_docked() || geometry.is_drawer())
     }
 
-    /// Closes the drawer (Escape over the content).
     pub fn dismiss_drawer(
         &mut self,
         cx: &mut Context<'_, Self>,
@@ -39,7 +33,6 @@ impl Sidebar {
         self.changed(cx);
     }
 
-    /// Opens the Files tree's search, or focuses it when it is open (Mod+F).
     pub fn search_files(
         &mut self,
         window: &mut Window,

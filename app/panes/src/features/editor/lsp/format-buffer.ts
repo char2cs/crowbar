@@ -5,8 +5,6 @@ import { LspClient } from './lsp-client'
 import { applyTextEditsToContent } from './workspace-edit'
 import { report } from '@/lib/errors/report'
 
-/** Format `text` (the document's current text) with its language server through the daemon;
- *  null when nothing changes or no server formats the document. */
 export async function formatDocumentWithLsp(
   ref: DocumentRef,
   text: string,

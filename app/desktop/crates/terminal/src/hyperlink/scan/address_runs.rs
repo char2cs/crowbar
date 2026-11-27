@@ -1,5 +1,3 @@
-//! Finds text that is part of an address, so file-path detection can skip it.
-
 use std::ops::Range;
 
 const WWW: &str = "www.";

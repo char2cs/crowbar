@@ -22,7 +22,6 @@ function renderProvider() {
   )
 }
 
-/** Base UI closes a dialog on Escape by firing onOpenChange(false). */
 function pressEscape() {
   fireEvent.keyDown(document.activeElement ?? document.body, {
     key: 'Escape',
@@ -31,8 +30,6 @@ function pressEscape() {
 }
 
 describe('primitive dialog service', () => {
-  // The app shell has the dialog UI loaded before any request; a cold transform of it here
-  // would otherwise race findBy's timeout on the first test.
   beforeAll(async () => {
     await import('@/components/ui/primitive-dialog-host')
   })
@@ -55,7 +52,6 @@ describe('primitive dialog service', () => {
     await expect(answer).resolves.toBe(false)
   })
 
-  // The safe answer is the default, whatever the confirm does: a stray Enter never confirms.
   it('a confirm starts on its cancel button, so Enter cancels', async () => {
     const user = userEvent.setup()
     renderProvider()
@@ -89,7 +85,6 @@ describe('primitive dialog service', () => {
     pressEscape()
     await expect(first).resolves.toBe(false)
 
-    // A dismissed dialog must not stay at the head of the queue — the next one has to show.
     const second = primitiveConfirm('Second?')
     await screen.findByText('Second?')
 
@@ -112,7 +107,6 @@ describe('primitive dialog service', () => {
     await expect(answered).resolves.toBe('feature')
   })
 
-  // The header carries the dialog's gutter: a message outside it touches the dialog's edge.
   it('a confirm shows its message as the dialog description, inside the header', async () => {
     renderProvider()
     const message = "To use it again you'll need to run crowbar pair on it."
@@ -151,8 +145,6 @@ describe('primitive dialog service', () => {
     await expect(second).resolves.toBe(true)
   })
 
-  // The dialog UI loads with the first request, and the provider sits above every error
-  // boundary: a chunk that fails to load must settle the request, not throw or leave it pending.
   it('settles a request as dismissed when the dialog UI fails to load', async () => {
     vi.resetModules()
     vi.doMock('@/components/ui/primitive-dialog-host', () => {
@@ -174,7 +166,6 @@ describe('primitive dialog service', () => {
       vi.doUnmock('@/components/ui/primitive-dialog-host')
     }
   })
-  // On the phone a sheet can cover the app, so the question is asked natively over it.
   it('asks a plain-text confirm natively on the phone', async () => {
     native.on = true
     try {

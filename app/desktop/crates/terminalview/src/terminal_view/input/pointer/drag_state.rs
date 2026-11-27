@@ -1,5 +1,3 @@
-//! What a held mouse button is doing.
-
 use terminal::MouseButton;
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -5,7 +5,6 @@ import { usePaneCanReviewBranch } from '@/features/panes/hooks/use-pane-can-revi
 import { usePaneNewTabActions } from '@/features/tabs/hooks/use-pane-new-tab-actions'
 import { IS_MOBILE } from '@/utils/platform'
 
-// The phone fills a whole screen with this view: a 1.6x logo over touch-sized (44pt) rows.
 const VARIANTS = {
   desktop: {
     action: 'justify-start text-muted-foreground',
@@ -21,9 +20,6 @@ const VARIANTS = {
   },
 } as const
 
-// An empty editor area, and a New Tab page (`replaceTabId`, replaced by the choice): the logo,
-// plus the actions once the pane's workspace resolves — every open names its workspace, so
-// until then only the logo is drawn.
 export function NewTabView({
   paneId,
   wsId,
@@ -41,8 +37,6 @@ export function NewTabView({
   const canReview = usePaneCanReviewBranch(paneId, wsId)
   const v = VARIANTS[IS_MOBILE ? 'phone' : 'desktop']
   return (
-    // Focusable so a click on the blank area puts focus in the editor area,
-    // where ⌘N opens a New Tab (use-pane-keyboard.ts).
     <div
       tabIndex={-1}
       data-variant={IS_MOBILE ? 'phone' : undefined}
@@ -55,7 +49,6 @@ export function NewTabView({
             <TerminalWindowIcon />
             New Terminal
           </Button>
-          {/* The phone has no browser pane and no file editor yet. */}
           {!IS_MOBILE && (
             <>
               <Button variant="ghost" size={v.size} className={v.action} onClick={onNewBrowser}>

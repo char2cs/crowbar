@@ -1,5 +1,3 @@
-//! A large heading with an optional explanation, as used above sections and pages.
-
 use gpui::{App, ParentElement, Styled, div, px};
 use ui::{ScaledText, Surface, Theme};
 

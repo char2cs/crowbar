@@ -1,5 +1,3 @@
-// Package threads mounts the workspace-scoped review-thread routes. Their live changes ride the
-// workspace's ws: stream scope.
 package threads
 
 import (
@@ -8,8 +6,6 @@ import (
 	threadhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 )
 
-// Register mounts the thread routes under the repo-scoped group's /workspaces/:wsId. Every
-// mutation broadcasts the resulting ThreadDTO.
 func Register(
 	repoScoped *gin.RouterGroup,
 	store threadhandlers.ThreadStore,

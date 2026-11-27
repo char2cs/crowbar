@@ -15,18 +15,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// newDivergedWorkspaceFixture builds a REAL git repository — not a mocked git
-// engine — because the property under test is what resolveDiffRef computes
-// against actual git plumbing; a stubbed MergeBaseFn would only assert this
-// package's own arithmetic back at itself.
-//
-// The base branch advances AFTER the child forks, and the child is then
-// rebased onto that new tip. That is the exact scenario a frozen ForkPointSha
-// gets wrong: it stays pinned to the original fork commit while the live
-// merge base moves to the base branch's new tip. Without the rebase step the
-// two answers would coincide by accident (an un-rebased child's merge base
-// with an advanced parent is still the original fork commit), so the rebase
-// is what actually forces the two implementations to disagree.
 func newDivergedWorkspaceFixture(
 	t *testing.T,
 ) (branchreview.Usecase, domain.Workspace, string) {
@@ -72,17 +60,6 @@ func newDivergedWorkspaceFixture(
 	return uc, child, wantRef
 }
 
-// TestGetScope_ReturnsTheRefTheReviewDiffsAgainst is the divergence guard, and
-// it is the reason this fixture exists: the ref a review reports must be the
-// LIVE merge base, never the frozen ForkPointSha the workspace row still
-// carries. The two agree for an un-rebased branch, which is why the fixture goes
-// to the trouble of advancing the base and rebasing the child — that is what
-// makes a shortcut to the recorded fork point observable at all.
-//
-// It asks GetScope, which is the only method that answers this question now:
-// GetBase was exported for the agent surface, replaced there by GetScope, and
-// then deleted with no production caller left. The guard outlived it because the
-// property is about resolveDiffRef, which both went through.
 func TestGetScope_ReturnsTheRefTheReviewDiffsAgainst(
 	t *testing.T,
 ) {
@@ -97,11 +74,6 @@ func TestGetScope_ReturnsTheRefTheReviewDiffsAgainst(
 		"the review must not shortcut to the frozen fork point once the base branch has advanced past it")
 }
 
-// The not-found half of the deleted GetBase's coverage, kept on the method that
-// still performs that lookup. GetScope cannot carry it: it takes the caller's
-// ALREADY-RESOLVED workspace, so there is no id for it to fail to resolve —
-// which is precisely why GetFiles is where an unknown workspace still has to
-// come back as a not-found rather than as a git failure.
 func TestGetFiles_UnknownWorkspaceIsNotFound(
 	t *testing.T,
 ) {
@@ -111,8 +83,6 @@ func TestGetFiles_UnknownWorkspaceIsNotFound(
 	require.Error(t, err)
 	require.ErrorIs(t, err, problem.ErrNotFound)
 }
-
-// --- real-git test helpers (testing.T variants of the *_bench helpers above) ---
 
 func testInitRepo(
 	t *testing.T,

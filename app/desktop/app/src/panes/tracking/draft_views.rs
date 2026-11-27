@@ -2,7 +2,6 @@ use layout::{Command, Layout};
 
 use crate::panes::tracking::open_chats::{open_chats, panes_showing};
 
-// SPEC: docs/plans/2026-11-24-draft-thread.md#steps (step 5: a restored draft is dropped)
 pub(crate) fn without_drafts(mut layout: Layout) -> Layout {
     let drafts: Vec<String> = open_chats(&layout)
         .into_iter()

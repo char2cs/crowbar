@@ -5,11 +5,7 @@ fn validate(value: &str) -> Result<()> {
     check_text("space id", value, is_word_char)
 }
 
-string_id!(
-    /// Identifies a Space, the scope extension events can be limited to.
-    SpaceId,
-    validate
-);
+string_id!(SpaceId, validate);
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,3 @@
-//! What storing a setting a pane wrote tells the log.
-
 use std::fmt;
 
 use journal::Level;

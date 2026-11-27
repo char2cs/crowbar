@@ -1,5 +1,3 @@
-//! A background that fades in while the pointer is over an element.
-
 use gpui::{
     App, Div, ElementId, Hsla, InteractiveElement, ParentElement, Stateful,
     StatefulInteractiveElement, Styled, Window,
@@ -8,7 +6,6 @@ use gpui::{
 use crate::foundation::motion::hover;
 use crate::foundation::motion::pose::Pose;
 
-/// A background that fades in over 150ms while the pointer is over an element.
 #[derive(Debug, Clone)]
 pub struct HoverFill {
     id: ElementId,
@@ -16,7 +13,6 @@ pub struct HoverFill {
 }
 
 impl HoverFill {
-    /// A fill of `color` for the element called `id`.
     pub fn new(
         id: impl Into<ElementId>,
         color: Hsla,
@@ -27,7 +23,6 @@ impl HoverFill {
         }
     }
 
-    /// Gives `base` the id and a background that fades from transparent to the colour on hover.
     pub fn apply(
         self,
         base: Div,
@@ -39,8 +34,6 @@ impl HoverFill {
         base.id(self.id).bg(shown).on_hover(hover::listener(&state))
     }
 
-    /// Gives `base` the id and hover tracking, and draws the fading fill on `part`, which becomes
-    /// its child: a hover anywhere on `base` lights only `part`, as a CSS `:hover::after` does.
     pub fn apply_to_part(
         self,
         base: Div,

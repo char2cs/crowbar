@@ -1,8 +1,3 @@
-//! An answer the shell's transport gave in the daemon's place, read by its `x-crowbar-proxy`
-//! marker as develop's `proxyMarkerError` reads it: the problem code and words of that failure.
-//!
-//! Spec: develop `web/src/lib/api/errors.ts` (`PROXY_FAILURES`).
-
 use protocol::DaemonResponse;
 
 use crate::error::Error;

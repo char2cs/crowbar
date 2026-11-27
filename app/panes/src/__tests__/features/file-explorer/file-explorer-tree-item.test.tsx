@@ -6,7 +6,6 @@ import { FILE_TREE_DENSITY_CONFIG } from '@/features/file-explorer/lib/file-tree
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
 import type { FileEntry } from '@/features/file-system/types/app'
 
-// The component calls useFileClipboardStore to check cut state — stub it out.
 vi.mock('@/features/file-explorer/stores/file-explorer-clipboard-store', () => ({
   useFileClipboardStore: () => false,
 }))
@@ -47,9 +46,7 @@ describe('FileExplorerTreeItem git status decorations', () => {
     const { container } = render(
       <FileExplorerTreeItem {...defaultProps} file={file} getGitStatusDecoration={noDecoration} />,
     )
-    // filename is present
     expect(screen.getByText('index.ts')).toBeInTheDocument()
-    // no letter badge
     expect(container.querySelector('[aria-label]')).toBeNull()
   })
 
@@ -136,8 +133,6 @@ describe('FileExplorerTreeItem git status decorations', () => {
   })
 
   it('tints a folder name when a descendant has a change', () => {
-    // The lookup propagates the modified decoration to the parent dir;
-    // the component simply applies whatever decoration getGitStatusDecoration returns.
     const decoration: FileTreeGitStatusDecoration = {
       colorClassName: 'text-git-modified',
       label: 'Modified',
@@ -154,7 +149,6 @@ describe('FileExplorerTreeItem git status decorations', () => {
 
     const nameSpan = screen.getByText('src')
     expect(nameSpan.className).toContain('text-git-modified')
-    // folder also shows the status letter (consistent with VS Code behavior)
     expect(screen.getByLabelText('Modified')).toHaveTextContent('M')
   })
 })

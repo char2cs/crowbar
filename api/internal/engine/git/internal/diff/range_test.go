@@ -13,14 +13,11 @@ import (
 func TestRange_HappyPath(t *testing.T) {
 	dir := initRepo(t)
 
-	// base branch: one commit. Capture its name — git's default branch differs
-	// across environments (main vs master per init.defaultBranch).
 	writeFile(t, dir, "base.go", "package main\n")
 	mustGit(t, dir, "add", "base.go")
 	mustGit(t, dir, "commit", "-m", "base commit")
 	base := currentBranch(t, dir)
 
-	// feature branch: add a new file
 	mustGit(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir, "feature.go", "package main\n\nfunc feature() {}\n")
 	mustGit(t, dir, "add", "feature.go")
@@ -38,7 +35,6 @@ func TestRange_HappyPath(t *testing.T) {
 	assert.Positive(t, result.TotalAdditions)
 	assert.Equal(t, 0, result.TotalDeletions)
 
-	// commit metadata fields must be zero-value (Range has no commit)
 	assert.Empty(t, result.CommitHash)
 	assert.Empty(t, result.CommitMessage)
 }

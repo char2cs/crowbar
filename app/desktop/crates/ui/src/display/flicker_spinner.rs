@@ -1,5 +1,3 @@
-//! The flip-dot loading indicator of rows and tabs.
-
 mod dot;
 mod markup;
 mod playback;
@@ -21,10 +19,6 @@ use crate::foundation::tokens::spacing;
 
 const OPACITY: f32 = 0.8;
 
-/// A grid of dots stepping through one of the bundled flip-dot sprites, picked at random per
-/// spinner, one frame every 90 ms.
-///
-/// It repaints only when its frame changes and keeps playing under reduced motion.
 #[derive(IntoElement)]
 pub struct FlickerSpinner {
     id: ElementId,
@@ -34,7 +28,6 @@ pub struct FlickerSpinner {
 }
 
 impl FlickerSpinner {
-    /// A 16px spinner; `id` keeps its sprite and timeline across frames.
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
@@ -44,7 +37,6 @@ impl FlickerSpinner {
         }
     }
 
-    /// Sets the edge length.
     #[must_use]
     pub fn size(
         mut self,
@@ -54,7 +46,6 @@ impl FlickerSpinner {
         self
     }
 
-    /// Takes the muted text colour of `surface`'s palette.
     #[must_use]
     pub fn on(
         mut self,
@@ -64,7 +55,6 @@ impl FlickerSpinner {
         self
     }
 
-    /// Draws the dots in `color` instead of the muted text colour.
     #[must_use]
     pub fn color(
         mut self,

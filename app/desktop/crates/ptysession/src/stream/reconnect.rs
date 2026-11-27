@@ -1,5 +1,3 @@
-//! How long to wait before reattaching to a stream that dropped.
-
 use std::time::Duration;
 
 const MAX_ATTEMPTS: u32 = 8;

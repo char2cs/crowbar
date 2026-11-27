@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newWrapConformance returns a 20x6 model, its client and a primed emitter: the first Emit is
-// always a keyframe, so it is spent on a word before the chunks under test.
 func newWrapConformance(
 	t *testing.T,
 ) (TerminalModel, Serializer, *clientSim, *DiffEmitter) {
@@ -41,8 +39,6 @@ func TestConformance_WrappedChainsUnderScroll(t *testing.T) {
 	require.NotZero(t, straddles, "test setup: a chain must straddle the scrollback boundary")
 }
 
-// The head commits in one Emit and its tail in the next; between them the tail is edited in place
-// on the top row, whose flag only the row above it could set.
 func TestConformance_WrappedChainStraddlesScrollback(t *testing.T) {
 	m, ser, sim, e := newWrapConformance(t)
 
@@ -74,8 +70,6 @@ func TestConformance_WrappedChainStraddlesScrollback(t *testing.T) {
 	}
 }
 
-// One Emit commits more lines than the viewport holds, so the delta goes out in several batches;
-// each batch must end where a chain does.
 func TestConformance_WrappedBurstSpansBatches(t *testing.T) {
 	m, ser, sim, e := newWrapConformance(t)
 
@@ -83,23 +77,21 @@ func TestConformance_WrappedBurstSpansBatches(t *testing.T) {
 	for _, n := range []int{25, 30, 45, 41, 35, 50, 3, 3, 3, 3, 3, 3} {
 		lines = append(lines, strings.Repeat(string(rune('a'+len(lines))), n))
 	}
-	lines[1] = "0123456789012345678 " + lines[1][20:] // a head the client must be sent to its last column
+	lines[1] = "0123456789012345678 " + lines[1][20:]
 	require.False(t, conformanceStep(t, m, e, ser, sim, []byte("\r\n"+strings.Join(lines, "\r\n"))), "the diff path")
 	require.Equal(t, "grid F F F F F F | scrollback F F T F T F T T F T T F T F T T",
 		wrapFlags(t, m), "test setup: chains cross every batch boundary")
 	require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m))
 }
 
-// Chains scroll into history after the client's autowrap went off, through the top row and inside
-// a batch; each head must still autowrap there.
 func TestConformance_WrappedChainScrollsUnderAutowrapOff(t *testing.T) {
 	m, ser, sim, e := newWrapConformance(t)
 
 	for _, chunk := range []string{
 		"\r\n0123456789abcdefghijKLMNO\r\nABCDEFGHIJklmnopqrstuvwxy",
 		"\x1b[?7l",
-		"\r\n\r\n\r\n", // the first tail stays on the top row
-		"\r\n\r\n\r\n", // it commits with the second chain
+		"\r\n\r\n\r\n",
+		"\r\n\r\n\r\n",
 	} {
 		require.False(t, conformanceStep(t, m, e, ser, sim, []byte(chunk)), "%q takes the diff path", chunk)
 		require.Equal(t, scrollbackStrings(m), scrollbackStrings(sim.m), "scrollback after %q", chunk)
@@ -107,8 +99,6 @@ func TestConformance_WrappedChainScrollsUnderAutowrapOff(t *testing.T) {
 	require.Equal(t, "grid F F F F F F | scrollback F F T F T", wrapFlags(t, m), "test setup")
 }
 
-// A chain taller than the viewport goes out as one flow: the client's own autowrap scrolls it
-// through, so every wrap bit and every cell arrives.
 func TestConformance_WrappedChainTallerThanViewport(t *testing.T) {
 	m, _, sim, e := newWrapConformance(t)
 
@@ -138,8 +128,6 @@ func TestConformance_WrappedChainTallerThanViewport(t *testing.T) {
 	}
 }
 
-// A one-row viewport carries the top row's flag too: the top row follows the last committed line
-// and no line the model keeps on screen is scrolled out.
 func TestConformance_WrappedChainOnOneRow(t *testing.T) {
 	m, ser := New(20, 1, 200)
 	t.Cleanup(m.Close)
@@ -160,8 +148,6 @@ func TestConformance_WrappedChainOnOneRow(t *testing.T) {
 	require.Empty(t, string(again), "the client holds the top row's flag, so nothing is rewritten")
 }
 
-// A seeded random walk on small viewports. After every Emit the client's cells, scrollback and wrap
-// bits equal the model's and a second Emit writes nothing.
 func TestConformance_RandomizedWrapWalk(t *testing.T) {
 	steps, wrappedChecks := 0, 0
 	for seed := int64(1); seed <= 400; seed++ {
@@ -172,8 +158,6 @@ func TestConformance_RandomizedWrapWalk(t *testing.T) {
 	t.Logf("%d steps, %d wrap-bit comparisons with a wrapped line", steps, wrappedChecks)
 }
 
-// walkWraps runs one seed's 60 steps and returns them with how many compared a set wrap bit. With
-// resizes, some steps resize both sides instead, and every step also checks the model is sound.
 func walkWraps(
 	t *testing.T,
 	seed int64,
@@ -223,8 +207,6 @@ func walkWraps(
 	return steps, wrappedChecks
 }
 
-// wrapWalkChunk returns one step: mostly text long enough to wrap, else a line break, an edit or
-// erase anywhere, an autowrap flip, a line insert or delete, a scroll, a scroll region, or a burst.
 func wrapWalkChunk(
 	rng *rand.Rand,
 	cols int,
@@ -258,7 +240,6 @@ func wrapWalkChunk(
 	}
 }
 
-// walkBurst commits several lines, each long enough to wrap, in one chunk.
 func walkBurst(
 	rng *rand.Rand,
 	cols int,
@@ -271,7 +252,6 @@ func walkBurst(
 	return b.String()
 }
 
-// walkText returns up to n letters with an occasional space, so a head may end in a printed blank.
 func walkText(
 	rng *rand.Rand,
 	n int,
@@ -283,20 +263,18 @@ func walkText(
 	return string(text)
 }
 
-// The web link tests replay this fixture through xterm.js, the real client. After an intended
-// wire change: go test -tags noEmbed . -run XtermReplayFixture -update
 const xtermFixturePath = "testdata/xterm-wrapped-links.json"
 
 var updateXtermFixture = flag.Bool("update", false, "rewrite the xterm fixtures in testdata/")
 
 type xtermScenario struct {
 	Name     string   `json:"name"`
-	Live     []string `json:"live"`     // the attach keyframe of the blank screen, then each Emit
-	Keyframe string   `json:"keyframe"` // a re-attach redraw of the final state
+	Live     []string `json:"live"`
+	Keyframe string   `json:"keyframe"`
 }
 
 func TestConformance_XtermReplayFixture(t *testing.T) {
-	head := "\r\n\r\n\r\n\r\nsee " + wrapTestURL // fills the bottom two of six rows
+	head := "\r\n\r\n\r\n\r\nsee " + wrapTestURL
 	scenarios := []struct {
 		name   string
 		chunks []string

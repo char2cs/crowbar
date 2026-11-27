@@ -1,5 +1,3 @@
-//! How far a single-line field scrolls its text so the caret stays in view, as a browser input does.
-
 use gpui::{Bounds, ContentMask, Pixels, point, px, size};
 
 use crate::control::editor::text_input::line_element::caret_scroll::{CARET_WIDTH, CaretScroll};

@@ -1,6 +1,3 @@
-//! Public-API property tests: random command sequences never break an invariant, refused
-//! commands change nothing, panes are never lost or duplicated, and undo is exact.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use layout::{

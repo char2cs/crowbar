@@ -1,4 +1,3 @@
-//! Fixtures shared by the unit tests: layouts built through the model's own commands.
 #![cfg(test)]
 
 mod fake_source;

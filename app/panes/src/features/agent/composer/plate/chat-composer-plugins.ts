@@ -50,15 +50,8 @@ import {
 } from '@/features/agent/composer/plate/attachments/chat-markdown-image-node'
 import { ChatParagraphElement } from '@/features/agent/composer/plate/attachments/chat-paragraph-node'
 
-// One set for prompts and answers so they can't drift. @platejs/markdown drops any
-// unregistered node, so every node type is registered; SlashKit is left out because
-// `/` opens Crowbar's skill picker, MathKit for its ~280 KB.
-
-// Two independent `.configure()` calls: chaining `.withComponent()` onto one shared
-// instance resolves the node config differently at render time.
 const CHAT_CODE_BLOCK_CONFIG = {
   inputRules: [CodeBlockRules.markdown({ on: 'match' })],
-  // The editor's shiki grammars: Plate types the option as a lowlight instance.
   options: { lowlight: shikiLowlight as unknown as CodeBlockConfig['options']['lowlight'] },
   shortcuts: { toggle: { keys: 'mod+alt+8' } },
 }
@@ -80,7 +73,6 @@ const ChatMarkdownImageKit = [
 export const chatComposerPlugins = [
   ...BasicNodesKit,
   ...ListKit,
-  // 16px, not the shared 24px: Plate writes it as an inline style no stylesheet reaches.
   IndentPlugin.configure({ options: { offset: 16 } }),
   ...ChatLinkKit,
   ...HtmlKit,
@@ -93,17 +85,13 @@ export const chatComposerPlugins = [
   ChatCodeBlockPlugin,
   CodeLinePlugin.withComponent(CommentCodeLineElement),
   CodeSyntaxPlugin.withComponent(CodeSyntaxLeaf),
-  // After BasicNodesKit so it replaces its paragraph (a later entry with the same key
-  // wins), making every paragraph a drop target.
   ParagraphPlugin.withComponent(ChatParagraphElement),
   ...MarkFloatingToolbarKit,
-  // Inert outside streaming: only streaming-value-patch.ts sets its mark.
   ChatFreshTextPlugin,
   ChatMissingPathPlugin,
   MarkdownPlugin.configure({
     options: {
       remarkPlugins: [remarkGfm],
-      // The same punctuation the file and comment editors pin.
       remarkStringifyOptions: { emphasis: '*', bullet: '-' },
       rules: { ...calloutMarkdownRules, ...htmlMarkdownRules, ...underlineMarkdownRules },
     },
@@ -121,11 +109,8 @@ const STATIC_NODE_OVERRIDES: Record<string, (typeof chatComposerPlugins)[number]
   }),
 }
 
-// `PlateStatic` still renders `afterEditable`, and FloatingToolbar's
-// `useEditorId()` crashes without an interactive Plate.
 const STATIC_EXCLUDED_KEYS = new Set(MarkFloatingToolbarKit.map((plugin) => plugin.key))
 
-/** Derived, not hand-duplicated, so a plugin added above flows through. */
 export const chatComposerPluginsStatic = chatComposerPlugins.reduce<typeof chatComposerPlugins>(
   (plugins, plugin) => {
     if (!STATIC_EXCLUDED_KEYS.has(plugin.key))

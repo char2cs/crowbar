@@ -18,7 +18,6 @@ export function normalizeFileTreeDensity(value: string): FileTreeDensity {
   return isFileTreeDensity(value) ? value : DEFAULT_FILE_TREE_DENSITY
 }
 
-// Row pitch per density; the rows and their virtualiser both read it.
 export const FILE_TREE_DENSITY_CONFIG: Record<FileTreeDensity, { rowHeight: number }> = {
   compact: { rowHeight: 20 },
   default: { rowHeight: SIDEBAR_FILE_ROW_HEIGHT },

@@ -1,5 +1,3 @@
-//! A sort key for the daemon's creation times.
-
 const FRACTION_DIGITS: usize = 9;
 
 pub(crate) fn created_key(stamp: &str) -> String {

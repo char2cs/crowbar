@@ -1,5 +1,3 @@
-//! What the settings core reads from the daemon: the agents, their checks and the permission level.
-
 use std::sync::Arc;
 
 use daemonapi::Call;

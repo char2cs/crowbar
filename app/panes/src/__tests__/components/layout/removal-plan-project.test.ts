@@ -1,11 +1,3 @@
-/**
- * What removing a PROJECT means, worked out before anything is hidden.
- *
- * A project was the one row the planner refused outright — `draftFor` returned
- * null for it — so there was no gesture in the sidebar that could delete one.
- * The rule it now follows is the repo's, one level up: it takes everything under
- * it, and it never runs a clock.
- */
 import { describe, it, expect } from 'vitest'
 import { planRemoval } from '@/components/layout/removal-plan'
 import type { Repo } from '@/core/entities/repo-types'
@@ -37,7 +29,6 @@ const repos: Repo[] = [
     workspaces: [{ id: 'c', branch: 'gamma', status: 'new', age: '', order: 0 }],
     folders: [],
   },
-  // Another project's repo, which must not be swept up.
   {
     id: 'r9',
     projectId: 'p2',
@@ -53,9 +44,6 @@ const planProject = (id: string) => planRemoval([{ kind: 'project', id }], repos
 
 describe('planning a project removal', () => {
   it('hides the project row AND every repo row inside it', () => {
-    // Hiding only the header would leave its repos on screen with nothing above
-    // them — and the delete cascades server-side, so that would promise less
-    // than is about to happen.
     const [draft] = planProject('p1')
 
     expect(draft.kind).toBe('project')
@@ -68,7 +56,6 @@ describe('planning a project removal', () => {
   })
 
   it('counts the repos AND every workspace under them', () => {
-    // 2 repos + 3 workspaces.
     expect(planProject('p1')[0].extra).toBe(5)
   })
 
@@ -86,7 +73,6 @@ describe('planning a project removal', () => {
   })
 
   it('plans nothing when no project list is supplied at all', () => {
-    // Without the projects argument, a project removal plans nothing rather than one with no label.
     expect(planRemoval([{ kind: 'project', id: 'p1' }], repos)).toEqual([])
   })
 })

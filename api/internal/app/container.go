@@ -27,41 +27,25 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// Container is the application layer: the aggregate repositories, the
-// GORM CRUD stores, the composed usecases, and the stream with the resources
-// its held scopes run.
 type Container struct {
-	Repositories *repositories.Container
-	GORM         *GORMStores
-	Usecases     *usecases.Container
-	// Operations runs the work routes hand off after answering 202.
-	Operations *operation.Service
-	// RepoPlacements is the one position read every repo list goes through, so
-	// a project whose tree cannot be read is logged once per boot.
+	Repositories   *repositories.Container
+	GORM           *GORMStores
+	Usecases       *usecases.Container
+	Operations     *operation.Service
 	RepoPlacements *dto.Placements
-	// Stream serves every client the scopes it holds.
-	Stream *stream.Hub
-	// resources are what a held scope runs; Close stops what is still running.
-	resources   *resources.Set
-	crowbarHome string
-	// Browser carries browser tool calls to the desktop app's tabs.
-	Browser *browserbridge.Bridge
+	Stream         *stream.Hub
+	resources      *resources.Set
+	crowbarHome    string
+	Browser        *browserbridge.Bridge
 
-	// engines lets Shutdown quiesce the terminal engine (kill every PTY, join the exit
-	// callbacks) before draining the aggregates below, which those callbacks write into.
 	engines *engine.Container
 
-	// axWorkspace, axReviewThread and axAgentChat are the per-type asynx
-	// singletons, kept so the ordered graceful shutdown can drain each.
 	axWorkspace    asynx.Asynx[domain.Workspace]
 	axReviewThread asynx.Asynx[domain.ReviewThread]
 	axAgentChat    asynx.Asynx[domain.Chat]
-	// axTree is the per-project placement aggregate's singleton.
-	axTree asynx.Asynx[tree.Tree]
+	axTree         asynx.Asynx[tree.Tree]
 }
 
-// New constructs the application layer from the engine and adapter containers,
-// and runs post's steps.
 func New(
 	ctx context.Context,
 	engines *engine.Container,
@@ -104,8 +88,6 @@ func New(
 		return nil, err
 	}
 
-	// Path-deriving usecases must share the adapter's resolved home so git
-	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.Home().Root()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	browser := browserbridge.New()
@@ -117,9 +99,6 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
-	// The workspace-delete cascade purges each chat through the chat usecase's
-	// own PurgeChat, which exists only now (it is built from repos); see
-	// repositories.Container.PurgeChat.
 	repos.PurgeChat = ucs.AgentChat.PurgeChat
 	c := &Container{
 		Repositories:   repos,
@@ -139,34 +118,26 @@ func New(
 	c.Stream = late.hub
 	chatSnapshots.SetPublish(late.chatPublisher(ctx, repos.Workspace, ucs.AgentChat))
 
-	// Before the API opens: nothing a restart interrupted may still read as running.
 	if err := c.Operations.Recover(ctx); err != nil {
 		return nil, c.abandon(ctx, fmt.Errorf("app: %w", err))
 	}
 	if err := startBootSweep(ctx, repos, purgeFinished(c.Operations)); err != nil {
 		return nil, c.abandon(ctx, err)
 	}
-	// After Recover, so these runs are not marked interrupted; settled before
-	// anything is served, each a recorded operation.
 	if err := resumeDeletes(ctx, ucs.ProjectDelete, c.Operations); err != nil {
 		return nil, c.abandon(ctx, err)
 	}
 	startRestoreTerminalSessions(ctx, ucs)
-	// Before the owner reconcile (a project home created here needs an owner).
-	// After the sweep and resumed deletes, which may purge before the Tree is
-	// seeded: placement-tree copies no row of a record already gone.
 	impls := postOpenImpls(newLegacyFuncs(repos, ucs, adapters.Home()), placement, legacySources(adapters, repos, gormStores))
 	if err := post.RunPostOpen(ctx, impls); err != nil {
 		return nil, c.abandon(ctx, fmt.Errorf("app: migrate: %w", err))
 	}
-	// After the upgrade steps, which can hand it a runner a crashed old daemon left.
 	reconcileAgentRunners(ctx, ucs)
 	if ucs.AgentChatFolder != nil {
 		if err := ucs.AgentChatFolder.ResumeMoves(context.WithoutCancel(ctx)); err != nil {
 			slog.WarnContext(ctx, "app: resume chat moves", "err", err)
 		}
 	}
-	// Loops start once the boot can no longer fail, so a failed one leaves none.
 	startProviderSweep(ctx, engines, repos, ucs)
 	startOwningChatReconcile(ctx, repos, ucs)
 	startTerminalWaitSweep(ctx, late, ucs)
@@ -176,9 +147,6 @@ func New(
 	return c, nil
 }
 
-// newRepositoriesContainer builds the repository layer from every per-type
-// asynx singleton and its read model. The fanout built here decides what a
-// client is told.
 func newRepositoriesContainer(
 	ctx context.Context,
 	adapters *adapter.Container,
@@ -225,9 +193,6 @@ func toUsecaseStores(
 	}
 }
 
-// startTerminalWaitSweep starts the cadence that notices a vendor CLI parked on a modal
-// (e.g. workspace trust) that sends no hook. It lives here, not in a usecase, because it
-// publishes through the stream, and runs after reconcileAgentRunners to skip dead rows.
 func startTerminalWaitSweep(
 	ctx context.Context,
 	late *lateStream,
@@ -239,9 +204,6 @@ func startTerminalWaitSweep(
 	})
 }
 
-// startModelDiscoveryWarmup kicks each descriptor's live model probe at boot instead
-// of on the first providers request, off the boot path. The List call is detached from
-// ctx so an early cancel cannot abort it, but its forked refreshes still stop at shutdown.
 func startModelDiscoveryWarmup(
 	ctx context.Context,
 	engines *engine.Container,
@@ -270,9 +232,6 @@ func startProviderSweep(
 	)
 }
 
-// startBootSweep synchronously reaps, before serving, every workspace left tombstoned
-// by a delete whose reactor never finished, re-driving the same Purger. A missing purger
-// is a wiring error and surfaces; per-row failures are logged and never fail boot.
 func startBootSweep(
 	ctx context.Context,
 	repos *repositories.Container,
@@ -289,9 +248,6 @@ func startBootSweep(
 	return nil
 }
 
-// startRestoreTerminalSessions reloads persisted terminal sessions as PTY-less
-// placeholders a later Attach restores. It runs synchronously before serving so no
-// Attach races the restore; per-row errors are logged.
 func startRestoreTerminalSessions(
 	ctx context.Context,
 	ucs *usecases.Container,
@@ -304,9 +260,6 @@ func startRestoreTerminalSessions(
 	}
 }
 
-// reconcileAgentRunners ends the runners the ledger still holds open from the previous
-// run: their PTYs died with it, and an open one keeps its chat busy. It runs before
-// serving; a failure is logged rather than blocking boot, which would be strictly worse.
 func reconcileAgentRunners(
 	ctx context.Context,
 	ucs *usecases.Container,
@@ -319,9 +272,6 @@ func reconcileAgentRunners(
 	}
 }
 
-// startOwningChatReconcile runs the owning-chat boot reconcile (owning_chats_reconcile.go)
-// SYNCHRONOUSLY, before anything is served. A listing failure is logged: the
-// daemon still boots, and the next boot tries again.
 func startOwningChatReconcile(
 	ctx context.Context,
 	repos *repositories.Container,

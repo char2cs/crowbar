@@ -70,7 +70,6 @@ const RowOfButtons = React.memo(function RowOfButtons({
     </div>
   )
 })
-/** The scrolling emoji grid: every category, or the search's results. */
 export function EmojiPickerContent({
   emojiLibrary,
   i18n,

@@ -1,6 +1,3 @@
-//! The `files:` scopes one connection holds for the workspace of every open chat, as develop's
-//! `use-workspace-file-tree.ts` does, and what their frames change in the panels and the shell.
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 

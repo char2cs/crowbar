@@ -1,5 +1,3 @@
-//! Paints a [`ToastQueue`] as a column of toasts at its placement.
-
 mod selection;
 
 use std::rc::Rc;

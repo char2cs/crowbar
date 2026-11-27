@@ -1,5 +1,3 @@
-//! A daemon that answers canned routes and records every request.
-
 use std::sync::{Arc, Mutex};
 
 use protocol::{
@@ -16,20 +14,14 @@ struct Route {
     body: String,
 }
 
-/// What the fake daemon saw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Seen {
-    /// The HTTP method.
     pub method: String,
-    /// The request target.
     pub path: String,
-    /// The JSON body, when the request carried one.
     pub body: Option<Value>,
-    /// The request headers.
     pub headers: Vec<(String, String)>,
 }
 
-/// A [`DaemonTransport`] answering from a table of routes, recording every request.
 #[derive(Debug, Default)]
 pub struct FakeDaemon {
     routes: Mutex<Vec<Route>>,
@@ -37,12 +29,10 @@ pub struct FakeDaemon {
 }
 
 impl FakeDaemon {
-    /// An empty fake, shared as the transport of a client.
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::default())
     }
 
-    /// Answers `method` `path` with `status` and the raw `body` from now on.
     pub fn answer(
         &self,
         (method, path): (&'static str, &str),
@@ -58,8 +48,6 @@ impl FakeDaemon {
         });
     }
 
-    /// Answers `method` `path` as the shell's transport does in the daemon's place: `status`, a
-    /// plain-text body and the `x-crowbar-proxy` `marker`.
     pub fn proxied(
         &self,
         (method, path): (&'static str, &str),
@@ -85,7 +73,6 @@ impl FakeDaemon {
         }
     }
 
-    /// Answers `method` `path` with a success envelope around `data`.
     pub fn ok(
         &self,
         method: &'static str,
@@ -99,7 +86,6 @@ impl FakeDaemon {
         );
     }
 
-    /// Every request seen so far, oldest first.
     pub fn seen(&self) -> Vec<Seen> {
         self.seen.lock().map_or_default(|seen| seen.clone())
     }

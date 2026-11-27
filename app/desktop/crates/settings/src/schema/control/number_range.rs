@@ -1,9 +1,6 @@
-//! Bounds, step and text form of a number field.
-
 use crate::schema::control::nudge::Nudge;
 use crate::schema::control::on_load::OnLoad;
 
-/// The allowed numbers of a field: `min..=max` in increments of `step`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NumberRange {
     pub(crate) min: f64,
@@ -14,13 +11,11 @@ pub struct NumberRange {
 }
 
 impl NumberRange {
-    /// The smallest allowed number.
     #[must_use]
     pub fn min(&self) -> f64 {
         self.min
     }
 
-    /// The largest allowed number.
     #[must_use]
     pub fn max(&self) -> f64 {
         self.max
@@ -95,7 +90,6 @@ impl NumberRange {
         }
     }
 
-    /// The number typed in `text`, if it is one.
     pub fn parse(
         &self,
         text: &str,

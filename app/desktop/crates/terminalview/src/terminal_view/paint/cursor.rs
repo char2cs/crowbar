@@ -1,5 +1,3 @@
-//! Paints the cursor.
-
 pub(crate) mod blink;
 pub(crate) mod focus_state;
 pub(crate) mod look;

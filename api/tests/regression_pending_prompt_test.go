@@ -20,14 +20,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// livestubPromptSubmitYAML extends writeLiveStubProviderDescriptor's stub
-// (agent_working_overlay_test.go) with the presentation.prompt_submit and
-// session.resume blocks POST .../prompts requires and that shared descriptor
-// never declares — no earlier user of createLiveStubChat submits a real
-// prompt over HTTP, only hooks. Without them SubmitPrompt refuses every text
-// with 422 (runner.ErrPromptUnsupported), so this test carries its own
-// override rather than editing the shared harness file. The fake CLI ignores
-// the trailing {message} positional prompt_submit places, staying alive.
 const livestubPromptSubmitYAML = `id: livestub
 session: { resume: { arg: "--resume {id}" }, persists: turn_start }
 events:
@@ -67,9 +59,6 @@ func writeLiveStubProviderDescriptorWithPromptSubmit(
 	writeProviderDescriptor(t, h, "livestub", livestubPromptSubmitYAML)
 }
 
-// A submitted prompt's literal text is on the chat's record as pending the
-// moment the POST returns, before any hook could confirm it, so a client that
-// lost its own copy gets the words back. Read once, unretried, on purpose.
 func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptorWithPromptSubmit(t, h)
@@ -91,7 +80,6 @@ func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testi
 		"nothing confirmed the provider took it, so it still reads as pending")
 }
 
-// postPrompt submits text under requestID and returns the response status.
 func postPrompt(t *testing.T, h *harness, imported importedRepo, chatID, text, requestID string) int {
 	t.Helper()
 	body, err := json.Marshal(map[string]string{"text": text, "clientRequestId": requestID})
@@ -111,7 +99,6 @@ func statusOf(t *testing.T, h *harness, req *http.Request) int {
 	return resp.StatusCode
 }
 
-// untilSettled waits for requestID's prompt_settled row on chatID's feed.
 func untilSettled(t *testing.T, h *harness, chatID, requestID string) ledger.PromptSettled {
 	t.Helper()
 	var settled []ledger.PromptSettled
@@ -159,7 +146,6 @@ func TestRegression_ResendingTheSameRequestIDNeverDeliversTwice(t *testing.T) {
 	assert.Equal(t, 1, launchesCarrying(t, fake, text))
 }
 
-// launchesCarrying counts the fake CLI launches whose argv carried text.
 func launchesCarrying(t *testing.T, fake kit.FakeProvider, text string) int {
 	t.Helper()
 	captures, err := filepath.Glob(filepath.Join(fake.Dir, "*.json"))
@@ -201,8 +187,6 @@ func TestRegression_APromptTheProviderNeverAcknowledgesSettlesOnIdle(t *testing.
 		"a settled prompt no longer holds the chat busy")
 }
 
-// wordlessStubYAML is the prompt-submit stub whose turn start carries only a
-// turn id: nothing in the hook echoes the user's words.
 var wordlessStubYAML = strings.Replace(livestubPromptSubmitYAML, "message: prompt", "turn_id: turn_id", 1)
 
 func TestRegression_ATurnStartThatEchoesNoWordsBindsToTheSentPrompt(t *testing.T) {

@@ -1,5 +1,3 @@
-//! One entry of a page's search index.
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SearchEntry {
     pub(crate) section: String,

@@ -38,16 +38,11 @@ describe('transcript-scroll-positions', () => {
     expect(getScrollPosition('c1')).toBeNull()
   })
 
-  // The reason this module exists: a saved position must outlive the per-workspace store that
-  // was live when it was written (destroyWorkspaceStore drops it on a switch).
   it('survives the workspace store that was live when it was written being replaced by a new one', () => {
     const before = createWorkspaceStore('w1')
-    void before // stands in for "the store destroyWorkspaceStore is about to drop"
+    void before
     setScrollPosition('c1', { stuck: false, distanceFromBottom: 500 })
 
-    // A workspace switch back: a BRAND NEW store instance for the same
-    // workspace id, exactly what the registry hands back after
-    // destroyWorkspaceStore + a later re-lookup.
     const after = createWorkspaceStore('w1')
     void after
 

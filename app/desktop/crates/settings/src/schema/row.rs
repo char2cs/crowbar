@@ -1,5 +1,3 @@
-//! One setting in a section.
-
 mod label_style;
 mod reset_offer;
 mod wording;
@@ -12,7 +10,6 @@ use crate::schema::control::Control;
 use crate::values::Key;
 use crate::values::Value;
 
-/// A label, description and control bound to one setting key.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub(crate) key: Key,
@@ -29,7 +26,6 @@ pub struct Row {
 }
 
 impl Row {
-    /// The control that edits the value.
     #[must_use]
     pub fn control(&self) -> &Control {
         &self.control
@@ -94,17 +90,14 @@ impl Row {
         self
     }
 
-    /// The setting this row edits.
     pub fn key(&self) -> &Key {
         &self.key
     }
 
-    /// The label shown to the user.
     pub fn label(&self) -> &str {
         &self.label
     }
 
-    /// How the label is drawn.
     pub fn label_style(&self) -> LabelStyle {
         self.label_style
     }

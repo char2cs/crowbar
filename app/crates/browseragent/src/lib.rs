@@ -1,12 +1,3 @@
-//! The desktop side of the daemon's browser tools.
-//!
-//! Agents call `browser_open`, `browser_click` and the rest on the daemon, which hands each call
-//! to the one window attached to its browser peer socket. This crate is that window's end:
-//! [`run_peer`] keeps the attachment, reports the window's tabs ([`TabSummary`]) and turns every
-//! request into an [`AgentCommand`] for the shell, which owns the tabs and answers through
-//! [`Replies`]. It knows no window system: the connection ([`PeerConnector`]) and the shell
-//! ([`TabCommands`]) are ports.
-
 mod browseragent;
 mod error;
 mod journal_sink;

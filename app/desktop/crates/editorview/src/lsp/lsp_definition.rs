@@ -1,7 +1,3 @@
-//! Go to definition from the document's language server, as develop's Monaco definition
-//! provider asks it: the daemon answers workspace-relative locations, and absolute ones lie
-//! outside the workspace.
-
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Task, Window};

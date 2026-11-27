@@ -43,7 +43,6 @@ use crate::transport::removal_event::RemovalEvent;
 pub(crate) const PROXY_TIMEOUT: Duration = Duration::from_secs(300);
 const REMOVAL_BACKLOG: usize = 16;
 
-/// Reaches the local daemon and paired remote hosts on behalf of panes.
 pub struct Transport {
     locator: Arc<dyn SocketLocator>,
     registry: Arc<HostRegistry>,
@@ -63,7 +62,6 @@ impl std::fmt::Debug for Transport {
 }
 
 impl Transport {
-    /// Wires the local socket source, the host list and the credential store together.
     pub fn new(
         locator: Arc<dyn SocketLocator>,
         registry: Arc<HostRegistry>,
@@ -78,13 +76,11 @@ impl Transport {
         }
     }
 
-    /// The host list.
     #[must_use]
     pub fn registry(&self) -> &Arc<HostRegistry> {
         &self.registry
     }
 
-    /// The credential store.
     #[must_use]
     pub fn tokens(&self) -> &Arc<dyn TokenStore> {
         &self.tokens
@@ -94,14 +90,6 @@ impl Transport {
         self.locator.as_ref()
     }
 
-    /// Forgets a host: it is dropped from the list so nothing can reach it, every open stream to
-    /// it is told to end, and its stored credential is deleted. Safe to call again after a
-    /// failure.
-    ///
-    /// # Errors
-    /// A hosts-file error when the list cannot be saved; the host is then still registered and
-    /// nothing else changed. [`Error::CredentialRemains`] when the host is gone but its
-    /// credential could not be deleted; calling again retries the deletion.
     pub async fn remove_host(
         &self,
         host_id: &HostId,
@@ -122,8 +110,6 @@ impl Transport {
         self.removed.subscribe()
     }
 
-    /// Answers one `crowbar://<hostId>/v0/...` request made by a pane of `origin`. The answer is
-    /// always a response: a failure is a marked proxy answer the page can read.
     pub async fn handle(
         &self,
         origin: &PaneOrigin,

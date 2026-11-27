@@ -9,15 +9,11 @@ interface ComposerSignpostProps {
   reason: SignpostReason
   message: string
   onOpenTerminal: () => void
-  /** The prompt's declared one-tap replies, when it has any. */
   answers?: AgentTerminalAnswer[]
   onAnswer?: (answerId: string) => void
-  /** Present when a turn runs or a prompt is held: the bar's Stop, which it hides. */
   onStop?: () => void
 }
 
-/** Takes the composer's slot rather than sitting above it: what it reports is
- *  that there is nothing to type into. */
 export function ComposerSignpost({
   reason,
   message,

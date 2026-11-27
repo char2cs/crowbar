@@ -1,7 +1,3 @@
-//! Saying so when a row is released over one that refuses it, as develop's `toastRefusal` does,
-//! so a refused drop does not look like one that silently failed to stick. A release back on the
-//! dragged row is a cancel, not a refusal.
-
 use gpui::Context;
 use sidebar::{DropModes, RowId};
 use ui::{ToastContent, ToastKind, ToastLifetime};

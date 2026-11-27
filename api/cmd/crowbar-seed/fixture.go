@@ -7,20 +7,13 @@ import (
 	"strings"
 )
 
-// seedBaseBranch is the fixture's default branch. It is created explicitly
-// rather than left to init.defaultBranch, which varies per developer and would
-// make the seeded repo's base branch unpredictable.
 const seedBaseBranch = "main"
 
-// The fixture pins its own committer, repo-locally. A developer with no global
-// user.name still gets a working fixture, and one who has it keeps it untouched.
 const (
 	fixtureAuthorName  = "Crowbar Seed"
 	fixtureAuthorEmail = "seed@crowbar.local"
 )
 
-// branchCommitSubject doubles as the idempotency marker: a rerun that finds it
-// at the feature worktree's HEAD leaves the existing commit alone.
 const branchCommitSubject = "fix(pricing): guard the empty cart and round to whole cents"
 
 const branchCommitBody = `subtotal() walked one index past the end of the items array, and
@@ -38,8 +31,6 @@ type fixtureCommit struct {
 	files   []sourceFile
 }
 
-// fixtureCommits is the history the generated repo starts with: a few real
-// commits so `git log`, blame and the commit picker all have something to show.
 func fixtureCommits() []fixtureCommit {
 	return []fixtureCommit{
 		{
@@ -64,9 +55,6 @@ func branchFiles() []sourceFile {
 	}
 }
 
-// ensureFixture generates the throwaway repo the seed imports and reports whether
-// it had to create it. An existing repo is reused untouched: once imported, its
-// worktrees and branches are live state that regenerating would strand.
 func ensureFixture(
 	repoPath string,
 ) (*gitRepo, bool, error) {
@@ -124,9 +112,6 @@ func applyFixtureCommit(
 	return repo.run("commit", "--quiet", "-m", commit.subject)
 }
 
-// ensureBranchDiff commits the follow-up change inside the feature workspace's
-// own worktree. Without it the workspace is an empty branch and the review and
-// diff panes — the surfaces this seed exists to populate — render nothing.
 func ensureBranchDiff(
 	worktree *gitRepo,
 ) (bool, error) {
@@ -176,9 +161,6 @@ func writeSource(
 	return nil
 }
 
-// lineOf resolves a review anchor to a line number in the branch source, so the
-// seeded threads stay pinned to the code they talk about when the fixture text
-// is edited. Anchoring by hardcoded line number rots on the first edit.
 func lineOf(
 	content string,
 	anchor string,

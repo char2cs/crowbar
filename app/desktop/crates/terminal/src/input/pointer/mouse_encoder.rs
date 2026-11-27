@@ -1,5 +1,3 @@
-//! Encodes mouse events the way xterm reports them.
-
 use crate::input::modifiers::Modifiers;
 use crate::input::pointer::mouse_action::MouseAction;
 use crate::input::pointer::mouse_button::MouseButton;

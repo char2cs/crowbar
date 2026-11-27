@@ -14,23 +14,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/home"
 )
 
-// IntegrationSuite is the base testify suite for all integration packages.
-// It wires a fresh Env (real HTTP+WS server backed by real SQLite stores)
-// before every test and makes it available via the Env field.
 type IntegrationSuite struct {
 	suite.Suite
-	// Env is the fully-wired test environment populated by SetupTest.
 	Env *Env
 }
 
-// SetupTest spins up a fresh, isolated Env before each test in the suite.
-// Embedding suites do not need to call BuildEnv themselves.
 func (s *IntegrationSuite) SetupTest() {
 	s.Env = BuildEnv(s.T())
 }
 
-// Main is the integration test harness entry point. It silences logs,
-// enables gin test mode, then delegates to m.Run.
 func Main(
 	m *testing.M,
 ) {
@@ -59,9 +51,6 @@ func run(
 	return code
 }
 
-// isolateHome points the binary at a throwaway Crowbar home: a non-default
-// CROWBAR_HOME inside os.TempDir() is honoured, anything else is replaced. It returns
-// the directory to remove, or "".
 func isolateHome() string {
 	if h, err := home.Resolve(); err == nil && !h.IsDefault() {
 		return ""

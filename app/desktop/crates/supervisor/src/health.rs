@@ -26,21 +26,14 @@ const HEALTH_TARGET: &str = "/v0/health";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Health {
-    /// The daemon serves, and says which process it is.
     Ready {
-        /// The daemon's self-reported pid.
         pid: Option<u32>,
     },
-    /// The daemon is preparing its home.
     Migrating {
-        /// The current step, `None` before the first one.
         progress: Option<MigrationProgress>,
     },
-    /// The daemon refuses to serve, and says why.
     Halted {
-        /// The machine-readable halt reason, `data.detail.reason`.
         reason: Option<String>,
-        /// The halt text, `data.detail.message`.
         message: String,
     },
 }
@@ -162,7 +155,6 @@ mod tests {
         }
     }
 
-    /// A daemon whose nth health answer is `bodies[n]`, the last one repeating.
     fn daemon(bodies: Vec<&'static str>) -> FakeDaemon {
         FakeDaemon::answering(move |index, _| {
             let last = bodies.len().saturating_sub(1);

@@ -1,5 +1,3 @@
-//! An app dialog's header: the heading line, the actions beside it and where the close goes.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, Div, ParentElement, Styled, div};
 

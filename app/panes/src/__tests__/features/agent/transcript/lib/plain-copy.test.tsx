@@ -2,7 +2,6 @@ import { fireEvent, render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { copyWithoutAnchors } from '@/features/agent/transcript/lib/plain-copy'
 
-/** Copies what `select` selects inside a block that holds `text`. */
 function copy(text: string) {
   const { container } = render(
     <div onCopy={copyWithoutAnchors}>

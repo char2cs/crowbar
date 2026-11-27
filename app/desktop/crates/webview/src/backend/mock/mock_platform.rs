@@ -8,8 +8,6 @@ use crate::error::{Error, Result};
 use crate::view::Id;
 use crate::view::IpcHandler;
 
-/// A backend that records calls instead of showing anything, for tests of code built on
-/// [`Host`](crate::Host).
 #[derive(Default)]
 pub struct MockPlatform {
     pub(crate) calls: RefCell<Vec<Call>>,
@@ -32,13 +30,11 @@ impl std::fmt::Debug for MockPlatform {
 }
 
 impl MockPlatform {
-    /// Everything recorded so far, oldest first.
     #[must_use]
     pub fn calls(&self) -> Vec<Call> {
         self.calls.borrow().clone()
     }
 
-    /// Ids of the views that are created and not yet destroyed.
     #[must_use]
     pub fn live_views(&self) -> Vec<Id> {
         let mut ids: Vec<Id> = self.live.borrow().keys().copied().collect();
@@ -46,13 +42,10 @@ impl MockPlatform {
         ids
     }
 
-    /// Makes the next `create` fail with [`Error::HostStopped`].
     pub fn fail_next_create(&self) {
         self.fail_next_create.set(true);
     }
 
-    /// Makes every later file chooser answer `paths`, as if the user chose them; until then
-    /// each one is cancelled.
     pub fn choose_paths(
         &self,
         paths: Vec<PathBuf>,
@@ -60,8 +53,6 @@ impl MockPlatform {
         self.chosen.replace(paths);
     }
 
-    /// Makes every later context menu answer `path`, as if the user chose that entry; until
-    /// then each one is dismissed.
     pub fn pick_entry(
         &self,
         path: Vec<usize>,
@@ -69,8 +60,6 @@ impl MockPlatform {
         self.picked.replace(Some(path));
     }
 
-    /// Makes every later message dialog answer `button`, as if the user pressed it; until then
-    /// each one is dismissed.
     pub fn press_button(
         &self,
         button: usize,
@@ -78,10 +67,6 @@ impl MockPlatform {
         self.pressed.set(Some(button));
     }
 
-    /// Delivers `text` as if the page of `id` had posted it through ipc.
-    ///
-    /// # Errors
-    /// [`Error::UnknownWebView`] when the view is not alive.
     pub fn simulate_ipc(
         &self,
         id: Id,

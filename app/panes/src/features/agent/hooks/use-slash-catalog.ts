@@ -8,7 +8,6 @@ import { ApiError } from '@/lib/errors/api-error'
 
 const SLASH_DEBOUNCE_MS = 150
 
-/** Commands, then the ones that only run in the terminal, then skills: the picker's groups. */
 export function commandGroup(item: Partial<Pick<SlashCatalogItem, 'kind' | 'terminal'>>): number {
   if (item.kind === 'skill') return 2
   return item.terminal ? 1 : 0
@@ -30,9 +29,6 @@ export interface SlashCatalogOptions {
   active: boolean
 }
 
-// The slash picker's catalogue, fetched as soon as the chat is active since the probe can take
-// seconds. Opening the picker refreshes it silently, never blanking the cache, so there is no
-// loading state; catalogues are partial by declaration, so an empty one is not an error.
 export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatalogOptions) {
   const [state, setState] = useState<SlashCatalogState>({ state: 'closed' })
   const [open, setOpen] = useState(false)
@@ -42,9 +38,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
   const providerRef = useRef(providerId)
   providerRef.current = providerId
 
-  /** Told the box's slash query on every edit, so a leading `/` opens the picker
-   *  exactly once (retyping it reopens after a dismissal). Text with no slash on
-   *  either side of the edit sets nothing, so plain typing renders nothing here. */
   const noteQuery = useCallback((slashQuery: string | null) => {
     const leading = slashQuery !== null
     const was = leadingRef.current
@@ -66,8 +59,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     setOpen(false)
   }, [])
 
-  // Another chat or provider means another CLI's skills. AgentChatView's key remounts on chatId
-  // but not on providerId alone, so a key cannot replace this reset.
   useEffect(() => {
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- a provider switch keeps the key (see above), so only this reset closes the old CLI's menu.
     setOpen(false)
@@ -100,9 +91,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     [wsId, chatId, providerId],
   )
 
-  // Chat initiation: fetched once, well before the first `/`, and not again on a
-  // later show — the cached answer stands (a catalogue, or the daemon's 422 that
-  // there is none), and opening the picker refreshes it.
   const cached = state.state === 'ready' || (state.state === 'error' && state.unavailable)
   useEffect(() => {
     if (!active || cached) return
@@ -111,8 +99,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     return () => controller.abort()
   }, [active, cached, probe])
 
-  // Reopening asks again, still silently — whatever is cached rides until the refresh lands,
-  // debounced so a `/` typed and immediately deleted never fires a probe at all.
   useEffect(() => {
     if (!open || !active) return
     const controller = new AbortController()
@@ -123,8 +109,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     }
   }, [open, active, probe])
 
-  // A command named by what was typed leads, as in the CLI's own menu; a match in
-  // its description or source still shows, below.
   const ranked = useMemo(() => {
     if (state.state !== 'ready') return []
     if (!query) return state.catalog.items
@@ -137,7 +121,6 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     const all = state.catalog.items
     return [...all.filter(named), ...all.filter((item) => !named(item) && mentions(item))]
   }, [state, query])
-  // Grouped as the picker draws them, so its flat index is the list's own order.
   const items = useMemo(
     () => [...ranked].sort((a, b) => commandGroup(a) - commandGroup(b)),
     [ranked],
@@ -154,16 +137,12 @@ export function useSlashCatalog({ wsId, chatId, providerId, active }: SlashCatal
     [items.length],
   )
 
-  /** Accept an item: the caller writes `insertText` into the composer. */
   const accept = useCallback((item: Pick<SlashCatalogItem, 'insertText'>) => {
     leadingRef.current = item.insertText.startsWith('/')
     setOpen(false)
     return item.insertText
   }, [])
 
-  // The one thing Enter and Tab both need: is there a completion to accept? An
-  // open picker is not enough — it is open while the probe is still running, and
-  // open over an empty result for every command the probe cannot see.
   const highlighted = open ? items[selected] : undefined
 
   return {

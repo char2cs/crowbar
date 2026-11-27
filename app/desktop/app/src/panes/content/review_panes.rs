@@ -1,5 +1,3 @@
-//! The review panes a viewed-marks change reaches: each review pane knows its chat.
-
 use layout::Layout;
 use protocol::PaneId;
 

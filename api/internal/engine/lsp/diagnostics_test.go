@@ -16,7 +16,6 @@ func TestDiagnosticsSnapshot_EmptyUntilEvent(t *testing.T) {
 
 	assert.Empty(t, e.DiagnosticsSnapshot(ws))
 
-	// Spawn the server so its diagnostics callback is wired through the manager.
 	_, err := e.Completion(context.Background(), ws, tree, goF, pos())
 	require.NoError(t, err)
 

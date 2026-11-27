@@ -21,14 +21,9 @@ import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
 import { PaneTopRow } from './pane-top-row'
 import TabNavigationButtons from './tab-navigation-buttons'
 
-// Tabs share the strip equally between these bounds, a split included; the
-// strip scrolls only once every tab is at the minimum.
 const TAB_MAX_WIDTH_PX = 240
 const TAB_MIN_WIDTH_PX = 112
 
-/** The sidebar's Recents rows across the top, one per view of the active project, behaving as in
- *  the sidebar; draws nothing until a view exists. While mounted it owns the sidebar-reopen
- *  toggle, because the panes below it are not at the window's top edge. */
 export const ViewTabsRow = memo(function ViewTabsRow() {
   const navigate = useNavigate()
   const viewIds = useTabViewIds()
@@ -39,9 +34,6 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
   const drag = useSidebarDrag({
     scrollRef,
     strip: () => scrollRef.current,
-    // A tab moves as a whole: grabbing any chat of a split carries them all.
-    // Membership is read from the pane store at grab time, so a chat closed
-    // out of the split is not carried back; the registry only supplies row data.
     subjectsFor: (rowId) => {
       const { panes, views } = windowPaneStore.getState()
       const viewId = panes[chatPaneIndex(panes).get(rowId) ?? '']?.viewId
@@ -81,7 +73,6 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
         aria-label="Open views"
         data-drop-axis="x"
         data-tauri-drag-region
-        // py-1 / -my-1: room for the lifted tab's outline and shadow inside the clip, with no layout change.
         className="tab-scrollbar -my-1 flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden py-1"
       >
         {viewIds.map((viewId) => (
@@ -96,7 +87,6 @@ export const ViewTabsRow = memo(function ViewTabsRow() {
           </ViewTabSlot>
         ))}
       </div>
-      {/* A zero-width anchor in flow: the readout hangs off its right edge, so it sits left of the reopen toggle that follows. */}
       {!sidebarOpen && (
         <div className="relative w-0 shrink-0 self-stretch">
           <BuildReadout className="right-2" />

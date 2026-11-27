@@ -16,8 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
 )
 
-// ReadDocument reads a document. A host document is read only for a request
-// that came over the local socket.
 func (u *fileUsecase) ReadDocument(
 	ctx context.Context,
 	target domain.DocumentRef,
@@ -48,8 +46,6 @@ func (u *fileUsecase) readResolved(
 	return u.fs.ReadContent(repoPath, ref.Path)
 }
 
-// WriteDocument writes a document and returns the ref it resolved to. Only a
-// workspace write resyncs: a host file belongs to no working tree.
 func (u *fileUsecase) WriteDocument(
 	ctx context.Context,
 	target domain.DocumentRef,
@@ -81,9 +77,6 @@ func (u *fileUsecase) WriteDocument(
 	return ref, nil
 }
 
-// HostDocument answers path's host ref only when path is its canonical
-// spelling, so a held watch is keyed by exactly the path a read answered. Only
-// the local socket may hold one.
 func (u *fileUsecase) HostDocument(
 	ctx context.Context,
 	path string,
@@ -102,9 +95,6 @@ func (u *fileUsecase) HostDocument(
 	return ref, nil
 }
 
-// resolveDocument names the one authority for target: a path inside a worktree (by file
-// identity) is that workspace's document, anything else a canonical host document
-// served only over the local transport.
 func (u *fileUsecase) resolveDocument(
 	ctx context.Context,
 	target domain.DocumentRef,
@@ -133,9 +123,6 @@ func (u *fileUsecase) resolveDocument(
 	return domain.DocumentRef{Authority: domain.DocumentAuthorityHost, Path: canon}, nil
 }
 
-// refuseDaemonState refuses a path inside the daemon's state directory, by file
-// identity: a save there would corrupt the live databases, and a read of them
-// has no use.
 func (u *fileUsecase) refuseDaemonState(
 	canon string,
 ) error {
@@ -153,9 +140,6 @@ func (u *fileUsecase) refuseDaemonState(
 	return nil
 }
 
-// owningWorkspace picks the row whose worktree is canon's nearest ancestor by
-// file identity. A project imported in place has its home and its repo in one
-// directory: the repo row wins that tie.
 func owningWorkspace(
 	rows []domain.Workspace,
 	canon string,
@@ -179,9 +163,6 @@ func owningWorkspace(
 	return rows[hits[0]], rel, true
 }
 
-// missingWorktreeOwner is the row whose worktree is gone from disk and whose
-// canonical path is canon's longest prefix. A missing root has no identity to
-// compare, and any existing root on canon's path lies above it.
 func missingWorktreeOwner(
 	rows []domain.Workspace,
 	canon string,
@@ -204,8 +185,6 @@ func missingWorktreeOwner(
 	return owner, ownerRel, longest > 0
 }
 
-// pathBelow is path relative to root when root is a whole-name prefix of it;
-// darwin volumes fold case by default, so the prefix does too there.
 func pathBelow(
 	root string,
 	path string,

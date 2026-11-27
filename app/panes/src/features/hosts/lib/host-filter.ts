@@ -2,16 +2,10 @@ import { hasLocalDaemon } from '@/features/hosts/lib/local-daemon'
 import { LOCAL_HOST, type Host } from '@/features/hosts/types'
 import type { Project } from '@/lib/types'
 
-/** Every host the sidebar can filter to: this machine's daemon, if it has one, then each paired host. */
 export function sidebarHostIds(paired: readonly Host[]): string[] {
   return [...(hasLocalDaemon() ? [LOCAL_HOST.id] : []), ...paired.map((h) => h.id)]
 }
 
-/**
- * The one host the sidebar shows; none while there is only one to show. The active project's
- * host wins, so a project opened by any other route is never hidden — except over a chosen host
- * with no project, which nothing could follow. With no usable choice, the active project's host.
- */
 export function shownHostOf(
   filter: string,
   hostIds: readonly string[],
@@ -30,10 +24,6 @@ export function projectsOnHost(projects: Project[], shown: string | undefined): 
   return shown === undefined ? projects : projects.filter((p) => p.hostId === shown)
 }
 
-/**
- * Where choosing `hostId` lands: the project last open there while it still exists, else the
- * one with the latest activity, the first on a tie.
- */
 export function landingProject(
   projects: readonly Project[],
   hostId: string,

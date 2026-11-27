@@ -21,7 +21,6 @@ impl ShellView {
         let (signal, _) = data_signal::callbacks(&self.requests, &self.data_queued);
         let session = self.data.pairing(signal);
         let dialog = cx.new(|cx| pairing::View::new(session, window, cx));
-        // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-host-dialog.tsx
         self.subscriptions
             .push(cx.subscribe(&dialog, |this, _, _: &pairing::Event, cx| {
                 this.pairing = None;
@@ -54,7 +53,6 @@ impl ShellView {
         cx.notify();
     }
 
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/hosts/components/add-device-dialog.tsx
     fn close_device_offer(
         &mut self,
         cx: &mut Context<'_, Self>,

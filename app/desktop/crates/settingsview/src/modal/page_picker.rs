@@ -1,6 +1,3 @@
-//! Under 720px the title becomes a dropdown of the visible pages, standing in for the rail.
-//! Spec: web/src/features/settings/components/settings-layout.tsx (`SettingsTitle`).
-
 use gpui::{App, InteractiveElement as _, IntoElement, ParentElement, Styled, div, px};
 use settings::Page;
 use ui::{DropdownMenu, Icon, IconName, IconWeight, MenuAction, MenuItem, Surface, Theme, radius};

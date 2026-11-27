@@ -1,18 +1,3 @@
-/**
- * Settings dialog registration for the Agents tab: the three touchpoints
- * (SettingsTab union, SETTINGS_TAB_ITEMS, the dialog's switch) are wired so that
- * opening Settings on the `providers` tab renders the real ProvidersSettings.
- *
- * The tab READS "Agents" and is KEYED `providers` (spec §11): the rename is
- * user-facing only, so the id, the component and everything on the wire keep the
- * domain word. Both halves of that are asserted below, because a rename that
- * reached the id would be a breaking change wearing a copy edit.
- *
- * Only the agent API network seam is mocked; the dialog, vertical tabs and the
- * tab itself are all real. The list reads the GLOBAL provider store (the dialog
- * is global — a per-workspace read is the defect this replaced), so that is what
- * gets seeded here.
- */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -79,8 +64,6 @@ describe('Settings dialog — Agents tab registration', () => {
     expect(SETTINGS_TAB_ITEMS.map((t) => t.id)).toContain('providers')
   })
 
-  // The rename, both halves of it: the rail reads Agents, the id under it does
-  // not move, and no tab is keyed by the new word.
   it('reads "Agents" in the rail while staying keyed `providers`', () => {
     const item = SETTINGS_TAB_ITEMS.find((t) => t.id === 'providers')
     expect(item?.label).toBe('Agents')
@@ -89,8 +72,6 @@ describe('Settings dialog — Agents tab registration', () => {
 
   it('renders the real ProvidersSettings when opened on the providers tab', () => {
     render(<SettingsDialog isOpen onClose={() => {}} />)
-    // The connected indicator testid is unique to ProvidersSettings, so its
-    // presence proves the dialog switch routed `providers` → ProvidersSettings.
     expect(screen.getByTestId('provider-connected-claude')).toBeInTheDocument()
     expect(screen.getByTestId('provider-toggle-claude')).toBeInTheDocument()
   })

@@ -9,7 +9,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// SetMergeStrategy writes only the mergeStrategy field.
 type SetMergeStrategy struct {
 	ID       string
 	Strategy gitdomain.MergeStrategy

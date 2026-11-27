@@ -7,11 +7,7 @@ fn validate(value: &str) -> Result<()> {
     })
 }
 
-string_id!(
-    /// A method an extension backend serves, as declared in its manifest, for example `review.diff`.
-    MethodName,
-    validate
-);
+string_id!(MethodName, validate);
 
 #[cfg(test)]
 mod tests {

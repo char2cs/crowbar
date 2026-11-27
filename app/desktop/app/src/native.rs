@@ -1,7 +1,3 @@
-//! The shell's hooks into the desktop: its own context menus and message dialogs (GTK on the web
-//! views' platform thread, `AppKit` on macOS) in place of drawn ones, and on Linux GTK's file
-//! choosers and the pop-up window's placer.
-
 mod alert;
 #[cfg(target_os = "linux")]
 mod file_chooser;

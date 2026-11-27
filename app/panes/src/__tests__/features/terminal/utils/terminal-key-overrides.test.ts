@@ -23,7 +23,6 @@ describe('resolveKeyOverride', () => {
   })
 
   it('does NOT override keys xterm already handles (no double-fire)', () => {
-    // these must fall through to xterm: Ctrl+U, Shift+Tab, Option+arrows, Backspace
     expect(resolveKeyOverride(kd({ key: 'u', ctrlKey: true }))).toBeNull()
     expect(resolveKeyOverride(kd({ key: 'Tab', shiftKey: true }))).toBeNull()
     expect(resolveKeyOverride(kd({ key: 'ArrowLeft', altKey: true }))).toBeNull()

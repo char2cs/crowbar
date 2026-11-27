@@ -1,5 +1,3 @@
-//! Installation of the design system into a GPUI app.
-
 use gpui::App;
 
 use crate::display::ShimmerClock;
@@ -9,15 +7,6 @@ use crate::foundation::Motion;
 use crate::foundation::Theme;
 use crate::foundation::tokens::font;
 
-/// Registers fonts, installs the default [`Theme`] and the [`Motion`] preference, and draws
-/// text in grayscale, as WebKit does, not with gpui's colour-fringed subpixel default on Linux.
-///
-/// Call once at startup, before the first window opens, with the app built through
-/// `Application::with_assets(ui::assets())` (or an asset source that wraps it).
-///
-/// # Errors
-///
-/// Returns [`Error::Fonts`] when an embedded font cannot be registered.
 pub fn init(cx: &mut App) -> Result<(), Error> {
     font::register(cx)?;
     cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);

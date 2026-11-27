@@ -10,7 +10,6 @@ use crate::support::{config, next_matching, within_budget};
 
 const STARTUP_POLLS: u32 = 3;
 
-/// A `late` fake daemon whose startup budget is already spent: it runs, unserved.
 pub(crate) struct Launch {
     pub(crate) supervisor: Supervisor,
     pub(crate) events: Receiver<DaemonEvent>,
@@ -18,7 +17,6 @@ pub(crate) struct Launch {
     home: TempDir,
 }
 
-/// Starts a `late` daemon and returns once the supervisor gives its startup up.
 pub(crate) async fn launch_until_startup_is_spent(
     timings: Timings
 ) -> Result<Launch, Box<dyn std::error::Error>> {
@@ -48,7 +46,6 @@ pub(crate) async fn launch_until_startup_is_spent(
 }
 
 impl Launch {
-    /// Lets the daemon, once it listens, serve from its next health request on.
     pub(crate) async fn let_serve(&self) -> Result<(), Box<dyn std::error::Error>> {
         within_budget(self.listening.accept()).await??;
         std::fs::write(self.home.path().join("d.sock.serve"), b"")?;
@@ -56,7 +53,6 @@ impl Launch {
     }
 }
 
-/// Every event up to and including the first one `last` accepts.
 pub(crate) async fn heard_until(
     events: &mut Receiver<DaemonEvent>,
     last: impl Fn(&DaemonEvent) -> bool,
@@ -68,7 +64,6 @@ pub(crate) async fn heard_until(
     Ok(heard)
 }
 
-/// Watchdog timings that probe every 20ms and kill after `failure_threshold` silent probes.
 pub(crate) fn probing(failure_threshold: u32) -> Timings {
     Timings {
         watchdog_interval: Duration::from_millis(20),

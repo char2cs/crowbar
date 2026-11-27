@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// One request as a fake daemon saw it.
 #[derive(Debug, Clone)]
 pub(crate) struct Seen {
     pub(crate) method: String,
@@ -116,7 +115,6 @@ async fn read_request<S: AsyncRead + Unpin>(
     })
 }
 
-/// Serves HTTP/1.1 with keep-alive on `stream` until it closes, recording what it saw.
 pub(crate) async fn serve_http<S>(
     mut stream: S,
     handler: Handler,

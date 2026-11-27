@@ -1,21 +1,14 @@
-//! Geometry of the scrollbar thumb.
-
 use crate::input::geometry::{cells_f32, floor_cells};
 
 const MIN_THUMB: f32 = 24.0;
 
-/// The thumb's offset and length along a track, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollbarThumb {
-    /// Distance from the top of the track.
     pub top: f32,
-    /// Thumb length.
     pub length: f32,
 }
 
 impl ScrollbarThumb {
-    /// The thumb for a view `display_offset` lines above the bottom of `history` lines of scrollback
-    /// plus `lines` visible ones, or `None` when everything fits (no history).
     pub fn new(
         track: f32,
         lines: usize,
@@ -32,7 +25,6 @@ impl ScrollbarThumb {
         Some(Self { top, length })
     }
 
-    /// The display offset a thumb whose top is at `top` stands for.
     pub fn offset_at(
         track: f32,
         length: f32,

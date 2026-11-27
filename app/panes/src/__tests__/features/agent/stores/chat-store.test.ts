@@ -53,7 +53,6 @@ describe('chatStore', () => {
     expect(feed()?.live['answer:m1']).toBe('ab')
   })
 
-  // A restart can end a turn whose reply only ever streamed: no row of its own dates it.
   it('dates a streamed reply its turn ended on by that end, when no row of its own came', () => {
     openFeed('chat-1')
     const l = ledger()
@@ -74,9 +73,6 @@ describe('chatStore', () => {
     expect(chatStore.getState().feeds).toEqual({})
   })
 
-  // A reattach replays from since=0, so a long chat's whole record folds before
-  // ready. The structural guard is fold-rows.test's one-copy-per-replay check;
-  // this generous clock only backstops it (row-by-row copying took ~17s here).
   it('folds a 30000-row replay into one publish, well inside a backstop', () => {
     openFeed('chat-1')
     const rows = replay(30_000)
@@ -95,7 +91,6 @@ describe('chatStore', () => {
   })
 })
 
-/** Turns of six rows each: prompt, start, a tool, a final text, end. */
 function replay(count: number) {
   const l = ledger()
   return Array.from({ length: Math.floor(count / 6) }, (_, i) => [

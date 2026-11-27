@@ -1,6 +1,3 @@
-//! Asks the shell's confirmations as the desktop's message dialog over the shell window; when
-//! it cannot be asked the question counts as cancelled.
-
 use super::ShellView;
 use crate::shell::inbox::request_queue::{Requests, send};
 use crate::shell::inbox::shell_request::ShellRequest;

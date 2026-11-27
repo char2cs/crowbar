@@ -1,11 +1,5 @@
 package verbs
 
-// White-box tests for write_file.go's unexported helpers. spawn_test.go (one
-// package up) already drives writeFile end to end for the mkdir-fails,
-// content-write, missing-"from", and successful-copy branches; the ones here
-// are the paths that public entry point never reaches: a "~/" source and
-// copyFile/closeBoth's own error branches.
-
 import (
 	"errors"
 	"os"
@@ -45,8 +39,6 @@ func TestCopyFile_CreateDstFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "copy create")
 }
 
-// A directory opens without error but fails to read as a byte stream, so this
-// exercises io.Copy's error path rather than os.Open's.
 func TestCopyFile_CopyFailsWhenSourceIsADirectory(t *testing.T) {
 	dir := t.TempDir()
 	srcDir := filepath.Join(dir, "adir")

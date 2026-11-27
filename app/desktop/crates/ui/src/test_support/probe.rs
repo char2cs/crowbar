@@ -1,5 +1,3 @@
-//! Renders a single element in a test window.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -13,7 +11,6 @@ use crate::foundation::Theme;
 
 type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
-/// A view that shows the element built by its closure inside a fit-content wrapper named `probe`.
 pub(crate) struct Probe {
     build: Build,
 }
@@ -39,7 +36,6 @@ impl Render for Probe {
     }
 }
 
-/// Opens a window showing `build()` with the default theme installed.
 pub(crate) fn open<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -58,8 +54,6 @@ pub(crate) fn open<E: IntoElement>(
     cx
 }
 
-/// Opens a window showing `build()` with a float host installed, so its passive layers paint
-/// in its pop-up window, which [`crate::testing::newest_window`] finds.
 pub(crate) fn open_floating<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -69,14 +63,11 @@ pub(crate) fn open_floating<E: IntoElement>(
     VisualTestContext::from_window(window, cx)
 }
 
-/// Lets a closed floating element go: the test platform draws inside an effect
-/// flush, so the state of a portal that stopped rendering is released on the next one.
 pub(crate) fn settle(cx: &mut VisualTestContext) {
     cx.update(|_, _| {});
     cx.run_until_parked();
 }
 
-/// Bounds of the element built by `build`, laid out at its natural size.
 pub(crate) fn measure<E: IntoElement>(
     cx: &mut TestAppContext,
     build: impl Fn(&mut Window, &mut App) -> E + 'static,

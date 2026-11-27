@@ -25,6 +25,5 @@ export function frontendTrace(
   _message: string,
   payload?: Record<string, unknown>,
 ) {
-  // No-op: Tauri invoke not available in web frontend
   void sanitizePayload(payload)
 }

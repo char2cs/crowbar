@@ -2,7 +2,6 @@ const WORKSPACE_PREFIX: &str = "crowbar://editor/";
 const HOST_PREFIX: &str = "crowbar://host/";
 const UNRESERVED: &[u8] = b"-_.!~*'()";
 
-/// The name develop gives a workspace file's document (`documentUri`), which keys its draft.
 #[must_use]
 pub fn workspace_uri(
     workspace: &str,
@@ -15,7 +14,6 @@ pub fn workspace_uri(
     )
 }
 
-/// The name develop gives a file of this computer outside any workspace.
 #[must_use]
 pub fn host_uri(path: &str) -> String {
     format!("{HOST_PREFIX}{}", encode_component(path))

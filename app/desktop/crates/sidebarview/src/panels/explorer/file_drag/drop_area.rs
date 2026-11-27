@@ -1,6 +1,3 @@
-//! The Files rows' area during a row drag: the root target away from any row, the edges that
-//! scroll it and the drop.
-
 use std::rc::Rc;
 
 use gpui::{App, Context, Div, DragMoveEvent, InteractiveElement, Styled, Window};
@@ -9,11 +6,9 @@ use ui::DraggedRow;
 
 use crate::sidebar::{FileGesture, RowAction, RowHandler, Sidebar};
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx
 const ROOT_WASH: f32 = 0.04;
 
 impl Sidebar {
-    // SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx
     pub(crate) fn file_drop_area(
         &self,
         body: Div,

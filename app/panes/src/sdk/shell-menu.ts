@@ -3,13 +3,10 @@ import type { ShellMenuEntry } from './shell-menu-entry'
 
 const MENU_PATH = '/__crowbar/menu'
 
-/** Whether this page can ask the shell for a native menu. */
 export function canAskShellMenu(): boolean {
   return shellConfig() !== null
 }
 
-/** Pops `entries` up at `at` (page pixels) as the desktop's own menu; resolves to the chosen
- *  entry's index, then its index in each submenu it lies in, or `null` when dismissed. */
 export async function popShellMenu(
   entries: ShellMenuEntry[],
   at: { x: number; y: number },

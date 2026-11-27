@@ -1,5 +1,3 @@
-//! Vertical scroll offset of a text area.
-
 use gpui::Pixels;
 
 use crate::control::editor::text_area::wrapped_element::viewport::Viewport;

@@ -1,5 +1,3 @@
-//! Wiring of [`ToggleState`] into an element's hover and into animated properties.
-
 use std::ops::Range;
 
 use gpui::{App, ElementId, Entity, Hsla, Window};

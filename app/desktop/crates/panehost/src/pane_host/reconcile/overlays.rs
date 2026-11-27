@@ -2,13 +2,9 @@ use webview::Bounds;
 
 use crate::pane_host::reconcile::covered::{Covered, meet};
 
-/// What the shell draws over the panes: the overlays that hide web views, and the pane handle,
-/// whose rectangle is cut out of the web views it meets so it shows and takes the pointer there.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Overlays {
-    /// What the shell's own overlays cover.
     pub covered: Covered,
-    /// The pane handle's rectangle in logical pixels relative to the window.
     pub cutout: Option<Bounds>,
 }
 

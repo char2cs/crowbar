@@ -1,7 +1,5 @@
 use serde_json::Value;
 
-/// Where a migrating daemon is: the step it works on and how many there are, as `/v0/health`
-/// reports them. Enough for "Step 2 of 5: name" and a determinate progress bar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationProgress {
     step: String,
@@ -30,19 +28,16 @@ impl MigrationProgress {
         })
     }
 
-    /// The step's name.
     #[must_use]
     pub fn step(&self) -> &str {
         &self.step
     }
 
-    /// Which step this is, from 1.
     #[must_use]
     pub fn index(&self) -> u32 {
         self.index
     }
 
-    /// How many steps the migration has.
     #[must_use]
     pub fn total(&self) -> u32 {
         self.total

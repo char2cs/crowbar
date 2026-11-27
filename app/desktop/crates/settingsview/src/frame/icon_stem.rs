@@ -1,5 +1,3 @@
-//! Looks up an embedded icon by its Phosphor file stem.
-
 use ui::IconName;
 
 pub(crate) fn icon_named(stem: &str) -> Option<IconName> {

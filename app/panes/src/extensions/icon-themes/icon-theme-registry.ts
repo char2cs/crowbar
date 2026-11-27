@@ -69,12 +69,10 @@ class IconThemeRegistry {
     return Array.from(this.themes.values())
   }
 
-  // Alias kept for backward compat with existing callers
   getIconTheme(id: string): IconThemeDefinition | undefined {
     return this.getTheme(id)
   }
 
-  // Alias kept for backward compat
   getAllIconThemes(): IconThemeDefinition[] {
     return this.getAllThemes()
   }
@@ -86,12 +84,10 @@ class IconThemeRegistry {
     }
   }
 
-  /** Bumped on every change, so `useIconThemeRegistryVersion` can re-render. */
   getVersion(): number {
     return this.version
   }
 
-  /** A registered theme's output changed (e.g. its lazily loaded icons arrived). */
   notifyChanged() {
     this.notifyListeners()
   }

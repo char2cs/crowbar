@@ -9,12 +9,6 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { workspaceRef } from '@/lib/api/documents'
 
-// Deliberately small. jsdom has no layout engine, so the document's height is
-// irrelevant here — `scrollTop` is a plain property that never clamps, and what
-// this file asserts is that the offset SURVIVES the unmount. A realistically
-// long document only makes Plate slow enough to trip the 5s test timeout under
-// a loaded suite. Clamping against still-growing content is covered where it
-// can actually be modelled, in use-preserved-scroll.test.tsx.
 const BODY = Array.from({ length: 6 }, (_, i) => `## Section ${i}\n\nBody ${i}.\n`).join('\n')
 
 const BUFFER_CONTENT: Record<string, string> = {
@@ -41,9 +35,6 @@ function openFixtures(): void {
   })
 }
 
-// StrictMode like the real app root: its double-invoked effects (setup →
-// cleanup → setup) are what broke the first cut of the preview's retained
-// scroll, by capturing a freshly mounted element's 0 over the stored offset.
 const renderPane = (bufferId: string) =>
   render(
     <StrictMode>
@@ -61,8 +52,6 @@ describe('MarkdownEditorPane scroll retention', () => {
     openFixtures()
   })
 
-  // Switching tabs unmounts the rich editor (only the active buffer renders, keyed by buffer id);
-  // the scroll offset must survive the way back.
   it('restores the scroll offset when the tab is switched away and back', async () => {
     const first = renderPane('b1')
     await screen.findByText('Doc one')
@@ -71,7 +60,6 @@ describe('MarkdownEditorPane scroll retention', () => {
     scroller.scrollTop = 640
     fireEvent.scroll(scroller)
 
-    // Tab switch: the pane stops rendering this buffer entirely.
     first.unmount()
 
     const second = renderPane('b1')

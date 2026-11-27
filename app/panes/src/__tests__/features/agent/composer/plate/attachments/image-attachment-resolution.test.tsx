@@ -11,13 +11,6 @@ import { recordWorkspaceScope } from '@/lib/workspace-scope'
 
 recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
 
-// A real `new Response(blob)` is avoided here: this repo's jsdom test
-// environment does not round-trip a jsdom `Blob` through Node/undici's
-// `Response` body handling (it silently stringifies the Blob instead of
-// reading its bytes) — see chat-asset-resolver.test.ts for the same note. A
-// minimal fetch-result stub with a real `blob()` resolver exercises the same
-// `response.ok` / `await response.blob()` path fetchChatAttachmentDataUrl
-// actually calls, without hitting that mismatch.
 function mockImageFetch() {
   const blob = new Blob(['x'], { type: 'image/png' })
   return vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) })
@@ -45,8 +38,6 @@ describe('chat image attachment resolution', () => {
     vi.unstubAllGlobals()
   })
 
-  // Wrapped in the real `DndScope`: an image is a draggable attachment too
-  // (chat-markdown-image-node.tsx).
   it('resolves the same reference in the interactive editor', async () => {
     vi.stubGlobal('fetch', mockImageFetch())
 
@@ -88,9 +79,6 @@ const TWO_ATTACHMENTS = [
   },
 ]
 
-/** React error #185 (maximum update depth) on submit also has a non-Excalidraw path. This drives
- *  a plain attachment through the real drag stack under `DndScope`, so a change to
- *  useAttachmentDraggable or the submit swap can't reintroduce a render loop unnoticed. */
 describe('REGRESSION investigation: React error #185 with a plain (non-Excalidraw) attachment', () => {
   function ComposerLike({ n }: { n: number }) {
     const editor = usePlateEditor({
@@ -104,14 +92,6 @@ describe('REGRESSION investigation: React error #185 with a plain (non-Excalidra
     )
   }
 
-  // Simulates an attachment node re-rendering for a reason that has nothing
-  // to do with it — a sibling edit, streaming text elsewhere in the same
-  // document, NodeIdPlugin churn — many times in a row, forcing a brand new
-  // `drag: { end }` closure into `useDraggable` on every single one.
-  //
-  // Wrapped in `ChatMarkdownAssetProvider` so the link actually renders as
-  // `ChatAttachmentFileCard` (which calls `useAttachmentDraggable`), not the
-  // plain-link fallback `ChatLinkElement` uses with no asset context.
   it('survives 60 unrelated re-renders of a file-card + image attachment pair with no runaway update-depth error', () => {
     vi.stubGlobal('fetch', mockImageFetch())
 
@@ -137,13 +117,6 @@ describe('REGRESSION investigation: React error #185 with a plain (non-Excalidra
     vi.unstubAllGlobals()
   })
 
-  // Simulates the actual submit gesture: `enqueueDraft` (agent-chat-view.tsx)
-  // clears the composer via a `key` change on `ComposerField` (agent-
-  // composer.tsx), unmounting every attachment it held — including their
-  // `useAttachmentDraggable`/`useAttachmentDropTarget` registrations — in
-  // the SAME commit the transcript mounts a new (interactive, streaming)
-  // bubble with the SAME attachment content, sharing one `DndScope`
-  // (DndScope wraps both composer and transcript with a single manager).
   it('survives the composer unmounting its attachments as the transcript mounts the same ones, in one commit', () => {
     vi.stubGlobal('fetch', mockImageFetch())
 

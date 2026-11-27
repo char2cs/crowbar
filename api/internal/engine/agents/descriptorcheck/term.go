@@ -19,8 +19,6 @@ import (
 	"github.com/creack/pty"
 )
 
-// term runs one CLI in a PTY the way the daemon does, answering the terminal
-// queries a TUI blocks on, and keeps its output as plain text.
 type term struct {
 	cmd  *exec.Cmd
 	ptmx *os.File
@@ -28,18 +26,12 @@ type term struct {
 	mu  sync.Mutex
 	out bytes.Buffer
 
-	// done closes once the process has exited AND its output is drained, so
-	// whoever reports the exit reports the CLI's last words with it.
 	done    chan struct{}
 	waitErr error
 }
 
-// maxTermOutput bounds what one run keeps; a boot screen is far smaller.
 const maxTermOutput = 1 << 20
 
-// drainBound is how long an exit waits for the PTY to reach EOF. A process's
-// exit does not close the PTY while a descendant still holds it, so the wait
-// is bounded; ordinarily the reader hits EOF as soon as it has read the rest.
 const drainBound = 2 * time.Second
 
 var (
@@ -66,8 +58,6 @@ func startTerm(ctx context.Context, argv, env []string, cwd string) (*term, erro
 	}()
 	go func() {
 		err := cmd.Wait()
-		// The exit is reported only after what the CLI wrote before it is read:
-		// Wait returns while the tail of its output still sits in the PTY.
 		timer := time.NewTimer(drainBound)
 		defer timer.Stop()
 		select {
@@ -80,8 +70,6 @@ func startTerm(ctx context.Context, argv, env []string, cwd string) (*term, erro
 	return t, nil
 }
 
-// pump reads the PTY until EOF — on Linux, EIO once every holder of the
-// other end has closed it and the buffer is empty.
 func (t *term) pump() {
 	buf := make([]byte, 32*1024)
 	for {
@@ -95,7 +83,6 @@ func (t *term) pump() {
 	}
 }
 
-// take answers the queries in one chunk of output and keeps it.
 func (t *term) take(chunk []byte) {
 	if bytes.Contains(chunk, cursorQuery) {
 		t.reply("\x1b[1;1R")
@@ -110,8 +97,6 @@ func (t *term) take(chunk []byte) {
 	}
 }
 
-// reply answers a terminal query. The pump has no caller to return a failure
-// to, and its next read ends it once the CLI is gone.
 func (t *term) reply(answer string) {
 	if _, err := t.ptmx.Write([]byte(answer)); err != nil {
 		slog.Warn("descriptorcheck: answer a terminal query", "err", err)
@@ -125,8 +110,6 @@ var (
 	spaceRE = regexp.MustCompile(`[ \t\r]+`)
 )
 
-// text is everything the CLI has drawn, escapes removed and runs of spaces
-// collapsed, so a needle survives the cursor moves a TUI draws words with.
 func (t *term) text() string {
 	t.mu.Lock()
 	raw := t.out.String()
@@ -144,7 +127,6 @@ func (t *term) send(keys string) error {
 	return nil
 }
 
-// exited waits up to d for the process to end, reporting its exit code.
 func (t *term) exited(d time.Duration) (bool, int) {
 	select {
 	case <-t.done:
@@ -154,8 +136,6 @@ func (t *term) exited(d time.Duration) (bool, int) {
 	}
 }
 
-// close kills the whole process group: a CLI launched through a shim (a node
-// wrapper script) leaves its real binary behind otherwise.
 func (t *term) close() {
 	if err := killGroup(t.cmd); err != nil {
 		slog.Warn("descriptorcheck: kill the CLI", "err", err)
@@ -169,7 +149,6 @@ func (t *term) close() {
 	}
 }
 
-// killGroup SIGKILLs cmd's whole process group; a group already gone is done.
 func killGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
@@ -191,7 +170,6 @@ func exitCode(err error) int {
 	return 0
 }
 
-// tail is the last n characters of s, for a step's detail.
 func tail(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= n {

@@ -1,5 +1,3 @@
-//! The dialog: a folder path with a browse button, a name, Cancel and the add button.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -13,10 +11,8 @@ use crate::kind::Kind;
 
 mod parts;
 
-/// Whether the owner is still adding a folder; the dialog reads it on every render.
 pub type Adding = Rc<dyn Fn(&str) -> bool>;
 
-/// One of develop's add dialogs; it emits [`ImportEvent`]s for its owner to carry out.
 pub struct View {
     kind: Kind,
     adding: Adding,
@@ -40,8 +36,6 @@ impl std::fmt::Debug for View {
 impl EventEmitter<ImportEvent> for View {}
 
 impl View {
-    /// An empty dialog of `kind` with the folder field focused; `adding` answers whether a
-    /// folder is still being added.
     pub fn new(
         (kind, adding): (Kind, Adding),
         window: &mut Window,
@@ -63,8 +57,6 @@ impl View {
         }
     }
 
-    /// Fills the folder with the browsed `path`; the Add repository dialog also names an unnamed
-    /// repository after it, as develop's `handlePicked`.
     pub fn set_folder(
         &mut self,
         path: &str,
@@ -79,7 +71,6 @@ impl View {
         cx.notify();
     }
 
-    /// The owner added `folder`: the dialog that asked for it closes.
     pub fn added(
         &mut self,
         folder: &str,

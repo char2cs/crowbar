@@ -10,9 +10,6 @@ interface ChatColumnHeaderProps {
   isBottomPane: boolean
 }
 
-/** The chat's top row beside a visible editor (side-by-side or stacked). Chat renders first, so it
- *  may be the window's top-left corner and carries PaneTopRow's chrome contract. Pane-level
- *  actions (branch review, close view) stay on the IDE sector's row. */
 export function ChatColumnHeader({ chatId, wsId, isBottomPane }: ChatColumnHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { rowRef, isAtLeftEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])

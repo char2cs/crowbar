@@ -5,8 +5,6 @@ import { planRemoval, type DragSubject } from './removal-plan'
 import { resolveHomeRowScope } from '@/core/entities/home-rows'
 import { resolveChatRow, resolveRow } from './open-actions'
 
-/** Closes the panes showing a chat that was just held, so the window is already elsewhere
- *  when the delete lands instead of being pulled out of it. */
 function leaveHeldChats(drafts: readonly RemovalDraft[]): void {
   const held = new Set(drafts.flatMap((draft) => draft.hiddenIds))
   const { panes, paneActions } = windowPaneStore.getState()
@@ -15,14 +13,9 @@ function leaveHeldChats(drafts: readonly RemovalDraft[]): void {
   }
 }
 
-// The one trash path for every row kind (row trash and drag-to-trash), held in the removal tray
-// for undo, against the store's raw repos. False when nothing was held: an unknown id, the repo
-// home (trash the repo instead), or a locked workspace the daemon would refuse.
 export function handleTrash(id: string, drainMs?: number): boolean {
   const currentRepos = readSelect(selectRepos)
   const homeRow = resolveHomeRowScope(id)
-  // Home rows first: the repo walk can falsely match a home folder, which the daemon's folder
-  // list leaks into every repo stamped with that repo's id.
   const chatRow = homeRow ? null : resolveChatRow(currentRepos, id)
   const subject: DragSubject | null = homeRow
     ? { kind: homeRow.kind, id }
@@ -38,8 +31,6 @@ export function handleTrash(id: string, drainMs?: number): boolean {
   return true
 }
 
-// Trashes a whole REPO, which `handleTrash` cannot: the repo-home row resolves to its default
-// branch, and trashing that would delete one branch out from under the repo.
 export function handleTrashRepo(repoId: string): boolean {
   const currentRepos = readSelect(selectRepos)
   const projects = readSelect(selectProjects)

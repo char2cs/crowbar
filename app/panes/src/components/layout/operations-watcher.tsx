@@ -8,7 +8,6 @@ import {
 } from '@/core/entities/operations'
 import { reportDaemonRefusal } from '@/lib/ws/connection-store'
 
-// A partial failure's own reason is only a count; each failed item carries the why.
 function reason(op: Operation): string | undefined {
   if (op.error?.code !== 'partial') {
     return (op.error ?? op.items.find((item) => item.error)?.error)?.message
@@ -19,14 +18,11 @@ function reason(op: Operation): string | undefined {
   return failed.length ? `${op.error.message}: ${failed.join('; ')}` : op.error.message
 }
 
-// A failure is news when it was seen running, or arrives failed on a live
-// frame (daemon-started work); one held at mount or sent in a snapshot is not.
 function isNews(op: Operation, before: OperationState | undefined, mounted: boolean): boolean {
   if (op.state !== 'failed' || op.dismissed || before === 'failed') return false
   return before !== undefined || (mounted && !op.snapshot)
 }
 
-/** Toasts each operation that fails while this window watches it, once. */
 export function OperationsWatcher() {
   useEffect(() => {
     const seen = new Map<string, OperationState>()

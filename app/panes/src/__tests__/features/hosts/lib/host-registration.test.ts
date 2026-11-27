@@ -9,7 +9,6 @@ const host = (id: string): Host => ({
   clientId: `client-${id}`,
 })
 
-// The first import transforms the module graph; a cold one inside a test can outlast its timeout.
 beforeAll(async () => {
   await import('@/features/hosts/stores/host-config-store')
   await import('@/features/hosts/lib/host-registration')
@@ -18,7 +17,6 @@ beforeAll(async () => {
 let invoke: ReturnType<typeof vi.fn>
 let fetchMock: ReturnType<typeof vi.fn>
 
-/** A page load: fresh modules over what the last session saved. */
 async function boot(saved: Host[]) {
   vi.resetModules()
   const { useHostConfigStore } = await import('@/features/hosts/stores/host-config-store')
@@ -45,7 +43,6 @@ afterEach(() => {
 })
 
 describe('hostsRegistered', () => {
-  // The desktop proxy's registry lives in memory: after a restart it knows no host.
   it('registers every saved host with the desktop proxy, once per page', async () => {
     const { hostsRegistered } = await boot([host('h1'), host('h2')])
 

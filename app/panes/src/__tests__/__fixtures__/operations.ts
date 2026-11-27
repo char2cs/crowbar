@@ -5,7 +5,6 @@ import type { Operation } from '@/core/entities/operations'
 
 let v = 0
 
-/** `hostId`'s row for `op` as a live projects-scope frame leaves it. */
 export function streamOperation(op: Operation, hostId = 'local'): void {
   const key = entityKey(hostId, op.id)
   entityStore.setState((s) => ({
@@ -14,7 +13,6 @@ export function streamOperation(op: Operation, hostId = 'local'): void {
   forgetLocalOperation(op.id, op.version)
 }
 
-/** No operation anywhere. */
 export function resetOperations(): void {
   entityStore.setState((s) => ({
     byKind: { ...s.byKind, operation: {}, review_thread: {} },

@@ -108,8 +108,6 @@ export function Dropdown(props: DropdownProps) {
   const anchorAlign = isAnchorMode ? ((props as AnchorPositioning).anchorAlign ?? 'start') : 'start'
   const point = !isAnchorMode ? (props as PointPositioning).point : null
 
-  // Depend on the specific union arrays, not `props` (a fresh object each render), so the
-  // callbacks below actually memoize.
   const itemsProp = 'items' in props ? props.items : undefined
   const sectionsProp = 'sections' in props ? props.sections : undefined
   const hasItems = itemsProp != null
@@ -164,7 +162,6 @@ export function Dropdown(props: DropdownProps) {
         e.stopPropagation()
         e.stopImmediatePropagation()
         onClose()
-        // Esc is a keyboard exit: focus goes back to the trigger, not to <body>.
         anchorRef?.current?.focus()
       }
     }
@@ -177,7 +174,6 @@ export function Dropdown(props: DropdownProps) {
     }
   }, [isOpen, onClose, anchorRef])
 
-  // A search belongs to one opening of the menu: closing it lets the query go.
   useEffect(() => {
     if (!isOpen) return
     if (searchable) requestAnimationFrame(() => searchRef.current?.focus())

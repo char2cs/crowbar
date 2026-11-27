@@ -6,10 +6,6 @@ use std::fmt;
 
 use crate::route::query::encode;
 
-/// The path of a daemon route, built from the ids it names.
-///
-/// A call takes it as its path ([`Call::get`](crate::Call::get) and the other verbs); it
-/// displays as the path, so a caller can extend it with `format!`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
     path: String,
@@ -20,19 +16,14 @@ impl Route {
         Self { path }
     }
 
-    /// The route of the project `project`.
     pub fn project(project: &str) -> Self {
         Self::at(format!("/v0/projects/{project}"))
     }
 
-    /// The route of the repositories of the project `project_id`.
     pub fn repos(project_id: &str) -> Self {
         Self::at(format!("{}/repos", Self::project(project_id)))
     }
 
-    /// The route prefix of the repository `repo` in the project `project_id`.
-    ///
-    /// An empty `repo` names the project home instead.
     pub fn scope(
         project_id: &str,
         repo: &str,
@@ -44,7 +35,6 @@ impl Route {
         Self::at(format!("{base}/repos/{repo}"))
     }
 
-    /// The route of the chats of a repository or project home, as [`Route::scope`] names it.
     pub fn chats(
         project_id: &str,
         repo: &str,
@@ -52,8 +42,6 @@ impl Route {
         Self::at(format!("{}/chats", Self::scope(project_id, repo)))
     }
 
-    /// The route of the chat folders of a repository or project home, as [`Route::scope`] names
-    /// it.
     pub fn folders(
         project_id: &str,
         repo: &str,
@@ -61,7 +49,6 @@ impl Route {
         Self::at(format!("{}/folders", Self::chats(project_id, repo)))
     }
 
-    /// The route of the content of the document at `path` in `workspace`, both percent-encoded.
     pub fn document_content(
         workspace: &str,
         path: &str,
@@ -69,12 +56,10 @@ impl Route {
         Self::at(document::content(workspace, path))
     }
 
-    /// The route of the content of the host's file at the absolute `path`, percent-encoded.
     pub fn host_document_content(path: &str) -> Self {
         Self::at(document::host_content(path))
     }
 
-    /// The route listing the folder `path` of the daemon's machine, percent-encoded.
     pub fn browse(path: &str) -> Self {
         Self::at(format!("/v0/system/browse?path={}", encode(path)))
     }

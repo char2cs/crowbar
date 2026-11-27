@@ -1,7 +1,6 @@
 import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/file-tree-git-status'
 import { cn } from '@/utils/cn'
 
-/** The M / A / U / D / R mark a file row carries after its name. */
 export function GitStatusLetter({ decoration }: { decoration: FileTreeGitStatusDecoration }) {
   return (
     <span

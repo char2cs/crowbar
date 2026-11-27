@@ -1,16 +1,11 @@
-// The chat scope's wire shapes: a mirror of the daemon's ledger rows and
-// deltas (api/internal/domain/ledger), and the frames the chat store folds.
-
 export interface LedgerRow<K extends RowKind = RowKind> {
   chatId: string
   seq: number
   kind: K
   turnId?: string
-  /** '' or absent: the main agent. */
   scope?: string
   at: string
   body: RowBodies[K]
-  /** Body fields a replay cut short; the row whole is `GET .../rows/:seq`. */
   trimmed?: string[]
 }
 
@@ -52,7 +47,6 @@ export interface ToolCallBody {
   error?: string
   durationMs?: number
   diff?: string
-  /** What a finished call printed, when short enough to read inline. */
   output?: string
   mcpServer?: string
   mcpTool?: string
@@ -96,7 +90,6 @@ export interface RowBodies {
     origin: 'crowbar' | 'provider' | 'harness' | 'note'
     delivery?: 'restart' | 'steer' | 'api' | 'type'
     runnerId?: string
-    /** The refused prompt this one sends again. */
     retryOf?: string
   }
   turn_started: {
@@ -126,7 +119,6 @@ export interface RowBodies {
     resumeSessionId: string
   }
   runner_exited: { runnerId: string; reason: string; exitCode: number; detail?: string }
-  /** index -1: the message's complete text; reply: the reply this message joins. */
   assistant_text: {
     messageId: string
     index: number
@@ -154,26 +146,21 @@ export interface RowBodies {
     usage?: { tokens?: number; toolUses?: number; durationMs?: number }
   }
   plan: { op: 'replace' | 'upsert'; items: PlanItem[] }
-  /** A command the main agent left running in the background. */
   shell: {
     phase: 'start' | 'note' | 'stopping' | 'end'
     shellId: string
-    /** Absent for a plain shell. */
     kind?: 'shell' | 'monitor'
     command?: string
     label?: string
     cwd?: string
-    /** The provider's handle on the process; not necessarily an OS pid. */
     ref?: string
     persistent?: boolean
     timeoutMs?: number
     status?: 'finished' | 'failed' | 'stopped'
     exitCode?: number
-    /** The end of its output (an end) or its newest line (a note). */
     tail?: string
     summary?: string
   }
-  /** The chat changing the folder its CLI runs in (api/internal/domain/ledger/move.go). */
   move: MoveBody
 }
 
@@ -196,21 +183,16 @@ export interface MoveBody {
 }
 
 export interface FeedDelta {
-  /** The message id (answer, reasoning) or the tool id (tool_output, diff). */
   id: string
   turnId: string
   scope?: string
   stream: 'answer' | 'reasoning' | 'tool_output' | 'diff'
-  /** 1-based position in its stream. */
   n: number
-  /** The new suffix, or everything so far when `replace`. */
   text: string
   replace?: boolean
 }
 
-// Go `omitempty`: an absent seq is 0.
 export type FeedFrame =
-  /** `from`: on a window's first row, the seq it follows. */
   | { type: 'row'; row: LedgerRow; from?: number }
   | { type: 'ready'; epoch: string }
   | { type: 'delta'; delta: FeedDelta }

@@ -1,5 +1,3 @@
-//! The context menu of a Files row.
-
 use gpui::{ClipboardItem, SharedString};
 use sidebar::{
     ClipMode, Command, CopyNote, FileAction, FileKind, Intent, MenuScope, NewEntry, PathText,

@@ -1,5 +1,3 @@
-//! A native `NSMenu`, popped over a window's view.
-
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly as _};
 use objc2_app_kit::{NSControlStateValueOn, NSMenu, NSMenuItem};
@@ -9,7 +7,6 @@ use crate::macos::appkit_parent::AppkitParent;
 use crate::macos::menu_pick::MenuPick;
 use crate::macos::menu_row::MenuRow;
 
-/// A menu ready to pop up, which remembers the row picked from it.
 #[derive(Debug)]
 pub struct ContextMenu {
     menu: Retained<NSMenu>,
@@ -18,7 +15,6 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
-    /// The menu of `rows`, top to bottom.
     #[must_use]
     pub fn new(
         rows: &[MenuRow],
@@ -34,20 +30,17 @@ impl ContextMenu {
         built
     }
 
-    /// The `AppKit` menu.
     #[must_use]
     pub fn menu(&self) -> &NSMenu {
         &self.menu
     }
 
-    /// The picked row: its index in the menu, then in each submenu it lies in.
     #[must_use]
     pub fn picked(&self) -> Option<Vec<usize>> {
         let tag = usize::try_from(self.target.tag()?).ok()?;
         self.paths.get(tag).cloned()
     }
 
-    /// Opens at `(x, y)` from the top-left of `view` and tracks until picked or dismissed.
     pub fn show(
         &self,
         view: &AppkitParent,

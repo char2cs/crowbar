@@ -60,7 +60,6 @@ impl Fixture {
         synced(&mut self.host, &snapshot)
     }
 
-    /// Syncs `visible`, the first of them focused, under the shell's `overlays`.
     pub(crate) fn sync_under(
         &mut self,
         panes: &[PaneInstance],

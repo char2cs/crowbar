@@ -21,10 +21,6 @@ vi.mock('@/features/panes/components/editor-pane', () => ({
 
 import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 
-// createPortal's target must be attached to document.body for RTL's `screen`
-// (which queries document.body) to find its content — tracked here so each
-// test's target node is removed afterward without touching RTL's own
-// render container.
 let portalTargets: HTMLElement[] = []
 function createPortalTarget(): HTMLDivElement {
   const node = document.createElement('div')
@@ -68,9 +64,6 @@ function seedEditorTab(paneId: string, id: string) {
 }
 
 describe('EditorHostRegistry / EditorHostSlot', () => {
-  // PaneContainer's registration effect clears then re-sets the entry on every dependency
-  // change; the portaled EditorPane must survive that gap, unmounting only when the pane's
-  // last editor tab closes.
   it('does not unmount the portaled EditorPane across a clear-then-reset of its registry entry', async () => {
     seedEditorTab(ROOT_PANE_ID, 'tab-a')
     const node = createPortalTarget()
@@ -88,8 +81,6 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
     const before = await screen.findByTestId('editor-marker-tab-a')
     expect(editorMountCount.current).toBe(1)
 
-    // Separate `act`s (one commit each): batched, React renders only the end state and never
-    // exercises the gap, and production's two writes aren't guaranteed one commit either.
     act(() => {
       clearEditorPortalEntry(ROOT_PANE_ID)
     })
@@ -101,8 +92,8 @@ describe('EditorHostRegistry / EditorHostSlot', () => {
       })
     })
 
-    expect(screen.getByTestId('editor-marker-tab-a')).toBe(before) // same node — never unmounted
-    expect(editorMountCount.current).toBe(1) // never remounted, ever
+    expect(screen.getByTestId('editor-marker-tab-a')).toBe(before)
+    expect(editorMountCount.current).toBe(1)
   })
 
   it('does unmount once the pane genuinely loses its last editor tab', async () => {

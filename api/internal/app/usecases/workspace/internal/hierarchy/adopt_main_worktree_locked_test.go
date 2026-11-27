@@ -12,10 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestCreateChild_AdoptMainWorktree_ResolveLockedError proves a provider
-// failure while resolving whether the ADOPTED main worktree's branch is
-// protected surfaces wrapped — distinct from a RevParse(HEAD) failure, which a
-// sibling test already covers — and never persists a row.
 func TestCreateChild_AdoptMainWorktree_ResolveLockedError(t *testing.T) {
 	g := &fakeGit{revParseSha: "headsha"}
 	ws := &fakeWorkspace{

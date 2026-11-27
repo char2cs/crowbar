@@ -9,9 +9,6 @@ import (
 
 const worktreeRegistryDir = "worktrees"
 
-// ensureWorktree opens the worktree at path as a worktree of fixture, repairing it
-// first if its registration under <fixture>/.git/worktrees fell out of step, and
-// reports whether it had to. The seed owns the fixture, so it can safely repair.
 func ensureWorktree(
 	fixture *gitRepo,
 	path string,
@@ -28,9 +25,6 @@ func ensureWorktree(
 	return repaired, true, err
 }
 
-// openWorktree opens path only if it is a worktree of fixture. The seed commits
-// into whatever this returns, and .crowbar/ sits inside a Crowbar checkout, so
-// "some repository" is not good enough — it has to be the fixture's.
 func openWorktree(
 	fixture *gitRepo,
 	path string,
@@ -56,9 +50,6 @@ func openWorktree(
 	return worktree, nil
 }
 
-// repairWorktree clears both halves of a broken registration and recreates the
-// worktree: prune only drops entries whose directory is gone, repair refuses a .git
-// file pointing nowhere, and add rejects an existing path even with --force.
 func repairWorktree(
 	fixture *gitRepo,
 	path string,
@@ -73,9 +64,6 @@ func repairWorktree(
 	return addWorktree(fixture, path, branch)
 }
 
-// clearOrphan removes the directory a vanished registration left behind, but only
-// once it has proved to be a worktree of this fixture with no registration;
-// anything else is refused by name.
 func clearOrphan(
 	fixture *gitRepo,
 	path string,
@@ -99,8 +87,6 @@ func clearOrphan(
 	return nil
 }
 
-// addWorktree checks branch out at path, reusing the branch when the fixture
-// still carries it so a repair does not discard the review commit.
 func addWorktree(
 	fixture *gitRepo,
 	path string,
@@ -112,8 +98,6 @@ func addWorktree(
 	return fixture.run("worktree", "add", "-b", branch, path, seedBaseBranch)
 }
 
-// orphanedOf reports whether path is a worktree of fixture whose registration
-// inside the fixture repo is gone.
 func orphanedOf(
 	fixture *gitRepo,
 	path string,
@@ -138,8 +122,6 @@ func orphanedOf(
 	return os.IsNotExist(err), nil
 }
 
-// worktreeGitdir reads the `gitdir:` pointer a linked worktree keeps in place of
-// a .git directory, answering "" for anything that is not one.
 func worktreeGitdir(
 	path string,
 ) (string, error) {

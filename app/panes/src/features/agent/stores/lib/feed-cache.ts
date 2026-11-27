@@ -151,15 +151,10 @@ class FeedWrites {
 
 const writes = new FeedWrites()
 
-/** Queues the feed to be written behind the next microtask; saves meanwhile coalesce to the latest.
- *  An entry keeps the chat's newest 500 top-level items, cut at a prompt so its cursor resumes them,
- *  plus the shells and live subagents its facts list; past 100 chats the least recently saved go. */
 export function saveFeed(hostId: string, chatId: string, feed: ChatFeed): void {
   writes.save({ hostId, chatId, feed })
 }
 
-/** The cached feed of `(hostId, chatId)`, or undefined: absent, of another schema, or unreadable
- *  (the cache only speeds an open up, so an unreadable one is a miss). */
 export async function loadFeed(hostId: string, chatId: string): Promise<ChatFeed | undefined> {
   try {
     const db = await getDB()
@@ -173,7 +168,6 @@ export async function loadFeed(hostId: string, chatId: string): Promise<ChatFeed
   return undefined
 }
 
-/** Deletes a feed's entry, and any save still queued for it. */
 export function forgetFeed(hostId: string, chatId: string): Promise<void> {
   return writes.forget(
     (v) => v.hostId === hostId && v.chatId === chatId,
@@ -181,7 +175,6 @@ export function forgetFeed(hostId: string, chatId: string): Promise<void> {
   )
 }
 
-/** Deletes a chat's entries on every host: the chat was deleted. */
 export function forgetChatFeeds(chatId: string): Promise<void> {
   return writes.forget(
     (v) => v.chatId === chatId,
@@ -189,7 +182,6 @@ export function forgetChatFeeds(chatId: string): Promise<void> {
   )
 }
 
-/** Deletes every entry of a host: its ledger is no longer one this client follows. */
 export function forgetHostFeeds(hostId: string): Promise<void> {
   return writes.forget(
     (v) => v.hostId === hostId,

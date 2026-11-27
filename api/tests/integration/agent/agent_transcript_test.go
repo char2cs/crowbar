@@ -114,7 +114,6 @@ func readMessageTurnIDs(t *testing.T, h *harness, chatID string) []string {
 	return out
 }
 
-// chatRows are chatID's ledger rows, as its feed carries them.
 func chatRows(t *testing.T, h *harness, chatID string) []ledger.Row {
 	t.Helper()
 	rows, err := h.app.Repositories.ChatLedger.Read(context.Background(), chatID, 0, 0)
@@ -122,13 +121,11 @@ func chatRows(t *testing.T, h *harness, chatID string) []ledger.Row {
 	return rows
 }
 
-// toolRun is one tool call of the main agent as its rows tell it.
 type toolRun struct {
 	ID, Name, TurnID string
 	Closed           bool
 }
 
-// toolRuns are the main agent's tool calls in chatID's rows, in call order.
 func toolRuns(t *testing.T, h *harness, chatID string) []toolRun {
 	t.Helper()
 	return runsOf(chatRows(t, h, chatID))

@@ -1,6 +1,3 @@
-//! The Files panel's behaviour: actions, clipboard, dialogs, drags, keys, filtering and folder
-//! chains.
-
 mod copy_note;
 mod file_action;
 mod file_clipboard;

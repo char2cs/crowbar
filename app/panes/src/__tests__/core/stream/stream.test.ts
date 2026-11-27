@@ -66,7 +66,6 @@ const hold = (scope: string, hostId = L) => {
 }
 const register = (...args: Parameters<typeof registerScopeKind>) =>
   cleanups.push(registerScopeKind(...args))
-/** A fresh socket for each test: a drop, then the daemon's ready. */
 const reconnect = (epoch = `e${epochs}`) => {
   socket.drop()
   socket.deliver({ t: 'ready', epoch })
@@ -84,7 +83,6 @@ beforeAll(() => {
   startStream()
 })
 
-/** What went out besides the projects scope, which the stream itself holds from boot. */
 const sentBesidesProjects = () =>
   socket.sent.filter((m) => (m as { scope?: string }).scope !== 'projects')
 
@@ -238,7 +236,6 @@ describe('the one stream', () => {
     expect(socket.sent).toEqual([{ op: 'sub', scope: 'projects' }])
   })
 
-  // A snapshot the daemon could not read closes the socket with resync, never the scope.
   it('a socket closed for resync resubscribes every held scope on its next ready', () => {
     hold('projects')
     socket.sent.length = 0
@@ -270,8 +267,6 @@ describe('the one stream', () => {
     ])
   })
 
-  // A lazily loaded feature registers after the first ready; it must still
-  // know which daemon run its frames come from.
   it('a kind registered after ready learns the current epoch at once', () => {
     reconnect('current')
     const heard: string[] = []
@@ -373,7 +368,6 @@ describe('the one stream', () => {
 })
 
 describe('one stream per host', () => {
-  /** host-1 paired, its socket open and ready, nothing it sent kept. */
   const pairHost1 = () => {
     pairRemoteHost('host-1')
     host1.deliver({ t: 'ready', epoch: 'h1' })

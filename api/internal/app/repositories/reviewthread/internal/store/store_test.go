@@ -73,11 +73,6 @@ func TestStore_ListReflectsProjection(t *testing.T) {
 	assert.Len(t, all, 1)
 }
 
-// TestStore_ListRebuildsWhenModelEmptyButLogNonEmpty proves the lazy Replay repair
-// (spec §3.7, decision 7) replacing the retired eager reconcile-on-open: after the
-// durable read model is lost but the event log survives, List enumerates every
-// aggregate id via the event store's AggregateLister and Replays each back into
-// state/store/review_thread.db.
 func TestStore_ListRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	ctx, st, ax, db := newStoreWithDeps(t)
 
@@ -92,18 +87,14 @@ func TestStore_ListRebuildsWhenModelEmptyButLogNonEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 2, "read model populated by the live store projection")
 
-	// Simulate read-model loss with the event log intact.
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_review_threads").Error)
 
-	// The per-request List heals the model via whole-model lazy Replay.
 	rebuilt, err := st.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, rebuilt, 2, "List must Replay every id from the event log")
 	require.ElementsMatch(t, []string{"t1", "t2"}, []string{rebuilt[0].ID, rebuilt[1].ID})
 }
 
-// TestStore_ListEmptyLogReturnsEmpty proves that with a genuinely empty event log
-// there is nothing to Replay: List returns an empty list without error.
 func TestStore_ListEmptyLogReturnsEmpty(t *testing.T) {
 	ctx, st, _ := newStore(t)
 	rows, err := st.List(ctx)
@@ -171,8 +162,6 @@ func TestStore_ListByWorkspace_StorageError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// fakeReplayES is a serialize.AggregateLister whose AggregateIDs errors, so a
-// List over an empty read model surfaces the rebuild's enumeration failure.
 type fakeReplayES struct {
 	asynxModels.Store
 	err error
@@ -198,8 +187,6 @@ func TestStore_List_RebuildEnumerationError(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	// Inject an event log whose AggregateIDs enumeration fails; an empty read model
-	// then routes List into rebuild, which surfaces the enumeration error.
 	st, err := store.New(proj, &fakeReplayES{err: errors.New("boom")}, ax, func(domain.ReviewThread) {})
 	require.NoError(t, err)
 
@@ -208,7 +195,6 @@ func TestStore_List_RebuildEnumerationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "enumerate aggregate ids")
 }
 
-// appendTombstone writes the marker a Forget leaves when it fails before the erase.
 func appendTombstone(t *testing.T, es asynxModels.Store, id string) {
 	t.Helper()
 	ctx := context.Background()

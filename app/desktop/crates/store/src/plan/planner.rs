@@ -1,5 +1,3 @@
-//! Turning a sidebar command into the daemon requests it means.
-
 use serde_json::Value;
 use sidebar::Command;
 

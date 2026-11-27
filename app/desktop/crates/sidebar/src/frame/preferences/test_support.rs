@@ -1,4 +1,3 @@
-//! Fakes shared by the unit tests.
 #![cfg(test)]
 
 use std::cell::RefCell;
@@ -7,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use crate::frame::preferences::storage::Storage;
 
-/// A preferences file kept in memory.
 #[derive(Debug)]
 pub(crate) struct MemoryStorage {
     path: PathBuf,

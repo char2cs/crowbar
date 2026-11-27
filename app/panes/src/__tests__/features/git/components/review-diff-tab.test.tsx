@@ -4,9 +4,6 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { ReviewDiffTab } from '@/features/git/components/review-diff-tab'
 
-// ReviewDiffTab must read its wsId prop, never the ambient context (each retained WorkspaceView
-// renders the pane tree under its own). The data hooks are asserted directly: they run before
-// the files-loaded gate.
 const filesSummaryCalls: unknown[] = []
 const outlineCalls: unknown[] = []
 vi.mock('@/features/git/hooks/use-review-files-summary', () => ({
@@ -36,10 +33,6 @@ describe('ReviewDiffTab — wsId scoping', () => {
     filesSummaryCalls.length = 0
     outlineCalls.length = 0
 
-    // Simulates a hidden keep-alive copy: this tab belongs to workspace
-    // "ws-buffer" but is being rendered under a DIFFERENT workspace's ambient
-    // context ("ws-ambient") because WorkspaceHost keeps that other workspace
-    // mounted too.
     renderTab('ws-ambient', 'ws-buffer')
 
     expect(filesSummaryCalls).toEqual([['ws-buffer', undefined]])

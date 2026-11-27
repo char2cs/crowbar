@@ -4,14 +4,11 @@ import { entityStore, type EntityState } from '@/core/entities/entity-store'
 import { splitHostKey } from '@/core/stream/host-scope'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
-/** A chat whose agent is running now, on any host, and how many connections view it. */
 export interface ActiveSession {
   hostId: string
   chatId: string
   workspaceId: string
   title: string
-  /** Connections holding the chat's scope on its host, this client's own among them;
-   *  0 is an orphan, running with nobody watching. */
   viewers: number
 }
 
@@ -20,8 +17,6 @@ type Presence = EntityState['byKind']['presence']
 
 let memo: { chats: Chats; presence: Presence; list: ActiveSession[] } | undefined
 
-/** Every running chat of every host, by title, each with its viewers: the same array until
- *  a chat or a presence row changes. */
 function selectActiveSessions(s: EntityState): ActiveSession[] {
   const { chat: chats, presence } = s.byKind
   if (memo?.chats === chats && memo.presence === presence) return memo.list
@@ -46,12 +41,10 @@ function selectActiveSessions(s: EntityState): ActiveSession[] {
   return list
 }
 
-/** The running session of `chatId`, if its agent is running. */
 export function selectActiveSession(s: EntityState, chatId: string): ActiveSession | undefined {
   return selectActiveSessions(s).find((session) => session.chatId === chatId)
 }
 
-/** "2 viewers", or "No viewers" for a running agent nobody is viewing. */
 export function viewersLabel(viewers: number): string {
   if (viewers === 0) return 'No viewers'
   return viewers === 1 ? '1 viewer' : `${viewers} viewers`

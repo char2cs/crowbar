@@ -1,5 +1,3 @@
-//! The text field of the row being renamed, branched or drafted.
-
 use gpui::{Entity, Subscription};
 use ui::TextInput;
 

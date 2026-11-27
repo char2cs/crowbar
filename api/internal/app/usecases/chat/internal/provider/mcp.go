@@ -21,7 +21,6 @@ func (p *Providers) DispatchMCP(
 	return p.handle(ctx, agenttools.NewToolSet(p.tools, runnerID, token), message)
 }
 
-// DispatchRelayMCP is DispatchMCP for a session's relay, authenticated by its relay id.
 func (p *Providers) DispatchRelayMCP(
 	ctx context.Context,
 	relayID string,
@@ -40,8 +39,6 @@ func (p *Providers) handle(ctx context.Context, tools *agenttools.ToolSet, messa
 	return out, send, nil
 }
 
-// VerifyRunnerToken reports whether token is the one this daemon minted for
-// runnerID. With no minter nothing can be authenticated, so nothing is.
 func (p *Providers) VerifyRunnerToken(
 	runnerID string,
 	token string,

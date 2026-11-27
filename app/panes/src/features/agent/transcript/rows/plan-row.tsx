@@ -2,7 +2,6 @@ import { memo, useState } from 'react'
 import { CaretRightIcon } from '@phosphor-icons/react'
 import type { PlanSnapshotItem } from '@/features/agent/stores/lib/transcript-items'
 
-/** The plan as its turn left it, collapsed to its progress. */
 function PlanRowBody({ item }: { item: PlanSnapshotItem }) {
   const [open, setOpen] = useState(false)
   const done = item.items.filter((step) => step.status === 'done').length

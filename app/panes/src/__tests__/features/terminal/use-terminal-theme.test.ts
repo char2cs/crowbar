@@ -57,7 +57,6 @@ describe('useTerminalTheme', () => {
     const theme = terminalTheme()
     expect(theme.red).toBe('#d97757')
     expect(theme.brightWhite).toBe('#f5f5f5')
-    // Transparent, so the CSS --pane-background shows through the xterm canvas.
     expect(theme.background).toBe('#00000000')
     expect(theme.foreground).toBe('#f5f5f5')
   })
@@ -68,8 +67,6 @@ describe('useTerminalTheme', () => {
   })
 
   it('carries the app scrollbar tokens onto the xterm 6 slider colours', () => {
-    // xterm 6 paints the scrollbar from the theme, not from CSS, so these are
-    // the only lever keeping the terminal's scrollbar matching the app's.
     css.vars = UI_VARS
     const theme = terminalTheme()
     expect(theme.scrollbarSliderBackground).toBe('#8080806b')

@@ -14,14 +14,9 @@ import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdow
 import { splitFrontmatter } from './plate/markdown-frontmatter'
 
 export interface MarkdownPreviewProps {
-  /** The `markdownPreview` buffer rendered, and the key its scroll offset is kept under (the
-   *  pane unmounts the preview behind another tab). Omitted by the legacy CodeEditor host, which
-   *  falls back to the active pane's buffer and keeps no scroll. */
   bufferId?: string
 }
 
-/** Open a relative link from `source`'s document. An extension-less workspace link also tries
- *  `.md`, checked up front because a failed open reports itself and cannot drive a retry. */
 async function openLinkedDocument(source: DocumentRef, href: string): Promise<void> {
   const target = siblingRef(source, href)
   if (target.authority === 'host') {
@@ -38,7 +33,6 @@ async function openLinkedDocument(source: DocumentRef, href: string): Promise<vo
   }
 }
 
-/** GitHub-style heading slug: `## Getting Started` → `getting-started`. */
 function slugify(text: string): string {
   return text
     .trim()
@@ -47,7 +41,6 @@ function slugify(text: string): string {
     .replace(/\s+/g, '-')
 }
 
-/** An element with that id, else the heading whose slug is that id. */
 function findAnchorTarget(root: HTMLElement | null, id: string): Element | null {
   if (!root) return null
   const byId = root.querySelector(`#${CSS.escape(id)}`)
@@ -65,33 +58,23 @@ export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
 }
 
 export interface MarkdownPreviewViewProps {
-  /** The document rendered; its relative links open beside it. */
   doc: DocumentRef | null
-  /** Its Markdown text. */
   content: string
-  /** The key its scroll offset is kept under, or null to keep none. */
   scrollKey: string | null
 }
 
-/** `content`, the Markdown text of `doc`, rendered read-only, with its links opening documents. */
 export function MarkdownPreviewView({
   doc: sourceDoc,
   content: sourceContent,
   scrollKey,
 }: MarkdownPreviewViewProps) {
-  // Links in a host document belong to no workspace, so none is refused as another host's.
   const sourceWorkspaceId = sourceDoc?.authority === 'workspace' ? sourceDoc.workspaceId : null
   const fontSize = useSettingsStore((state) => state.settings.fontSize)
   const uiFontFamily = useSettingsStore((state) => state.settings.uiFontFamily)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Rendered by the app's one read-only markdown renderer (Plate static, the
-  // same one chat messages and review comments use). Frontmatter is metadata,
-  // not prose: markdown would read its `---` fences as a rule and a heading.
   const body = useMemo(() => splitFrontmatter(sourceContent).body, [sourceContent])
 
-  // A tab switch unmounts this pane, so the scroll offset is kept outside it. Restored once the
-  // rendered body is in the DOM; before that the box is empty and any offset clamps away.
   usePreservedScroll(containerRef, scrollKey, body !== '')
 
   const handleLinkClick = useCallback(
@@ -101,8 +84,6 @@ export function MarkdownPreviewView({
 
       if (!link) return
 
-      // The link plugin renders a relative url without `href` (it only emits
-      // urls it deems safe to navigate); its own url stays on the element.
       const href = link.getAttribute('href') ?? link.getAttribute('data-slate-url')
       if (!href) return
 
@@ -157,8 +138,6 @@ export function MarkdownPreviewView({
   return (
     <div
       ref={containerRef}
-      // Pure delegation: handleLinkClick acts only on the nearest real <a>, which is natively
-      // focusable and fires a bubbling click on Enter, so this wrapper has no semantics of its own.
       role="presentation"
       className="markdown-preview flex h-full justify-center overflow-auto bg-transparent p-6"
       style={{

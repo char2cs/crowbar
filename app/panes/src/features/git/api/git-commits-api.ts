@@ -12,8 +12,6 @@ export const getGitLog = async (wsId: string, limit = 50, skip = 0): Promise<Git
   }
 }
 
-/** Commits exactly `paths`: they are staged, the staged `unstage` are taken out, then the index is
- *  committed; a message's first paragraph is the subject. Throws the daemon's reason. */
 export async function commitFiles(
   wsId: string,
   message: string,

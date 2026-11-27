@@ -172,7 +172,6 @@ describe('ComposerChoice with several questions', () => {
     expect(screen.getByRole('radio', { name: 'Go' })).toBeChecked()
   })
 
-  // A retained pane can get another prompt; old picks would name options it never offered.
   it('starts empty when a different prompt is rendered into the same card', () => {
     const { rerender } = show(three)
     click('radio', 'Go')

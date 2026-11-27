@@ -10,53 +10,36 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// Conversations is what starting, replacing and prompting a CLI needs from the chat
-// record, including erasing the chat a failed spawn was for. Declared by the consumer
-// so the two never import each other.
 type Conversations interface {
-	// ChatProviderID is the provider the chat's next CLI should be, resolved from
-	// its selection and the live provider order.
 	ChatProviderID(
 		ctx context.Context,
 		chatID string,
 	) (string, error)
-	// ChatSelection is the model and reasoning effort pinned to the chat.
 	ChatSelection(
 		ctx context.Context,
 		chatID string,
 	) (engineagents.Selection, error)
-	// SetChatSelection pins the model and effort the chat's next CLI launches
-	// with; the runner checks them against the provider first.
 	SetChatSelection(
 		ctx context.Context,
 		chatID string,
 		model, effort string,
 	) error
-	// ChatTurns is the chat's turns, read to decide whether a resumed CLI has
-	// anything to be told about.
 	ChatTurns(
 		ctx context.Context,
 		chatID string,
 	) ([]domain.LedgerTurn, error)
-	// AssembleConversation renders the prior exchange a replacement CLI is handed.
-	// resuming says the incoming CLI will re-read the provider's own transcript, so
-	// only what happened after leftAt needs restating.
 	AssembleConversation(
 		ctx context.Context,
 		chatID string,
 		resuming bool,
 		leftAt time.Time,
 	) (string, error)
-	// ThreadContext is the prompt fragment naming the chats this one reads.
 	ThreadContext(
 		ctx context.Context,
 		chatID string,
 	) (string, error)
 }
 
-// AncestorCwd answers where a workspace-less chat's CLI runs: the nearest
-// workspace-owning ancestor's id, or false. It is the tree's walk, declared by the
-// consumer because tree is a peer this package may not import.
 type AncestorCwd interface {
 	ResolveCwdWorkspaceID(
 		ctx context.Context,
@@ -64,45 +47,24 @@ type AncestorCwd interface {
 	) (string, bool, error)
 }
 
-// Turns is what the CLI lifecycle needs from the hook side: an api connection's
-// door in, the record of a runner's streamed text at its exit, and the screen
-// classifiers. Only Hook takes the chat's lock, never called under it.
 type Turns interface {
-	// Hook places one event an api connection resolved, as the hook ingress
-	// places every hook, and returns the reply the ingress gave an ask at once
-	// or else the ask its answer is held on.
 	Hook(ctx context.Context, runnerID, provider, event string, raw []byte) (reply []byte, ask string, err error)
-	// ForgetChat drops every piece of in-memory turn state held for chatID.
 	ForgetChat(chatID string)
-	// ForgetTelemetry drops chatID's usage report, its outgoing provider's.
 	ForgetTelemetry(ctx context.Context, chatID string)
-	// ExitRows are the rows a runner's end records of the answers it streamed
-	// that no row holds; they commit with the end, and Retire follows.
 	ExitRows(st ledger.State, chatID, runnerID string) ([]ledger.Row, error)
-	// LiveDiff is the whole diff runnerID streamed on chatID that no row holds.
 	LiveDiff(chatID, runnerID string) string
-	// Retire drops runnerID's streamed text on chatID once its end is recorded.
 	Retire(chatID, runnerID string)
 
-	// The seams the terminal-wait detector reads through: they belong to the
-	// hook side.
 	termwait.Prompts
 	termwait.Notices
-	// FailTurnOnNotice records runner's running turn failed for a notice on
-	// its screen that ends a turn, which no hook reports.
 	FailTurnOnNotice(ctx context.Context, runner engineagents.Runner, notice engineagents.TerminalNotice)
 }
 
-// Providers is the provider table as the spawn and switch paths consult it: may
-// this provider be used at all, and may its CLI call back into Crowbar.
 type Providers interface {
-	// RequireProviderEnabled refuses a spawn onto a provider the user switched off.
 	RequireProviderEnabled(
 		ctx context.Context,
 		providerID string,
 	) error
-	// ProviderMCPEnabled reports whether the provider may use the tool surface, so
-	// a spawn knows whether to render the MCP config at all.
 	ProviderMCPEnabled(
 		ctx context.Context,
 		providerID string,

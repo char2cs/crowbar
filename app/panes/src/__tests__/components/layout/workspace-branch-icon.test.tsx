@@ -7,10 +7,7 @@ describe('WorkspaceBranchIcon', () => {
     const { container, getByRole } = render(<WorkspaceBranchIcon status="new" working />)
     const status = getByRole('status')
     expect(status).toBeTruthy()
-    // The flicker spinner.
     expect(container.querySelector('[data-flicker-spinner]')).not.toBeNull()
-    // Theme-token colored, never hardcoded — the wrapper carries the color class
-    // since FlickerSpinner inherits via currentColor.
     expect(container.querySelector('.text-foreground')).not.toBeNull()
   })
 
@@ -32,8 +29,6 @@ describe('WorkspaceBranchIcon placeholder', () => {
   })
 })
 
-// On the inverted TAB_ACTIVE ground, `invertedGround` swaps the ambient `text-foreground` so the
-// icon stays visible; the fixed status colours read on either ground and are untouched.
 describe('WorkspaceBranchIcon invertedGround', () => {
   it('swaps text-foreground for text-foreground-inverse on a "new" branch icon', () => {
     const { container } = render(<WorkspaceBranchIcon status="new" invertedGround />)

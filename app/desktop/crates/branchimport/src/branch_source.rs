@@ -1,5 +1,3 @@
-//! What the dialog needs of the data behind it, so the data can be replaced in tests.
-
 use std::sync::Arc;
 
 use store::{BranchImport, BranchListing, ImportPlan};

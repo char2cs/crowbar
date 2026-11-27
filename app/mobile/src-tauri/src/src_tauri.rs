@@ -8,7 +8,6 @@ use crate::hosts::HostRegistry;
 use crate::ws_bridge::WsBridgeManager;
 use crate::{api_proxy, host_commands, host_tokens, init_scripts, logging, navigation, ws_bridge};
 
-/// Starts the app; on a build failure it logs the cause and aborts, as a startup panic would.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     match assemble::<tauri::Wry>().build(tauri::generate_context!()) {

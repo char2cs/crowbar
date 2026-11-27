@@ -3,7 +3,6 @@ use layout::Layout;
 use crate::panes::ide::tab_looks;
 use crate::panes::tracking::group_focus::focused_group;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-sync.ts
 pub(crate) fn active_file(
     layout: &Layout,
     space: &str,

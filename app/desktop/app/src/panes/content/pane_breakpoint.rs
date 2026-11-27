@@ -1,5 +1,3 @@
-//! The breakpoints the shell draws by, named as the pane wire names them.
-
 pub(crate) fn wire_breakpoint(point: ui::Breakpoint) -> protocol::Breakpoint {
     match point {
         ui::Breakpoint::Sm => protocol::Breakpoint::Sm,

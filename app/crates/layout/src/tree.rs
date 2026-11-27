@@ -1,5 +1,3 @@
-//! The split tree of one tab: its nodes, their edits and placement, and their screen geometry.
-
 pub(crate) mod axis;
 pub(crate) mod branch;
 pub(crate) mod edge;

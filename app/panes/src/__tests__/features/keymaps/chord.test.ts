@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 
-// Force a deterministic platform so chord formatting/matching is stable in CI.
 vi.mock('@/utils/platform', () => ({ IS_MAC: false, IS_MOBILE: false, APPLE_KEYBOARD: false }))
 
 import {
@@ -44,7 +43,6 @@ describe('eventMatchesChord (non-mac: mod = ctrl)', () => {
     expect(
       eventMatchesChord(ev({ key: '\\', ctrlKey: true, shiftKey: true, altKey: false }), 'mod+\\'),
     ).toBe(false)
-    // metaKey must NOT satisfy mod off-mac
     expect(
       eventMatchesChord(ev({ key: '\\', metaKey: true, ctrlKey: false, altKey: false }), 'mod+\\'),
     ).toBe(false)

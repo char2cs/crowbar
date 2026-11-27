@@ -1,5 +1,3 @@
-//! The colours a terminal draws with.
-
 mod color_source;
 mod rgb;
 mod xterm_color;
@@ -11,21 +9,15 @@ use crate::snapshot::palette::xterm_color::xterm_color;
 
 const ANSI_COLORS: usize = 16;
 
-/// Default text, default background, cursor and the 16 ANSI colours; the 240 others are fixed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Palette {
-    /// Colour of text with no explicit colour.
     pub foreground: Rgb,
-    /// Colour behind everything; cells with this background are not filled.
     pub background: Rgb,
-    /// Cursor colour.
     pub cursor: Rgb,
-    /// Black, red, green, yellow, blue, magenta, cyan, white, then their bright forms.
     pub ansi: [Rgb; ANSI_COLORS],
 }
 
 impl Palette {
-    /// The colour of palette entry `index` (0 to 255).
     pub fn indexed(
         &self,
         index: u8,

@@ -13,8 +13,6 @@ import {
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 import { splitIntoWords } from '@/features/agent/transcript/plate/fresh-word-stagger'
 
-// Node ids are metadata, not content: irrelevant to what these tests check,
-// so any are stripped.
 function withoutIds(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutIds)
   if (value && typeof value === 'object') {
@@ -29,8 +27,6 @@ type Decoration = Record<string, unknown> & {
   focus: { path: number[]; offset: number }
 }
 
-/** Every fade range the editor would render right now, with the text each
- *  one actually covers — the observable the animation is driven by. */
 function fades(editor: ReturnType<typeof createPlateEditor>) {
   const out: { text: string; delay: number; generation: number }[] = []
   for (const entry of editor.api.nodes({ at: [] })) {
@@ -38,9 +34,6 @@ function fades(editor: ReturnType<typeof createPlateEditor>) {
     if (typeof (node as { text?: string }).text !== 'string') continue
     const text = (node as { text: string }).text
     for (const range of freshDecorations(editor, entry) as Decoration[]) {
-      // Only the ANIMATED ranges. A settled run still emits an inert range to
-      // hold its boundary for the words still fading after it (see
-      // `pruneRuns`); that is deliberately not a fade.
       if (range[CHAT_FRESH_MARK] === undefined) continue
       out.push({
         text: text.slice(range.anchor.offset, range.focus.offset),
@@ -53,11 +46,6 @@ function fades(editor: ReturnType<typeof createPlateEditor>) {
 }
 
 describe('the fade is a decoration, never a document edit', () => {
-  // THE invariant the whole optimization rests on: what streaming leaves in
-  // the document is exactly what a plain parse of the same markdown produces.
-  // Before this change the fade wrote a LEAF PER WORD into the document, so a
-  // streamed paragraph and a parsed one had wildly different shapes until
-  // every word's `animationend` had fired and merged them back.
   it('leaves the document byte-identical to a fresh parse of the same markdown', () => {
     const editor = createPlateEditor({
       plugins: chatComposerPlugins,
@@ -67,7 +55,6 @@ describe('the fade is a decoration, never a document edit', () => {
     applyStreamedValue(editor, chatMarkdownToValue('Building a CLI'))
 
     expect(withoutIds(editor.children)).toEqual(chatMarkdownToValue('Building a CLI'))
-    // Specifically: still ONE leaf, not one per appended word.
     expect((editor.children[0]!.children as unknown[]).length).toBe(1)
   })
 
@@ -81,7 +68,6 @@ describe('the fade is a decoration, never a document edit', () => {
 
     const shown = fades(editor)
     expect(shown.map((f) => f.text).join('')).toBe(' a CLI')
-    // One range per word, and no two words share a delay — the cascade.
     expect(shown.length).toBe(2)
     expect(new Set(shown.map((f) => f.delay)).size).toBe(2)
     expect(shown[1]!.delay).toBeGreaterThan(shown[0]!.delay)
@@ -116,9 +102,6 @@ describe('settleFreshGeneration', () => {
     }
 
     expect(fades(editor)).toEqual([])
-    // Settling is bookkeeping only — the old design spent one Slate
-    // operation per settling word, which is precisely what made a long
-    // reply's tail more expensive than its head.
     expect(editor.children).toEqual(before)
   })
 
@@ -133,13 +116,8 @@ describe('settleFreshGeneration', () => {
   })
 })
 
-// slate-react keys leaves by POSITION in the decoration split, so dropping a settled range would
-// shift every later leaf's key and remount (restarting) its fade. A settling word must leave its
-// still-fading neighbours' DOM nodes alone, whatever the chunk size or provider.
 describe('a settling word leaves its still-fading neighbours alone', () => {
   const fadeSpans = () => [...document.querySelectorAll<HTMLElement>('.chat-fresh-text')]
-  // Word chunks keep their own whitespace (see `splitIntoWords`), so a span
-  // for 'two' renders as ' two'.
   const spanFor = (word: string) => fadeSpans().find((s) => s.textContent?.trim() === word)
 
   async function streamed(initial: string) {
@@ -152,8 +130,6 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
         <PlateContent readOnly />
       </Plate>,
     )
-    // Slate re-renders on the microtask after an external transform, never
-    // synchronously with it — see this module's own notes.
     const push = async (markdown: string) => {
       await act(async () => {
         applyStreamedValue(editor, chatMarkdownToValue(markdown))
@@ -164,22 +140,17 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
 
   it('does not remount a fading word when an earlier word settles', async () => {
     const { editor, push } = await streamed('Building')
-    await push('Building one') // generation 1
-    await push('Building one two') // generation 2
+    await push('Building one')
+    await push('Building one two')
 
     const before = spanFor('two')
     expect(before).toBeDefined()
 
-    // The first chunk finishes fading (`animationend`), then the next chunk
-    // arrives: the ordinary streaming sequence, and where a reindex would land.
     await act(async () => {
       settleFreshGeneration(editor, 1)
     })
-    await push('Building one two three') // generation 3
+    await push('Building one two three')
 
-    // THE ASSERTION: the very same DOM node. A different node means React
-    // remounted it, and a remounted span restarts its animation from zero —
-    // which is the bug, however identical the two spans look.
     expect(spanFor('two')).toBe(before)
   })
 
@@ -195,9 +166,6 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
     })
     await push('Building alpha beta gamma delta')
 
-    // Every word that was mid-fade keeps the exact delay it was rendered
-    // with; a restarted cascade would re-stagger them from the new chunk's
-    // clock instead.
     const stillFading = fadeSpans().map((s) => `${s.textContent}@${s.style.animationDelay}`)
     for (const entry of delaysBefore) {
       if (!entry.trim().startsWith('one')) expect(stillFading).toContain(entry)
@@ -214,14 +182,11 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
     })
     await push('Building one two three')
 
-    // Settled text is no longer animated...
     expect(
       fadeSpans()
         .map((s) => s.textContent)
         .join(''),
     ).not.toContain('one')
-    // ...but the document still reads correctly end to end, and the words
-    // that ARE still fading are the recent ones.
     expect(editor.api.string([0])).toBe('Building one two three')
   })
 
@@ -236,9 +201,6 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
     })
     await push('Building one two three')
 
-    // Nothing is held open any more: with no fade left to protect, the split
-    // collapses — this is what keeps a long reply from carrying every word it
-    // ever streamed as a live decoration.
     const held = freshDecorations(editor, [
       editor.children[0]!.children[0]!,
       [0, 0],
@@ -247,10 +209,6 @@ describe('a settling word leaves its still-fading neighbours alone', () => {
   })
 })
 
-/**
- /** Settling performs no edit and only the last list item re-renders while a list streams, so
-  * finished items could keep animated spans all turn. Bounded, not zero, is the contract: words
-  * still fading keep their spans. */
 describe('finished fades do not pile up in the DOM', () => {
   const listItem = (i: number) => `${i + 1}. item ${i} of the list here`
 
@@ -265,8 +223,6 @@ describe('finished fades do not pile up in the DOM', () => {
       </Plate>,
     )
 
-    // Twelve list items stream in, each finishing its fade (as a real browser
-    // reports via `animationend`) before the next one starts.
     let markdown = listItem(0)
     for (let i = 1; i < 12; i++) {
       markdown += `\n${listItem(i)}`
@@ -277,21 +233,16 @@ describe('finished fades do not pile up in the DOM', () => {
         for (const generation of liveGenerations(editor)) settleFreshGeneration(editor, generation)
       })
     }
-    // One more frame for the coalesced cleanup pass to land.
     await act(async () => {
       await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
     })
 
-    // Before the fix this was every word of all twelve items — it only ever
-    // grew. Bounded well under that is the whole assertion.
     const spans = document.querySelectorAll('.chat-fresh-text').length
     expect(spans).toBeLessThan(10)
-    // ...and the reply is all still there, unharmed by the cleanup.
     expect(editor.children.length).toBe(12)
   })
 })
 
-/** Generations currently emitting an animated range, from the editor itself. */
 function liveGenerations(editor: ReturnType<typeof createPlateEditor>): number[] {
   const out = new Set<number>()
   for (const entry of editor.api.nodes({ at: [] })) {
@@ -304,7 +255,6 @@ function liveGenerations(editor: ReturnType<typeof createPlateEditor>): number[]
   return [...out]
 }
 
-// Every line of a replaced block mounts again, and each code line re-decorates.
 describe('a code fence streaming in', () => {
   it('keeps the lines it already drew and adds only the new one', () => {
     const fence = (lines: number) =>

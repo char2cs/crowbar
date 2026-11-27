@@ -1,5 +1,3 @@
-//! Keyboard focus of a tree row: a tab stop that rings on focus-visible and ignores pointer presses.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{App, Div, ElementId, FocusHandle, InteractiveElement, Stateful, Styled, Window};
 use ui::{Palette, Pose, focus_ring};

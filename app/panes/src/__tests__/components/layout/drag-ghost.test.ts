@@ -9,8 +9,6 @@ function row(): HTMLElement {
   return el
 }
 
-// bg-background is the dark charcoal in dark mode, near-invisible over the dark
-// sidebar; the control-surface utility pins the raised white in every mode.
 describe('lifted drag ghost surface', () => {
   it('lifts a cloned row onto the control surface, not the ambient background', () => {
     const { nodes } = cloneGhostRows([row()], 1)

@@ -58,7 +58,6 @@ describe('showTerminalUrlMenu', () => {
     ])
   })
 
-  // The phone app (and a plain browser) has no OS menu and no Crowbar browser: a link just opens.
   it('outside the desktop app opens the link at once, without a menu', async () => {
     shown.desktop = false
     await showTerminalUrlMenu(url, at, noPane)
@@ -103,8 +102,6 @@ describe('showTerminalUrlMenu', () => {
   })
 })
 
-// A dev server a remote agent started listens on the remote machine: the same address here
-// is whatever this computer runs there, or nothing.
 describe('a loopback link printed in a terminal', () => {
   const ON_BUILD_BOX =
     'This link is on Build box, not this computer — forward the port with ssh -L to open it here'

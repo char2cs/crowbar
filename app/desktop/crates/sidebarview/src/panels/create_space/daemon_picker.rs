@@ -1,5 +1,3 @@
-//! The create-space Daemon row's picker: the chosen host's mark and name, opening the host list.
-
 use gpui::{App, Context, Entity, InteractiveElement, ParentElement, Styled, div, px};
 use sidebar::Host;
 use ui::{DropdownMenu, Icon, IconName, MenuAction, MenuItem, Palette};

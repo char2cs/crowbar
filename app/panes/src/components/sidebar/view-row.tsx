@@ -21,8 +21,6 @@ const NO_ICON: Partial<ChatIconFields> = {}
 const LOADING_CHAT_LABEL = 'Loading…'
 const pendingLabel = (chatId: string) => (isDraftChatId(chatId) ? 'New thread' : LOADING_CHAT_LABEL)
 
-// A chat as a sidebar row: the workspace store's live title and spinner when mounted, else the
-// sidebar's chat record. With no chat data yet it still draws, as loading.
 export function useMemberRow(
   chatId: string,
   workspaceId: string,
@@ -35,7 +33,6 @@ export function useMemberRow(
     id: chat.id,
     parentId: null,
     order: 0,
-    // The tree's own fallback: both rows name an untitled chat alike.
     label: chat.title || (known ? UNTITLED_CHAT_LABEL : pendingLabel(chatId)),
     labelProvisional: !chat.title,
     workspaceId: chat.workspaceId,
@@ -47,9 +44,6 @@ export function useMemberRow(
   }
 }
 
-// One view as a tab: a bare row for a lone chat, or one shell around a split's members. Each tab
-// subscribes to its own labels, so a delta re-renders only the tabs it touches. Its × ends the
-// whole view — not SidebarRow's `onTrash`, which is the tree's destructive delete.
 export function RecentsViewRow({
   viewId,
   onFocus,
@@ -76,12 +70,7 @@ export function RecentsViewRow({
     <div
       data-view-showing={isShowing || undefined}
       data-testid={isSet ? `recents-set-${viewId}` : undefined}
-      className={cn(
-        // One painted shell; members share it flush. The × is always shown and
-        // overlays the shell's end, so no label ever moves.
-        TAB_SHELL,
-        isShowing ? TAB_ACTIVE : TAB_IDLE,
-      )}
+      className={cn(TAB_SHELL, isShowing ? TAB_ACTIVE : TAB_IDLE)}
     >
       {members.map((member, i) => {
         const { chatId, workspaceId } = parseMemberKey(member)
@@ -102,7 +91,6 @@ export function RecentsViewRow({
         )
       })}
       {pinned ? (
-        // Where the × sits: the pin, which unpins — as on an editor tab.
         <Button
           variant="ghost"
           data-no-dnd
@@ -134,10 +122,6 @@ const TAB_SHELL = 'group/tab relative mx-0.5 flex h-8 items-center rounded-full 
 const TAB_CLOSE =
   'absolute right-1.5 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full text-muted-foreground'
 
-/**
- * A chat as the view tab it would become, lifted: the same shell, row and close
- * button a real single-chat tab renders, for a pane being dragged toward the strip.
- */
 export function ViewTabPreview({ row, width }: { row: SidebarRowType; width: number }) {
   return (
     <div className={cn(TAB_SHELL, TAB_ACTIVE, 'shadow-md shadow-black/15')} style={{ width }}>
@@ -153,12 +137,9 @@ export function ViewTabPreview({ row, width }: { row: SidebarRowType; width: num
 
 const noop = () => {}
 
-// The CossUI raised surface, on our plain background/foreground pair.
 const TAB_ACTIVE =
   'control-surface outline outline-1 shadow-xs shadow-black/10 ' +
   'inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-// A member as one string, so the shallow-compared selector above re-renders
-// only when a member actually changes. Ids never contain NUL.
 const memberKey = (m: ViewMember): string => `${m.chatId}\x00${m.workspaceId ?? ''}`
 const parseMemberKey = (key: string): ViewMember => {
   const [chatId, workspaceId] = key.split('\x00')
@@ -177,14 +158,10 @@ function RecentsMemberRow({
   registerRow,
 }: {
   chatId: string
-  /** Recorded on the view member when the chat was opened. */
   workspaceId: string
   hasView: boolean
-  /** One of 2+ chats sharing the shell: no icon. */
   isSet: boolean
-  /** The tab's trailing member: its end fades under the ×. */
   fadesForClose: boolean
-  /** Draws the hairline between this member and the next. */
   separated: boolean
   onOpen: () => void
   drag: SidebarDrag
@@ -195,11 +172,7 @@ function RecentsMemberRow({
   return (
     <div
       data-testid={`recents-row-${row.id}`}
-      // A ref callback, not a render-body call: render must stay pure. Its cleanup
-      // unregisters the row when the tab goes.
       ref={(el) => (el ? registerRow(row) : undefined)}
-      // Flex item: without `min-w-0 flex-1` it shrinks to its label. The
-      // shell paints the hover, not the row.
       className={cn(
         'relative min-w-0 flex-1 [&_[role=tab]]:hover:bg-transparent',
         fadesForClose &&
@@ -210,13 +183,10 @@ function RecentsMemberRow({
         row={row}
         depth={0}
         onOpen={onOpen}
-        // Lets a hit test tell this row from a tree row with the same id.
         dragProps={drag.dragProps(row, { inRecents: true })}
         isDragging={drag.draggingIds.has(row.id)}
         isNestTarget={drag.nestTargetId === row.id}
         onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}
-        // The chat also renders as a tree row with the same id: two inline
-        // renames at once would steal each other's focus.
         inlineRenameDisabled
         tab={isSet ? 'tab-member' : 'tab'}
       />

@@ -1,7 +1,3 @@
-// LSP client backed by the daemon: document sync over REST, diagnostics on the owning chat's lsp:
-// scope, and the Monaco providers' feature requests. Addressed by the workspace the caller names
-// (the buffer's own), never by whichever is active.
-
 import { apiFetch } from '@/lib/api/fetch'
 import { holdScope, onSignal, watchScope } from '@/core/stream/stream'
 import { report } from '@/lib/errors/report'
@@ -9,11 +5,9 @@ import { hostIdForWorkspace, isHostResolved, subscribeHostResolution } from '@/l
 import { isHomeWorkspace, lspBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId } from '@/lib/workspace-scope'
 
-// One action for every sync verb, so a dead server shows one toast, not one per edit.
 const reportSync = (err: unknown) =>
   report(err, { action: 'Sync the file with its language server' })
 
-/** The daemon's lifecycle view of the server for one file's language. */
 export interface LspServerStatus {
   languageId?: string
   command?: string
@@ -36,27 +30,21 @@ interface DiagnosticsEvent {
   diagnostics?: LspDiagnostic[]
 }
 
-/** The owner the LSP diagnostics markers are published under in Monaco. */
 export const LSP_MARKER_OWNER = 'crowbar-lsp'
 
-// Trailing quiet period before an edited document's text is sent to the
-// server (requests flush it early, see flushChange).
 const CHANGE_DEBOUNCE_MS = 400
 
 type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[]) => void
 type OpenedListener = (wsId: string, filePath: string) => void
 
-/** A document's text as its model has it now; null once the model is gone. */
 type ReadText = () => string | null
 
 interface OpenDocument {
-  /** One didOpen for the first holder, didClose with the last. */
   refs: number
   languageId: string
   read: ReadText
 }
 
-/** The LSP route base for `wsId`, or null while it has none (home, no chat, host not resolved). */
 function lspBase(wsId: string): string | null {
   if (isHomeWorkspace(wsId) || !getOwningChatId(wsId) || !isHostResolved({ wsId })) return null
   return lspBaseForWorkspace(wsId)
@@ -71,16 +59,11 @@ function post(url: string, body: unknown, signal?: AbortSignal): Promise<unknown
   })
 }
 
-/** One workspace's LSP state, alive while it holds an open document or diagnostics handler. It
- *  holds the owning chat's lsp: scope while chat and host are known; the daemon releases the
- *  servers (and their documents) whenever the scope is let go, a drop or resync included. */
 class WorkspaceSession {
   readonly handlers = new Set<DiagnosticsHandler>()
   readonly documents = new Map<string, OpenDocument>()
-  /** Debounced didChange timers per path. */
   readonly pendingChanges = new Map<string, ReturnType<typeof setTimeout>>()
   private lastByFile = new Map<string, LspDiagnostic[]>()
-  /** The route base whose lsp: scope is held, and its release. */
   private hold: { base: string; close: () => void } | null = null
   private readonly stopWatching: () => void
 
@@ -97,7 +80,6 @@ class WorkspaceSession {
     this.followScope()
   }
 
-  /** The route base while its scope is held, else null. */
   base(): string | null {
     return this.hold?.base ?? null
   }
@@ -122,22 +104,17 @@ class WorkspaceSession {
     for (const filePath of [...this.pendingChanges.keys()]) this.cancelChange(filePath)
   }
 
-  // The route base arriving (owning chat recorded, host resolved) or changing holds
-  // its chat's scope; it going away (workspace deleted, host revoked) lets it go.
   private followScope(): void {
     const base = lspBase(this.wsId)
     if (base === (this.hold?.base ?? null)) return
     this.releaseScope()
     if (!base) return
     const scope = `lsp:${getOwningChatId(this.wsId)}`
-    // The base resolved its host, and names it: a host change is a base change.
     const hostId = hostIdForWorkspace(this.wsId)
     const hold = { base, close: () => {} }
     const stopSignals = onSignal<DiagnosticsEvent>(hostId, scope, 'diagnostics', (event) =>
       this.dispatch(event),
     )
-    // The first synced finds what went out as it was held; any later one (after a drop,
-    // a resync or a failed snapshot) follows the daemon letting the scope go.
     let firstSync = true
     const stopWatch = watchScope(hostId, scope, {
       synced: () => {
@@ -158,8 +135,6 @@ class WorkspaceSession {
     this.openDocuments(base)
   }
 
-  // A new hold, or the daemon's servers gone with the edits sent meanwhile: every
-  // document goes with the text it has now.
   private openDocuments(base: string): void {
     for (const [path, { languageId, read }] of this.documents) {
       const text = read()
@@ -171,7 +146,6 @@ class WorkspaceSession {
     if (!this.hold) return
     this.hold.close()
     this.hold = null
-    // Markers from a server that is gone would never be cleared otherwise.
     this.publish(new Map([...this.lastByFile.keys()].map((path) => [path, []])))
   }
 
@@ -183,7 +157,6 @@ class WorkspaceSession {
       list.push(diag)
       byFile.set(diag.filePath, list)
     }
-    // Files that had diagnostics and no longer do are cleared.
     for (const filePath of this.lastByFile.keys()) {
       if (!byFile.has(filePath)) byFile.set(filePath, [])
     }
@@ -225,8 +198,6 @@ class LspClientImpl {
     session.dispose()
   }
 
-  // didOpen is what spawns a server daemon-side, so its completion is when a
-  // status indicator should look again.
   private async postOpen(
     wsId: string,
     base: string,
@@ -238,7 +209,6 @@ class LspClientImpl {
     for (const listener of this.openListeners) listener(wsId, filePath)
   }
 
-  /** Called each time a document's didOpen reached the daemon. */
   onDocumentOpened(listener: OpenedListener): () => void {
     this.openListeners.add(listener)
     return () => {
@@ -246,9 +216,6 @@ class LspClientImpl {
     }
   }
 
-  /** POST a feature request to `wsId`'s LSP route. Null when the workspace has no LSP surface yet
-   *  (home workspace, owning chat unrecorded), as the daemon answers for a serverless language.
-   *  Daemon failures propagate so providers can surface them. */
   async request<T>(
     wsId: string,
     route: string,
@@ -267,13 +234,10 @@ class LspClientImpl {
     return apiFetch<LspServerStatus>(`${base}/status?path=${encodeURIComponent(filePath)}`)
   }
 
-  /** Restart the running server for `filePath`'s language (daemon-side). */
   restart(wsId: string, filePath: string): Promise<LspServerStatus | null> {
     return this.request<LspServerStatus>(wsId, 'restart', { path: filePath })
   }
 
-  /** Re-send didOpen to start the server of an open document whose server is not running (it
-   *  crashed, or was not installed when the file opened). */
   async reopen(wsId: string, filePath: string, content: string, languageId: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const base = session?.base()
@@ -281,7 +245,6 @@ class LspClientImpl {
     await this.postOpen(wsId, base, filePath, languageId, content)
   }
 
-  /** Open `filePath` for LSP; `read` is asked for its text each time it is (re)sent. */
   async documentOpen(
     wsId: string,
     filePath: string,
@@ -295,7 +258,6 @@ class LspClientImpl {
       return
     }
     session.documents.set(filePath, { refs: 1, languageId, read })
-    // No scope yet (owning chat or host unknown): its hold sends it.
     const base = session.base()
     const text = read()
     if (!base || text === null) return
@@ -325,8 +287,6 @@ class LspClientImpl {
     await post(`${base}/didClose`, { path: filePath }).catch(reportSync)
   }
 
-  /** Debounce a full-text didChange. `read` runs when the change is sent, so a burst costs one
-   *  read and POST; it returns null (nothing sent) once the model is disposed. */
   scheduleChange(wsId: string, filePath: string, read: ReadText): void {
     const session = this.sessions.get(wsId)
     const open = session?.documents.get(filePath)
@@ -339,21 +299,17 @@ class LspClientImpl {
     )
   }
 
-  /** Send a scheduled didChange now. Position-addressed requests (completion, signature help …)
-   *  await this so the server answers against the text on screen. */
   async flushChange(wsId: string, filePath: string): Promise<void> {
     const session = this.sessions.get(wsId)
     const open = session?.documents.get(filePath)
     if (!session || !open || !session.pendingChanges.has(filePath)) return
     session.cancelChange(filePath)
-    // Before the scope is held the edit waits in the model: the hold's didOpen carries it.
     const base = session.base()
     const text = open.read()
     if (!base || text === null) return
     await post(`${base}/didChange`, { path: filePath, text }).catch(reportSync)
   }
 
-  /** Receive `wsId`'s diagnostics, starting with the current batch. */
   onDiagnosticsUpdate(wsId: string, handler: DiagnosticsHandler): () => void {
     const session = this.session(wsId)
     session.addHandler(handler)

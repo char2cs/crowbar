@@ -4,8 +4,6 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openExternalUrl } from '@/lib/external-open'
 import { resolvedHostOf } from '@/lib/host-resolve'
 
-// localhost and its subdomains, 127.0.0.0/8, 0.0.0.0, [::1], [::] and IPv4-mapped 127.0.0.0/8,
-// as URL parsing normalises them (`[::ffff:127.0.0.1]` reads `[::ffff:7f00:1]`).
 const LOOPBACK_HOSTNAME =
   /^(?:localhost|.+\.localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\])\.?$/i
 
@@ -17,13 +15,10 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
-// No page scheme for a protocol-relative `//host/…` to inherit here: it is a web link.
 function webUrl(link: string): string {
   return link.startsWith('//') ? `https:${link}` : link
 }
 
-// True (after telling the user why) when a link in `wsId`'s content (null: no workspace's) must
-// not open here: a loopback address from a workspace on another, or unknown, host is that host's.
 export function refuseRemoteLoopback(link: string, wsId: string | null): boolean {
   if (wsId === null || !isLoopbackUrl(webUrl(link))) return false
   const hostId = resolvedHostOf({ wsId })
@@ -35,7 +30,6 @@ export function refuseRemoteLoopback(link: string, wsId: string | null): boolean
   return true
 }
 
-/** Opens a link found in workspace `wsId`'s content in the OS browser, unless it is refused. */
 export async function openWorkspaceLink(link: string, wsId: string | null): Promise<void> {
   if (refuseRemoteLoopback(link, wsId)) return
   await openExternalUrl(webUrl(link))

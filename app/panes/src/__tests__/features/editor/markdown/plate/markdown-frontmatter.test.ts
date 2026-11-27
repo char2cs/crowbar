@@ -8,8 +8,6 @@ import {
   plateValueToMarkdown,
 } from '@/features/editor/markdown/plate/markdown-serialization'
 
-// The core data-safety invariant: splitting and rejoining must reproduce the
-// original bytes exactly, for every fixture below.
 function expectRoundTrip(md: string) {
   const { frontmatter, body } = splitFrontmatter(md)
   expect(joinFrontmatter(frontmatter, body)).toBe(md)
@@ -85,8 +83,6 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(body).toBe('# Body\r\n')
   })
 
-  // Mixed line endings (an LF first line, CRLF after) are common when a tool appends to a CRLF
-  // file; a single sniffed EOL would miss the closing delimiter and hand the block to Plate.
   it('detects frontmatter when the document mixes LF and CRLF line endings', () => {
     const md = '---\ntitle: x\r\n---\r\n\r\n# Body\r\n'
     expectRoundTrip(md)
@@ -103,8 +99,6 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(body).toBe('# Body\n')
   })
 
-  // A UTF-8 BOM ahead of the opening `---` must not defeat detection, and stays in
-  // `frontmatter` so the bytes round-trip.
   it('detects frontmatter behind a UTF-8 BOM and keeps the BOM in the output', () => {
     const md = '﻿---\ntitle: BOM Doc\n---\n\n# Body\n'
     expectRoundTrip(md)
@@ -119,8 +113,6 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(splitFrontmatter(md)).toEqual({ frontmatter: '', body: md })
   })
 
-  // A whitespace-only separator after the close is absorbed too: left in `body`, the Plate round
-  // trip would drop it on the first save.
   it('absorbs a whitespace-only separator line after the closing delimiter', () => {
     const md = '---\ntitle: Doc\n---\n   \n# Body\n'
     expectRoundTrip(md)
@@ -146,9 +138,6 @@ describe('splitFrontmatter / joinFrontmatter', () => {
     expect(joinFrontmatter('', 'body only\n')).toBe('body only\n')
   })
 
-  // The Plate round trip drops a body's leading blank line, so the separator must live in
-  // `frontmatter`. This body is already canonical (no GFM table), so the join is byte-exact only
-  // if the blank separator was never part of `body`.
   it('preserves the frontmatter/body blank separator across a full Plate editor round trip', () => {
     const md =
       '---\ntitle: Plate Live Check\ntags: [verification, markdown]\n---\n\n' +

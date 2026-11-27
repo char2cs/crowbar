@@ -2,14 +2,12 @@ import DOMPurify, { type DOMPurify as Purifier } from 'dompurify'
 import { cn } from '@/utils/cn'
 
 interface ProviderIconProps {
-  /** Raw SVG markup from a provider descriptor — untrusted: any paired client can upload one. */
   svg: string
   className?: string
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
-// Static artwork only: nothing that runs, animates, loads or embeds.
 const ALLOWED_TAGS = [
   'svg',
   'g',
@@ -48,7 +46,6 @@ const FORBID_TAGS = [
   'switch',
 ]
 
-// No `class`/`style`: the app's own CSS would let an icon restyle the page around it.
 const ALLOWED_ATTR = [
   'xmlns',
   'xmlns:xlink',
@@ -116,13 +113,10 @@ const ALLOWED_ATTR = [
   'focusable',
 ]
 
-/** A `url(...)` that points anywhere but this document. */
 const EXTERNAL_URL_REFERENCE = /url\(\s*['"]?\s*(?!#)/i
 
 let purifier: Purifier | null = null
 
-// Its own instance: hooks on the shared DOMPurify singleton would also run for
-// markdown, mermaid and the excalidraw preview.
 function iconPurifier(): Purifier {
   if (purifier) return purifier
   purifier = DOMPurify(window)
@@ -138,8 +132,6 @@ function iconPurifier(): Purifier {
   return purifier
 }
 
-// Fails closed: a malformed or hostile icon (e.g. nested too deep to
-// serialise) must render nothing rather than throw out of a chat pane's render.
 function sanitizeIcon(svg: string): string {
   try {
     const fragment = iconPurifier().sanitize(svg, {
@@ -158,7 +150,6 @@ function sanitizeIcon(svg: string): string {
   }
 }
 
-// Few distinct icons exist, but a hostile daemon could serve endless variants.
 const CACHE_LIMIT = 64
 const sanitized = new Map<string, string>()
 
@@ -171,8 +162,6 @@ function sanitizedIcon(svg: string): string {
   return clean
 }
 
-/** Inline the SVG so its `currentColor` paths inherit the host row/tab's text
- *  token — an <img> can't. Only the sanitised artwork is ever inlined. */
 export function ProviderIcon({ svg, className }: ProviderIconProps) {
   return (
     <span

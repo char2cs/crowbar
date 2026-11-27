@@ -54,8 +54,6 @@ describe('tool labels', () => {
     expect(labelText(edit)).toBe('Edited /r/a.ts')
   })
 
-  // The daemon names a file inside the workspace from there, so an absolute one lies outside it:
-  // its tail alone (".cache/plans/p.md") would read as a file in the workspace.
   it('says a path outside the workspace whole, with its leading slash', () => {
     const write = tool({ kind: 'edit', target: '/home/me/.cache/plans/p.md' }, 'ok')
     expect(labelText(write)).toBe('Edited /home/me/.cache/plans/p.md')
@@ -127,7 +125,6 @@ describe('formatDuration', () => {
     [undefined, ''],
     [0, ''],
     [-5, ''],
-    // Sub-second work in milliseconds: "0s" reads as "nothing happened".
     [37, '37ms'],
     [1500, '1.5s'],
     [59_000, '59.0s'],

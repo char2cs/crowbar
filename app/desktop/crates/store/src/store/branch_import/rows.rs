@@ -1,5 +1,3 @@
-//! The branches an import dialog lists: the protected ones first.
-
 use crate::store::branch_import::availability::Availability;
 use crate::store::branch_import::entry::Entry;
 use crate::store::branch_import::import_branch::ImportBranch;

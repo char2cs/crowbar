@@ -1,7 +1,3 @@
-//! Files the operating system dropped on a pane's page. The web view takes the drop, so the shell
-//! hands the page the paths and the point, and the page picks the element that takes them, as
-//! develop's pages do with Tauri's drop event.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 

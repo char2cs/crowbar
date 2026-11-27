@@ -1,7 +1,3 @@
-/// The settings a version 1 `settings` frame may carry, by their names in the settings
-/// catalog: editor, terminal, browser, file tree, typography, icon theme, tab limit, chat
-/// landing surface and the user's keybinding overrides for the chords the panes serve themselves. The theme itself travels in the `theme` frame, and shell-only settings
-/// (sidebar, tab list, window) never leave the shell.
 pub const PANE_SETTING_KEYS: [&str; 46] = [
     "autoSave",
     "fontFamily",

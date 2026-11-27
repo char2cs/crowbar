@@ -25,14 +25,9 @@ interface RepoImportDialogProps {
   defaultBranch: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Fires the import for the selected branches plus the subset to lock. The tree owns the
-   *  optimistic loading rows and the batch call; the dialog just closes. */
   onImport: (branches: string[], lockedBranches: string[]) => void
 }
 
-// Virtualized, searchable remote-branch picker with a per-row lock toggle. The branch list (origin
-// refreshed server-side) and PR graph load in parallel, so the list has a real loading state; the
-// daemon PR-parents and creates missing ancestors (the "creates N parents" hint is advisory).
 export function RepoImportDialog({
   projectId,
   repoId,
@@ -47,13 +42,9 @@ export function RepoImportDialog({
   const [prLinks, setPrLinks] = useState<PRLink[]>([])
   const [filter, setFilter] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  // Which SELECTED branches come in locked; deselecting clears an entry, and handleImport still
-  // intersects with `selected`.
   const [lockedBranches, setLockedBranches] = useState<Set<string>>(new Set())
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch on open, list and PR graph independently so the hint never holds the list back. A reopen
-  // re-fetches: the remote may have moved since.
   // react-doctor-disable-next-line no-reset-all-state-on-prop-change -- the harm the rule names ("users briefly see stale state") cannot happen here: `loadState` is reset to 'loading' in this same synchronous body and is what gates the list's render below, so a reopen shows "Fetching branches from the remote…" and never the previous open's branches. The prescribed fix — mount/key the body on `open` — would unmount it during the Dialog's exit animation, leaving an empty popup for the length of the close.
   useEffect(() => {
     if (!open || !hostResolved) return
@@ -86,7 +77,6 @@ export function RepoImportDialog({
   const visible = useMemo(() => {
     const q = filter.toLowerCase()
     const list = branches.filter((b) => b.name.toLowerCase().includes(q))
-    // Protected first (locked, non-importable), then the rest.
     return [...list.filter((b) => b.isProtected), ...list.filter((b) => !b.isProtected)]
   }, [branches, filter])
 
@@ -95,9 +85,6 @@ export function RepoImportDialog({
     estimateSize: () => IMPORT_ROW_HEIGHT,
     getScrollElement: () => scrollRef.current,
     overscan: 10,
-    // Read the viewport synchronously on attach (the default observer relies on
-    // ResizeObserver alone, which measures late — and never in jsdom); keep it
-    // updated on resize thereafter.
     observeElementRect: (instance, cb) => {
       const el = instance.scrollElement
       if (!el) return
@@ -124,9 +111,6 @@ export function RepoImportDialog({
       else next.add(name)
       return next
     })
-    // Deselecting a row also drops its lock choice — reselecting it later
-    // starts fresh rather than silently reapplying a choice made earlier in
-    // the same open.
     setLockedBranches((prev) => {
       if (!prev.has(name)) return prev
       const next = new Set(prev)
@@ -146,8 +130,6 @@ export function RepoImportDialog({
 
   function handleImport() {
     if (selected.size === 0) return
-    // The tree shows optimistic rows and fires the batch; closing makes that visible. Lock choices
-    // are filtered to imported branches so a deselected one never leaks into the call.
     onImport(
       [...selected],
       [...lockedBranches].filter((b) => selected.has(b)),
@@ -155,8 +137,6 @@ export function RepoImportDialog({
     onOpenChange(false)
   }
 
-  // Shown in place of the (virtualized) rows whenever there is nothing to show:
-  // the fetch failed, the remote has no branches, or the filter matched none.
   const emptyMessage =
     loadState === 'failed'
       ? "Couldn't reach the remote to list branches."
@@ -272,9 +252,6 @@ function ImportRow({
         />
         <span className="min-w-0 flex-1 truncate font-mono">{branch.name}</span>
       </label>
-      {/* Lock choice only matters — and only shows — once the branch is
-       *  actually part of the import; the smallest addition the brief asked
-       *  for, not a second control competing for attention on every row. */}
       {checked && (
         <button
           type="button"

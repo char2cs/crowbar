@@ -15,8 +15,6 @@ func TestValidate_AResumeWithoutARecognisedRefusalIsAWarning(t *testing.T) {
 	assert.True(t, rep.OK(), "a warning does not block the descriptor")
 }
 
-// Over an api connection a refused resume is an error reply on the turn it
-// was asked for; unrecognised, the chat keeps a session the server lost.
 func TestValidate_AnAPIProvidersResumeWithoutARecognisedRefusalIsAnError(t *testing.T) {
 	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
 		"  api: { protocol: jsonrpc2, serve: [api, serve] }\n"
@@ -25,8 +23,6 @@ func TestValidate_AnAPIProvidersResumeWithoutARecognisedRefusalIsAnError(t *test
 	assert.Equal(t, descriptorcheck.SeverityError, f.Severity)
 }
 
-// A provider that resumes only over its connection has no exit to read, so its
-// refusal is the rpc rule alone; resuming there unrecognised is still an error.
 func TestValidate_AConnectionOnlyResumeIsRefusedByItsRPCRule(t *testing.T) {
 	api := "id: api\nspawn:\n  cmd: api\n  interactive_required: true\nruntime:\n  transport: api\n" +
 		"  api: { protocol: jsonrpc2, delivery: stdio, format: ndjson, serve: [api, serve] }\n" +
@@ -108,8 +104,6 @@ func TestValidate_HookEventsWithNoWiringAreAnError(t *testing.T) {
 	assert.NotContains(t, f.Hint, "crowbar_hook")
 }
 
-// An override written for the retired relay would otherwise load with hooks
-// that reach nothing.
 func TestRelayHookWiringIsRefusedWithTheReplacement(t *testing.T) {
 	rep := descriptorcheck.Validate(complete(
 		"mcp_injection:\n  - pass_arg: { arg: -c, value: 'x=\"{crowbar_hook} hook tool_pre --segment {segid}\"' }\n"))

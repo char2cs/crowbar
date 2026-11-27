@@ -18,9 +18,6 @@ type topRow struct {
 	order int
 }
 
-// topLevel reads the flat project top level exactly as the sidebar draws it:
-// home chats/folders at root (parentId "") plus every repo header, sorted by
-// order — a repo's order comes off GET .../repos, a chat's off GET home/chats.
 func topLevel(t *testing.T, h *harness, projectID, homeOwnerID string) []topRow {
 	t.Helper()
 	var rows []topRow
@@ -81,16 +78,12 @@ func assertDense(t *testing.T, rows []topRow) {
 	}
 }
 
-// K3: a project's top level is ONE interleaved list of repo headers and home
-// chats. Moving a repo between two chats, and a chat past a repo, must both
-// change what the two reads render.
 func TestRegression_TopLevelReorderRepoAmongHomeChats(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
 	imported := importProject(t, h)
 	p := imported.projectID
 
-	// the project home's own owning chat is not a row
 	var home struct {
 		OwningChatID string `json:"owningChatId"`
 		ID           string `json:"id"`
@@ -104,8 +97,6 @@ func TestRegression_TopLevelReorderRepoAmongHomeChats(t *testing.T) {
 	t.Logf("before: %+v", before)
 	require.Len(t, before, 3)
 
-	// Drag the repo to slot 1 (between c1 and c2) — the exact write
-	// drop-actions.ts's 'repoHome' call makes.
 	h.raw(http.MethodPatch, "/v0/projects/"+p+"/repos/"+imported.repoID, map[string]any{"order": 1}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
 	after := topLevel(t, h, p, home.OwningChatID)
@@ -113,7 +104,6 @@ func TestRegression_TopLevelReorderRepoAmongHomeChats(t *testing.T) {
 	assertDense(t, after)
 	assert.Equal(t, imported.repoID, after[1].id, "repo must sit at slot 1")
 
-	// Now drag c1 (currently slot 0) to the tail (slot 2) — the 'chat' call.
 	var placed struct {
 		Chat struct {
 			ID    string `json:"id"`
@@ -127,7 +117,6 @@ func TestRegression_TopLevelReorderRepoAmongHomeChats(t *testing.T) {
 	assertDense(t, after2)
 	assert.Equal(t, []string{imported.repoID, c2, c1}, idsOf(after2))
 
-	// And the repo back to the tail.
 	h.raw(http.MethodPatch, "/v0/projects/"+p+"/repos/"+imported.repoID, map[string]any{"order": 2}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
 	after3 := topLevel(t, h, p, home.OwningChatID)
@@ -136,8 +125,6 @@ func TestRegression_TopLevelReorderRepoAmongHomeChats(t *testing.T) {
 	assert.Equal(t, []string{c2, c1, imported.repoID}, idsOf(after3))
 }
 
-// K3 tie-break: with EVERY top-level row at order 0 (the dev data's state), a
-// single reorder write must still yield a dense, distinct order.
 func TestRegression_TopLevelReorderFromAllZeroTies(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -151,7 +138,6 @@ func TestRegression_TopLevelReorderFromAllZeroTies(t *testing.T) {
 	c2 := createHomeChatStub(t, h, p)
 	rows := topLevel(t, h, p, home.OwningChatID)
 	t.Logf("fresh: %+v", rows)
-	// A fresh project should already be dense; if not, that is the tie bug.
 	assertDense(t, rows)
 
 	h.patch("/v0/projects/"+p+"/home/chats/"+c2+"/placement", map[string]any{"parentId": "", "order": 0}, nil)
@@ -163,10 +149,6 @@ func TestRegression_TopLevelReorderFromAllZeroTies(t *testing.T) {
 	_ = c1
 }
 
-// Legacy data: every top-level row tied at 0. The sidebar draws a tied level
-// as folders, then chats, then repo headers (its arrival order), and both
-// backend writers must break the same tie the same way, or the first drag
-// lands somewhere other than the drop line and untouched rows jump.
 func TestRegression_TopLevelFirstDropLandsWhereIndicated(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -184,7 +166,6 @@ func TestRegression_TopLevelFirstDropLandsWhereIndicated(t *testing.T) {
 	}
 	h.Quiesce()
 
-	// Displayed [c1, c2, repo]. Drag the repo BEFORE c1 (index 0).
 	h.raw(http.MethodPatch, "/v0/projects/"+p+"/repos/"+imported.repoID, map[string]any{"order": 0}, http.StatusNoContent).Body.Close()
 	h.Quiesce()
 	rows := topLevel(t, h, p, home.OwningChatID)
@@ -192,8 +173,6 @@ func TestRegression_TopLevelFirstDropLandsWhereIndicated(t *testing.T) {
 	assertDense(t, rows)
 	assert.Equal(t, []string{imported.repoID, c1, c2}, idsOf(rows))
 
-	// Tie everything again; displayed [c1, c2, repo]. Drag c1 AFTER the repo
-	// (index 2) through the chat writer.
 	for _, id := range []string{imported.repoID, c1, c2} {
 		require.NoError(t, h.app.Repositories.Placement.SetOrder(ctx, id, 0))
 	}

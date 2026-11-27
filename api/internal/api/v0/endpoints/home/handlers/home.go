@@ -12,26 +12,17 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Get handles GET /v0/projects/:projectId/home.
-// It returns the home workspace DTO for the project.
 func (h *Handlers) Get(c *gin.Context) {
 	ws, ok := h.resolveHome(c)
 	if !ok {
 		return
 	}
-	// The same WorkingFor seam enriches the live broadcast frames, so a read
-	// taken mid-turn agrees with the stream and reports working=true.
 	ws.Working = h.working.WorkingFor(ws.ID)
 	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws)
-	// A home workspace has no merge eligibility and no sidebar placement
-	// (PlaceWorkspace refuses it), so both stay at their zero values.
 	libs.WriteQueryWithStatus(c, http.StatusOK,
 		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
 }
 
-// resolveOwningChatID answers the home workspace's owning chat id for the wire
-// DTO, through the chat handlers' OwnerOf when wired; an unwired seam degrades
-// to "".
 func (h *Handlers) resolveOwningChatID(
 	ctx context.Context,
 	ws domain.Workspace,

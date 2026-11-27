@@ -93,8 +93,6 @@ describe('subagent cards', () => {
     expect(feed.order).toEqual(['s:call-1'])
   })
 
-  // The rows a provider recorded for "say ALPHA, launch two agents, say
-  // BRAVO": it reports ALPHA only once both spawns had started.
   it('draws spawns where they were said, live and on reload, and finishes them in place', () => {
     const l = ledger()
     const say = (id: string, text: string) => l.text('turn-1', id, 0, text, true)
@@ -156,8 +154,6 @@ describe('subagent cards', () => {
     expect(feed.facts.liveSubagents).toEqual([])
   })
 
-  // A daemon restart kills the CLI without recording its exit; the next CLI has none of the
-  // old one's subagents, so the tray must not count them up for hours.
   it('interrupts what an earlier CLI left running when a new CLI starts', () => {
     const l = ledger()
     const feed = applyRows(emptyFeed(), [
@@ -335,7 +331,6 @@ describe('reasoning and plan rows', () => {
     ])
   })
 
-  // The strip and the working line read the live plan: it ends with its turn.
   const ends = {
     completed: (l: ReturnType<typeof ledger>) => l.end('turn-1'),
     interrupted: (l: ReturnType<typeof ledger>) => l.end('turn-1', 'interrupted'),

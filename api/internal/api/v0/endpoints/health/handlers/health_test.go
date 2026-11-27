@@ -27,7 +27,6 @@ func TestMain(
 	m.Run()
 }
 
-// deadLetters is a fixed count of refused hooks, or a failure to count them.
 type deadLetters struct {
 	count int
 	err   error
@@ -66,14 +65,10 @@ func TestCheckReturnsEnvelopeOK(
 	assert.Empty(t, body.Error)
 	assert.Equal(t, "ok", body.Data.Status)
 	assert.NotEmpty(t, body.Data.Version)
-	// The desktop supervisor reads the daemon's pid from here — asking the
-	// tauri-shell child handle for it deadlocks against the plugin's blocking
-	// wait thread, so the daemon self-reports instead.
 	assert.Equal(t, os.Getpid(), body.Data.PID)
 	assert.Equal(t, 3, body.Data.ChatDeadLetters, "every hook the chat ingress refused is counted")
 }
 
-// A count that cannot be read never fails liveness: the field is left out.
 func TestCheckStaysOKWhenTheDeadLettersCannotBeCounted(
 	t *testing.T,
 ) {
@@ -87,8 +82,6 @@ func TestCheckStaysOKWhenTheDeadLettersCannotBeCounted(
 	assert.NotContains(t, rec.Body.String(), "chatDeadLetters")
 }
 
-// The desktop shell's tests parse this fixture, which the boot gate's tests also
-// own; a changed spelling of the ready state has to change it, and them, with it.
 func TestCheckMatchesTheDesktopFixture(
 	t *testing.T,
 ) {

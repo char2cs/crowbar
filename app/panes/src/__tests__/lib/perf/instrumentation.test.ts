@@ -10,8 +10,6 @@ let pushPerfEntry: Instrumentation['pushPerfEntry']
 
 const observers: PerformanceObserver[] = []
 
-// The module keeps its observer and open marks in module state, so every test loads it afresh
-// and disconnects the observers the previous copy installed.
 async function loadFreshInstrumentation(): Promise<void> {
   const RealObserver = PerformanceObserver
   vi.stubGlobal(
@@ -40,8 +38,6 @@ function disconnectObservers(): void {
 describe('perf instrumentation', () => {
   beforeEach(loadFreshInstrumentation)
 
-  // Runs even when a test body throws mid-way, so a failing test cannot
-  // leak its DEV stub or arming flag into the tests after it.
   afterEach(() => {
     disconnectObservers()
     vi.unstubAllEnvs()
@@ -53,7 +49,7 @@ describe('perf instrumentation', () => {
     delete (window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__
     expect(perfEnabled()).toBe(false)
     markStart('x')
-    markEnd('x') // must not throw and must not create entries
+    markEnd('x')
     expect(performance.getEntriesByName('x', 'measure')).toHaveLength(0)
     vi.unstubAllEnvs()
   })
@@ -91,10 +87,6 @@ describe('perf instrumentation', () => {
   it('ring buffer caps at 500 entries, dropping oldest', async () => {
     ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true
     installPerfObserver()
-    // Real signal, no fixed-duration sleeps: a probe observer registered
-    // AFTER the module's (observers fire in registration order within one
-    // dispatch, so the module's mirror has already run) resolves once every
-    // entry has been delivered.
     const delivered = new Promise<void>((resolve) => {
       let seen = 0
       const probe = new PerformanceObserver((list) => {
@@ -106,18 +98,14 @@ describe('perf instrumentation', () => {
       })
       probe.observe({ entryTypes: ['measure'] })
     })
-    // Real entries through the real PerformanceObserver callback — the
-    // module's own trim logic must do the capping, not the test.
     for (let i = 0; i < 510; i++) {
       performance.measure(`m${i}`)
     }
     await delivered
     const log = (window as unknown as { __perfLog: Array<{ name: string }> }).__perfLog
     expect(log).toHaveLength(500)
-    expect(log[0]!.name).toBe('m10') // m0..m9 were dropped, oldest first
+    expect(log[0]!.name).toBe('m10')
     expect(log[499]!.name).toBe('m509')
-    // Mirrored measures are also cleared from the native timeline so it
-    // doesn't grow unbounded for the page lifetime.
     expect(performance.getEntriesByType('measure')).toHaveLength(0)
   })
 
@@ -126,18 +114,10 @@ describe('perf instrumentation', () => {
     expect(() => markEnd('never-started')).not.toThrow()
   })
 
-  // The terminal.echo path: a second keystroke opens a span before the first's markEnd runs, and
-  // the observer's cleanup can clear the open span's `:start`. markEnd must then be a no-op, since
-  // a throw escapes inside xterm's write() callback.
   it('markEnd does not throw when the observer cleared an in-flight span start mark', async () => {
     ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true
     installPerfObserver()
 
-    // Register a probe FIRST so it receives span A's measure. Observers fire in
-    // registration order within one dispatch, so the module observer (registered
-    // in installPerfObserver, before this probe) has already run its mark-cleanup
-    // by the time the probe resolves — the exact moment the buggy code wiped the
-    // open span's start mark.
     const drained = new Promise<void>((resolve) => {
       const probe = new PerformanceObserver((list) => {
         if (list.getEntries().some((e) => e.name === 'terminal.echo')) {
@@ -148,32 +128,20 @@ describe('perf instrumentation', () => {
       probe.observe({ entryTypes: ['measure'] })
     })
 
-    // Span A: opened and closed. Its measure is queued to the observers, whose
-    // async cleanup will clear the `terminal.echo:*` marks.
     markStart('terminal.echo')
     markEnd('terminal.echo')
 
-    // Span B: opened SYNCHRONOUSLY (before the async observer dispatch) — a second
-    // keystroke's echo. Its `:start` mark shares the name the observer clears.
     markStart('terminal.echo')
 
     await drained
 
-    // Closing span B must never throw: the observer must not have clawed back
-    // its start mark, and markEnd must tolerate a missing one regardless.
     expect(() => markEnd('terminal.echo')).not.toThrow()
   })
 })
 
-// The 500-entry __perfLog ring floods with Event Timing entries within seconds
-// of real interaction and evicts the `measure` spans an external reader (a perf
-// capture run) actually wants. __measures is a second ring that only ever
-// receives measures, sized for a whole scenario rather than a few seconds.
 describe('measure-only ring', () => {
   beforeEach(async () => {
     await loadFreshInstrumentation()
-    // pushPerfEntry and the observer both self-gate on perfEnabled(); arm
-    // explicitly rather than relying on the runner's import.meta.env.DEV.
     ;(window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__ = true
   })
 
@@ -183,8 +151,6 @@ describe('measure-only ring', () => {
     delete (window as { __CROWBAR_PERF__?: boolean }).__CROWBAR_PERF__
   })
 
-  // Resolves once the module's observer has mirrored `name`. Registered AFTER
-  // installPerfObserver so it fires second within one dispatch — no polling.
   function drained(name: string): Promise<void> {
     return new Promise<void>((resolve) => {
       const probe = new PerformanceObserver((list) => {
@@ -221,8 +187,6 @@ describe('measure-only ring', () => {
       pushPerfEntry({ name: `event:${i}`, startTime: i, duration: 1, entryType: 'event' })
     }
 
-    // The flood evicts the span from __perfLog — that is the bug this ring exists
-    // to survive — while __measures still holds it.
     expect(window.__perfLog?.some((e) => e.name === 'span.keeper')).toBe(false)
     expect(window.__measures?.some((e) => e.name === 'span.keeper')).toBe(true)
   })

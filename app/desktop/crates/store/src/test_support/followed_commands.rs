@@ -8,7 +8,6 @@ use crate::live::Hub;
 use crate::live::OutcomeSink;
 use crate::sidebar_commands::SidebarCommands;
 
-/// Commands over a fake daemon with the chat `hc` followed, saying their outcomes to `outcome`.
 pub(crate) fn followed_commands(
     outcome: OutcomeSink,
     files: &Arc<FakeFiles>,

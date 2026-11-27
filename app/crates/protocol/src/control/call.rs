@@ -1,5 +1,3 @@
-//! Request, subscribe and response frames: ids, method and event names, outcomes and errors.
-
 mod error_code;
 mod event_name;
 mod method_name;

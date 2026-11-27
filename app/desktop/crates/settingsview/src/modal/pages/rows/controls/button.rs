@@ -1,5 +1,3 @@
-//! A button inside a row.
-
 use gpui::IntoElement;
 use gpui::prelude::FluentBuilder as _;
 use settings::{ButtonSpec, Row};

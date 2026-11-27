@@ -1,5 +1,3 @@
-//! The first-run system check: one probe per tool, each answering on its own.
-
 mod tool;
 mod tool_report;
 
@@ -14,8 +12,6 @@ use tokio::runtime::Handle;
 
 use crate::live::ChangeSignal;
 
-/// Asks this computer's daemon whether git and the forge CLIs are there. A probe that fails reads
-/// as a tool that is not installed, so the screen can still guide the user.
 pub struct SystemCheck {
     client: daemonapi::Client,
     handle: Handle,
@@ -52,7 +48,6 @@ impl SystemCheck {
         check
     }
 
-    /// What the probe of `tool` found; `None` while it is still running.
     pub fn report(
         &self,
         tool: Tool,
@@ -60,7 +55,6 @@ impl SystemCheck {
         self.reports.lock().ok()?.get(&tool).cloned()
     }
 
-    /// Forgets every answer and asks again.
     pub fn rerun(self: &Arc<Self>) {
         let round = self.round.fetch_add(1, Ordering::SeqCst) + 1;
         if let Ok(mut reports) = self.reports.lock() {

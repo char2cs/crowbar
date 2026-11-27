@@ -2,7 +2,6 @@ use keymap::ShellCommand;
 
 use super::ShellState;
 
-// SPEC: app/panes/src/features/window/stores/zoom-store.ts steps 0.1 between 0.3 and 3.0.
 const STEP: u16 = 10;
 const LEAST: u16 = 30;
 const MOST: u16 = 300;

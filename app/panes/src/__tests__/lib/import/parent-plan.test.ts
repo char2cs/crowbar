@@ -14,7 +14,7 @@ const prLinks = [
 describe('computeImportPlan', () => {
   it('counts the missing PR ancestor as a created parent', () => {
     const plan = computeImportPlan(['feat/9324'], prLinks, branches, 'dev')
-    expect(plan).toEqual({ importCount: 1, parentCount: 1 }) // feat/base
+    expect(plan).toEqual({ importCount: 1, parentCount: 1 })
   })
 
   it('does not double-count an ancestor that is itself selected', () => {
@@ -50,7 +50,6 @@ describe('computeImportPlan', () => {
       { name: 'b', isProtected: false, hasWorkspace: false },
     ]
     const plan = computeImportPlan(['a'], cyc, cycBranches, 'main')
-    // a→b (created), b→a but a is visited → stop. Only b is a created parent.
     expect(plan).toEqual({ importCount: 1, parentCount: 1 })
   })
 })

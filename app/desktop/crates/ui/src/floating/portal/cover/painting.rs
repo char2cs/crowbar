@@ -1,5 +1,3 @@
-//! The cards each overlay paints in the frame being drawn, before they reach its cover.
-
 use std::collections::HashMap;
 
 use gpui::{App, Bounds, EntityId, Global, Pixels};

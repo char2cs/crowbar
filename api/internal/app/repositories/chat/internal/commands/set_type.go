@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// SetType rewrites which kind of row a chat is, leaving its id, workspace and
-// conversation as they stand. Only chat and workflow are valid targets; a folder
-// is refused in both directions because folders delete by promoting, not cascading.
 type SetType struct {
 	ID   string
 	Type domain.ChatType

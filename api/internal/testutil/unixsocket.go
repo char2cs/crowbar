@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-// ShortSocket is a unix socket path of the test's own. It is short because a
-// unix socket path is capped near 100 bytes, and t.TempDir's is longer.
 func ShortSocket(
 	tb testing.TB,
 ) string {
@@ -27,7 +25,6 @@ func ShortSocket(
 	return filepath.Join(dir, "s.sock")
 }
 
-// UnixClient is an HTTP client that dials sock whatever the URL says.
 func UnixClient(
 	tb testing.TB,
 	sock string,

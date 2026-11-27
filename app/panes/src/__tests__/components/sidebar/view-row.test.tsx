@@ -103,7 +103,6 @@ function renderBand(overrides: Partial<BandProps> = {}) {
   return { ...render(<Band {...props} />), props }
 }
 
-/** A group of chat-1 + chat-2 in one view, plus chat-3 as its own view. */
 function groupAndSolo() {
   actions().openChat('chat-1', { workspaceId: 'ws-1' })
   actions().dropChatOnPane('chat-2', paneOf('chat-1'), 'right', 'ws-1')
@@ -245,8 +244,6 @@ describe('RecentsViewRow', () => {
     ).not.toBeInTheDocument()
   })
 
-  // A record whose chat no cache knows still draws (loading) — a null row could never be closed.
-  // Nothing is fetched for it; the sidebar's tree names the chat in time.
   describe('a row whose chat data has not resolved', () => {
     const unknownChat = () => {
       seedRepos([{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }])

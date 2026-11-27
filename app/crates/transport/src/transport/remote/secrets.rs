@@ -1,5 +1,3 @@
-//! Bearer tokens of paired hosts: the token stores and the keychain.
-
 mod cached_token_store;
 mod credential;
 pub(crate) mod credential_io;

@@ -9,10 +9,6 @@ import type { WsLike } from './ws-like'
 
 const REMOTE_READ_IDLE_TIMEOUT_MS = 60_000
 
-/** The live transport for the active environment: the shell's relay socket in the GPUI shell, the
- *  native WebSocket in the browser, the unix-socket-bridged shim on desktop (where `crowbar://` has
- *  no native WebSocket). A host-qualified endpoint dials that host; the local daemon is a unix
- *  socket away, so only a remote stream gets the idle timeout. */
 export function createTransport(
   endpoint: string,
   isLocalHost: (hostId: string) => boolean,

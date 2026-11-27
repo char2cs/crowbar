@@ -88,19 +88,6 @@ describe('closeLayout', () => {
   })
 })
 
-/**
- * The resize-commit path a dragged sash actually goes through. `PaneNodeRenderer`
- * always renders nested BINARY pairs — a same-direction chain like
- * `S_top{ first: S_inner{a,b}, second: c }` shows no visual seam between the
- * two levels, but the sash between S_inner and c is still only ever measuring
- * (and writing) S_top's own two immediate children. `resizeFlattenedLayout`
- * models the sash as one boundary in an N-entry FLATTENED row instead, which
- * only coincides with a split's own two children when the chain is exactly
- * 2 deep — see the `resizePaneSplit` regression tests in
- * `stores/slices/pane-slice.test.ts` for the corruption that produces on a
- * 3+ chain. `updateSplitSizes` needs no index and cannot touch a sibling
- * split, which is why it is the function `resizePaneSplit` now calls.
- */
 describe('updateSplitSizes — chained same-direction splits', () => {
   it('resizing the outer split of a 3-leaf chain leaves the inner split untouched', () => {
     const inner = createSplit('horizontal', createLeaf('a'), createLeaf('b'), [40, 60])

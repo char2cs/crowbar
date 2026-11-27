@@ -1,8 +1,3 @@
-/**
- * The one shiki highlighter Monaco and Plate share: a grammar loads on first
- * ask and is announced once, and the JavaScript regex engine, under each target
- * the app can pick, must tokenize the editor languages exactly as oniguruma does.
- */
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { createHighlighterCore, type HighlighterCore } from 'shiki/core'
 import {
@@ -54,7 +49,6 @@ async function readyGrammar(languageId: string): Promise<ShikiGrammar> {
 
 const rootScope = (grammar: ShikiGrammar) => grammar.tokenizeLine('x', null).tokens[0]?.scopes[0]
 
-/** Each line's tokens as text + scopes, threading the rule stack like the editor does. */
 function tokenize(grammar: ShikiGrammar, lines: readonly string[]) {
   let stack: StateStack | null = null
   return lines.map((line) => {
@@ -92,7 +86,6 @@ it('stays failed for a language shiki has no grammar for', async () => {
   await vi.waitFor(() => expect(grammarStateOf('gitignore')).toBe('failed'), LOAD)
 
   expect(grammarFor('gitignore')).toBeNull()
-  // Asking again did not restart the load.
   expect(grammarStateOf('gitignore')).toBe('failed')
 }, 30_000)
 
@@ -158,7 +151,6 @@ it('targets ES2024 regexes where the v flag compiles, else ES2018, never auto', 
   }
 })
 
-// Fenced code stays untagged: markdown embeds a fence's grammar only once it is loaded.
 const FIXTURES: Record<string, string[]> = {
   typescript: [
     "import { readFile } from 'node:fs/promises'",

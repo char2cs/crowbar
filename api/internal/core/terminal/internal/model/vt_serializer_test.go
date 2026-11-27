@@ -75,7 +75,7 @@ func TestSerializeModesAndAutowrapReset(t *testing.T) {
 	m := newVTModel(20, 5, 100)
 	m.shadow.modes[1000] = true
 	m.shadow.modes[1006] = true
-	m.shadow.modes[7] = false // app disabled autowrap
+	m.shadow.modes[7] = false
 	out := serialize(m)
 	if !strings.Contains(out, ansi.SetMode(ansi.DECMode(1000))) {
 		t.Fatal("mode 1000 not emitted")
@@ -119,7 +119,7 @@ func TestSerializeFullScreenRegionSkipped(t *testing.T) {
 
 func TestSerializeCursorAbsolute(t *testing.T) {
 	m := newVTModel(20, 6, 100)
-	m.Write([]byte("\x1b[3;5H")) // row3 col5
+	m.Write([]byte("\x1b[3;5H"))
 	out := serialize(m)
 	if !strings.Contains(out, ansi.CursorPosition(5, 3)) {
 		t.Fatalf("absolute CUP not emitted: %q", out)
@@ -128,7 +128,7 @@ func TestSerializeCursorAbsolute(t *testing.T) {
 
 func TestSerializeCursorOriginRelative(t *testing.T) {
 	m := newVTModel(20, 6, 100)
-	m.Write([]byte("\x1b[4;5H")) // absolute row4 col5
+	m.Write([]byte("\x1b[4;5H"))
 	m.shadow.modes[6] = true
 	m.shadow.scrollRegionSet = true
 	m.shadow.scrollTop, m.shadow.scrollBottom = 2, 6
@@ -136,37 +136,19 @@ func TestSerializeCursorOriginRelative(t *testing.T) {
 	if !strings.Contains(out, ansi.SetMode(ansi.DECMode(6))) {
 		t.Fatal("origin mode not emitted")
 	}
-	if !strings.Contains(out, ansi.CursorPosition(5, 3)) { // 4 - (2-1) = 3
+	if !strings.Contains(out, ansi.CursorPosition(5, 3)) {
 		t.Fatalf("region-relative CUP not emitted: %q", out)
 	}
 }
 
-// TestSerializeOriginModeByteOrderAndDecode is the §13.1-mandated golden byte-ORDER guard
-// for the headline §6 ordering fix. The other serializer tests assert only presence via
-// strings.Contains and would still pass if writeCursor regressed to emit the CUP before
-// ?6h, or DECSTBM after the cursor — both substrings are present regardless of order. This
-// test pins the two order-sensitive properties §6/§13.1 call out:
-//
-//	(b) step 11 DECSTBM lands AFTER the grid paint (so the region clamp does not corrupt
-//	    the full-screen CR/LF flow of the grid rows), and
-//	(a) step 12 ?6h lands BEFORE the step 13 CUP, with the CUP in region-relative
-//	    coordinates — proven by an origin-mode-active DECODE case: the payload is replayed
-//	    into a fresh vt.Emulator and its decoded CursorPosition must equal the model's real
-//	    cell. If the order were reversed (CUP before ?6h, which re-homes the cursor to the
-//	    region top, or the CUP emitted absolute), the decoded cursor would NOT match.
-//
-// The whole state is driven through real Writes (x/vt's EnableMode callback sets
-// shadow.modes[6]; escan sets the scroll region), so this is an end-to-end golden, not a
-// hand-poked shadow.
 func TestSerializeOriginModeByteOrderAndDecode(t *testing.T) {
 	const cols, rows = 20, 6
 	m := newVTModel(cols, rows, 100)
-	m.Write([]byte("MARKER"))    // identifiable grid content on row 0 (above the region)
-	m.Write([]byte("\x1b[2;6r")) // DECSTBM region rows 2..6
-	m.Write([]byte("\x1b[?6h"))  // origin mode ON
-	m.Write([]byte("\x1b[3;5H")) // region-relative CUP -> absolute X=4, Y=3
+	m.Write([]byte("MARKER"))
+	m.Write([]byte("\x1b[2;6r"))
+	m.Write([]byte("\x1b[?6h"))
+	m.Write([]byte("\x1b[3;5H"))
 
-	// Sanity: the model really is in the state the golden depends on.
 	if !m.shadow.modes[6] {
 		t.Fatal("setup: origin mode not recorded in shadow")
 	}
@@ -176,11 +158,10 @@ func TestSerializeOriginModeByteOrderAndDecode(t *testing.T) {
 
 	out := serialize(m)
 
-	// (b)+(a) explicit index order: grid(MARKER) < DECSTBM < ?6h < final region-relative CUP.
 	marker := strings.Index(out, "MARKER")
-	decstbm := strings.Index(out, ansi.SetTopBottomMargins(2, 6)) // ESC[2;6r
+	decstbm := strings.Index(out, ansi.SetTopBottomMargins(2, 6))
 	originSet := strings.Index(out, ansi.SetMode(ansi.DECMode(6)))
-	cup := strings.Index(out, "\x1b[3;5H") // region-relative CUP, unique in the payload
+	cup := strings.Index(out, "\x1b[3;5H")
 	for name, idx := range map[string]int{
 		"MARKER": marker, "DECSTBM": decstbm, "?6h": originSet, "CUP": cup,
 	} {
@@ -193,8 +174,6 @@ func TestSerializeOriginModeByteOrderAndDecode(t *testing.T) {
 			marker, decstbm, originSet, cup, out)
 	}
 
-	// (a) decode: replay the payload into a fresh emulator; its cursor MUST land on the
-	// model's real cell. This is the assertion that fails if ?6h/CUP were reordered.
 	fresh := vt.NewEmulator(cols, rows)
 	if _, err := fresh.Write([]byte(out)); err != nil {
 		t.Fatalf("fresh emulator write: %v", err)
@@ -242,7 +221,7 @@ func TestSerializeTitleAndIconSanitized(t *testing.T) {
 
 func TestSerializeOmitsEmptyTitle(t *testing.T) {
 	m := newVTModel(20, 5, 100)
-	m.shadow.title = "\x1b\x07" // sanitizes to empty
+	m.shadow.title = "\x1b\x07"
 	out := serialize(m)
 	if strings.Contains(out, "\x1b]2;") {
 		t.Fatal("empty title still emitted an OSC 2")
@@ -447,23 +426,6 @@ func TestSanitizeOSCText(t *testing.T) {
 	})
 }
 
-// TestRoundTripThroughXVT is a SELF round-trip, NOT the mandated conformance oracle.
-//
-// SCOPE / DEFERRED GATE: the spec (§6.1, §13.2, §15 P0 exit-gate) designates xterm.js's
-// SerializeAddon as THE conformance oracle and requires empirical buffer-equivalence of our
-// serialized output against a fresh xterm.js across real-app fixtures. This test instead
-// feeds the payload back into another x/vt emulator (x/vt -> serialize -> x/vt). That proves
-// the serializer is a correct INVERSE of x/vt's own parser — a useful fixpoint that catches
-// encoder regressions — but it is structurally incapable of catching x/vt-vs-xterm.js
-// divergences in exactly the behaviors the spec says to verify against the oracle: DECSTR's
-// implementation-defined autowrap effect, region-relative CUP under origin mode, and the
-// autowrap out of a full-width soft-wrapped row. The real client is xterm.js, and its
-// buffer-equivalence is UNPROVEN by this foundation.
-//
-// The xterm.js SerializeAddon buffer-equivalence harness (committed @xterm/xterm +
-// @xterm/addon-serialize lockfile, real-app PTY fixtures) is an explicitly DEFERRED §15 P0
-// exit-gate item, tracked as a follow-up; it is NOT delivered in this foundational-packages
-// workflow. Do not mistake this self-round-trip for the mandated oracle proof.
 func TestRoundTripThroughXVT(t *testing.T) {
 	const cols, rows = 40, 10
 	m, s := New(cols, rows, 1000)
@@ -474,7 +436,7 @@ func TestRoundTripThroughXVT(t *testing.T) {
 	}
 	in = append(in, []byte("\x1b[31mRED\x1b[m and plain text")...)
 	in = append(in, []byte("\x1b[?1000h\x1b[?2004h")...)
-	in = append(in, []byte("\x1b[4;3H")...) // park cursor away from margins
+	in = append(in, []byte("\x1b[4;3H")...)
 	m.Write(in)
 
 	payload := s.Serialize(m)
@@ -507,26 +469,14 @@ func TestRoundTripThroughXVT(t *testing.T) {
 		}
 	}
 
-	// Scrollback is the headline §6/§13.3 invariant: the serialized scrollback flow must
-	// replay into the fresh emulator's history oldest-first, newest immediately above the
-	// grid top, with no line dropped and no grid row spilled. The visible-grid assertion
-	// above is blind to all of that (it stays correct even if scrollback were reversed,
-	// truncated, or off by one), so pin scrollback boundary + order + depth directly.
 	sbLen := vm.emu.ScrollbackLen()
 	if sbLen == 0 {
 		t.Fatal("setup produced no scrollback; round-trip cannot guard the scrollback flow")
 	}
-	// Depth + boundary: the fresh emulator parsed the whole payload and pushed exactly the
-	// pre-grid physical lines into history. Equal length proves no line was dropped and no
-	// grid row leaked into (or out of) scrollback — i.e. the total reconstructed physical
-	// lines == ScrollbackLen()+rows, with the boundary in the right place.
 	if got := fresh.ScrollbackLen(); got != sbLen {
 		t.Fatalf("scrollback depth mismatch: model %d, fresh %d (boundary/drop regression; "+
 			"total physical lines must be ScrollbackLen()+rows=%d)", sbLen, got, sbLen+rows)
 	}
-	// Order + content: line 0 is oldest, line sbLen-1 is newest (immediately above the grid
-	// top). Compare cell-for-cell, in order, so a chronological reversal or a swapped line
-	// fails here even though the visible grid is untouched.
 	for y := 0; y < sbLen; y++ {
 		want := vm.emu.ScrollbackLine(y)
 		got := fresh.Scrollback().Line(y)
@@ -534,8 +484,6 @@ func TestRoundTripThroughXVT(t *testing.T) {
 			assertCellEqual(t, x, y, lineCellAt(want, x), lineCellAt(got, x))
 		}
 	}
-	// Anchor the oldest/newest sentinels so the order assertion above is self-evidently
-	// chronological and not accidentally symmetric.
 	if c := cellContent(lineCellAt(vm.emu.ScrollbackLine(0), 0)); c != "h" {
 		t.Fatalf("oldest scrollback line does not start with %q (history line 0): got %q", "h", c)
 	}
@@ -551,11 +499,6 @@ func TestRoundTripThroughXVT(t *testing.T) {
 	}
 }
 
-// lineCellAt returns a pointer to cell x of line l, or nil when x is past the line's stored
-// width. encodeLine trims trailing blanks, so the model's full-width scrollback line and the
-// fresh emulator's reconstructed line can carry different trailing-cell counts; treating an
-// out-of-range index as a blank (nil) cell lets assertCellEqual compare them by visible
-// content without spuriously failing on equivalent trailing whitespace.
 func lineCellAt(
 	l uv.Line,
 	x int,
@@ -566,7 +509,6 @@ func lineCellAt(
 	return &l[x]
 }
 
-// A URL that filled a row and autowrapped must reach the client as one flow.
 func TestSerialize_SoftWrappedURLIsUnbroken(t *testing.T) {
 	m, s := New(40, 6, 100)
 	t.Cleanup(m.Close)
@@ -575,7 +517,6 @@ func TestSerialize_SoftWrappedURLIsUnbroken(t *testing.T) {
 	assert.Contains(t, string(s.Serialize(m)), wrapTestURL)
 }
 
-// A program that filled a row exactly and then broke the line must not be joined.
 func TestSerialize_ProgramHardBreakStaysBroken(t *testing.T) {
 	m, s := New(40, 6, 100)
 	t.Cleanup(m.Close)

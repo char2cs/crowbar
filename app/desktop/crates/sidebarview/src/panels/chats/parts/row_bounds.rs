@@ -1,5 +1,3 @@
-//! Where each tree row was last laid out, in window coordinates.
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

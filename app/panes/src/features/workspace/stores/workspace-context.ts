@@ -1,4 +1,3 @@
-// web/src/features/workspace/stores/workspace-context.ts
 import { createContext, useContext } from 'react'
 import { useStore } from 'zustand'
 import type { WorkspaceStore } from './workspace-store'
@@ -13,9 +12,6 @@ export function useWorkspaceStoreContext<T>(selector: (state: WorkspaceState) =>
   return useStore(store, selector)
 }
 
-/**
- * Returns the raw WorkspaceStore instance (for imperative access outside React).
- */
 export function useWorkspaceStore(): WorkspaceStore {
   const store = useContext(WorkspaceStoreContext)
   if (!store)

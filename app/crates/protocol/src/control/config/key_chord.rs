@@ -10,12 +10,7 @@ fn validate(value: &str) -> Result<()> {
     check_text("key chord", value, |c| c.is_ascii_graphic())
 }
 
-string_id!(
-    /// A key chord in the shell's notation, for example `mod+k` or `mod+shift+,`: printable
-    /// ASCII without spaces, at most 64 bytes.
-    KeyChord,
-    validate
-);
+string_id!(KeyChord, validate);
 
 #[cfg(test)]
 mod tests {

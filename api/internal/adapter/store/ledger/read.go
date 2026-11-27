@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// record is one chat_ledger row as the table holds it.
 type record struct {
 	ChatID string
 	Seq    int64
@@ -20,12 +19,9 @@ type record struct {
 	Body   []byte
 }
 
-// Read returns chatID's rows after afterSeq in seq order, at most limit of
-// them; limit <= 0 is all of them. A stored row that cannot be scanned is
-// ledger.ErrUnreadableRow, apart from a query that failed.
 func (s *Store) Read(ctx context.Context, chatID string, afterSeq int64, limit int) (_ []ledger.Row, err error) {
 	if limit <= 0 {
-		limit = -1 // SQLite: no limit
+		limit = -1
 	}
 	cur, err := s.db.WithContext(ctx).Raw(
 		`SELECT chat_id, seq, kind, turn_id, scope, at, body FROM chat_ledger
@@ -56,7 +52,6 @@ func (s *Store) Read(ctx context.Context, chatID string, afterSeq int64, limit i
 	return rows, nil
 }
 
-// OpenChats lists the chats whose last append left work unfinished.
 func (s *Store) OpenChats(ctx context.Context) ([]string, error) {
 	var ids []string
 	err := s.db.WithContext(ctx).Raw(
@@ -68,7 +63,6 @@ func (s *Store) OpenChats(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// SessionOwner answers which chat a (provider, session) is bound to.
 func (s *Store) SessionOwner(ctx context.Context, provider, sessionID string) (chatID string, ok bool, err error) {
 	var owners []string
 	err = s.db.WithContext(ctx).Raw(
@@ -83,7 +77,6 @@ func (s *Store) SessionOwner(ctx context.Context, provider, sessionID string) (c
 	return owners[0], true, nil
 }
 
-// BlobRefs are the payload refs chatID's tool calls carry.
 func (s *Store) BlobRefs(ctx context.Context, chatID string) ([]string, error) {
 	rows, err := s.Read(ctx, chatID, 0, 0)
 	if err != nil {
@@ -107,12 +100,6 @@ func (s *Store) BlobRefs(ctx context.Context, chatID string) ([]string, error) {
 	return refs, nil
 }
 
-// RefInUse reports whether any chat's tool call still carries ref.
-//
-// This scans every tool_call row's body with instr() to answer one ref; a
-// purge that checks many refs this way re-scans the whole table once per ref
-// (O(refs * rows)), which on a sizeable ledger turns a chat delete into a
-// multi-minute request. Prefer RefsInUse to check a batch in a single pass.
 func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
 	var n int64
 	err := s.db.WithContext(ctx).Raw(
@@ -125,10 +112,6 @@ func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
 	return n > 0, nil
 }
 
-// RefsInUse reports which of refs any chat's tool call still carries, in one
-// pass over chat_ledger's tool_call rows instead of one full-table scan per
-// ref. Use this for a purge's whole batch of refs rather than calling
-// RefInUse in a loop.
 func (s *Store) RefsInUse(ctx context.Context, refs []string) (inUse map[string]bool, err error) {
 	inUse = make(map[string]bool, len(refs))
 	if len(refs) == 0 {
@@ -176,8 +159,6 @@ func (s *Store) RefsInUse(ctx context.Context, refs []string) (inUse map[string]
 	return inUse, nil
 }
 
-// RunnerStart is the runner_started row that put runnerID on a chat, and that
-// chat; a purged chat's runners are gone with it.
 func (s *Store) RunnerStart(ctx context.Context, runnerID string) (string, ledger.RunnerStarted, bool, error) {
 	needle, err := json.Marshal(runnerID)
 	if err != nil {
@@ -200,5 +181,4 @@ func (s *Store) RunnerStart(ctx context.Context, runnerID string) (string, ledge
 	return "", ledger.RunnerStarted{}, false, nil
 }
 
-// fromMicros is the time a stored at column names, as the store stamped it.
 func fromMicros(us int64) time.Time { return time.UnixMicro(us).UTC() }

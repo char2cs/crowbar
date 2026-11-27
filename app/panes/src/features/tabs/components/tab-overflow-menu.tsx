@@ -9,7 +9,6 @@ import {
 import { cn } from '@/lib/utils'
 
 interface TabOverflowMenuProps {
-  /** The strip's horizontally scrolling element; its own size decides whether tabs fit. */
   scrollRef: RefObject<HTMLDivElement | null>
   tabs: readonly { id: string; name: string }[]
   activeId: string | null
@@ -20,16 +19,13 @@ function overflows(el: HTMLElement | null): boolean {
   return !!el && el.scrollWidth > el.clientWidth + 1
 }
 
-/** "More tabs": every open tab in one list, drawn only while the strip cannot show them all. */
 export function TabOverflowMenu({ scrollRef, tabs, activeId, onSelect }: TabOverflowMenuProps) {
   const [hidden, setHidden] = useState(false)
 
-  // The strip's layout is the owner of "does it fit": re-read it when the tabs change.
   useLayoutEffect(() => {
     setHidden(overflows(scrollRef.current))
   }, [scrollRef, tabs])
 
-  // ...and when the strip itself is resized (window, split, sidebar).
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return

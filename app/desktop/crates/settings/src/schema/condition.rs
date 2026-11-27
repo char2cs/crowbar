@@ -1,5 +1,3 @@
-//! When a page, row or button applies.
-
 use crate::schema::scope::Scope;
 use crate::values::Key;
 use crate::values::Value;

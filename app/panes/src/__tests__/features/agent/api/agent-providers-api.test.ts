@@ -2,11 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
 vi.mock('@/lib/api/fetch', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
-// Only the scope REGISTRY is faked; the URL builders themselves run for real,
-// so these assertions pin the actual paths this client dials rather than a
-// stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
-// repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
-// falls back to the still-live /home mount; anything else is unrecorded scope.
 vi.mock('@/lib/workspace-scope', () => ({
   bindActiveWorkspaceId: () => {},
   getWorkspaceScope: (id: string) => {
@@ -29,9 +24,6 @@ describe('agent-providers-api', () => {
     expect(p).toEqual([])
   })
 
-  // The enriched read carries the three provider facts the FE leans on:
-  // `connected` (is the CLI installed), `enabled` (is the provider offered) and
-  // `mcpEnabled` (may its agent use Crowbar's own tools).
   it('listProviders maps connected + enabled + mcpEnabled', async () => {
     apiFetch.mockResolvedValueOnce([
       {
@@ -47,13 +39,6 @@ describe('agent-providers-api', () => {
     expect(out[0]).toMatchObject({ id: 'codex', connected: true, enabled: true, mcpEnabled: false })
   })
 
-  // A provider row that omits the flags defaults to enabled (spec §3.1: a
-  // provider with no stored preference is enabled), NOT connected (install is
-  // never assumed), and with its tool surface ON — so the FE never treats an
-  // unknown provider as disabled, and never silently strips Crowbar's tools from
-  // a daemon whose payload predates the field. The backend stores the NEGATIVE
-  // (mcpDisabled), so absent means on.
-  // A field-by-field mapper silently drops any key it forgets; compaction must survive it.
   it('listProviders carries compaction through', async () => {
     apiFetch.mockResolvedValueOnce([
       { id: 'claude', displayName: 'Claude', icon: '<svg/>', compaction: true },
@@ -87,8 +72,6 @@ describe('agent-providers-api', () => {
     expect(out[0].terminalStartHere).toBe(true)
   })
 
-  // The selection catalogue: WHETHER each picker exists at all, plus the models
-  // and the per-model effort levels the backend has already resolved.
   it('listProviders carries the model/effort catalogue through unchanged', async () => {
     apiFetch.mockResolvedValueOnce([
       {
@@ -111,16 +94,11 @@ describe('agent-providers-api', () => {
     const out = await api.listProviders('w1')
     expect(out[0].modelSelect).toBe(true)
     expect(out[0].effortSelect).toBe(true)
-    // Descriptor order is the provider's own ranking — never re-sorted here.
     expect(out[0].models).toEqual(['gpt-5.6-sol', 'gpt-5.6-luna'])
-    // '' is the key for the provider's OWN default model. The fallback rule is
-    // applied server-side; the mapper must not add one of its own.
     expect(out[0].efforts?.['']).toEqual(['low', 'medium', 'high'])
     expect(out[0].efforts?.['gpt-5.6-luna']).toEqual(['low', 'medium', 'high', 'max'])
   })
 
-  // The daemon omits EMPTY catalogues (omitempty); no catalogue must render as
-  // no picker rather than a crash on a missing array.
   it('listProviders grounds omitted catalogues to empty', async () => {
     apiFetch.mockResolvedValueOnce([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
     const out = await api.listProviders('w1')
@@ -129,9 +107,6 @@ describe('agent-providers-api', () => {
     expect(out[0].efforts).toEqual({})
   })
 
-  // The global preferences write: PUTs the FULL ordered set (index = priority) to
-  // the settings route and hands back the freshly resolved list, so the caller
-  // reconciles from server truth without a second GET.
   it('updateProviderPreferences PUTs the ordered list and returns the resolved providers', async () => {
     apiFetch.mockResolvedValueOnce([
       { id: 'codex', displayName: 'Codex', icon: '', connected: true, enabled: true },
@@ -209,13 +184,6 @@ describe('agent-providers-api', () => {
   })
 })
 
-// THE BUG: with "native chats" off (chatIsDefaultPresentation: false — default
-// landing surface 'terminal'), starting a codex chat showed "This agent has no
-// terminal view attached right now". The default was consulted only at DISPLAY
-// time, so the create named no `surface` and the daemon forked codex's default
-// face — the api transport, which forks NO PTY — leaving the pane asking for a
-// terminal view that never existed. `createSurfaceFor` is the one place that
-// derivation lives.
 describe('createSurfaceFor', () => {
   const CAN_START = {
     id: 'codex',
@@ -252,9 +220,6 @@ describe('createSurfaceFor', () => {
     expect(api.createSurfaceFor(CANNOT_START)).toBeUndefined()
   })
 
-  // An explicitly asked-for surface is the "start THIS chat on the CLI"
-  // affordance (⌥⌘N, the row menu). It answers for itself in both directions —
-  // it must not be re-derived from a preference it exists to override.
   it('lets an explicit surface win over the default, both ways round', () => {
     setLandingDefault('chat')
     expect(api.createSurfaceFor(CAN_START, 'terminal')).toBe('terminal')
@@ -262,10 +227,6 @@ describe('createSurfaceFor', () => {
     expect(api.createSurfaceFor(CAN_START, 'chat')).toBe('chat')
   })
 
-  // providerCanStartOnTerminal reads PERMISSIVE for an unresolved provider on
-  // purpose — an affordance stays offered and leaves the refusal to click time.
-  // A CREATE cannot borrow that: it forks the face it names, so "we do not know
-  // yet" must never become "born on the terminal".
   it('never names the terminal for an unresolved provider, though the gate is permissive', () => {
     setLandingDefault('terminal')
     expect(api.providerCanStartOnTerminal(undefined)).toBe(true)

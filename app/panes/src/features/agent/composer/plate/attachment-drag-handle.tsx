@@ -12,8 +12,6 @@ import { type PlateEditor, useComposedRef, useEditorRef } from 'platejs/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-/** `outline`'s other states are partial-alpha, which shows a photo through the
- *  button. `--popover` is the only solid neutral token, hence no hover shift. */
 export const ATTACHMENT_BUTTON_OPAQUE_BG = cn(
   'bg-popover dark:bg-popover',
   'hover:bg-popover dark:hover:bg-popover',
@@ -27,7 +25,6 @@ export interface AttachmentDndData {
   element: TElement
 }
 
-/** Owned by `DndScope` (dnd-scope.tsx), which recomputes it on every drag move. */
 export interface AttachmentDropTarget {
   id: UniqueIdentifier
   line: DropLine
@@ -40,13 +37,10 @@ export interface AttachmentMove {
   to: Path
 }
 
-/** Attachments reorder only among their own siblings at the SAME level — not
- *  into a list item or a table cell. */
 function canDropAttachmentNode(dragPath: Path, dropPath: Path): boolean {
   return PathApi.equals(PathApi.parent(dragPath), PathApi.parent(dropPath))
 }
 
-/** `null` when the drop is not allowed or would leave the block where it is. */
 function attachmentDropMove(
   drag: AttachmentDndData,
   drop: AttachmentDndData,
@@ -101,8 +95,6 @@ function useDropLine(id: UniqueIdentifier): DropLine | undefined {
   return target?.id === id ? target.line : undefined
 }
 
-/** A file card's link sits inside its own paragraph; `canDropAttachmentNode`
- *  compares parents, so the nested link must resolve to that block. */
 function resolveDraggableBlockElement(editor: PlateEditor, element: TElement): TElement {
   const path = editor.api.findPath(element)
   if (!path) return element
@@ -119,8 +111,6 @@ export type AttachmentHandleProps = {
 } & Partial<DraggableAttributes> &
   Partial<Record<string, unknown>>
 
-/** Outside a `DndScope` dnd-kit's hooks are inert, so a message renders the same
- *  with or without one. */
 export function useAttachmentDraggable(element: TElement) {
   const editor = useEditorRef()
   const blockElement = resolveDraggableBlockElement(editor, element)
@@ -134,7 +124,6 @@ export function useAttachmentDraggable(element: TElement) {
     ...draggable.attributes,
     ...draggable.listeners,
   }
-  // The resolved block, not a file card's nested link.
   const remove = useCallback(() => {
     const path = editor.api.findPath(blockElement)
     if (path) editor.tf.removeNodes({ at: path })
@@ -148,7 +137,6 @@ export function useAttachmentDraggable(element: TElement) {
   }
 }
 
-/** Droppable, never draggable, so an attachment can land anywhere in the message. */
 export function useAttachmentDropTarget(element: TElement) {
   const editor = useEditorRef()
   const id = useId()
@@ -157,8 +145,6 @@ export function useAttachmentDropTarget(element: TElement) {
   return { nodeRef: setNodeRef, dropLine: useDropLine(id) }
 }
 
-/** `contentEditable={false}`: inside Slate's editable region WebKit treats
- *  pointerdown+move as a text selection before the drag can start. */
 function AttachmentDragHandle({ handleProps }: { handleProps?: AttachmentHandleProps }) {
   return (
     <div contentEditable={false} className="contents">
@@ -196,8 +182,6 @@ function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
   )
 }
 
-/** Inset inside the top edge, not straddling it: a first attachment has no top
- *  margin, so anything above the box is clipped by `.field`'s overflow. */
 export function AttachmentControls({
   handleProps,
   onDelete,

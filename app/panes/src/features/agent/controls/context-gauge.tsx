@@ -6,13 +6,8 @@ import { NativePlusMenuSheet } from '@/features/agent/composer/native-plus-menu'
 import { hasNativeChrome } from '@/lib/native-chrome'
 import { IS_MOBILE } from '@/utils/platform'
 
-/** Past this, a compaction is imminent. */
 const WARN_AT = 85
 
-/** The footer's context-usage pill, in every chat's footer: a muted empty ring and just
- *  "context" until the provider reports, never a made-up 0%. While the
- *  conversation is being folded the ring is the warning's. A button when `onCompact` is
- *  offered (its menu, or at once without a report); absent means not offered, never disabled. */
 export function AgentContextGauge({
   telemetry,
   compacting,

@@ -18,8 +18,6 @@ interface AttachFileModalProps {
   onInsertMarkdown: (markdown: string) => void
 }
 
-/** Files are uploaded as they are chosen and listed with their state; "Attach" puts the finished
- *  ones into the message. A modal, not inline: the pill has no room to grow a picker. */
 export function AttachFileModal({
   wsId,
   chatId,
@@ -28,7 +26,6 @@ export function AttachFileModal({
   onInsertMarkdown,
 }: AttachFileModalProps) {
   const [dropTarget, setDropTarget] = useState(false)
-  // The native sheet steps aside while the system picker is up and returns when it answers.
   const [picking, setPicking] = useState(false)
   const dropzoneRef = useRef<HTMLDivElement>(null)
   const filesRef = useRef<HTMLInputElement>(null)
@@ -37,8 +34,6 @@ export function AttachFileModal({
 
   const { items, stage, remove, abortAll } = useStagedUploads(wsId, chatId)
 
-  // Memoized: `useTauriFileDrop` re-subscribes its IPC channel on a new `onDrop`,
-  // and every dragOver/dragLeave re-renders this modal.
   const handleTauriDrop = useCallback(
     (paths: string[]) => {
       setDropTarget(false)
@@ -55,7 +50,6 @@ export function AttachFileModal({
   }, [])
   const handleDragLeave = useCallback(() => setDropTarget(false), [])
 
-  // Plain-browser fallback: File bytes, never a host path.
   const handleDrop = useCallback(
     (e: DragEvent) => {
       setDropTarget(false)
@@ -87,7 +81,6 @@ export function AttachFileModal({
     attach()
   }
 
-  // Closing without attaching abandons what is still on its way.
   const cancel = () => {
     abortAll()
     onClose()
@@ -135,7 +128,6 @@ export function AttachFileModal({
     if (intent.type === 'closeAttachSheet') cancel()
   }
 
-  // A dismissed system picker reports `cancel`, not `change`.
   const back = useCallback(() => setPicking(false), [])
   useOnCancel(photosRef, picking, back)
   useOnCancel(cameraRef, picking, back)

@@ -1,6 +1,3 @@
-// Package identity mounts the v0 current-identity REST route. The endpoint
-// resolves the current human's GitHub/git identity (login, displayName,
-// avatarUrl) for attributing review comments and other authored actions.
 package identity
 
 import (
@@ -9,8 +6,6 @@ import (
 	identityhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/identity/handlers"
 )
 
-// Register mounts GET /v0/chats/:chatId/identity. Identity belongs to the
-// worktree, so every chat holding it gets the same answer.
 func Register(
 	chatScoped *gin.RouterGroup,
 	identity identityhandlers.IdentityResolver,

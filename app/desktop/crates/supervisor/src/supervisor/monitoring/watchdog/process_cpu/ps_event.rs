@@ -1,5 +1,3 @@
-//! What asking `ps` about the daemon logs when `ps` gives no answer.
-
 use std::fmt;
 use std::time::Duration;
 

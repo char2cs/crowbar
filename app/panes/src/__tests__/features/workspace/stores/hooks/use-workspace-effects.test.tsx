@@ -59,8 +59,6 @@ beforeEach(() => {
 })
 
 describe('useWorkspaceEffects across a workspace switch', () => {
-  // Clicking a tiled pane of another workspace flips which workspace is
-  // active; that must select a slice, not wipe and refetch it.
   it('keeps warm data and refetches nothing when the active workspace flips A to B to A', async () => {
     const a = createWorkspaceStore('ws-A')
     const b = createWorkspaceStore('ws-B')
@@ -144,8 +142,6 @@ describe('useWorkspaceEffects across a workspace switch', () => {
     expect(fetchGitData).not.toHaveBeenCalled()
   })
 
-  // The route records a workspace's scope with no chat id; the sidebar adds it
-  // later. Every chat-scoped route throws without it, so nothing may fire early.
   it('waits for the owning chat id before loading anything', async () => {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
     const race = createWorkspaceStore('ws-race')
@@ -168,7 +164,6 @@ describe('useWorkspaceEffects across a workspace switch', () => {
   })
 })
 
-// A paired install cold-boots before the project list names a workspace's host.
 it('holds no scope of a workspace until the project list says whose it is', async () => {
   resetHostWorld()
   pairRemoteHost('host-1')

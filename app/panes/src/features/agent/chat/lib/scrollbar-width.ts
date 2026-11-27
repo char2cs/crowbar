@@ -1,7 +1,5 @@
 let cached: number | null = null
 
-/** Only a positive reading is cached: a probe before the webview settles can
- *  read 0 on a platform whose scrollbar reserves space. */
 export function measureScrollbarWidth(): number {
   if (cached !== null) return cached
   const probe = document.createElement('div')

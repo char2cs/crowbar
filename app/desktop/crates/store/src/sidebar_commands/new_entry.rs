@@ -1,10 +1,6 @@
-//! What a "new" file operation makes.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NewEntry {
-    /// An empty file.
     File,
-    /// An empty directory.
     Directory,
 }
 

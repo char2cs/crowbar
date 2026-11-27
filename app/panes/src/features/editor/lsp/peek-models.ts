@@ -1,5 +1,3 @@
-// Models for files a language server points at: the open model of a workspace path, or a
-// throwaway one so the references peek can preview a file that is not open.
 import { editor as monacoEditor, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import { PREVIEW_ABSENT, readDocumentFromDisk, workspaceRef } from '@/lib/api/documents'
@@ -29,8 +27,6 @@ export function toMonacoLocations(
   return inside
 }
 
-// The DocumentRegistry adopts a peek model if its file is later opened;
-// otherwise it is disposed when the next peek replaces it.
 const peekModels = new Set<Monaco.editor.ITextModel>()
 
 function isHeld(model: Monaco.editor.ITextModel): boolean {
@@ -39,7 +35,6 @@ function isHeld(model: Monaco.editor.ITextModel): boolean {
   return monacoEditor.getEditors().some((e) => e.getModel() === model)
 }
 
-/** Give every location a model the peek can show, reading files that are not open. */
 export async function ensurePreviewModels(locations: Monaco.languages.Location[]): Promise<void> {
   for (const model of peekModels) {
     if (!model.isDisposed() && !isHeld(model)) model.dispose()

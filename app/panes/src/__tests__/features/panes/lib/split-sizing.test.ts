@@ -12,7 +12,6 @@ describe('pxToPercents', () => {
   })
 
   it('clamps the first pane to the minimum when dragged too small', () => {
-    // min 100px of 1000px container = 10%
     const [a, b] = pxToPercents(1000, 0, 100)
     expect(a).toBe(10)
     expect(b).toBe(90)

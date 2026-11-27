@@ -1,4 +1,3 @@
-/** The per-branch lock toggle at import time, and what `onImport` receives for the batch. */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -17,9 +16,6 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   getRepoPullRequests: vi.fn(),
 }))
 
-// The branch list is virtualised; jsdom has no layout engine, so a zero-sized
-// scroll element renders nothing at all. Same fix changed-files-tree.test.tsx
-// uses for the same virtualizer.
 const VIEWPORT_WIDTH = 320
 const VIEWPORT_HEIGHT = 600
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
@@ -124,7 +120,6 @@ describe('RepoImportDialog lock choice', () => {
     await waitForRow('feature-b')
     await user.click(screen.getByRole('checkbox', { name: /^feature-a/ }))
     await user.click(screen.getByRole('checkbox', { name: /^feature-b/ }))
-    // Lock only feature-a.
     await user.click(screen.getByRole('button', { name: /lock feature-a after import/i }))
     await user.click(screen.getByRole('button', { name: 'Import' }))
     const [branches, locked] = onImport.mock.calls[0] as [string[], string[]]
@@ -140,9 +135,7 @@ describe('RepoImportDialog lock choice', () => {
     const checkbox = screen.getByRole('checkbox', { name: /^feature-a/ })
     await user.click(checkbox)
     await user.click(screen.getByRole('button', { name: /lock feature-a after import/i }))
-    await user.click(checkbox) // deselect
-    // Import is disabled with nothing selected, so re-select without locking
-    // to prove the lock choice did not survive the deselect.
+    await user.click(checkbox)
     await user.click(checkbox)
     await user.click(screen.getByRole('button', { name: 'Import' }))
     expect(onImport).toHaveBeenCalledWith(['feature-a'], [])
@@ -169,13 +162,11 @@ describe('RepoImportDialog lock choice', () => {
   })
 })
 
-// The branch list is read off the repo's project's own host, once that host is known.
 describe('RepoImportDialog host', () => {
   const apiFetch = vi.spyOn(fetchModule, 'apiFetch')
   const row = (hostId: string) => projectOn('proj-1', hostId)
   const pairHost2 = () => pairRemoteHost('host-2')
 
-  // The desktop app: the only one that reaches a remote host.
   beforeEach(() => Object.assign(window, { __TAURI_INTERNALS__: {} }))
   afterEach(() => {
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__

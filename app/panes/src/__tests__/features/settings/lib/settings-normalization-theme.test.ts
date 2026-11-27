@@ -5,13 +5,6 @@ import {
   normalizeSettingValue,
 } from '@/features/settings/lib/settings-normalization'
 
-/**
- * `Theme` is a bare `string`, so a persisted id can outlive the theme it names —
- * 'zen' was removed and its stylesheet deleted. Nothing coerced the
- * dead id, so every consumer had to guess: the Color Theme picker showed a value
- * absent from its own menu, and the appearance effect force-added `.dark`.
- * Coerce at READ time (graceful fallback), never with a migration pass.
- */
 describe('normalizeSettings theme coercion', () => {
   it('coerces a theme id the registry does not know to the default theme', () => {
     const normalized = normalizeSettings({ ...getDefaultSettingsSnapshot(), theme: 'terra' })

@@ -1,6 +1,3 @@
-// Defensive decoding of the daemon's log stream: an unknown frame becomes a `raw` frame
-// carrying its text, so a newer daemon shows up as odd output rather than a crash.
-
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export type FieldKind = 'text' | 'number' | 'duration' | 'bool' | 'path' | 'error'
@@ -13,7 +10,6 @@ interface LogField {
 
 export interface LogRecord {
   seq: number
-  /** RFC 3339 as the daemon sent it. */
   iso: string
   level: LogLevel
   component: string
@@ -23,14 +19,12 @@ export interface LogRecord {
 
 export type LogFrame =
   | { type: 'log'; record: LogRecord }
-  /** End of the replay. `reset` means the daemon restarted: what the client holds is another process's. */
   | { type: 'ready'; seq: number; reset: boolean }
   | { type: 'raw'; text: string }
 
 const DURATION = /^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/
 const PATH = /^(~|\/|[A-Za-z]:[\\/]|github\.com\/)/
 
-/** How a field's value is styled: its JSON type first, then its key and shape. */
 function fieldKind(key: string, value: unknown): FieldKind {
   if (typeof value === 'boolean') return 'bool'
   if (typeof value === 'number') return 'number'
@@ -89,7 +83,6 @@ function parseLog(frame: Record<string, unknown>): LogFrame | null {
   }
 }
 
-/** Decodes one frame: the text the socket delivered, or an object already parsed. */
 export function parseLogFrame(data: unknown): LogFrame {
   let value: unknown = data
   if (typeof data === 'string') {
@@ -119,7 +112,6 @@ function pad(n: number, width = 2): string {
   return String(n).padStart(width, '0')
 }
 
-/** `HH:mm:ss.SSS` in the viewer's zone; the record's own text when it is not a date. */
 export function formatLogTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
@@ -128,12 +120,10 @@ export function formatLogTime(iso: string): string {
 
 export interface JsonLine {
   key: string
-  /** Strings are quoted, so the expanded view reads as JSON. */
   value: string
   kind: FieldKind
 }
 
-/** The record as the daemon would print it, one entry per key: what a click on a line reveals. */
 export function jsonLines(record: LogRecord): JsonLine[] {
   const lines: JsonLine[] = [
     { key: 'time', value: JSON.stringify(record.iso), kind: 'text' },

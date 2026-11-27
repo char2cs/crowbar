@@ -13,12 +13,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/walk"
 )
 
-// nopIgnorer accepts everything (never ignores).
 type nopIgnorer struct{}
 
 func (nopIgnorer) ShouldIgnore(_ string) bool { return false }
 
-// listIgnorer ignores paths that are under a hard-coded suffix.
 type listIgnorer struct {
 	ignored []string
 }
@@ -113,7 +111,6 @@ func TestWalk_ExcludeGlob(t *testing.T) {
 
 func TestWalk_ContextCancel(t *testing.T) {
 	dir := t.TempDir()
-	// Build enough files that cancellation can take effect.
 	files := make([]string, 50)
 	for i := range files {
 		files[i] = filepath.Join("sub", "file"+string(rune('a'+i%26))+string(rune('0'+i/26))+".go")
@@ -121,11 +118,10 @@ func TestWalk_ContextCancel(t *testing.T) {
 	buildTree(t, dir, files)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	cancel()
 
 	ch, err := walk.Walk(ctx, dir, nopIgnorer{}, nil, nil)
 	require.NoError(t, err)
-	// Just drain — we don't assert count, only that it doesn't hang.
 	for range ch {
 	}
 }
@@ -147,7 +143,6 @@ func TestWalk_IncludeAndExclude(t *testing.T) {
 	dir := t.TempDir()
 	buildTree(t, dir, []string{"a.go", "b_test.go", "c.ts"})
 
-	// Include *.go, exclude *_test.go.
 	ch, err := walk.Walk(context.Background(), dir, nopIgnorer{}, []string{"*.go"}, []string{"*_test.go"})
 	require.NoError(t, err)
 	got := collectAll(context.Background(), ch)
@@ -185,7 +180,6 @@ func TestWalk_PermissionDeniedSubdir(t *testing.T) {
 	require.NoError(t, err)
 	got := collectAll(context.Background(), ch)
 
-	// At minimum, the top-level file is returned; sub is skipped.
 	require.Len(t, got, 1)
 	assert.Contains(t, got[0], "a.go")
 }

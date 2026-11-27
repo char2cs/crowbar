@@ -1,5 +1,3 @@
-//! A 0..1 value that glides toward 1 while an element is hovered and back to 0 when it is not.
-
 use std::rc::Rc;
 
 use gpui::{App, ElementId, Entity, Window};

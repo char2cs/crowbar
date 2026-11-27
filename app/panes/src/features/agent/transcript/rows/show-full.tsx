@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button'
 import { showFull } from '@/features/agent/stores/chat-feed'
 import { report } from '@/lib/errors/report'
 
-/** Under text the daemon sent as a preview: says so, and fetches the whole of it on request. */
 export function ShowFull({
   chatId,
   id,

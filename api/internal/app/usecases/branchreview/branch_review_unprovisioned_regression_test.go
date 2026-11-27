@@ -16,23 +16,8 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// TestRegression_BranchReviewOnAPlaceholder_RefusesInsteadOfRunningGitNowhere
-// pins the 500 every placeholder row answered when it was opened.
-//
-// A placeholder workspace has no worktree on disk, and its empty WorktreePath
-// was handed to git as the working directory: `git merge-base <base> HEAD` ran
-// wherever the daemon itself had been started, so the request came back as
-// `branch review: resolve ref: merge-base: exit 128: fatal: Not a valid object
-// name main` — a 500 with raw git text, from clicking a row. Worse than the
-// message, the read was being answered by an unrelated repository whenever the
-// daemon's own directory happened to be one.
-//
-// Every review read now refuses the row before touching git, with a 409-mapped
-// sentinel that names the real reason.
 func TestRegression_BranchReviewOnAPlaceholder_RefusesInsteadOfRunningGitNowhere(t *testing.T) {
 	ctx := context.Background()
-	// The shape project import records for a protected branch another checkout
-	// holds: locked, no worktree, no fork point.
 	placeholder := domain.Workspace{
 		ID:           "ws-placeholder",
 		RepoID:       "r1",
@@ -43,9 +28,6 @@ func TestRegression_BranchReviewOnAPlaceholder_RefusesInsteadOfRunningGitNowhere
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return placeholder, nil },
 	}
-	// Recorded rather than t.Fatal'd: the files read runs its git inside a
-	// singleflight goroutine, where a Fatal would abandon the flight every waiter
-	// is parked on instead of failing the test.
 	var mu sync.Mutex
 	var gitPaths []string
 	record := func(repoPath string) {

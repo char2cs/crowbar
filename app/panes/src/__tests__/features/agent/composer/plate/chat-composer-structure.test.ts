@@ -13,12 +13,6 @@ import {
 } from '@/features/agent/composer/plate/chat-composer-serialization'
 import { insertAttachmentMarkdownInto } from '@/features/agent/composer/plate/chat-attachment-insert'
 
-/** The composer's own editor, plugin-for-plugin — `chat-markdown-editor.tsx`
- *  adds `chatComposerStructurePlugin` to `chatComposerPlugins` for the box
- *  only, never for the transcript's streaming bubble, which renders through
- *  the bare set. Headless, the same way chat-markdown-editor.test.tsx proves
- *  its own transforms: a mounted contenteditable cannot deliver a real
- *  keystroke through Slate's selection-dependent dispatch under jsdom. */
 function composer(markdown = ''): PlateEditor {
   return createPlateEditor({
     plugins: [...chatComposerPlugins, chatComposerStructurePlugin],
@@ -36,8 +30,6 @@ const FILE_CARD = '[notes.pdf](crowbar-asset://a/b/notes.pdf)'
 
 const types = (editor: PlateEditor) => (editor.children as { type?: string }[]).map((n) => n.type)
 
-/** The trash button on every attachment kind ends in the same call — see
- *  `useAttachmentDraggable`'s `remove` (attachment-drag-handle.tsx). */
 function trashFirst(editor: PlateEditor, type: string) {
   const [entry] = editor.api.nodes({
     at: [],
@@ -46,9 +38,6 @@ function trashFirst(editor: PlateEditor, type: string) {
   if (entry) editor.tf.removeNodes({ at: entry[1] })
 }
 
-/** What the person is left with: a box that renders, and that the very next
- *  keystroke lands in. `children: []` fails the first; a caret parked in a
- *  void or in an attachment fence's hidden code body fails the second. */
 function expectReadyForInput(editor: PlateEditor) {
   expect(editor.children.length).toBeGreaterThan(0)
   expect(types(editor).at(-1)).toBe('p')
@@ -57,13 +46,6 @@ function expectReadyForInput(editor: PlateEditor) {
 }
 
 describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
-  // THE reported order. Attaching leaves `[img, p]`; backspacing the empty
-  // line left `[img]` alone, and the trash button on that last attachment
-  // then left `children: []` with `selection: null` — not a valid Slate
-  // document. Nothing rendered, the pill collapsed to an empty oval, and no
-  // keystroke could ever bring it back. `normalize({ force: true })` did not
-  // repair it either: Slate restores a block only inside `deleteFragment`,
-  // never after `removeNodes`.
   it('leaves a typable box after the empty line, then the attachment, is deleted', () => {
     const editor = composer()
     insertAttachmentMarkdownInto(editor, IMAGE)
@@ -76,8 +58,6 @@ describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
     expectReadyForInput(editor)
   })
 
-  // The order that always worked, kept so a fix for the one above can never
-  // be written in a way that breaks it.
   it('leaves a typable box after the attachment, then the empty line, is deleted', () => {
     const editor = composer()
     insertAttachmentMarkdownInto(editor, IMAGE)
@@ -108,10 +88,6 @@ describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
     expectReadyForInput(editor)
   })
 
-  // Every kind, not just the photo the bug was reported on: the file card is
-  // a paragraph wrapping a link, the text attachment and the excalidraw
-  // diagram are fences (the latter a fence PLUS its own persisted-PNG
-  // sibling), and the image is a void block.
   for (const [kind, markdown, nodeType] of [
     ['an image', IMAGE, 'img'],
     ['a text attachment', TEXT_ATTACHMENT, 'code_block'],
@@ -129,10 +105,6 @@ describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
     })
   }
 
-  // Not a deletion gesture at all — the failed-upload path (`settlePending
-  // ImageInto`, chat-markdown-editor.tsx) removes its placeholder the same
-  // way, and so does anything else that ever calls `removeNodes`. The floor
-  // has to be a rule, not a fix for one button.
   it('survives the last node being removed programmatically', () => {
     const editor = composer()
     editor.tf.removeNodes({ at: [0] })
@@ -150,8 +122,6 @@ describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
     expectReadyForInput(editor)
   })
 
-  // A fence's code body is hidden under its preview, not removed, so a caret landing inside it
-  // would type invisibly into the attachment's payload and send it that way.
   it('never types into an attachment fence after backspacing next to it', () => {
     const editor = composer()
     insertAttachmentMarkdownInto(editor, TEXT_ATTACHMENT)
@@ -161,10 +131,6 @@ describe('TestRegression_ComposerAttachmentDeletionCorruption', () => {
     expect(chatValueToMarkdown(editor.children as Value)).not.toContain('hi theretyped')
   })
 
-  // The excalidraw kind is one attachment held as TWO adjacent nodes (fence,
-  // then its persisted PNG — see `removeExcalidrawAttachment`). Backspace has
-  // to take both, or the fence is left rendering a preview whose image is
-  // gone, still in the document and still sent.
   it('takes an excalidraw fence and its png together', () => {
     const editor = composer()
     insertAttachmentMarkdownInto(editor, EXCALIDRAW)
@@ -203,9 +169,6 @@ describe('the structural floor leaves ordinary editing alone', () => {
     expect(chatValueToMarkdown(editor.children as Value)).toBe('# Title!')
   })
 
-  // A fence that is NOT an attachment (`text-attachment` with no id, an
-  // ordinary ```js block) is a code block the person is editing — backspace
-  // against it merges in, exactly as before, rather than deleting it.
   it('still merges into a plain code block', () => {
     const editor = composer('```js\nlet a = 1\n```\n\ntail')
     editor.tf.select(editor.api.start([1])!)
@@ -222,10 +185,6 @@ describe('the structural floor leaves ordinary editing alone', () => {
     expect(chatValueToMarkdown(editor.children as Value)).toBe('hell')
   })
 
-  // A caret at the start of a table cell is at the start of a block too, just
-  // not a top-level one — whatever Plate's own tables do there has to keep
-  // happening, so this asserts against the SAME gesture on an editor without
-  // the plugin rather than against a hand-written expectation.
   it('leaves a caret at the start of a table cell alone', () => {
     const table = '| a | b |\n| - | - |\n| 1 | 2 |'
     const backspaceInSecondCell = (editor: PlateEditor) => {
@@ -245,9 +204,6 @@ describe('the structural floor leaves ordinary editing alone', () => {
     expect(backspaceInSecondCell(composer(table))).toBe(backspaceInSecondCell(bare))
   })
 
-  // The trailing line is structure, not content: it must never reach the
-  // model as a blank line, or every prompt with an attachment in it would
-  // arrive padded.
   it('never changes the markdown a prompt is sent as', () => {
     for (const markdown of [
       'hello',
@@ -264,7 +220,6 @@ describe('the structural floor leaves ordinary editing alone', () => {
   })
 })
 
-// Tab is how a keyboard user leaves the box: only a list item or code line keeps it.
 describe('Tab in the composer', () => {
   it('leaves a plain line alone, both ways, so focus can move on', () => {
     const editor = composer('hello')

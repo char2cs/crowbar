@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// ResolveConflicts clears pr-conflicts once the operation in the workspace's own
-// worktree is resolved to a clean tree; nothing else clears that sticky status.
-// A PR badge is kept when a PR exists, and a non-conflict status is untouched.
 type ResolveConflicts struct {
 	ID  string
 	Now time.Time

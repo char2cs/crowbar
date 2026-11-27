@@ -15,20 +15,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// patchRequest is the PATCH .../repos/:repoId body. Every field is optional and
-// a nil field is left as it is. ProjectID may only name the repo's own project.
 type patchRequest struct {
 	Name      *string `json:"name"`
 	ProjectID *string `json:"projectId"`
 	Order     *int    `json:"order"`
-	// FolderID re-files the repo within its project's home tree ("" is the root). A pointer so
-	// that omitting it leaves the current folder untouched rather than clearing it.
-	FolderID *string `json:"folderId"`
+	FolderID  *string `json:"folderId"`
 }
 
-// Patch handles PATCH /v0/projects/:projectId/repos/:repoId: rename, reorder, re-file. None is a
-// git operation, so it runs inline and answers 204; the updated repo rides the repos stream. A
-// projectId naming another project is a 409: a repo's project is fixed at import.
 func (h *Handlers) Patch(
 	c *gin.Context,
 ) {
@@ -52,8 +45,6 @@ func (h *Handlers) Patch(
 	c.Status(http.StatusNoContent)
 }
 
-// bindRepoUpdate validates the PATCH body into a project.RepoUpdate, writing the 400 and returning
-// ok=false on rejection. The name rules are create's (see safeRepoName).
 func (h *Handlers) bindRepoUpdate(
 	c *gin.Context,
 	body patchRequest,
@@ -75,9 +66,6 @@ func (h *Handlers) bindRepoUpdate(
 	return update, true
 }
 
-// DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. The intent is recorded before
-// the 202 so boot finishes what this starts; work at risk without consent is refused first.
-// The user's real repository directory is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {

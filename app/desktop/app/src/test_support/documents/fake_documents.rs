@@ -10,8 +10,6 @@ use crate::panes::editor::editor_panes::EditorPanes;
 
 type Answer = Result<String, u16>;
 
-/// Documents served from memory: a known chat's file answers its text, or the refusal it was
-/// given; an unknown chat is not loaded yet.
 #[derive(Default)]
 pub(crate) struct FakeDocuments {
     chats: RefCell<Vec<String>>,
@@ -112,7 +110,6 @@ fn refused(status: u16) -> FileError {
     }))
 }
 
-/// File panes whose chats never load, for tests that have no files to show.
 pub(crate) fn idle_editors() -> EditorPanes {
     let chats = crate::panes::editor::editor_panes::ChatReads {
         locks: Rc::new(|_| false),

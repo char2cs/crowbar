@@ -5,21 +5,14 @@ use crate::layout_view::drag::pane_zone::PaneZone;
 
 const PREVIEW_INSET: f32 = 4.0;
 
-/// The pane and side a drag would land on if it were released now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropTarget {
-    /// The pane the dragged chat lands next to.
     pub pane: PaneId,
-    /// The region of that pane the pointer is over.
     pub zone: PaneZone,
-    /// Whether the drop joins the pane's strip instead of splitting beside it.
     pub joins: bool,
 }
 
 impl DropTarget {
-    /// The target under `point` among the pane `slots` of the active tab, or `None` when no
-    /// pane is hit or the drop would do nothing, such as a pane dropped on itself. A file takes
-    /// the whole pane: it opens there whatever edge it is nearest.
     #[must_use]
     pub fn resolve(
         subject: &DragSubject,
@@ -42,9 +35,6 @@ impl DropTarget {
         })
     }
 
-    /// The slots a drag of `subject` is resolved against. A pane dragged out of a strip of
-    /// several leaves its group's slot to the group's other members, so it can be dropped on
-    /// the edges of the group it comes from; a pane alone in its group still cannot.
     #[must_use]
     pub fn slots_for(
         subject: &DragSubject,
@@ -68,8 +58,6 @@ impl DropTarget {
         slots
     }
 
-    /// The highlighted rectangle inside a pane occupying `pane`, inset 4px: the half an edge
-    /// drop takes, or the whole pane over its centre, as develop's preview does.
     #[must_use]
     pub fn preview(
         &self,
@@ -107,9 +95,6 @@ impl DropTarget {
         }
     }
 
-    /// The model command that performs the drop of `subject` into `tab`: a pane of the same tab
-    /// moves, a pane of another tab joins this one, and a chat that is not open yet opens. A chat
-    /// dragged from the sidebar has no pane yet, so it yields `None`: its owner builds the pane.
     #[must_use]
     pub fn command(
         &self,
@@ -153,13 +138,11 @@ impl DropTarget {
         })
     }
 
-    /// The side of the pane the dropped chat lands on.
     #[must_use]
     pub fn edge(&self) -> Edge {
         self.zone.edge()
     }
 
-    /// The pane and side as the model's placement.
     #[must_use]
     pub fn placement(&self) -> Placement {
         Placement {

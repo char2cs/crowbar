@@ -143,8 +143,6 @@ describe('buildVisibleFileTreeRows', () => {
 })
 
 describe('findTopVisibleItemIndex', () => {
-  // The top row is read from the virtualizer's own items, never re-derived as
-  // `scrollOffset / rowHeight`, which drifts from real row positions.
   const items = [
     { index: 5, start: 0, size: 24 },
     { index: 6, start: 24, size: 24 },
@@ -161,12 +159,10 @@ describe('findTopVisibleItemIndex', () => {
 
   test('never assumes uniform row height — a taller row shifts every index after it', () => {
     const uneven = [
-      { index: 0, start: 0, size: 40 }, // taller than the rest
+      { index: 0, start: 0, size: 40 },
       { index: 1, start: 40, size: 24 },
       { index: 2, start: 64, size: 24 },
     ]
-    // A naive scrollOffset/24 division would land on index 1 here; the real
-    // item covering offset 30 is still index 0.
     expect(findTopVisibleItemIndex(uneven, 30)).toBe(0)
     expect(findTopVisibleItemIndex(uneven, 41)).toBe(1)
   })
@@ -180,8 +176,6 @@ describe('findTopVisibleItemIndex', () => {
   })
 })
 
-// Content snaps to start exactly where the sticky stack ends, never at a continuous (possibly
-// mid-row) scroll offset: a one-time size reservation would still let the stack paint over a row.
 describe('computeStickyScrollLayout', () => {
   const items = [
     { index: 5, start: 0, size: 24 },
@@ -203,27 +197,18 @@ describe('computeStickyScrollLayout', () => {
   })
 
   test('snaps the marker row to start right after the stack, dropping rows the stack now covers', () => {
-    // 1 ancestor sticky ("src"), marker row is index 6.
     const result = computeStickyScrollLayout(items, 6, 1, 24, 4)
-    // stack height (24) + the same inset its CSS `top` offset subtracts (4).
-    expect(result.paddingTop).toBe(24 /* marker's own start */ + 24 + 4)
-    // index 5 sat BEFORE the marker — it would render inside the stack's own
-    // band if kept, so it's dropped rather than shown partially behind it.
+    expect(result.paddingTop).toBe(24 + 24 + 4)
     expect(result.visibleItems.map((i) => i.index)).toEqual([6, 7, 8])
   })
 
   test('reserves room for a taller stack when multiple ancestors are sticky at once', () => {
-    // 2 ancestors sticky ("src" and "src/features"), same marker row.
     const result = computeStickyScrollLayout(items, 6, 2, 24, 4)
     expect(result.paddingTop).toBe(24 + 48 + 4)
     expect(result.visibleItems.map((i) => i.index)).toEqual([6, 7, 8])
   })
 
   test('the reserved padding is independent of how far the raw scroll is into the marker row', () => {
-    // The whole point: paddingTop must be a step function of the MARKER
-    // ROW's own (row-quantized) start, never of the continuous scroll
-    // offset within it — otherwise the overlap this fix closes reappears
-    // at whatever fractional offset the reservation forgot to account for.
     const a = computeStickyScrollLayout(items, 6, 1, 24, 4)
     const b = computeStickyScrollLayout(items, 6, 1, 24, 4)
     expect(a.paddingTop).toBe(b.paddingTop)

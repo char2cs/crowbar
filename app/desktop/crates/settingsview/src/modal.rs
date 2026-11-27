@@ -1,5 +1,3 @@
-//! The dialog's body: header, rail, pages, notices, key routing and the shortcut capture view.
-
 mod body;
 mod empty_view;
 mod header;

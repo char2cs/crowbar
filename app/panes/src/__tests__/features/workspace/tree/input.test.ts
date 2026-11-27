@@ -111,7 +111,6 @@ describe('useTreeInput', () => {
   it('re-derives the home rows when the home workspace resolves after mount', async () => {
     seedRepos([])
     seedHomeTree('p1', { chats: [homeChat], folders: [] })
-    // Derived during render, as the surface does: only a re-render can show the home.
     const { result } = renderHook(() => drawn(useTreeInput()))
     expect(result.current).toEqual([])
     act(() => seedHome('p1', 'home-ws', { owningChatId: 'home-owner' }))
@@ -134,7 +133,6 @@ describe('useTreeInput', () => {
   })
 })
 
-/** The create rows drawn for `ops`, beside the repos the sidebar store holds now. */
 const rows = (ops: Operation[]) => {
   for (const op of ops) streamOperation(op)
   return deriveRows(treeInputFor('p1')).filter((r) => r.operation)
@@ -153,8 +151,6 @@ describe('operation rows', () => {
     })
   })
 
-  // A repo add's subject is the project; its failed branch is drawn under the
-  // repo it added, and the repo itself is no row.
   it('a partly failed repo add draws its failed branch under the added repo', () => {
     const added = importOp({
       kind: 'repo.create',
@@ -180,7 +176,6 @@ describe('operation rows', () => {
     expect(drawn[0]?.operation).toEqual({ opId: 'op-1', state: 'failed', problem: NOT_A_DIR })
   })
 
-  // The user's bug: an import that failed said nothing, so the reason must be on screen.
   it('a failed item draws its reason and a Dismiss action', () => {
     const failed = importOp({
       state: 'failed',
@@ -224,8 +219,6 @@ describe('operation rows', () => {
     expect(rows([importOp()]).map((r) => r.id)).toEqual(['chat-a'])
   })
 
-  // The daemon streams an item's success after its entity: absent then means deleted since,
-  // by a merge or a removal, whether met live or replayed on connect.
   it('a succeeded item whose entity was deleted since draws nothing', () => {
     const imported = importOp({ items: [item('chat-b', 'good', { state: 'succeeded' })] })
     seedRepos([repo({ chats: [{ id: 'chat-b', repoId: 'r1', title: '', order: 0 }] })])
@@ -244,7 +237,6 @@ describe('operation rows', () => {
     expect(rows([replayed]).map((r) => r.id)).toEqual(['chat-a'])
   })
 
-  // Settled on its own reply, a local create may beat its entity's frame.
   it('a local succeeded item draws until its entity arrives', () => {
     const local = importOp({ local: true, state: 'succeeded', items: [item('chat-b', 'good')] })
     putLocalOperation(local)
@@ -258,7 +250,6 @@ describe('operation rows', () => {
     expect(rows([dismissed])).toEqual([])
   })
 
-  // A git or workspace verb names the workspace; the row is drawn by its owning chat.
   it('a failed push on the workspace shows on its chat row', () => {
     const placeholder = repo({
       workspaces: [
@@ -295,7 +286,6 @@ describe('operation rows', () => {
     seedRepos([placeholder])
     const row = deriveRows(treeInputFor('p1')).find((r) => r.id === 'chat-1')
     expect(row?.placeholderReason).toContain('branch is still held')
-    // Not a create: no row of its own.
     expect(rows([])).toEqual([])
   })
 })
@@ -315,17 +305,12 @@ function homeOwningChat(): Chat {
 }
 
 describe('a project home', () => {
-  // Explicit user correction: a first version drew a container "Home" row for every home
-  // chat/folder to nest under, mirroring a repo's own home row — rejected outright.
   it('draws no row for the owning branch chat itself', () => {
     const rows = homeRows(HOME_WS_ID, [homeOwningChat()])
     expect(rows).toHaveLength(0)
     expect(rows.find((r) => r.id === HOME_ROW_ID)).toBeUndefined()
   })
 
-  // What `/v0/projects/:p/home/chats` really sends: the owner row carries `workspaceId` but NO
-  // worktree marker (`chatDTOFromWire` can only set `ownsWorktree` off `worktree.owningChatId`, and
-  // the home list is built with a nil worktree closure), so the owner is only knowable from the
   it('the owner is not drawn when its wire row has no ownsWorktree marker but the resolver named it', () => {
     const wireOwner = homeChat({ id: HOME_ROW_ID, title: '', workspaceId: HOME_WS_ID })
     const thread = homeChat({ id: 'c-1', title: 'chat-one', workspaceId: HOME_WS_ID })
@@ -333,9 +318,6 @@ describe('a project home', () => {
     expect(rows.map((r) => r.id)).toEqual(['c-1'])
   })
 
-  // REGRESSION: a legacy home whose GET /home elected the user's earliest conversation as its owner
-  // hid that conversation from the tree. The wire row's own marker is authoritative: a named chat
-  // that says it does NOT own the worktree is drawn, and only a marked owner (or none) is kept off.
   it('draws a chat the resolver named but the list marks as not owning the worktree', () => {
     const conversation = homeChat({
       id: 'c-plan',
@@ -347,8 +329,6 @@ describe('a project home', () => {
     expect(rows.map((r) => r.id)).toEqual(['c-plan'])
   })
 
-  // The owning chat is minted atomically at creation, so a caller between its creation and the
-  // tree's first seed gets no rows rather than a throw.
   it('degrades to no rows, never throws, while the owning chat has not seeded yet', () => {
     expect(() => homeRows(HOME_WS_ID, [])).not.toThrow()
     expect(homeRows(HOME_WS_ID, [])).toEqual([])
@@ -377,9 +357,6 @@ describe('a project home', () => {
     expect(row?.parentId).toBeNull()
   })
 
-  // Project home has no repo, so no folder inside it ever owns a worktree —
-  // unlike deriveRows's own folder, which always does. Its own "+"
-  // must never offer Fork: there is no worktree for it to clone.
   it('a home folder never owns a worktree, so its own "+" cannot fork', () => {
     const folder = homeFolder({ id: 'f-1', name: 'Notes' })
     const rows = homeRows(HOME_WS_ID, [homeOwningChat()], [folder])
@@ -403,8 +380,6 @@ describe('a project home', () => {
     expect(rows).toHaveLength(0)
   })
 
-  // `order` is computed server-side against the real siblings, so the wire value must pass through
-  // rather than an index compacted from whichever rows reached the client.
   it("a chat's rendered order is its real wire value, not a index compacted from array position", () => {
     const chatA = homeChat({ id: 'c-a', title: 'a', workspaceId: HOME_WS_ID, order: 0 })
     const chatB = homeChat({ id: 'c-b', title: 'b', workspaceId: HOME_WS_ID, order: 5 })
@@ -413,8 +388,6 @@ describe('a project home', () => {
     expect(rows.find((r) => r.id === 'c-b')?.order).toBe(5)
   })
 
-  // The daemon files a new chat/folder directly under its parent workspace's id, a row project
-  // home always has.
   it('a chat parented onto the raw home-workspace id still renders top-level', () => {
     const child = homeChat({ id: 'c-1', title: 'New-style child', parentId: HOME_WS_ID })
     const rows = homeRows(HOME_WS_ID, [homeOwningChat(), child])

@@ -25,14 +25,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// daemon is a daemon booted on a socket of its own, and a client of it.
 type daemon struct {
 	*internal.Container
 	client *http.Client
 }
 
-// boot runs internal.New on h over a socket of its own. The daemon it returns
-// closes with the test.
 func boot(
 	ctx context.Context,
 	t *testing.T,
@@ -47,7 +44,6 @@ func boot(
 	return daemon{Container: c, client: testutil.UnixClient(t, sock)}, err
 }
 
-// envelope is a gate answer or a health answer, decoded.
 type envelope struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error"`
@@ -59,7 +55,6 @@ type envelope struct {
 	} `json:"data"`
 }
 
-// answer is one response of the daemon.
 type answer struct {
 	status int
 	header http.Header
@@ -100,7 +95,6 @@ func (d daemon) get(
 	return call(t, d.client, http.MethodGet, path, nil)
 }
 
-// detail decodes a health answer's detail as T.
 func detail[T any](
 	t *testing.T,
 	a answer,
@@ -111,7 +105,6 @@ func detail[T any](
 	return out
 }
 
-// ledgerRecord is what a test reads of one ledger line.
 type ledgerRecord struct {
 	Kind    string `json:"kind"`
 	Step    int    `json:"step,omitempty"`
@@ -137,7 +130,6 @@ func readLedger(
 	return out
 }
 
-// requireHomeFree fails unless h can be taken: no daemon holds it any more.
 func requireHomeFree(
 	t *testing.T,
 	h home.Home,
@@ -148,8 +140,6 @@ func requireHomeFree(
 	require.NoError(t, sess.Close())
 }
 
-// labelled reports whether any running goroutine carries value under key; a
-// goroutine inherits the labels of the one that started it.
 func labelled(
 	t *testing.T,
 	key string,
@@ -161,8 +151,6 @@ func labelled(
 	return strings.Contains(buf.String(), fmt.Sprintf("%q:%q", key, value))
 }
 
-// device drives a real daemon the way the desktop and a phone do: the local
-// socket for the owner, TLS and a bearer for another device.
 type device struct {
 	t     *testing.T
 	local *http.Client
@@ -201,8 +189,6 @@ func (d *device) remote(method, path, bearer, body string) (int, []byte) {
 	return d.do(d.tls, "https://127.0.0.1:"+d.port, method, path, bearer, body)
 }
 
-// dial opens a TLS connection to the device port, trusting any certificate: the tests compare
-// its fingerprint to the one the daemon reports instead.
 func (d *device) dial() (*tls.Conn, error) {
 	conn, err := (&tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}).DialContext(d.t.Context(), "tcp", "127.0.0.1:"+d.port)
 	if err != nil {

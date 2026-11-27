@@ -11,7 +11,6 @@ import type { PaneClient } from '@/sdk/pane-client'
 import { bufferSession } from './buffer-session'
 import { FontStyleInjector } from '@/features/settings/components/font-style-injector'
 
-/** Mounts and unmounts a buffer page's React tree (`host`: a file or a review in the pane's one tab) as the shell's lifecycle messages arrive. */
 export class BufferPaneMount {
   private root: Root | null = null
 
@@ -21,7 +20,6 @@ export class BufferPaneMount {
     private readonly host: ReactNode,
   ) {}
 
-  /** Starts following the shell's lifecycle messages. */
   start(): void {
     this.client.onLifecycle((message) => this.handle(message))
   }

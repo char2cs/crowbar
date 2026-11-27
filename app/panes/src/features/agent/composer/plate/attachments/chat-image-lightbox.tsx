@@ -22,8 +22,6 @@ interface ChatImageLightboxProps {
   onOpenChange: (open: boolean) => void
 }
 
-/** DialogPopup's own primitives with a borderless popup sized to the image in place
- *  of its fixed-width card. */
 export function ChatImageLightbox({ src, alt, open, onOpenChange }: ChatImageLightboxProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

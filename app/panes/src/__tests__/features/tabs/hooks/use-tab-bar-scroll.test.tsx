@@ -2,8 +2,6 @@ import { render } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useTabBarScroll } from '@/features/tabs/hooks/use-tab-bar-scroll'
 
-// Renders the hook against a tab-bar div whose getBoundingClientRect is
-// stubbed to `rect`, and reports the edge flags.
 function renderWithRect(rect: { left: number; right: number; top: number }) {
   const result: { isAtLeftEdge?: boolean; isAtRightEdge?: boolean; isAtTopEdge?: boolean } = {}
 
@@ -50,8 +48,6 @@ describe('useTabBarScroll edge detection', () => {
   })
 
   it('does NOT flag the lower pane of a vertical split as top edge', () => {
-    // Same left edge as the top pane, but hundreds of px down — it must not
-    // reserve traffic-light space.
     const r = renderWithRect({ left: 0, right: 400, top: 420 })
     expect(r.isAtLeftEdge).toBe(true)
     expect(r.isAtTopEdge).toBe(false)

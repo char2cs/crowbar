@@ -1,5 +1,3 @@
-//! One followed host's stream: the task reading it and the way to steer it.
-
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 

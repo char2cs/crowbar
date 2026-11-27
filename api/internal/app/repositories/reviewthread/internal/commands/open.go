@@ -9,9 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// OpenReviewThread creates a ReviewThread anchored to a diff line (or, with no anchor, a
-// general comment), with its first message. ProviderID and ChatID attribute it to an
-// agent; they are unvalidated because attribution is decoration, never authority.
 type OpenReviewThread struct {
 	ID         string
 	WsID       string
@@ -53,9 +50,6 @@ func (c OpenReviewThread) Validate(
 	return c.validateAnchor()
 }
 
-// validateAnchor accepts either no anchor at all (a general comment: empty path,
-// every line 0) or a complete one; a half anchor would be a thread no diff line
-// can ever show.
 func (c OpenReviewThread) validateAnchor() error {
 	if c.FilePath == "" && c.LineNumber == 0 && c.StartLine == 0 && c.EndLine == 0 {
 		return nil

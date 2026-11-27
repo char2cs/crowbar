@@ -1,5 +1,3 @@
-//! Reading the `data` of a daemon answer as the type a route promises.
-
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 

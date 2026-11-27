@@ -1,16 +1,3 @@
-/**
- * Agent attribution on a review message: WHICH agent wrote it, and WHICH chat it
- * came out of.
- *
- * Both ids are absent on every human message and on every agent message written
- * before attribution existed — which is most of them, forever — so the fallback
- * is not an edge case here, it is the common path, and it must be byte-for-byte
- * what this component rendered before: a generic "Agent".
- *
- * Nothing in the component may branch on a provider id's VALUE. These tests use
- * ids the code has never heard of on purpose: a provider is only ever a row in
- * the workspace's provider list, resolved by id, whatever that id turns out to be.
- */
 import { nextVersion, resetChatStore, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { resetEntities } from '@/__tests__/__fixtures__/sidebar-entities'
 import { act, cleanup, render, screen } from '@testing-library/react'
@@ -38,8 +25,6 @@ import type {
 
 const WS = 'w1'
 
-// Deliberately not 'claude'/'codex': if any of this passed only for the two
-// providers Crowbar ships with today, that would be the bug.
 const PROVIDERS: AgentProvider[] = [
   {
     id: 'zeta-cli',
@@ -71,7 +56,6 @@ const chat = (id: string, title: string): AgentChat => ({
   order: 0,
 })
 
-/** The providers known, and `chats` as the workspace's landed list. */
 function seed(chats: AgentChat[]) {
   act(() => {
     useAgentProvidersStore.setState({ status: 'ready', providers: PROVIDERS })
@@ -140,20 +124,17 @@ describe('review message — which agent wrote it', () => {
 
     expect(screen.getByText('Zeta')).toBeInTheDocument()
     expect(screen.queryByText('Agent')).toBeNull()
-    // ProviderIcon inlines the backend's own SVG markup.
     const icon = document.querySelector('[data-provider-icon]')
     expect(icon).not.toBeNull()
     expect(icon?.innerHTML).toContain('data-p="zeta"')
   })
 
-  // THE COMMON PATH, FOREVER. Every agent message written before attribution
-  // existed carries no provider id, and must render exactly as it always did.
   it('falls back to the generic agent rendering when there is no provider id', () => {
     seed([])
     renderThread([message()])
 
     expect(screen.getByText('Agent')).toBeInTheDocument()
-    expect(screen.getByText('agent')).toBeInTheDocument() // the badge is untouched
+    expect(screen.getByText('agent')).toBeInTheDocument()
     expect(document.querySelector('[data-provider-icon]')).toBeNull()
   })
 
@@ -195,11 +176,8 @@ describe('review message — the chat it came out of', () => {
     expect(screen.getByTestId('review-message-chat-link')).toHaveTextContent(UNTITLED_CHAT_LABEL)
   })
 
-  // A chat id lives on the message forever; the chat does not. An id pointing at
-  // a deleted chat must not render as something that opens it — and "deleted" is
-  // a different state from "untitled", so it must not borrow that word either.
   it('renders inert text — not a link — for a chat that no longer exists', async () => {
-    seed([chat('c2', 'A chat that survived')]) // c1 was deleted; the message still names it
+    seed([chat('c2', 'A chat that survived')])
     renderThread([message({ providerId: 'zeta-cli', chatId: 'c1' })])
 
     const deleted = screen.getByTestId('review-message-chat-deleted')
@@ -212,14 +190,12 @@ describe('review message — the chat it came out of', () => {
     expect(openChatFn).not.toHaveBeenCalled()
   })
 
-  // "Deleted" is a claim, and a list still in flight is not evidence for it.
   it('claims nothing while the workspace has no chat list yet', () => {
     act(() => useAgentProvidersStore.setState({ status: 'ready', providers: PROVIDERS }))
     renderThread([message({ providerId: 'zeta-cli', chatId: 'c1' })])
 
     expect(screen.queryByTestId('review-message-chat-deleted')).toBeNull()
     expect(screen.queryByTestId('review-message-chat-link')).toBeNull()
-    // The provider half of the attribution does not wait on chats.
     expect(screen.getByText('Zeta')).toBeInTheDocument()
   })
 

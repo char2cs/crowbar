@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// AwaitTombstone is woken by the save that persists the deleted row — the delete
-// reactor's ordering gate with no polling. A waiter parked before the delete is
-// released by it, and leaves no registration behind.
 func TestAwaitTombstone_IsWokenByTheSaveThatPersistsIt(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
@@ -42,7 +39,6 @@ func TestAwaitTombstone_IsWokenByTheSaveThatPersistsIt(t *testing.T) {
 	assert.Empty(t, st.tombstoneWaiters, "a released waiter unregisters itself")
 }
 
-// A live row does not satisfy the wait; the caller's deadline ends it.
 func TestAwaitTombstone_EndsWithTheContext(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
@@ -58,10 +54,6 @@ func TestAwaitTombstone_EndsWithTheContext(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
-// With a hub registered, a persisted tombstone is not enough: the purge waits
-// for its frame too. The frame is addressed through the workspace's owning
-// chat, which the purge deletes — a purge that won the race left the client a
-// ghost row it was never told had gone.
 func TestAwaitTombstone_WithAHub_WaitsForTheTombstoneFrame(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	release := make(chan struct{})
@@ -70,7 +62,7 @@ func TestAwaitTombstone_WithAHub_WaitsForTheTombstoneFrame(t *testing.T) {
 		func(_ context.Context, ws domain.Workspace) domain.WorkspaceStatus { return ws.Status },
 		func(status domain.WorkspaceStatus) {
 			if status == domain.WorkspaceStatusDeleted {
-				<-release // the frame is still going out
+				<-release
 			}
 			framed = append(framed, status)
 		})

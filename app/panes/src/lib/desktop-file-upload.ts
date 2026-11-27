@@ -2,16 +2,11 @@ import { nanoid } from 'nanoid'
 import { convertFileSrc } from '@/lib/crowbar-bridge'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 
-/** An early-out cap on a file sent to a daemon; the daemon's own cap is the authority. */
 export interface UploadLimit {
   bytes: number
-  /** How a refusal names the cap: "25 MB attachment". */
   label: string
 }
 
-/** This computer's file `path`, for a daemon on another host that cannot read this disk. Read
- *  through the webview's asset protocol, whose HEAD gives the size without reading the file: a
- *  file over `limit` is refused unread. */
 export async function readDesktopFile(path: string, limit: UploadLimit): Promise<File> {
   const name = path.split(/[\\/]/).pop() || 'file'
   const tooLarge = () => new UserFacingError(`${name} is larger than the ${limit.label} limit`)
@@ -29,7 +24,6 @@ export async function readDesktopFile(path: string, limit: UploadLimit): Promise
   return new File([blob], name, { type: blob.type })
 }
 
-// The HEAD is only a size probe: a protocol that cannot answer it must not cost the upload.
 async function sizeOf(src: string): Promise<number | null> {
   try {
     const head = await fetch(src, { method: 'HEAD' })
@@ -39,9 +33,6 @@ async function sizeOf(src: string): Promise<number | null> {
   }
 }
 
-/** Encodes a multipart body (each of `fields`, then `file` as `fileField`) as plain bytes:
- *  WKWebView hands a Blob-backed fetch body to the crowbar:// scheme as a stream Tauri never
- *  drains, so a FormData holding a File reaches the daemon empty; a Uint8Array always arrives. */
 export async function encodeMultipart(
   fields: Record<string, string>,
   fileField: string,
@@ -68,8 +59,6 @@ export async function encodeMultipart(
   return { body, contentType: `multipart/form-data; boundary=${boundary}` }
 }
 
-// Go's mime/multipart escapeQuotes, plus CR/LF stripped: neither has an escape in a quoted
-// header value, and left in either would split this Content-Disposition line in two.
 function escapeFormDataValue(value: string): string {
   return value
     .replace(/\\/g, '\\\\')

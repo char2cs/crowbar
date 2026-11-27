@@ -1,5 +1,3 @@
-//! Filling the Files and Changes panels for the focused chat.
-
 pub(crate) mod changes_reload;
 mod document_body;
 pub(crate) mod file_target;
@@ -92,7 +90,6 @@ pub(crate) async fn load_reported(
     });
 }
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/workspace/stores/hooks/use-workspace-file-tree.ts
 fn load_action(directory: &str) -> &'static str {
     if directory.is_empty() {
         return LOAD_TREE;

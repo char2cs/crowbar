@@ -1,5 +1,3 @@
-//! Fixtures of the state machine tests.
-
 use crate::keys::Shortcut;
 use crate::keys::ShortcutGroup;
 use crate::schema::Action;

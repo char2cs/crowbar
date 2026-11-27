@@ -1,7 +1,3 @@
-/// The daemon's answer to a [`DaemonRequest`](crate::DaemonRequest).
-///
-/// Header values are text: a value that is not valid UTF-8 is carried with replacement
-/// characters rather than dropped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonResponse {
     status: u16,
@@ -10,7 +6,6 @@ pub struct DaemonResponse {
 }
 
 impl DaemonResponse {
-    /// An answer with `status`, `headers` and `body`.
     #[must_use]
     pub fn new(
         status: u16,
@@ -24,25 +19,21 @@ impl DaemonResponse {
         }
     }
 
-    /// The HTTP status code.
     #[must_use]
     pub fn status(&self) -> u16 {
         self.status
     }
 
-    /// The response headers.
     #[must_use]
     pub fn headers(&self) -> &[(String, String)] {
         &self.headers
     }
 
-    /// The response body, bytes as sent by the daemon.
     #[must_use]
     pub fn body(&self) -> &[u8] {
         &self.body
     }
 
-    /// The `x-crowbar-proxy` marker, when the shell's transport answered in the daemon's place.
     #[must_use]
     pub fn proxy_marker(&self) -> Option<&str> {
         self.headers
@@ -51,7 +42,6 @@ impl DaemonResponse {
             .map(|(_, value)| value.as_str())
     }
 
-    /// Takes the body out, so the caller can move it instead of copying it.
     #[must_use]
     pub fn into_body(self) -> Vec<u8> {
         self.body

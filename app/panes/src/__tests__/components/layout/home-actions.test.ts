@@ -1,4 +1,3 @@
-/** Creates in a project home: a thread under a home row, and the header's thread. */
 import { act } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
@@ -19,8 +18,6 @@ vi.mock('@/features/agent/api/agent-chat-creates', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
-// `handleCreate`'s home branch reads this directly; the real resolver's fetch+cache
-// round trip is not what these tests exercise.
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId,
   getHomeOwningChatId: () => null,
@@ -69,11 +66,7 @@ const HOME_OF: Record<string, string> = {
 }
 
 afterEach(() => {
-  // A sent draft's first prompt waits in the outbox for its chat to go live, which can
-  // happen after the file ends: unsent, it would fail and log into the worker's teardown.
   resetChatStore()
-  // A GLOBAL store — a leaked 'terminal' default would silently arm every
-  // later create in this file with a surface its own assertions never named.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, chatIsDefaultPresentation: true },
   }))
@@ -93,7 +86,6 @@ const ANY = expect.any(String)
 const opRows = (projectId = 'p1') => operationRows(projectId)
 const mintedChatId = () => (createChat.mock.calls.at(-1) as unknown as [string])[0]
 
-/** New thread: opens the blank draft pane. No chat exists yet. */
 async function openThreadDraft(
   projectId: string,
   homeWorkspaceId: string,
@@ -103,12 +95,10 @@ async function openThreadDraft(
   await openHomeDraft(projectId, homeWorkspaceId, navigate)
 }
 
-/** The first send from the open draft. */
 function sendDraft(typedSince = () => ''): Promise<void> {
   return promoteDraftThread(draftPaneId()!, FIRST_PROMPT, typedSince)
 }
 
-/** What a person does: open the New thread draft, then send its first message. */
 async function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,
@@ -118,8 +108,6 @@ async function handleCreateHomeThread(
   await sendDraft()
 }
 
-// Project home rides no repo: Thread resolves through the project's own home workspace
-// (as `handleOpen` does), and Fork stays a no-op, as there is no worktree to clone.
 describe('a project-home chat row resolves Thread through its home workspace, and refuses Fork', () => {
   it('a home thread create draws its row from the operation', async () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
@@ -143,7 +131,6 @@ describe('a project-home chat row resolves Thread through its home workspace, an
     const chatId = mintedChatId()
     expect(opRows()).toMatchObject([{ id: chatId, kind: 'chat', parentId: 'c1', working: true }])
     await vi.waitFor(() => expect(Object.values(operationsState().ops)[0]?.state).toBe('succeeded'))
-    // Succeeded, but the chat is not in the home tree yet: the row still stands in.
     expect(opRows()).toHaveLength(1)
 
     seedHomeTree('p1', {
@@ -190,8 +177,6 @@ describe('a project-home chat row resolves Thread through its home workspace, an
   })
 })
 
-// The tree foot's New thread (tree-foot.tsx) — NOT `handleCreate`, which resolves its
-// parentId against the repo rows and has no notion of project home at all.
 describe('handleCreateHomeThread', () => {
   afterEach(() => {
     resetWindowPaneStoreForTests()
@@ -208,7 +193,6 @@ describe('handleCreateHomeThread', () => {
     expect(createChat).toHaveBeenCalledExactlyOnceWith(ANY, ANY, 'home-ws-1', 'claude', '', 'chat')
   })
 
-  // One default: with Terminal preferred, the home New thread starts on the terminal at once.
   it("starts on the user's default terminal surface, opened in the pane", async () => {
     useSettingsStore.setState((state) => ({
       settings: { ...state.settings, chatIsDefaultPresentation: false },
@@ -282,8 +266,6 @@ describe('handleCreateHomeThread', () => {
     expect(draftPaneId()).toBeDefined()
   })
 
-  // New thread opens a blank draft and creates nothing: the chat, its sidebar
-  // row and its backend record all wait for the first send.
   it('opens a draft pane on New thread without creating a chat or a sidebar row', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -320,8 +302,6 @@ describe('handleCreateHomeThread', () => {
     expect(windowPaneStore.getState().panes[paneId]?.chatId).toBe(mintedChatId())
   })
 
-  // The draft's box goes when its chat opens: what was typed after the send is
-  // that chat's unsent draft, for the chat's own box to pick up.
   it('hands what was typed after the send to the new chat as its draft', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -334,7 +314,6 @@ describe('handleCreateHomeThread', () => {
     expect(loadDraft(mintedChatId())).toBe('and one more thing')
   })
 
-  // A person who saw nothing happen taps send again: one chat, not two.
   it('a second send while the first create is still in flight mints nothing extra', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -354,8 +333,6 @@ describe('handleCreateHomeThread', () => {
   })
 })
 
-// A provider list belongs to a daemon: a chat started in a remote project's home is
-// started with a provider THAT host offers, never one only the local daemon has.
 describe('a project-home thread on an install that has paired a remote host', () => {
   const offered = (id: string, enabled = true) => ({ id, enabled }) as never
   const started = () =>
@@ -428,7 +405,6 @@ describe('a project-home thread on an install that has paired a remote host', ()
     expect(toastError).toHaveBeenCalledExactlyOnceWith(said, expect.any(String))
   })
 
-  // A refused create fails its operation and leaves the draft, on either host.
   it.each([
     ['local', new ApiError('parent ws-1 not found', 404, 'not_found')],
     ['remote', proxyMarkerError('host-unreachable', 'host-1')],
@@ -463,8 +439,6 @@ describe('a project-home thread on an install that has paired a remote host', ()
     )
   })
 
-  // Only a synced list can say a project's host is gone; before that a project is merely
-  // not known yet, and Hosts would be the wrong advice.
   it.each([
     [
       'sends an unconfigured host’s project to Hosts',

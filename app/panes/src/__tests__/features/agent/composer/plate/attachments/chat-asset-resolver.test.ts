@@ -107,14 +107,6 @@ describe('chatAttachmentUrl on a remote host', () => {
 })
 
 describe('fetchChatAttachmentDataUrl', () => {
-  // A real `new Response(blob)` is avoided here: this repo's jsdom test
-  // environment does not round-trip a jsdom `Blob` through Node/undici's
-  // `Response` body handling (it silently stringifies the Blob instead of
-  // reading its bytes), which is a test-environment limitation, not a
-  // behaviour of the real fetch/Response the browser gives production code.
-  // A minimal fetch-result stub with a real `blob()` resolver exercises the
-  // same code path (`response.ok`, `await response.blob()`) without hitting
-  // that mismatch.
   it('fetches bytes and encodes them as a data: URL', async () => {
     const blob = new Blob(['hello'], { type: 'text/plain' })
     vi.stubGlobal(
@@ -166,7 +158,6 @@ describe('fetchChatAttachmentDataUrl', () => {
       'fetch',
       vi.fn().mockResolvedValue({
         ok: true,
-        // The body arrives, then the caller goes away before it is encoded.
         blob: () => {
           controller.abort()
           return Promise.resolve(blob)
@@ -310,8 +301,6 @@ describe('fetchChatAttachmentMetadata', () => {
     vi.unstubAllGlobals()
   })
 
-  // A real non-ok response (e.g. a JSON error body) carries its own Content-Length, which an
-  // empty-bodied Response(null, {status: 404}) never reproduces; it is never the file's size.
   it('ignores Content-Length on a non-ok response, even when one is present', async () => {
     vi.stubGlobal(
       'fetch',

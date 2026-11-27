@@ -1,5 +1,3 @@
-//! What the program asked of input and the screen, and the bytes that answer it.
-
 use alacritty_terminal::term::TermMode;
 
 use crate::input::CursorKeys;
@@ -15,7 +13,6 @@ use crate::input::encode_paste;
 use crate::terminal::Terminal;
 
 impl Terminal {
-    /// The mouse events the program asked for.
     pub fn mouse_tracking(&self) -> MouseTracking {
         let mode = *self.term.mode();
         if mode.contains(TermMode::MOUSE_MOTION) {
@@ -30,7 +27,6 @@ impl Terminal {
         MouseTracking::Off
     }
 
-    /// Which screen buffer shows.
     pub fn screen_buffer(&self) -> ScreenBuffer {
         if self.term.mode().contains(TermMode::ALT_SCREEN) {
             return ScreenBuffer::Alternate;
@@ -38,17 +34,14 @@ impl Terminal {
         ScreenBuffer::Primary
     }
 
-    /// Whether the program wants focus-in and focus-out reports.
     pub fn reports_focus(&self) -> bool {
         self.term.mode().contains(TermMode::FOCUS_IN_OUT)
     }
 
-    /// Whether the cursor is blinking, by the program's choice or the setting.
     pub fn cursor_blinks(&self) -> bool {
         self.term.cursor_style().blinking
     }
 
-    /// The bytes for a mouse event, or `None` when the program did not ask for it.
     pub fn encode_mouse(
         &self,
         event: &MouseEvent,
@@ -67,7 +60,6 @@ impl Terminal {
         MouseEncoding::Legacy
     }
 
-    /// The bytes for a key press, or `None` for application shortcuts and keys that type nothing.
     pub fn encode_key(
         &self,
         input: &KeyInput,
@@ -82,7 +74,6 @@ impl Terminal {
         CursorKeys::Normal
     }
 
-    /// The bytes for pasted text.
     pub fn encode_paste(
         &self,
         text: &str,

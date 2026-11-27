@@ -1,22 +1,14 @@
-//! How a branch is merged into its parent.
-
-/// The three ways the daemon merges a workspace into its parent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MergeStrategy {
-    /// A merge commit.
     #[default]
     Merge,
-    /// All commits folded into one.
     Squash,
-    /// The commits replayed onto the parent.
     Rebase,
 }
 
 impl MergeStrategy {
-    /// Every strategy, in the order the select lists them.
     pub const ALL: [Self; 3] = [Self::Merge, Self::Squash, Self::Rebase];
 
-    /// The select's option text.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -26,7 +18,6 @@ impl MergeStrategy {
         }
     }
 
-    /// The confirm button's text.
     #[must_use]
     pub const fn confirm(self) -> &'static str {
         match self {

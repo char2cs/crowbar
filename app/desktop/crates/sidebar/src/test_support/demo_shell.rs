@@ -1,6 +1,3 @@
-//! A small in-memory shell for the unit tests: it serves a fixed workspace and applies the
-//! commands the sidebar sends.
-
 use std::cell::RefCell;
 
 use crate::error::Error;
@@ -19,7 +16,6 @@ const SYNC_LOOP_DELETED: u32 = 7;
 const SPIKE_ADDED: u32 = 3;
 const SPIKE_DELETED: u32 = 1;
 
-/// The fixed workspace of the tests; rows can be renamed and removed through the sink.
 #[derive(Debug)]
 pub struct DemoShell {
     rows: RefCell<Vec<Row>>,
@@ -38,23 +34,18 @@ pub struct DemoShell {
 }
 
 impl DemoShell {
-    /// Two spaces and one host with a locked `main` and one provisional chat that owns a worktree,
-    /// as in the reference capture.
     pub fn reference() -> Self {
         Self::with_rows(reference_rows(), (2, 1))
     }
 
-    /// Several spaces and a tree that uses every row kind, state and badge.
     pub fn rich() -> Self {
         Self::with_rows(rich_rows(), RICH_COUNTS)
     }
 
-    /// A profile with no space yet: no projects, one host and an empty tree.
     pub fn empty() -> Self {
         Self::with_rows(Vec::new(), (0, 1))
     }
 
-    /// The reference workspace before the projects scope has synced, which shows the skeleton.
     pub fn loading() -> Self {
         Self {
             sync: ScopeSync::Pending,
@@ -62,7 +53,6 @@ impl DemoShell {
         }
     }
 
-    /// The rich data with the down `devbox` shown, which has listed no space and never synced.
     pub fn showing_down_host() -> Self {
         Self {
             spaces: 0,
@@ -71,7 +61,6 @@ impl DemoShell {
         }
     }
 
-    /// The rich data with its spaces on the down `devbox`.
     pub fn on_down_host() -> Self {
         Self {
             shown: HostId::from("devbox"),
@@ -100,7 +89,6 @@ impl DemoShell {
         }
     }
 
-    /// What the focused pane shows; only a repository enables every mode.
     #[must_use]
     pub fn with_focus(
         mut self,
@@ -110,7 +98,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with a shell that declines `command`, which hides its menu entries.
     #[must_use]
     pub fn refusing(
         mut self,
@@ -120,7 +107,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with `path` as one of several folders of the workspace.
     #[must_use]
     pub fn with_removable_folder(
         mut self,
@@ -130,7 +116,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with `merge` as the merge box of the focused workspace.
     #[must_use]
     pub fn with_merge_box(
         mut self,
@@ -140,7 +125,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with git refusing to read the focused workspace for `reason`.
     #[must_use]
     pub fn with_git_error(
         mut self,
@@ -150,7 +134,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with a request changing the icon of `target` still running.
     #[must_use]
     pub fn with_busy_icon(
         mut self,
@@ -160,7 +143,6 @@ impl DemoShell {
         self
     }
 
-    /// The same data with a request adding `folder` still running.
     #[must_use]
     pub fn with_adding(
         mut self,

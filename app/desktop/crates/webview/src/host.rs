@@ -16,7 +16,6 @@ use crate::view::Config;
 use crate::view::Id;
 use crate::view::ParentWindow;
 
-/// Creates web views as children of a window and owns the platform thread they live on.
 pub struct Host {
     platform: Rc<dyn Platform>,
     next_id: Cell<u64>,
@@ -32,15 +31,10 @@ impl std::fmt::Debug for Host {
 }
 
 impl Host {
-    /// Starts the backend for the current platform. Call it on the main thread.
-    ///
-    /// # Errors
-    /// The error of the backend failing to start.
     pub fn native(config: HostConfig) -> Result<Self> {
         Ok(Self::with_platform(start_native(config)?))
     }
 
-    /// Builds a host on an explicit backend, for example the recording one used in tests.
     #[must_use]
     pub fn with_platform(platform: Rc<dyn Platform>) -> Self {
         Self {
@@ -49,18 +43,10 @@ impl Host {
         }
     }
 
-    /// Deletes cookies, cache and site storage of every browser view.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped or the engine refuses.
     pub fn clear_browsing_data(&self) -> Result<()> {
         self.platform.clear_browsing_data()
     }
 
-    /// Reports the desktop's caret blink to `report` now and again whenever it changes.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn follow_caret(
         &self,
         report: crate::backend::CaretReport,
@@ -68,24 +54,15 @@ impl Host {
         self.platform.follow_caret(report)
     }
 
-    /// The desktop's own chooser, menu and dialog, shown on this host's platform thread.
     #[must_use]
     pub fn desktop(&self) -> Desktop {
         Desktop::new(Rc::clone(&self.platform))
     }
 
-    /// Returns once every view destroyed before it is gone from the platform.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped or does not answer in time.
     pub fn settle(&self) -> Result<()> {
         self.platform.settle()
     }
 
-    /// Creates a web view inside `window` and returns its handle.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the window cannot host web views or the engine fails.
     pub fn create(
         &self,
         window: &impl HasWindowHandle,
@@ -95,10 +72,6 @@ impl Host {
         self.create_in(parent, config)
     }
 
-    /// Like [`Host::create`], for a parent that is already extracted.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the engine fails.
     pub fn create_in(
         &self,
         parent: ParentWindow,

@@ -1,5 +1,3 @@
-//! What a page's answer to an agent request that cannot be delivered tells the log.
-
 use std::fmt;
 
 use journal::Level;

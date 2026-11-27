@@ -1,5 +1,3 @@
-//! What bringing a space image to disk logs when it cannot be fetched or kept.
-
 use std::fmt;
 
 use journal::Level;

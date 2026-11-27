@@ -26,7 +26,6 @@ const repo: Repo = {
 beforeEach(() => {
   seedRepos([repo])
   useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
-  // The workspace in view is never the one asked about.
   setActiveWorkspaceId('ws-in-view')
 })
 

@@ -15,8 +15,6 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// fakeOriginWorkspaces is an in-memory OriginSyncWorkspaces keyed by workspace
-// ID, safe for the manager's goroutines and the test's at once.
 type fakeOriginWorkspaces struct {
 	mu   sync.Mutex
 	byID map[string]domain.Workspace
@@ -47,16 +45,11 @@ func (f *fakeOriginWorkspaces) Get(
 	return ws, nil
 }
 
-// fakeOriginFetcher records every FetchRef call on a channel so tests block on
-// the REAL "a fetch happened" signal instead of sleeping.
 type fakeOriginFetcher struct {
-	calls chan string
-	// ffCalls records `merge --ff-only` calls as "<repoPath>:<ref>", like calls.
+	calls   chan string
 	ffCalls chan string
-	// ffErr, when set, is what MergeFFOnly returns: git refusing a dirty tree.
-	ffErr error
-	// hold, when set, keeps every FetchRef in flight until it is closed.
-	hold chan struct{}
+	ffErr   error
+	hold    chan struct{}
 }
 
 func newFakeOriginFetcher() *fakeOriginFetcher {
@@ -84,13 +77,8 @@ func (f *fakeOriginFetcher) FetchRef(
 	return nil
 }
 
-// testOriginSyncInterval is far longer than any test runs: cycles happen only
-// when a test fires the injected tick source (originDriver), never on a clock.
 const testOriginSyncInterval = time.Hour
 
-// originDriver owns the manager's two seams. ticks is UNBUFFERED, so a send is a
-// rendezvous proving a live runner took the tick; cycles receives once per
-// COMPLETED cycle (open-time sync included), which a "fetched nothing" check needs.
 type originDriver struct {
 	ticks  chan time.Time
 	cycles chan struct{}
@@ -104,7 +92,6 @@ func driveOriginSyncs(
 	return d
 }
 
-// tick fires exactly one cycle and returns once that cycle has completed.
 func (d *originDriver) tick() {
 	d.ticks <- time.Time{}
 	<-d.cycles
@@ -116,8 +103,6 @@ func protectedWorkspace(
 	return domain.Workspace{ID: id, WorktreePath: "/repo/" + id, Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
 }
 
-// lockedRootWorkspace is a provisioned, LOCKED protected root — the only shape
-// the open-time sync is allowed to fast-forward.
 func lockedRootWorkspace(
 	id string,
 ) domain.Workspace {
@@ -146,7 +131,6 @@ func TestOriginSync_Start_SyncsProtectedWorkspace(t *testing.T) {
 		"FetchRef was not invoked after Start for a protected workspace")
 	<-d.cycles
 
-	// And the cadence keeps syncing: one tick, one more fetch.
 	d.tick()
 	assert.Equal(t, "/repo/w1:develop", <-f.calls, "a cadence tick must sync again")
 }
@@ -161,7 +145,6 @@ func TestOriginSync_Start_SkipsWorkspaceWithParent(t *testing.T) {
 
 	require.NoError(t, m.Start("w2"))
 
-	// Block on the cycle COMPLETING, then assert it fetched nothing.
 	<-d.cycles
 	assert.Empty(t, f.calls, "FetchRef fired for a workspace with a parent")
 }
@@ -171,7 +154,6 @@ func TestOriginSync_Start_SyncsImmediately(t *testing.T) {
 	w.set(protectedWorkspace("w1"))
 	f := newFakeOriginFetcher()
 	m := NewOriginSync(context.Background(), testOriginSyncInterval, w, f)
-	// The tick source is never fired, so this fetch is the immediate-on-Start one.
 	d := driveOriginSyncs(m)
 	t.Cleanup(m.Close)
 
@@ -191,11 +173,11 @@ func TestOriginSync_Stop_StopsSync(t *testing.T) {
 	t.Cleanup(m.Close)
 
 	require.NoError(t, m.Start("w1"))
-	<-f.calls  // syncing started
-	<-d.cycles // ... and that cycle finished
+	<-f.calls
+	<-d.cycles
 
 	m.Stop("w1")
-	m.waitRunnersForTest() // the run goroutine has RETURNED — not "probably has"
+	m.waitRunnersForTest()
 
 	assert.Empty(t, f.calls, "sync fired after Stop stopped the workspace")
 }
@@ -212,7 +194,7 @@ func TestOriginSync_Close_Idempotent(t *testing.T) {
 	<-d.cycles
 
 	require.NotPanics(t, m.Close)
-	require.NotPanics(t, m.Close) // second call is safe
+	require.NotPanics(t, m.Close)
 
 	m.mu.Lock()
 	count := len(m.cancels)
@@ -220,8 +202,6 @@ func TestOriginSync_Close_Idempotent(t *testing.T) {
 	assert.Equal(t, 0, count)
 }
 
-// Close returns only once a fetch already in flight has finished: shutdown
-// closes the stores, and a test removes the repo, right after it.
 func TestOriginSync_Close_WaitsForAFetchInFlight(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		w := newFakeOriginWorkspaces()
@@ -237,8 +217,6 @@ func TestOriginSync_Close_WaitsForAFetchInFlight(t *testing.T) {
 	})
 }
 
-// A cancel decides whether the fast-forward starts: a fetch that finishes after
-// Stop must not go on to move the tree.
 func TestOriginSync_CancelBeforeTheFastForwardSkipsIt(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))
@@ -246,7 +224,7 @@ func TestOriginSync_CancelBeforeTheFastForwardSkipsIt(t *testing.T) {
 	g.hold = make(chan struct{})
 	m := NewOriginSync(context.Background(), testOriginSyncInterval, w, g)
 	require.NoError(t, m.Start("w1"))
-	<-g.calls // the open-time fetch is in flight
+	<-g.calls
 
 	m.Stop("w1")
 	close(g.hold)
@@ -274,7 +252,7 @@ func TestOriginSync_StartAfterClose_Refused(t *testing.T) {
 }
 
 func TestOriginSync_SyncTick_WorkspaceLookupError_Swallowed(t *testing.T) {
-	w := newFakeOriginWorkspaces() // no workspace seeded -> Get errors
+	w := newFakeOriginWorkspaces()
 	f := newFakeOriginFetcher()
 	m := NewOriginSync(context.Background(), testOriginSyncInterval, w, f)
 	d := driveOriginSyncs(m)
@@ -282,13 +260,10 @@ func TestOriginSync_SyncTick_WorkspaceLookupError_Swallowed(t *testing.T) {
 
 	require.NotPanics(t, func() { require.NoError(t, m.Start("missing")) })
 
-	// The cycle ran to completion (no panic, no wedge) and issued no fetch.
 	<-d.cycles
 	assert.Empty(t, f.calls, "FetchRef called despite a workspace lookup error")
 }
 
-// TestOriginSync_TickSource_DefaultsToIntervalTicker pins the production
-// wiring the seam replaces: with no test source, the cadence is a real ticker.
 func TestOriginSync_TickSource_DefaultsToIntervalTicker(t *testing.T) {
 	m := NewOriginSync(context.Background(), testOriginSyncInterval, newFakeOriginWorkspaces(), newFakeOriginFetcher())
 
@@ -297,7 +272,6 @@ func TestOriginSync_TickSource_DefaultsToIntervalTicker(t *testing.T) {
 	stop()
 }
 
-// blockingFetcher blocks each FetchRef until its context ends, then reports why.
 type blockingFetcher struct {
 	released chan error
 }
@@ -324,8 +298,6 @@ func (b *blockingFetcher) FetchRef(
 	return ctx.Err()
 }
 
-// The injected 10 ms deadline is this test's SUBJECT (it stands in for
-// originSyncTimeout), never its synchronisation: every wait blocks on a signal.
 func TestOriginSync_SyncTick_CancelsHungFetch(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(protectedWorkspace("w1"))
@@ -340,11 +312,9 @@ func TestOriginSync_SyncTick_CancelsHungFetch(t *testing.T) {
 
 	assert.ErrorIs(t, <-b.released, context.DeadlineExceeded,
 		"hung fetch must be cancelled by the per-sync timeout")
-	<-done // syncTick returned once the fetch was cancelled
+	<-done
 }
 
-// Stop and Close cancel a hung fetch through its context instead of
-// waiting out originSyncTimeout, so Close's join is prompt.
 func TestOriginSync_CancelReachesAHungFetch(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		w := newFakeOriginWorkspaces()
@@ -364,8 +334,6 @@ func TestOriginSync_CancelReachesAHungFetch(t *testing.T) {
 	})
 }
 
-// Opening a locked root fast-forwards it onto origin's ref: the ONLY moment its
-// working tree moves unasked; every tick's FetchRef touches only the ref.
 func TestOriginSync_OpenFastForwardsLockedRoot(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))
@@ -382,8 +350,6 @@ func TestOriginSync_OpenFastForwardsLockedRoot(t *testing.T) {
 	<-d.cycles
 }
 
-// The sync ticks only while the user is looking, so advancing on a tick would
-// move files under a live editor or agent. A tick refreshes the ref, no more.
 func TestOriginSync_IntervalTickDoesNotFastForward(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))
@@ -394,20 +360,16 @@ func TestOriginSync_IntervalTickDoesNotFastForward(t *testing.T) {
 	require.NoError(t, m.Start("w1"))
 	t.Cleanup(func() { m.Stop("w1"); m.waitRunnersForTest() })
 
-	// Drain the open sync (which legitimately advances).
 	<-g.calls
 	<-g.ffCalls
 	<-d.cycles
 
-	// Now a real interval tick: it must fetch, and must NOT advance.
 	d.ticks <- time.Now()
 	assert.Equal(t, "/repo/w1:develop", <-g.calls, "the tick still refreshes the origin ref")
-	<-d.cycles // the cycle RAN to completion...
+	<-d.cycles
 	assert.Empty(t, g.ffCalls, "...and it fast-forwarded nothing")
 }
 
-// Only provisioned, locked, non-default roots advance — not the repo home, a
-// placeholder, or an unlocked root that may carry local commits. All still fetch.
 func TestOriginSync_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 	home := lockedRootWorkspace("home")
 	home.IsDefault = true
@@ -415,7 +377,7 @@ func TestOriginSync_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 	placeholder := lockedRootWorkspace("ph")
 	placeholder.WorktreePath = ""
 	placeholder.Provisioning = domain.WorkspacePlaceholder
-	unlocked := protectedWorkspace("unlocked") // no locked status
+	unlocked := protectedWorkspace("unlocked")
 
 	for _, ws := range []domain.Workspace{home, placeholder, unlocked} {
 		t.Run(ws.ID, func(t *testing.T) {
@@ -431,7 +393,7 @@ func TestOriginSync_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 			if ws.WorktreePath != "" {
 				assert.Equal(t, ws.WorktreePath+":develop", <-g.calls, "the ref is still refreshed")
 			} else {
-				<-g.calls // a placeholder still fetches; only the advance is skipped
+				<-g.calls
 			}
 			<-d.cycles
 			assert.Empty(t, g.ffCalls, "this workspace must never be fast-forwarded")
@@ -439,7 +401,6 @@ func TestOriginSync_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 	}
 }
 
-// git refuses rather than overwrite local changes; that must never break an open.
 func TestOriginSync_OpenSurvivesRefusedFastForward(t *testing.T) {
 	w := newFakeOriginWorkspaces()
 	w.set(lockedRootWorkspace("w1"))
@@ -453,5 +414,5 @@ func TestOriginSync_OpenSurvivesRefusedFastForward(t *testing.T) {
 
 	<-g.calls
 	<-g.ffCalls
-	<-d.cycles // the cycle completed despite the refusal
+	<-d.cycles
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 )
 
-// Deps is what the resources read and drive.
 type Deps struct {
 	Workspace workspacerepo.Workspace
 	Git       enginegit.Engine
@@ -23,7 +22,6 @@ type Deps struct {
 	Now       func() time.Time
 }
 
-// Set is every resource a scope runs, rooted on one context Close cancels.
 type Set struct {
 	watcher    *Watcher
 	hostWatch  *HostWatch
@@ -34,7 +32,6 @@ type Set struct {
 	closeOnce  sync.Once
 }
 
-// NewSet builds the resources over deps; signals is where their changes go.
 func NewSet(ctx context.Context, signals Signaler, deps Deps) *Set {
 	root, cancel := context.WithCancel(ctx)
 	return &Set{
@@ -47,7 +44,6 @@ func NewSet(ctx context.Context, signals Signaler, deps Deps) *Set {
 	}
 }
 
-// ByKind names what each scope kind runs; git: and files: share one watcher.
 func (s *Set) ByKind() map[stream.ScopeKind][]appstream.Resource {
 	return map[stream.ScopeKind][]appstream.Resource{
 		stream.KindForge: {s.forgePoll},
@@ -58,7 +54,6 @@ func (s *Set) ByKind() map[stream.ScopeKind][]appstream.Resource {
 	}
 }
 
-// Close stops every resource still running. It is idempotent.
 func (s *Set) Close() {
 	s.closeOnce.Do(func() {
 		s.cancel()

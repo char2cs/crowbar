@@ -16,7 +16,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 
-// Which chats the last run's placements vouch for is host-placements' business, not the landing's.
 vi.mock('@/features/hosts/lib/host-resolve-cached', () => ({
   isChatRecalled: (chatId: string) => chatId === 'c-recalled',
 }))
@@ -26,7 +25,6 @@ function ProjectHome() {
   return <p>project home {projectId}</p>
 }
 
-// The landing under a bare root, with stand-ins for where it leads.
 function renderLanding() {
   const root = createRootRoute()
   const landing = createRoute({ getParentRoute: () => root, path: '/', component: ShellLanding })
@@ -71,7 +69,6 @@ describe('the landing', () => {
     expect(await screen.findByText('project home proj-1')).toBeTruthy()
   })
 
-  // Projects imported without a reorder all sit at order 0, so the id decides, as on REST.
   it('with no saved selection, enters the project the list draws first', async () => {
     pairRemoteHost()
     seedProjects([
@@ -105,7 +102,6 @@ describe('the landing of a phone with a paired host that has not listed', () => 
     expect(await screen.findByText(WAITING)).toBeTruthy()
   })
 
-  // The chat is already on screen from the last run's placement; the panel is for the empty stage.
   it('does not stack the waiting panel under a chat recalled from the last run', async () => {
     seedChatPaneRecord(windowPaneStore, 'pane-1', 'c-recalled', null)
     renderLanding()

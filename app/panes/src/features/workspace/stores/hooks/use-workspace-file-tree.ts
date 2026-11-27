@@ -15,8 +15,6 @@ import { useWorkspaceStore } from '../workspace-context'
 import { UserFacingError } from '@/lib/errors/user-facing-error'
 import { isNotFoundError } from '@/lib/errors/api-error'
 
-// Stable reference for a workspace with nothing expanded yet — a fresh
-// `new Set()` on every selector call would re-run the lazy-load effect each render.
 const EMPTY_EXPANDED_PATHS: ReadonlySet<string> = new Set()
 
 interface FileChangeEvent {
@@ -30,8 +28,6 @@ function parentDir(path: string): string {
   return idx === -1 ? '' : path.slice(0, idx)
 }
 
-// A plain content edit ("modified") never changes the tree's shape, so it must
-// not trigger a directory refetch. Only structural events touch the tree.
 function isStructuralChange(type: string | undefined): boolean {
   return type === 'created' || type === 'deleted' || type === 'renamed'
 }
@@ -42,9 +38,6 @@ function reconcileDocuments(wsId: string): void {
   )
 }
 
-/** Keeps `wsId`'s file tree loaded and live: its files: scope is held from the first read (a
- *  snapshot landing mid-read re-lists after) for as long as the workspace is retained. Waits on
- *  `chatScopeReady` (non-home file routes are chat-scoped) and a known host. */
 export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeReady: boolean) {
   const store = useWorkspaceStore()
   const hostId = useResolvedHost({ wsId })
@@ -55,12 +48,9 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     (state) => state.expandedPathsByWorkspace[wsId] ?? EMPTY_EXPANDED_PATHS,
   )
   const loadingDirs = useRef<Set<string>>(new Set())
-  // How many snapshots of files: have landed: a read that saw one land meanwhile re-lists after.
   const syncs = useRef(0)
   const wanted = addressable && (active || status !== 'idle')
 
-  // Holds the scope and applies its file changes. Every synced after the tree
-  // is loaded may follow missed writes, so it re-reads the tree and open buffers.
   useEffect(() => {
     if (!wanted || !hostId) return
     const scope = `files:${wsId}`
@@ -80,8 +70,6 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     })
     const stopSignals = onSignal<FileChangeEvent>(hostId, scope, 'file_change', (evt) => {
       if (!evt?.path) return
-      // An external write to an open buffer must reconcile it (silent reload
-      // when clean, conflict flag when dirty); own-save echoes are filtered inside.
       if (evt.type === 'modified' || evt.type === 'created') {
         void syncBufferWithDisk(workspaceRef(wsId, evt.path))
       }
@@ -97,7 +85,6 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     }
   }, [store, wsId, wanted, hostId])
 
-  // The first read never waits on the stream, which may be down.
   useEffect(() => {
     if (!active || !addressable) return
     const { fileTreeStatus, fileTreeActions } = store.getState()
@@ -106,10 +93,9 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     const seen = syncs.current
     void fetchFileTree(wsId).then(
       (root) => {
-        if (store.getState().fileTreeStatus !== 'loading') return // refused meanwhile
+        if (store.getState().fileTreeStatus !== 'loading') return
         store.setState({ files: root, fileTreeStatus: 'ready' })
         if (syncs.current !== seen) void refreshDirectory(wsId, store)
-        // Documents restored while this workspace was never shown may predate disk.
         reconcileDocuments(wsId)
       },
       (err: unknown) => {
@@ -119,8 +105,6 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
     )
   }, [store, wsId, active, addressable])
 
-  // Re-checked on every `files` change too: a root re-list drops an expanded folder's children,
-  // which must refetch though `expandedPaths` is the same reference.
   useEffect(() => {
     if (!addressable) return
     for (const path of expandedPaths) {
@@ -134,7 +118,6 @@ export function useWorkspaceFileTree(wsId: string, active: boolean, chatScopeRea
           fileTreeActions.setFiles(mergeChildren(current, path, children))
         })
         .catch((err: unknown) => {
-          // Deleted on disk before the re-list caught up (a removed branch's ref dir, say).
           if (isNotFoundError(err)) useFileTreeStore.getState().collapsePath(wsId, path)
           else report(err, { action: 'Load the folder' })
         })

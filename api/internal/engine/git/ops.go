@@ -10,9 +10,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// resolveGitDir returns the real .git directory for repoPath. In a secondary
-// git worktree the .git entry is a file, not a directory; we ask git itself so
-// in-progress marker files (MERGE_HEAD, rebase-merge/, …) are always found.
 func resolveGitDir(ctx context.Context, repoPath string) string {
 	r := gitexec.Git(
 		ctx,
@@ -47,8 +44,6 @@ func detectInProgressOp(
 	if fileExists(filepath.Join(gitDir, "MERGE_HEAD")) {
 		return "merge"
 	}
-	// A squash leaves neither MERGE_HEAD nor SQUASH_HEAD, only SQUASH_MSG. Not
-	// AUTO_MERGE: a merge refused over staged work writes it too.
 	if fileExists(filepath.Join(gitDir, "SQUASH_MSG")) {
 		return "squash"
 	}

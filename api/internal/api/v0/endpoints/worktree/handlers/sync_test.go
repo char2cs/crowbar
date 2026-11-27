@@ -10,9 +10,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// TestSync_AnswersItsOperation: a sync of a chat holding a worktree validates
-// synchronously, then answers 202 with the operation running
-// SyncWorkingTreeState; the synced workspace arrives on the WebSocket stream.
 func TestSync_AnswersItsOperation(
 	t *testing.T,
 ) {
@@ -27,9 +24,6 @@ func TestSync_AnswersItsOperation(
 	assert.Equal(t, "ws1", reader.gotSync)
 }
 
-// TestSyncMissingWorkspace_4xx asserts the synchronous existence check: a sync
-// for a chat holding no worktree is rejected on the request path with a 4xx
-// before any 202 or background sync.
 func TestSyncMissingWorkspace_4xx(
 	t *testing.T,
 ) {

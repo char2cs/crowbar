@@ -10,9 +10,6 @@ use crate::tree::geometry::rect::Rect;
 use crate::tree::geometry::sash::Sash;
 
 impl Tab {
-    /// The rectangle of every pane when the tab is laid out in `bounds`. Panes are separated by
-    /// [`SASH_THICKNESS`](crate::SASH_THICKNESS) and never smaller than
-    /// [`MIN_PANE_EXTENT`](crate::MIN_PANE_EXTENT) unless the window is too small for that.
     #[must_use]
     pub fn layout(
         &self,
@@ -23,7 +20,6 @@ impl Tab {
             .map_or_else(Vec::new, |tree| tree.place_panes(bounds))
     }
 
-    /// The divider of every split when the tab is laid out in `bounds`, outermost first.
     #[must_use]
     pub fn sashes(
         &self,
@@ -34,7 +30,6 @@ impl Tab {
             .map_or_else(Vec::new, |tree| tree.place_sashes(bounds, &[]))
     }
 
-    /// The space the tab was made in; empty while a tab stored before spaces waits for one.
     #[must_use]
     pub fn space(&self) -> &str {
         self.space.as_str()

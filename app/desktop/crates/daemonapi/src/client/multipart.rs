@@ -1,5 +1,3 @@
-//! A multipart/form-data body with one file field.
-
 use crate::uuid::Uuid;
 
 pub(crate) fn file_field(

@@ -10,8 +10,6 @@ const setLevel = (level: PermissionLevel | null) => {
   if (level) send({ type: 'setDefaultPermission', level })
 }
 
-/** The Agents tab drawn from the main webview's snapshot of one host's agents; every edit goes
- *  back to it as an intent, and the next snapshot shows the result. */
 export function MobileAgentsSettings() {
   const [snapshot, setSnapshot] = useState<NativeAgentsSettings | null>(null)
   useEffect(() => receiveShellSnapshots<NativeAgentsSettings>('agents', setSnapshot), [])

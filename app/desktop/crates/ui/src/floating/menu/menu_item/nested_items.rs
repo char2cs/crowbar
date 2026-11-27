@@ -1,5 +1,3 @@
-//! The items of a submenu row, type-erased so the row does not depend on the item type.
-
 use std::any::Any;
 use std::rc::Rc;
 

@@ -1,5 +1,3 @@
-//! Sizes of a badge.
-
 use gpui::{Pixels, px};
 
 use crate::foundation::tokens::spacing;
@@ -11,21 +9,16 @@ const PADDING_X_COMPACT: Pixels = px(3.0);
 const PADDING_X_LARGE: Pixels = px(5.0);
 const TEXT_SM: Pixels = px(10.0);
 
-/// Height steps of a [`crate::Badge`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum BadgeSize {
-    /// 16px high, 10px text.
     Sm,
-    /// 18px high, 12px text.
     #[default]
     Md,
-    /// 22px high, 14px text.
     Lg,
 }
 
 impl BadgeSize {
-    /// Height and minimum width.
     pub fn extent(self) -> Pixels {
         match self {
             Self::Sm => spacing::STEP_4,
@@ -34,7 +27,6 @@ impl BadgeSize {
         }
     }
 
-    /// Horizontal padding inside the 1px border.
     pub fn padding_x(self) -> Pixels {
         match self {
             Self::Sm | Self::Md => PADDING_X_COMPACT,
@@ -42,7 +34,6 @@ impl BadgeSize {
         }
     }
 
-    /// Font size.
     pub fn text(self) -> Pixels {
         match self {
             Self::Sm => TEXT_SM,
@@ -51,7 +42,6 @@ impl BadgeSize {
         }
     }
 
-    /// Corner radius.
     pub fn radius(self) -> Pixels {
         match self {
             Self::Sm => spacing::STEP_1,

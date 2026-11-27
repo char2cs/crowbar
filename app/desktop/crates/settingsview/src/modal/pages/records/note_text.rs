@@ -1,5 +1,3 @@
-//! Small muted text.
-
 use gpui::{App, IntoElement, ParentElement, Styled, div};
 use ui::{ScaledText, Surface, Theme};
 

@@ -1,5 +1,3 @@
-//! What the daemon link logs when nobody waits for its answer to a relaunch or a restart.
-
 use std::fmt;
 
 use journal::Level;

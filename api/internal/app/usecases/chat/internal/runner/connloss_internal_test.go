@@ -18,11 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// A connection that dies on its own is dropped, keeping why on itself: it names
-// the runner's exit only when it was that runner's watched process.
 func TestOnAPIConnLost_KeepsWhyOnTheConnectionAndDropsIt(t *testing.T) {
-	// Hang up as soon as the handshake is done: the driver's Events() channel
-	// closes, which is exactly what a dead `serve` process looks like from here.
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) { _ = conn.Close() })
 
 	agent := apiTransportTestAgent(t)
@@ -45,11 +41,6 @@ func TestOnAPIConnLost_KeepsWhyOnTheConnectionAndDropsIt(t *testing.T) {
 	require.Empty(t, exitCause(t, rs.live, "runner-1"), "nothing watched it as the runner's process")
 }
 
-// The mirror case: a DELIBERATE teardown (drop, on retire / provider switch /
-// PTY exit / SwitchToTerminal) cancels the connection's own ctx, and the caller
-// that dropped it already owns closing the turn. The pump must not treat that as
-// a lost connection and reconcile a second time — nor panic re-dropping a runner
-// the registry has already forgotten.
 func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing.T) {
 	released := make(chan struct{})
 	stdio := fakeServe(t, func(conn *testutil.LinePeer) {
@@ -67,8 +58,6 @@ func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing
 	rs.apiConns.set("runner-1", conn)
 	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
-	// drop() is the deliberate path: it cancels conn.ctx, closes the driver and
-	// forgets the entry, all before the pump notices Events() closing.
 	rs.apiConns.drop("runner-1")
 	close(released)
 
@@ -76,9 +65,6 @@ func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing
 		500*time.Millisecond, 25*time.Millisecond)
 }
 
-// A watched serve that dies on its own is a lost connection, even before
-// anything has read its hang-up; one Crowbar takes down names nothing, since
-// its teardown records its own cause.
 func TestWatchExit_OnlyAServeThatDiesOnItsOwnIsALostConnection(t *testing.T) {
 	for name, tc := range map[string]struct {
 		dropped bool
@@ -112,9 +98,6 @@ func TestWatchExit_OnlyAServeThatDiesOnItsOwnIsALostConnection(t *testing.T) {
 	}
 }
 
-// afterLoss blocks until runnerID's api connection is gone, so a test puts the
-// loss before whatever step of the spawn calls it. crash kills its serve first;
-// otherwise the serve hangs up on its own.
 type afterLoss struct {
 	conns    *apiConnRegistry
 	runnerID string
@@ -139,7 +122,6 @@ func (a afterLoss) wait(ctx context.Context) error {
 	}
 }
 
-// forkAfterLoss is a terminal that forks only once the connection is lost.
 type forkAfterLoss struct {
 	*fakeTermForAttach
 	afterLoss
@@ -154,8 +136,6 @@ func (f forkAfterLoss) CreateCommand(
 	return f.fakeTermForAttach.CreateCommand(ctx, chatID, cwd, argv, env, onExit)
 }
 
-// A connection lost before its spawn forked the PTY is not why that runner
-// ends: it ends as the user's Stop.
 func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) {
 	h := helperServeSpawn(t, "drop-after thread/resume", true)
 	h.rs.term = forkAfterLoss{h.term, afterLoss{conns: h.rs.apiConns, runnerID: "runner-1"}}
@@ -171,8 +151,6 @@ func TestSpawnRunner_AConnectionLostBeforeThePTYForkIsNoExitCause(t *testing.T) 
 	assert.Equal(t, domain.AgentExitStopped, endedAs(t, h))
 }
 
-// An adopted connection is its runner's process: lost during startup after the
-// carried prompt's turn/start, it still ends that runner as connection_lost.
 func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mode  string
@@ -185,7 +163,6 @@ func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testin
 			h := helperServeSpawn(t, tc.mode, false)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			// The loss lands once runner_started commits, before the runner is started.
 			loss := afterLoss{conns: h.rs.apiConns, runnerID: "runner-1", crash: tc.crash}
 			h.rs.ledger.Subscribe(func(_ string, rows []ledger.Row, _ ledger.State) {
 				if slices.ContainsFunc(rows, func(r ledger.Row) bool { return r.Kind == ledger.KindRunnerStarted }) {
@@ -207,8 +184,6 @@ func TestSpawnRunner_AnAdoptedConnectionLostDuringStartupEndsItsRunner(t *testin
 	}
 }
 
-// A started runner whose connection is its process ends as connection_lost
-// when its serve crashes mid-turn.
 func TestSpawnRunner_APTYLessRunnerWhoseServeCrashesEndsAsALostConnection(t *testing.T) {
 	h := helperServeSpawn(t, "answer", false)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -226,7 +201,6 @@ func TestSpawnRunner_APTYLessRunnerWhoseServeCrashesEndsAsALostConnection(t *tes
 	assert.Equal(t, domain.AgentExitConnectionLost, endedAs(t, h))
 }
 
-// awaitExit blocks until v's runner has left the live table.
 func awaitExit(t *testing.T, ctx context.Context, v liveView) {
 	t.Helper()
 	select {

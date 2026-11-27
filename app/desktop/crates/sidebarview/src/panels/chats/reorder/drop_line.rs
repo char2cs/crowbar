@@ -1,5 +1,3 @@
-//! The 2px drop line with its end cap.
-
 use gpui::{Div, Hsla, ParentElement, Styled, div, px};
 
 use crate::panels::chats::reorder::line_box::LineBox;

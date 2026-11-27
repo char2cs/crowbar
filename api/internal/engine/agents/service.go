@@ -13,54 +13,34 @@ import (
 )
 
 type service struct {
-	injected *registry.Registry
-	// acceptOverride is WithOverrideCheck's predicate, nil to admit all.
+	injected       *registry.Registry
 	acceptOverride func(raw []byte) bool
 
-	resolved sync.Mutex
-	// descriptors caches Get per (homeDir, id): the hook recorder calls it per
-	// streamed delta, and a full Resolve costs a millisecond. A Stat of the
-	// override path keeps an edited override picked up without a restart.
+	resolved    sync.Mutex
 	descriptors map[string]descriptorCacheEntry
 
-	// discovery is shared by every agent this service builds, so a refresh one List/Get triggers is
-	// visible to the next.
 	discovery *modeldiscovery.Cache
 
-	// manifestFetch is read fresh on every manifest refresh, so a settings toggle takes effect on the
-	// next one without a restart.
 	manifestFetchMu sync.RWMutex
 	manifestFetch   func() bool
 }
 
-// descriptorCacheEntry is one Get result, held until the on-disk override
-// path it was resolved against changes.
 type descriptorCacheEntry struct {
-	agent Agent
-	// overrideModTime is the override file's mtime at resolve (zero when none existed); any change on
-	// a later Stat, creation and removal included, invalidates the entry.
+	agent           Agent
 	overrideModTime time.Time
 }
 
-// serviceOpts is New's option set.
 type serviceOpts struct {
 	lifecycle      context.Context
 	acceptOverride func(raw []byte) bool
 }
 
-// Option configures New.
 type Option func(*serviceOpts)
 
-// WithLifecycle ties every background model-discovery refresh to ctx: cancelling it stops
-// in-flight probes and refuses to store one that raced past it. Omitted, refreshes are bound to
-// context.Background().
 func WithLifecycle(ctx context.Context) Option {
 	return func(o *serviceOpts) { o.lifecycle = ctx }
 }
 
-// WithOverrideCheck admits an on-disk descriptor override only when accept
-// passes it; a refused override runs the shipped default instead. Omitted,
-// every override is loaded as written.
 func WithOverrideCheck(accept func(raw []byte) bool) Option {
 	return func(o *serviceOpts) { o.acceptOverride = accept }
 }
@@ -115,8 +95,6 @@ func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
 	return a, nil
 }
 
-// refreshModelsIfDeclared starts a background catalogue refresh for a descriptor declaring
-// model.discover or model.manifest, and costs nothing for one declaring neither.
 func (s *service) refreshModelsIfDeclared(d *spec.Descriptor, homeDir string) {
 	if d.Model == nil {
 		return
@@ -129,16 +107,12 @@ func (s *service) refreshModelsIfDeclared(d *spec.Descriptor, homeDir string) {
 	}
 }
 
-// SetManifestFetchEnabled installs the live getter refreshModelsIfDeclared's
-// model.manifest half reads before hitting the network.
 func (s *service) SetManifestFetchEnabled(enabled func() bool) {
 	s.manifestFetchMu.Lock()
 	defer s.manifestFetchMu.Unlock()
 	s.manifestFetch = enabled
 }
 
-// manifestFetchAllowed is false until SetManifestFetchEnabled wires a getter, so resolving a
-// descriptor never makes a network call as a side effect.
 func (s *service) manifestFetchAllowed() bool {
 	s.manifestFetchMu.RLock()
 	defer s.manifestFetchMu.RUnlock()
@@ -148,8 +122,6 @@ func (s *service) manifestFetchAllowed() bool {
 	return s.manifestFetch()
 }
 
-// overrideModTime is the zero Time for an empty path or one Stat cannot reach; Resolve would fail
-// that same Stat, so the cache cannot get it more wrong.
 func overrideModTime(path string) time.Time {
 	if path == "" {
 		return time.Time{}
@@ -161,7 +133,6 @@ func overrideModTime(path string) time.Time {
 	return info.ModTime()
 }
 
-// Close joins this service's model-discovery cache — see Agents.Close.
 func (s *service) Close() {
 	s.discovery.Close()
 }

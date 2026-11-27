@@ -21,27 +21,21 @@ import { loadSidebarUI } from './sidebar-ui'
 import { parseSidebarTab, treeUiStore } from '@/features/workspace/tree/tree-ui-store'
 import { isDraftChatId } from '@/features/agent/lib/draft-chat'
 
-// Window-level hydration of pane/buffer layout, awaited before renderApp(): a surface whose layout
-// is replaced a frame after mount crashes. Local reads only; restored members the cache couldn't
-// place are answered later by placeRestoredPanesOnceSynced.
 export async function hydrateWindowPaneLayout(): Promise<void> {
   const stored = await loadWindowPaneLayout()
   if (!stored) return
   const layout = await upgradeWindowPaneLayout(stored)
-  // Stamp the upgrade at once, losing nothing, so it runs exactly once.
   if (layout !== stored) await saveWorkspaceLayout(layout)
   const restored = restoreWindowPaneState(layout)
   const adoptInto = getFirstLeafId(restored.stage)
   const before = new Set(restored.panes[adoptInto].editorTabIds)
   const { panes, buffers } = validateLoadedBuffers(
     { panes: restored.panes, buffers: layout.buffers ?? [] },
-    // A record without views held its buffers outside any view: keep them all.
     { adoptInto, keepUnlisted: !layout.views },
   )
   if (panes[adoptInto].editorTabIds.some((id) => !before.has(id))) {
     panes[adoptInto] = { ...panes[adoptInto], editorOpen: true }
   }
-  // A draft never outlives its window: left unplaced, the daemon's "no such chat" drops it.
   for (const [id, pane] of Object.entries(panes)) {
     if (isDraftChatId(pane.chatId)) panes[id] = { ...pane, workspaceId: null }
   }
@@ -51,13 +45,9 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
     activeProjectId: windowPaneStore.getState().activeProjectId,
     buffers,
   })
-  // Documents load behind the restored tabs: Monaco and disk are not on the boot path.
   restoreDocuments().catch((err: unknown) => console.error('Restoring documents failed:', err))
 }
 
-// The one idempotent load-time upgrade to WINDOW_LAYOUT_VERSION. v2: a chat pane records its
-// workspace (unplaced, null, until the projects scope answers). v3: buffers name their documents.
-// v4: buffers drop their text, written as drafts first.
 async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
   const version = layout.version ?? 1
   if (version >= WINDOW_LAYOUT_VERSION) return layout
@@ -76,7 +66,6 @@ function unplaceChatPanes(layout: WorkspaceLayout): WorkspaceLayout {
   return { ...layout, panes }
 }
 
-// A chat a snapshot left out is gone only when that snapshot read every repo.
 function placeFrom(s: EntityState): boolean {
   const definitive = !s.unread.projects?.length
   const { panes, views } = windowPaneStore.getState()
@@ -85,7 +74,6 @@ function placeFrom(s: EntityState): boolean {
   for (const pane of Object.values(panes)) {
     const inView = pane.viewId ? views[pane.viewId]?.projectId !== undefined : false
     if (!pane.chatId || pane.workspaceId || !inView) continue
-    // A chat no host can be named for yet is neither placed nor gone.
     const hostId = chatHostOf(pane.chatId)
     if (!hostId) continue
     const chat = entityOf(s, 'chat', hostId, pane.chatId)
@@ -98,9 +86,6 @@ function placeFrom(s: EntityState): boolean {
   return definitive
 }
 
-/** Once the projects scope's first snapshot lands, places each restored chat pane that
- *  names no workspace in its chat's, and drops one whose chat is gone; while a snapshot
- *  could not read some repo, the next one answers for what it left out. */
 export function placeRestoredPanesOnceSynced(): void {
   const now = entityStore.getState()
   if (now.loaded.projects && placeFrom(now)) return
@@ -113,9 +98,7 @@ export function placeRestoredPanesOnceSynced(): void {
 export async function hydrateSidebar(): Promise<void> {
   const sidebarUI = await loadSidebarUI()
   if (!sidebarUI) return
-  // Retired keys the pre-restyle tree wrote (see schemas.ts), never replayed.
   treeUiStore.setState({
-    // Absent on older records: replays as "nothing folded", the product default.
     collapsed: new Set(sidebarUI.collapsedChatRows ?? []),
     activeTab: parseSidebarTab(sidebarUI.activeTab),
     hostFilter: sidebarUI.hostFilter ?? '',

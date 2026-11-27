@@ -1,14 +1,3 @@
-/**
- * Providers settings tab: renders one row per provider (in priority order) with
- * its connected indicator + enable toggle, and — on a toggle — PUTs the COMPLETE
- * ordered preference set, applying it optimistically and reconciling from the
- * response (server truth).
- *
- * The list comes from the GLOBAL provider store, not the active workspace: the
- * Settings dialog is global, and reading a per-workspace copy made this tab claim
- * the daemon had no providers whenever no workspace was in view. Only the network
- * seam is mocked; the reorder→payload mapping is provider-preferences.test.ts's.
- */
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -55,9 +44,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   },
 }))
 
-// jsdom has no PointerEvent constructor; base-ui's Switch toggles by dispatching
-// a PointerEvent('click') on its hidden checkbox. A MouseEvent-backed shim is
-// enough — the checkbox's click activation still toggles and fires change.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
   // @ts-expect-error install the shim onto the jsdom window
@@ -107,10 +93,6 @@ function store() {
   return getOrCreateWorkspaceStore('w1')
 }
 
-/**
- * The ordinary situation: a workspace is in view and the providers are already
- * known; the mount refresh gets the same answer the server would give.
- */
 function seedProviders(providers: AgentProvider[]) {
   listGlobalProvidersFn.mockResolvedValue(providers)
   inWorkspace()
@@ -124,16 +106,12 @@ function inWorkspace() {
   })
 }
 
-/** No workspace in view at all — Project Home, the projects screen, or any
- *  moment between two workspaces. Settings is still openable from all of them. */
 function withoutActiveWorkspace() {
   act(() => {
     setActiveWorkspaceId('')
   })
 }
 
-/** A promise this test resolves by hand, so two writes can be held in flight and
- *  landed in whichever order the test wants. */
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: unknown) => void
@@ -144,7 +122,6 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-/** What the tab itself is showing, read off the store it renders from. */
 const enabledById = () =>
   Object.fromEntries(useAgentProvidersStore.getState().providers.map((p) => [p.id, p.enabled]))
 
@@ -209,8 +186,6 @@ describe('ProvidersSettings', () => {
     seedProviders([provider('codex', 'Codex', true, true)])
     render(<ProvidersSettings />)
 
-    // The first Section hides its own header, so the tab carries heading and intro in
-    // its body; the name is user-facing only (the wire still says provider).
     expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByText(/coding CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
@@ -220,22 +195,17 @@ describe('ProvidersSettings', () => {
     render(<ProvidersSettings />)
     expect(screen.getByText('No agents available.')).toBeInTheDocument()
     expect(screen.queryByTestId('provider-toggle-codex')).toBeNull()
-    // The heading and intro explain the group even when nothing is installed.
     expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByText(/coding CLIs Crowbar runs your chats on/i)).toBeInTheDocument()
   })
 
-  // ── The column header ───────────────────────────────────────────────
-  // Two unlabelled switches per row are a guessing game: the columns are titled once.
   describe('the column header', () => {
-    /** The three trailing control cells of a row, in render order. */
     const rowColumns = (id: string) => [
       screen.getByTestId(`provider-connected-${id}`).parentElement,
       screen.getByTestId(`provider-tools-toggle-${id}`).parentElement,
       screen.getByTestId(`provider-toggle-${id}`).parentElement,
     ]
 
-    /** The `w-*` token an element carries — the thing that has to match. */
     const widthClass = (el: Element | null | undefined) =>
       el?.className.split(/\s+/).find((c) => /^w-/.test(c))
 
@@ -252,7 +222,6 @@ describe('ProvidersSettings', () => {
       expect(within(header).getByText('Enabled')).toBeInTheDocument()
     })
 
-    // The titled column is the legend, so a per-row "Tools" caption would only repeat it.
     it('retires the per-row Tools caption now the column is titled', () => {
       seedProviders([
         provider('codex', 'Codex', true, true),
@@ -267,8 +236,6 @@ describe('ProvidersSettings', () => {
       )
     })
 
-    // `Switch` changes width at `sm:`, so header and row must render the SAME column
-    // box: asserted against each other, so a hardcoded width on either side fails.
     it('lays the header labels out in the same column box as the row controls', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       render(<ProvidersSettings />)
@@ -280,16 +247,11 @@ describe('ProvidersSettings', () => {
       labels.forEach((label, i) => {
         expect(widthClass(label)).toBeDefined()
         expect(widthClass(label)).toBe(widthClass(cells[i]))
-        // …and both come from the one shared definition, rather than two
-        // literals that happen to agree today.
         expect(label.className).toContain(PROVIDER_COLUMN_CELL)
         expect(cells[i]?.className).toContain(PROVIDER_COLUMN_CELL)
       })
     })
 
-    // Presentational only. Every control already carries its own aria-label
-    // ("Let X use Crowbar's tools", "Enable X", "Installed"/"Not installed"); a
-    // header in the accessibility tree would announce each column twice.
     it('stays out of the accessibility tree without weakening the per-switch labels', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       render(<ProvidersSettings />)
@@ -303,7 +265,6 @@ describe('ProvidersSettings', () => {
       )
     })
 
-    // A header titles columns that exist: none over the empty, loading or failed list.
     it('does not appear over the empty state', () => {
       seedProviders([])
       render(<ProvidersSettings />)
@@ -313,8 +274,6 @@ describe('ProvidersSettings', () => {
     })
   })
 
-  // ── The tab is GLOBAL; the workspace store is not ───────────────────
-  // Read from the active workspace, any moment without one claimed no providers.
   describe('with no workspace in view', () => {
     it('still renders the providers it knows about', () => {
       seedProviders([provider('codex', 'Codex', true, true)])
@@ -348,8 +307,6 @@ describe('ProvidersSettings', () => {
   })
 
   describe('loading the list', () => {
-    // Opening the tab GETs /v0/settings/chat/providers — not the in-view workspace's
-    // chat-providers route, which is the wrong daemon whenever that workspace is remote.
     it('reads the local daemon on open through the global route', async () => {
       inWorkspace()
       listGlobalProvidersFn.mockResolvedValue([provider('codex', 'Codex', true, true)])
@@ -416,15 +373,11 @@ describe('ProvidersSettings', () => {
       { id: 'claude', disabled: false, mcpDisabled: false },
     ])
 
-    // Store reconciled from the mocked response, not from local optimism.
     await waitFor(() => {
       expect(useAgentProvidersStore.getState().providers[0].enabled).toBe(false)
     })
   })
 
-  // ── Crowbar's tools, per provider ───────────────────────────────────
-  // Independent of enabled: with tools off a provider still chats, it just cannot
-  // reach Crowbar.
   describe('the tools switch', () => {
     it('renders one per row, reflecting mcpEnabled', () => {
       seedProviders([
@@ -469,7 +422,6 @@ describe('ProvidersSettings', () => {
         { id: 'claude', disabled: false, mcpDisabled: false },
       ])
 
-      // Round trip: the reconciled store, and the switch, both say off.
       await waitFor(() => {
         expect(useAgentProvidersStore.getState().providers[0].mcpEnabled).toBe(false)
       })
@@ -477,12 +429,9 @@ describe('ProvidersSettings', () => {
         'aria-checked',
         'false',
       )
-      // …and the provider itself is untouched by a tools toggle.
       expect(screen.getByTestId('provider-toggle-codex')).toHaveAttribute('aria-checked', 'true')
     })
 
-    // The PUT replaces whole rows, so every write carries both flags. Both clicks hit
-    // the same provider: handleToggle carries mcpDisabled from the row it flips.
     it("survives a later toggle of the same provider's enable switch", async () => {
       seedProviders([
         provider('codex', 'Codex', true, true),
@@ -512,8 +461,6 @@ describe('ProvidersSettings', () => {
         { id: 'codex', disabled: true, mcpDisabled: true },
         { id: 'claude', disabled: false, mcpDisabled: false },
       ])
-      // And the tools switch is still off afterwards, which is what the user
-      // would actually see go wrong.
       await waitFor(() =>
         expect(screen.getByTestId('provider-tools-toggle-codex')).toHaveAttribute(
           'aria-checked',
@@ -523,11 +470,7 @@ describe('ProvidersSettings', () => {
     })
   })
 
-  // ── A READ THAT OVERTAKES A WRITE ───────────────────────────────────
-  // The mount GET is a snapshot from before a toggle's PUT; publishing it flips the
-  // switch back and the next full-set write sends the stale flag. Reads are fenced too.
   describe('a stale read landing after a write', () => {
-    /** Seeded, with the mount GET deliberately left in flight. */
     function seedWithGetInFlight(providers: AgentProvider[]) {
       const inflight = deferred<AgentProvider[]>()
       listGlobalProvidersFn.mockReturnValue(inflight.promise)
@@ -559,7 +502,6 @@ describe('ProvidersSettings', () => {
         ),
       )
 
-      // The mount GET, issued before the PUT, now answers with the pre-PUT list.
       await act(async () => {
         mountGet.resolve(seeded)
       })
@@ -589,8 +531,6 @@ describe('ProvidersSettings', () => {
     })
 
     it('still adopts a read that finishes with no write racing it', async () => {
-      // The fence must not simply refuse every read: this is the ordinary mount
-      // refresh, and it has to keep repairing a stale list.
       const mountGet = seedWithGetInFlight([provider('codex', 'Codex', true, true)])
 
       render(<ProvidersSettings />)
@@ -609,8 +549,6 @@ describe('ProvidersSettings', () => {
     })
   })
 
-  // ── Overlapping writes ─────────────────────────────────────────────
-  // Every write PUTs the complete set, so one built from a stale snapshot undoes an update.
   describe('overlapping writes', () => {
     it('builds the second payload from the first toggle, not the pre-response snapshot', async () => {
       seedProviders([
@@ -624,7 +562,6 @@ describe('ProvidersSettings', () => {
         .mockReturnValueOnce(second.promise)
 
       render(<ProvidersSettings />)
-      // Both toggles flipped off INSIDE the first round trip.
       await userEvent.click(screen.getByTestId('provider-toggle-codex'))
       await userEvent.click(screen.getByTestId('provider-toggle-claude'))
 
@@ -660,14 +597,12 @@ describe('ProvidersSettings', () => {
       await userEvent.click(screen.getByTestId('provider-toggle-codex'))
       await userEvent.click(screen.getByTestId('provider-toggle-claude'))
 
-      // The NEWER response lands first…
       await act(async () => {
         second.resolve([
           provider('codex', 'Codex', true, false),
           provider('claude', 'Claude', true, false),
         ])
       })
-      // …and the older one lands last, still describing a world where claude is on.
       await act(async () => {
         first.resolve([
           provider('codex', 'Codex', true, false),
@@ -691,9 +626,6 @@ describe('ProvidersSettings', () => {
     })
   })
 
-  // ── Default permission level (GET/PUT /v0/settings/chat/permission-level) ──
-  // The closed trigger shows the raw value until first opened, and base-ui marks
-  // the popup `inert` for a tick, so tests wait for it to become interactive.
   async function selectPermissionLevelOption(
     user: ReturnType<typeof userEvent.setup>,
     value: string,
@@ -767,8 +699,6 @@ describe('ProvidersSettings', () => {
       expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded')
     })
 
-    // A first write's late rejection must not roll back or toast over a second,
-    // already-successful selection.
     it('keeps the later selection when an earlier, now-stale write rejects after a later one resolves', async () => {
       seedProviders([provider('codex', 'Codex', true, true)])
       getDefaultPermissionLevelFn.mockResolvedValue('guarded')
@@ -784,15 +714,12 @@ describe('ProvidersSettings', () => {
         expect(screen.getByTestId('default-permission-level-trigger')).toHaveTextContent('Guarded'),
       )
 
-      // Two picks made before either round trip has answered.
       await selectPermissionLevelOption(user, 'trusted')
       await selectPermissionLevelOption(user, 'full-auto')
 
-      // The SECOND, newer write resolves first…
       await act(async () => {
         second.resolve('full-auto')
       })
-      // …and the FIRST, now-stale write rejects after it.
       await act(async () => {
         first.reject(new Error('daemon is down'))
       })
@@ -803,9 +730,6 @@ describe('ProvidersSettings', () => {
   })
 })
 
-// The tab edits the LOCAL daemon's preferences. A remote workspace being the
-// active one must neither supply the list nor receive the write: the PUT goes to
-// the local daemon, so a body built from remote rows is a silent wrong-host write.
 describe('ProvidersSettings with a remote workspace in view', () => {
   const remoteEnabled = () =>
     Object.fromEntries(

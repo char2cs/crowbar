@@ -1,5 +1,3 @@
-//! Where the rotating log keeps its files.
-
 use std::io;
 use std::path::Path;
 

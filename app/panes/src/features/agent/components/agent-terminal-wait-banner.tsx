@@ -6,19 +6,13 @@ import {
 } from '@/features/agent/api/agent-chat-reads'
 
 interface AgentTerminalWaitBannerProps {
-  /** Crowbar's own name for the prompt, or '' when it knows only that one is up. */
   kind: string
-  /** The provider's display name, or '' when it is not known yet. */
   providerLabel: string
   onOpenTerminal: () => void
-  /** The prompt's declared one-tap replies, when it has any. */
   answers?: AgentTerminalAnswer[]
   onAnswer?: (answerId: string) => void
 }
 
-/** The CLI is blocked on a prompt with no hook channel (trust, login): it offers the
- *  descriptor's declared replies, else points at the terminal. Pane-level because the
- *  composer is unreachable before the first turn; one line except on touch, which wraps. */
 export function AgentTerminalWaitBanner({
   kind,
   providerLabel,
@@ -61,8 +55,6 @@ interface AgentReturnToChatNoticeProps {
   onDismiss: () => void
 }
 
-/** Offered instead of an automatic return once the user has navigated or picked a
- *  surface themselves: yanking them out of a terminal they are using is worse. */
 export function AgentReturnToChatNotice({ onReturn, onDismiss }: AgentReturnToChatNoticeProps) {
   return (
     <div

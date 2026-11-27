@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
 
-// Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
-// `events` records unmount/destroy interleaving: components living over the store
-// (terminal slots) must be UNMOUNTED before the store is destroyed.
 const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambientSeen } =
   vi.hoisted(() => {
     const events = [] as string[]
@@ -11,11 +8,8 @@ const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambie
     return {
       events,
       registry,
-      /** How many times the window's pane tree has been (re)mounted. */
       layoutMounts: { current: 0 },
-      /** The ambient store (by workspace id) each pane-tree render saw. */
       ambientSeen: [] as Array<string | undefined>,
-      /** Set while a WorkspaceView renders, to catch a mint in the render path. */
       rendering: { current: false, mintedWhileRendering: 0 },
       hydrateSpy: vi.fn<(wsId: string) => void>(),
       destroySpy: vi.fn<(wsId: string) => void>((wsId) => {
@@ -25,15 +19,11 @@ const { hydrateSpy, destroySpy, events, registry, rendering, layoutMounts, ambie
     }
   })
 
-// Light WorkspaceView stub: mirrors the real hydrate-once-per-mount contract
-// (one hydrate per mount, never on a warm re-activation) without pulling the
-// terminal subtree into the test.
 vi.mock('@/features/workspace/components/workspace-view', async () => {
   const React = await import('react')
   return {
     WorkspaceView: ({ wsId, active }: { wsId: string; active: boolean }) => {
       rendering.current = true
-      // Children's layout effects run before the host's: the render phase is over.
       React.useLayoutEffect(() => {
         rendering.current = false
       })
@@ -62,7 +52,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   setActiveWorkspaceId: () => {},
 }))
 
-// The pane tree itself is another suite's subject; this one is about retention.
 vi.mock('@/features/workspace/components/workspace-layout-root', async () => {
   const React = await import('react')
   const ctx = await import('@/features/workspace/stores/workspace-context')
@@ -121,7 +110,6 @@ afterEach(() => {
   cleanup()
 })
 
-/** The mounted slots, as the DOM shows them. */
 function mountedSlots(): string[] {
   return [...document.querySelectorAll<HTMLElement>('[data-workspace-slot]')]
     .map((el) => el.dataset.workspaceSlot!)
@@ -129,8 +117,6 @@ function mountedSlots(): string[] {
 }
 
 describe('WorkspaceHost — the pane tree across a switch', () => {
-  // The ambient store is a context value read by every pane: if it followed the
-  // active workspace, every cross-workspace focus click would re-render all panes.
   it('keeps the ambient store handed to the pane tree the same when the active workspace flips', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
@@ -141,7 +127,6 @@ describe('WorkspaceHost — the pane tree across a switch', () => {
 })
 
 describe('WorkspaceHost — warm-switch span', () => {
-  // WorkspaceView spans a cold mount itself; the host must only span a switch it mounted nothing for.
   function hostSwitchSpans(spy: { mock: { calls: unknown[][] } }): number {
     return spy.mock.calls.filter((c) => c[0] === 'workspace.switch').length
   }
@@ -203,8 +188,6 @@ describe('WorkspaceHost', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     expect(hydrateCount('a')).toBe(1)
 
-    // Switch A → B: A stays mounted but hidden (display:none — see
-    // workspace-slot-style.ts) + inert, B is active. Both have a view chat.
     rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
     expect(slot('a')).not.toBeNull()
     expect(slot('a')!.style.display).toBe('none')
@@ -213,11 +196,10 @@ describe('WorkspaceHost', () => {
     expect(hydrateCount('b')).toBe(1)
     expect(destroySpy).not.toHaveBeenCalled()
 
-    // Switch back B → A: A was never destroyed and is not re-hydrated.
     rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     expect(slot('a')!.style.display).toBe('contents')
     expect(slot('b')!.style.display).toBe('none')
-    expect(hydrateCount('a')).toBe(1) // still only the original cold hydrate
+    expect(hydrateCount('a')).toBe(1)
     expect(destroySpy).not.toHaveBeenCalled()
   })
 
@@ -236,7 +218,6 @@ describe('WorkspaceHost', () => {
     expect(slot('a')).not.toBeNull()
     expect(destroySpy).not.toHaveBeenCalled()
 
-    // The view closes (its last chat leaves Recents): viewWsIds drops 'a'.
     rerender(<WorkspaceHost activeWsId="b" viewWsIds={[]} />)
 
     expect(destroySpy).toHaveBeenCalledWith('a')
@@ -247,15 +228,12 @@ describe('WorkspaceHost', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
     expect(hydrateCount('a')).toBe(1)
 
-    // Navigate to project home: no workspace is active, but A still has a
-    // view chat, so it survives the transit.
     rerender(<WorkspaceHost activeWsId={null} viewWsIds={['a']} />)
     expect(slot('a')).not.toBeNull()
     expect(slot('a')!.style.display).toBe('none')
     expect(slot('a')!.hasAttribute('inert')).toBe(true)
     expect(destroySpy).not.toHaveBeenCalled()
 
-    // Return home → A: warm (no re-hydrate), and A was never destroyed.
     rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
     expect(slot('a')!.style.display).toBe('contents')
     expect(hydrateCount('a')).toBe(1)
@@ -270,11 +248,9 @@ describe('WorkspaceHost', () => {
 
   it('on home with no active workspace and no view chat anywhere, nothing is retained', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />) // a evicted immediately (no view chat)
+    rerender(<WorkspaceHost activeWsId="b" />)
     expect(destroySpy).toHaveBeenCalledWith('a')
 
-    // Go to project home with no active workspace at all: b has no view
-    // chat either, so nothing survives the transit.
     rerender(<WorkspaceHost activeWsId={null} />)
     expect(destroySpy).toHaveBeenCalledWith('b')
     expect(slot('b')).toBeNull()
@@ -305,7 +281,6 @@ describe('WorkspaceHost', () => {
     expect(slot('a')).not.toBeNull()
     expect(destroySpy).not.toHaveBeenCalled()
 
-    // "Close" workspace A: it disappears from the sidebar's workspace set.
     seedSidebar(['b'])
 
     expect(destroySpy).toHaveBeenCalledWith('a')
@@ -313,8 +288,6 @@ describe('WorkspaceHost', () => {
   })
 
   it('protects a homeWsIds entry from the existence-prune — home is a project-level concept, absent from the sidebar entirely', () => {
-    // The home id is never a tree row, so without homeWsIds it would be pruned as "closed" once
-    // hidden. It also gets a view chat, or retention (not the prune) would evict it.
     seedSidebar(['b'])
     const { rerender } = render(
       <WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />,
@@ -325,7 +298,6 @@ describe('WorkspaceHost', () => {
     expect(slot('home-ws')!.style.display).toBe('none')
     expect(destroySpy).not.toHaveBeenCalled()
 
-    // And a warm return to it needs no re-hydration.
     rerender(<WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />)
     expect(slot('home-ws')!.style.display).toBe('contents')
     expect(hydrateCount('home-ws')).toBe(1)
@@ -339,8 +311,6 @@ describe('WorkspaceHost', () => {
     expect(slot('home-ws')).toBeNull()
   })
 
-  // A split can hold panes from workspaces never routed to; each needs a real store, or its pane
-  // reads the ambient fallback and renders wrong or blank.
   it("force-mounts every paneWsIds entry, even one that's neither active nor previously retained", () => {
     render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} />)
 
@@ -363,7 +333,6 @@ describe('WorkspaceHost', () => {
     )
     expect(slot('b')).not.toBeNull()
 
-    // The pane closes and its chat leaves Recents entirely.
     rerender(<WorkspaceHost activeWsId="a" paneWsIds={['a']} viewWsIds={[]} />)
 
     expect(destroySpy).toHaveBeenCalledWith('b')
@@ -371,9 +340,6 @@ describe('WorkspaceHost', () => {
   })
 
   it('retains the DEFAULT (main-worktree) workspace when hidden — it lives in repo.defaultWorkspaceId, not the workspaces array', () => {
-    // The default workspace is not a tree row: it exists only as
-    // repo.defaultWorkspaceId. Pruning against repo.workspaces alone would
-    // destroy it the moment it goes hidden while any child exists.
     seedSidebar(['child1'], { defaultWorkspaceId: 'def-ws' })
     const { rerender } = render(<WorkspaceHost activeWsId="def-ws" viewWsIds={['def-ws']} />)
     rerender(<WorkspaceHost activeWsId="child1" viewWsIds={['def-ws']} />)
@@ -382,7 +348,6 @@ describe('WorkspaceHost', () => {
     expect(slot('def-ws')).not.toBeNull()
     expect(slot('def-ws')!.style.display).toBe('none')
 
-    // And a warm return to it needs no re-hydration.
     rerender(<WorkspaceHost activeWsId="def-ws" viewWsIds={['def-ws']} />)
     expect(hydrateCount('def-ws')).toBe(1)
   })
@@ -392,8 +357,6 @@ describe('WorkspaceHost', () => {
     events.length = 0
     rerender(<WorkspaceHost activeWsId="b" />)
 
-    // Terminal slots in A's subtree must be torn down before the
-    // store they read from is destroyed.
     expect(events).toContain('unmount:a')
     expect(events).toContain('destroy:a')
     expect(events.indexOf('unmount:a')).toBeLessThan(events.indexOf('destroy:a'))
@@ -411,13 +374,6 @@ describe('WorkspaceHost', () => {
   })
 })
 
-/**
- * Forced eviction — the close path asking for a workspace to go NOW
- * (workspace-eviction-request.ts). Independent of the ordinary retention
- * test: a workspace whose last VIEW the user just closed is exactly the case
- * the new rule already handles the instant `viewWsIds` catches up, but the
- * close path also has this synchronous, no-wait-for-props escape hatch.
- */
 describe('WorkspaceHost — forced eviction', () => {
   it('drops a retained workspace immediately', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
@@ -442,8 +398,6 @@ describe('WorkspaceHost — forced eviction', () => {
     expect(events.indexOf('unmount:a')).toBeLessThan(events.indexOf('destroy:a'))
   })
 
-  // The ACTIVE workspace is the route. Its `WorkspaceView` is mounted over the
-  // store and would re-create it the instant it went away.
   it('refuses to evict the workspace currently on screen', () => {
     render(<WorkspaceHost activeWsId="a" />)
 

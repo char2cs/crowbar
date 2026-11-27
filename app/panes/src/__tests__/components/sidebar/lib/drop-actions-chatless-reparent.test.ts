@@ -47,7 +47,6 @@ const repo: Repo = {
 beforeEach(() => {
   vi.clearAllMocks()
   stubDropBoundary()
-  // The real reparent runs: its chat-keyed address is what refuses a chatless fork.
   vi.mocked(reparentWorkspace).mockRestore()
   vi.spyOn(fetchApi, 'apiFetch').mockResolvedValue(undefined)
   useWorkspaceScopeStore.setState(useWorkspaceScopeStore.getInitialState())
@@ -55,10 +54,6 @@ beforeEach(() => {
   seedRepos([repo])
 })
 
-// A fork whose owning chat has not been recorded yet is addressed by its
-// workspace id; the reparent a nesting drop fires is chat-keyed, so it can
-// only throw — the matrix never offers it, and a drop that reaches the
-// planner anyway says why instead of surfacing the scope registry error.
 describe('dragging a chatless fork into another branch', () => {
   it('is not offered by the drop matrix — only a same-parent reorder is', () => {
     const rows = repoRows(repo)

@@ -17,8 +17,6 @@ func TestDecodeEnvelopeUnwrapsData(t *testing.T) {
 	}
 }
 
-// PostJSON returns err == nil for a non-2xx, so the status check has to live
-// here — otherwise a 404 decodes to a zero value and reads as success.
 func TestDecodeEnvelopeRejectsNon2xx(t *testing.T) {
 	err := errorFrom[[]repoDTO](t, 404, []byte(`{"success":false,"error":"not found"}`))
 
@@ -43,8 +41,6 @@ func TestDecodeEnvelopeRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
-// A 202 answers with an empty body, so decoding one is always a mistake; the
-// error has to say the body was empty rather than blame the JSON.
 func TestDecodeEnvelopeReportsAnEmptyBody(t *testing.T) {
 	err := errorFrom[projectDTO](t, 202, nil)
 

@@ -20,7 +20,6 @@ import { workspaceRef } from '@/lib/api/documents'
 const DOC = workspaceRef('ws-reg', 'src/doc.ts')
 const URI = documentUri(DOC)
 
-/** Records every call, and hands each to the app's own handler as the host does. */
 function recordingListener() {
   return {
     dirtyChanged: vi.fn(setDocumentDirty),
@@ -35,7 +34,6 @@ let documents: DocumentRegistry
 
 const live = () => monacoEditor.getModel(Uri.parse(URI))!
 
-/** One undo step, as a keystroke makes. */
 function edit(text: string, range = live().getFullModelRange().collapseToEnd()) {
   const model = live()
   model.pushStackElement()

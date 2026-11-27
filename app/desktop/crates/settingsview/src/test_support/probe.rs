@@ -1,5 +1,3 @@
-//! Renders a single element in a test window and reports its bounds.
-
 use std::rc::Rc;
 
 use gpui::{

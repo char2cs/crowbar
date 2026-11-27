@@ -1,5 +1,3 @@
-//! Views opened for the unit tests, and reads of what they show.
-
 use gpui::{
     App, AppContext as _, Entity, Focusable as _, TestAppContext, VisualTestContext, Window,
 };
@@ -42,7 +40,6 @@ pub(crate) fn document_opening(
     }
 }
 
-/// A view over a new document `openings` describes, told to `server` when one is given.
 pub(crate) fn shown(
     (document, opening): (DocumentOpening, Opening),
     server: Option<std::rc::Rc<dyn crate::LanguageServer>>,
@@ -102,7 +99,6 @@ pub(crate) fn listened(
 
 type Posts = std::rc::Rc<std::cell::RefCell<Vec<(&'static str, serde_json::Value)>>>;
 
-/// A language server that records what it was told and answers from a table, `null` else.
 #[derive(Clone, Default)]
 pub(crate) struct FakeServer {
     told: Posts,
@@ -151,7 +147,6 @@ impl crate::LanguageServer for FakeServer {
     }
 }
 
-/// A focused view of `text` at `path` that tells a [`FakeServer`] about its document.
 pub(crate) fn served<'cx>(
     (path, text): (&str, &str),
     cx: &'cx mut TestAppContext,
@@ -170,7 +165,6 @@ pub(crate) fn served<'cx>(
     (view, window, server)
 }
 
-/// What the view's hover provider answers at `offset` of its text.
 pub(crate) fn hover_at(
     view: &Entity<EditorView>,
     offset: usize,
@@ -191,7 +185,6 @@ pub(crate) fn hover_at(
     answer.borrow_mut().take().flatten()
 }
 
-/// The items the view's completion provider answers at `offset` of its text.
 pub(crate) fn completions_at(
     view: &Entity<EditorView>,
     offset: usize,
@@ -230,8 +223,6 @@ fn ask_completions(
     Some(provider.completions(&text, offset, context, window, cx))
 }
 
-/// Presses `keys`, each `@namespace::Action` token as the chord the keymap binds last to that
-/// action, so a test presses each platform's own chord.
 pub(crate) fn press(
     keys: &str,
     window: &mut VisualTestContext,

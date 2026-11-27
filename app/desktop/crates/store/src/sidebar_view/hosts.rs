@@ -1,5 +1,3 @@
-//! The hosts the sidebar lists, as the state holds them.
-
 use sidebar::{Host, HostId, HostKind};
 
 use crate::live::HostSlot;

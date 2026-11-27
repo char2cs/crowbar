@@ -1,5 +1,3 @@
-//! Chords of the shortcuts: reading them, capturing a new one and writing the overrides.
-
 mod keymap;
 
 use std::collections::BTreeMap;
@@ -17,7 +15,6 @@ use crate::values::Value;
 use chord::Chord;
 
 impl State {
-    /// The chord of `shortcut` and whether the user set it.
     pub fn chord(
         &self,
         group: &ShortcutGroup,
@@ -30,7 +27,6 @@ impl State {
         )
     }
 
-    /// Labels of the other commands bound to the same chord as `shortcut`.
     pub fn conflicts(
         &self,
         group: &ShortcutGroup,
@@ -39,12 +35,10 @@ impl State {
         Keymap::new(&self.schema, &self.document).conflicts(group, shortcut)
     }
 
-    /// Whether any shortcut has a custom chord.
     pub fn has_custom_chords(&self) -> bool {
         Keymap::new(&self.schema, &self.document).has_custom()
     }
 
-    /// The label of `chord` on this platform.
     pub fn label(
         &self,
         chord: &Chord,
@@ -52,7 +46,6 @@ impl State {
         chord.label(self.primary)
     }
 
-    /// Starts (or, on the capturing button, stops) listening for a chord for `command`.
     pub fn toggle_capture(
         &mut self,
         command: &str,
@@ -67,17 +60,14 @@ impl State {
         self.capture.begin(command);
     }
 
-    /// The command whose chord is being captured.
     pub fn capturing(&self) -> Option<&str> {
         self.capture.target()
     }
 
-    /// Why the last key press was turned down.
     pub fn capture_refusal(&self) -> Option<Refusal> {
         self.capture.refusal()
     }
 
-    /// Feeds a key press to the capture; returns the write when it completed a chord.
     pub fn press_key(
         &mut self,
         pressed: &Pressed,
@@ -86,7 +76,6 @@ impl State {
         self.set_chord(&command, Some(chord.as_str()))
     }
 
-    /// Drops the custom chord of `command`, which restores its default.
     pub fn clear_chord(
         &mut self,
         command: &str,

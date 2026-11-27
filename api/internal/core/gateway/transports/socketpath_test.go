@@ -37,13 +37,11 @@ func TestSocketPath_DefaultHomeBindsInsideIt(t *testing.T) {
 	require.Equal(t, h.Socket(), got)
 }
 
-// An in-PTY callback's --home always spells the home out, even the default
-// one; ipc.NewClient resolves it through SocketPath and must reach the daemon.
 func TestSocketPath_SpelledOutDefaultHomeIsNotAnOverride(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("HOME does not set the user home on windows")
 	}
-	t.Setenv("TMPDIR", "/tmp") // a home short enough for its socket to bind inside it
+	t.Setenv("TMPDIR", "/tmp")
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv(home.EnvVar, "")

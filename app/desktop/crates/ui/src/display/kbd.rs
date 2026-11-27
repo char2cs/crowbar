@@ -1,5 +1,3 @@
-//! Keyboard shortcut hint.
-
 use gpui::{App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px};
 
 use crate::foundation::ScaledText;
@@ -10,14 +8,12 @@ use crate::foundation::tokens::spacing;
 
 const MIN_HEIGHT: f32 = 16.0;
 
-/// The `kbd` pill showing a shortcut such as `Ctrl+B`.
 #[derive(Debug, Clone, IntoElement)]
 pub struct Kbd {
     keys: SharedString,
 }
 
 impl Kbd {
-    /// A hint for already formatted `keys`.
     pub fn new(keys: impl Into<SharedString>) -> Self {
         Self { keys: keys.into() }
     }

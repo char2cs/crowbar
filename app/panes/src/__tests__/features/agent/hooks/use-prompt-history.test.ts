@@ -9,14 +9,11 @@ describe('usePromptHistory', () => {
     expect(result.current.recallOlder('typing…')).toBe('third')
     expect(result.current.recallOlder('')).toBe('second')
     expect(result.current.recallOlder('')).toBe('first')
-    // Nothing older than the oldest loaded turn.
     expect(result.current.recallOlder('')).toBeUndefined()
 
     expect(result.current.recallNewer()).toBe('second')
     expect(result.current.recallNewer()).toBe('third')
-    // Back at the top: returns whatever was being typed before the walk began.
     expect(result.current.recallNewer()).toBe('typing…')
-    // Already at the live draft — nothing further to recall.
     expect(result.current.recallNewer()).toBeUndefined()
   })
 
@@ -32,8 +29,6 @@ describe('usePromptHistory', () => {
     expect(result.current.recallOlder('typing…')).toBe('only one')
     result.current.reset()
 
-    // A fresh walk, not a continuation — re-stashes the CURRENT draft, not the
-    // one it stashed before the edit that triggered the reset.
     expect(result.current.recallOlder('edited since')).toBe('only one')
     expect(result.current.recallNewer()).toBe('edited since')
   })
@@ -44,10 +39,8 @@ describe('usePromptHistory', () => {
     )
 
     expect(result.current.searchOlder('tests')).toBe('run the tests again')
-    // Again: the next older match for the same words, whatever the box now shows.
     expect(result.current.searchOlder('run the tests again')).toBe('run the tests')
     expect(result.current.searchOlder('run the tests')).toBeUndefined()
-    // Down walks back toward the draft that started the search.
     expect(result.current.recallNewer()).toBe('fix lint')
   })
 

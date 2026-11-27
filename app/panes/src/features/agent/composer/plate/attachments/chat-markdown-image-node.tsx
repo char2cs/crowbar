@@ -16,8 +16,6 @@ import {
 import { excalidrawSceneFromCodeBlock } from './chat-code-block-node'
 import { ChatImageLightbox, useChatImageLightbox } from './chat-image-lightbox'
 
-/** The PNG after an excalidraw fence is already drawn by `ExcalidrawPreview`.
- *  `findPath` fresh rather than `useNodePath`, which can be stale. */
 function isExcalidrawPngSibling(props: PlateElementProps): boolean {
   const path = props.editor.api.findPath(props.element)
   if (!path) return false
@@ -28,10 +26,8 @@ function isExcalidrawPngSibling(props: PlateElementProps): boolean {
   return excalidrawSceneFromCodeBlock(prev as TCodeBlockElement) !== null
 }
 
-/** The cap every attachment preview shares, so a tall photo can't take over the composer. */
 const IMAGE_MAX_HEIGHT_CLASS = 'max-h-80'
 
-/** A `<button>` rather than an onClick on the `<img>`, so it is keyboard-reachable. */
 function ZoomableChatImage({ src, alt }: { src: string; alt: string }) {
   const lightbox = useChatImageLightbox()
   return (
@@ -103,8 +99,6 @@ function ChatAttachmentImageBlockStatic(props: PlateElementProps) {
   )
 }
 
-/** The excalidraw PNG sibling stays mounted but hidden, so Slate's node<->DOM
- *  mapping is never disturbed. */
 export function ChatMarkdownImageElement(props: PlateElementProps) {
   if (isExcalidrawPngSibling(props)) {
     return (

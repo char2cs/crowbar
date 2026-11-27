@@ -44,7 +44,6 @@ func TestApplyToFile_Locked(t *testing.T) {
 	err := replace.ApplyToFile(path, re, "goodbye", true)
 	require.ErrorIs(t, err, replace.ErrLocked)
 
-	// File must be untouched.
 	data, err2 := os.ReadFile(path)
 	require.NoError(t, err2)
 	assert.Equal(t, "hello\n", string(data))
@@ -82,7 +81,6 @@ func TestApplyToFile_MissingFile(t *testing.T) {
 }
 
 func TestApplyToFile_IsAtomic(t *testing.T) {
-	// Verify no temp files are left behind after a successful replace.
 	dir := t.TempDir()
 	path := writeFile(t, dir, "file.go", "hello\n")
 
@@ -98,7 +96,6 @@ func TestApplyToFile_IsAtomic(t *testing.T) {
 
 func TestApplyToFile_BinarySkipped(t *testing.T) {
 	dir := t.TempDir()
-	// Binary content: null bytes guarantee match.IsBinary returns true.
 	binPath := filepath.Join(dir, "binary.bin")
 	require.NoError(t, os.WriteFile(binPath, []byte{0x00, 0x01, 0x02, 0x7f}, 0o600))
 
@@ -108,7 +105,6 @@ func TestApplyToFile_BinarySkipped(t *testing.T) {
 	re := regexp.MustCompile(`\x00`)
 	require.NoError(t, replace.ApplyToFile(binPath, re, "X", false))
 
-	// File must be untouched.
 	got, err := os.ReadFile(binPath)
 	require.NoError(t, err)
 	assert.Equal(t, original, got)
@@ -132,10 +128,6 @@ func TestApplyToFile_PreservesPermissions(t *testing.T) {
 	assert.Equal(t, "#!/bin/sh\ngoodbye\n", string(data))
 }
 
-// TestApplyToFile_NoReadPermission covers the "open for sniff" error branch:
-// os.Stat succeeds (it doesn't require read permission on the file itself),
-// but the subsequent os.Open for the binary sniff fails because the file has
-// no read permission.
 func TestApplyToFile_NoReadPermission(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root; cannot test permission denial")
@@ -151,9 +143,6 @@ func TestApplyToFile_NoReadPermission(t *testing.T) {
 	assert.Contains(t, err.Error(), "open for sniff")
 }
 
-// TestApplyToFile_DirectoryAsPath covers the binary-sniff read error branch
-// (readErr != io.EOF): os.Stat and os.Open both succeed against a directory,
-// but reading from it fails with "is a directory".
 func TestApplyToFile_DirectoryAsPath(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "subdir")
@@ -172,12 +161,10 @@ func TestApplyToFile_RenameFailsWhenDirReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "file.go", "hello\n")
 
-	// Make the directory read-only so os.Rename fails.
 	require.NoError(t, os.Chmod(dir, 0o555))
 	defer func() { _ = os.Chmod(dir, 0o755) }()
 
 	re := regexp.MustCompile(`hello`)
 	err := replace.ApplyToFile(path, re, "goodbye", false)
-	// Should fail because the temp file cannot be created (dir not writable).
 	require.Error(t, err)
 }

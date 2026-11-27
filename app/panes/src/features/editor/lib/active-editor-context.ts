@@ -1,14 +1,9 @@
-// Per-pane active-editor pub/sub. Subscribers get the current context at once, then every change.
-// `set` dedups on uri AND model identity: a reopened file keeps its uri but gets a new model, and
-// keeping the disposed one would crash satellite reads with 'Model is disposed!'.
-
 export interface ActiveEditorContext {
   paneId: string
-  uri: string // monaco model uri string (crowbar://editor/...)
+  uri: string
   filePath: string
-  // opaque handles the controller attaches; satellites may read them:
-  model?: unknown // monaco ITextModel
-  editor?: unknown // monaco editor instance
+  model?: unknown
+  editor?: unknown
 }
 
 export interface ActiveEditorRegistry {
@@ -16,8 +11,6 @@ export interface ActiveEditorRegistry {
   get(paneId: string): ActiveEditorContext | undefined
   subscribe(paneId: string, cb: (ctx: ActiveEditorContext | undefined) => void): () => void
   clear(paneId: string): void
-  /** Clear the pane's context only if it still points at `uri` (buffer close drops the disposed
-   *  model so a reopen doesn't keep it); a no-op once the pane moved to another uri. */
   clearIfActive(paneId: string, uri: string): void
 }
 
@@ -49,9 +42,6 @@ function createActiveEditorRegistry(): ActiveEditorRegistry {
   return {
     set(paneId, ctx) {
       const state = getOrCreate(paneId)
-      // Dedup on uri AND model identity: a reopened file reuses the uri but gets
-      // a FRESH model (the prior one was disposed on close), so deduping on uri
-      // alone would retain the disposed model and never re-notify satellites.
       if (state.ctx?.uri === ctx.uri && state.ctx?.model === ctx.model) return
       state.ctx = ctx
       notify(state, ctx)
@@ -86,5 +76,4 @@ function createActiveEditorRegistry(): ActiveEditorRegistry {
   }
 }
 
-/** The window's one registry: every pane publishes here, whatever workspace it shows. */
 export const activeEditors: ActiveEditorRegistry = createActiveEditorRegistry()

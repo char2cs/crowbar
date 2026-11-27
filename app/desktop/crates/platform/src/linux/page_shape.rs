@@ -1,6 +1,3 @@
-//! Cuts a hole and rounded corners out of a web view's window, or all of it, so the shell window under it shows
-//! there and takes the pointer, as for the handle a split pane hangs from its top.
-
 mod page_cut;
 mod rounded;
 
@@ -55,28 +52,17 @@ fn outside(
     }
 }
 
-/// The shape of the windows web views draw in, set over a connection of its own.
 #[derive(Debug)]
 pub struct PageShape {
     connection: RustConnection,
 }
 
 impl PageShape {
-    /// Connects to the X server named by `DISPLAY`.
-    ///
-    /// # Errors
-    /// [`Error::X11Connect`] when no X server answers.
     pub fn connect() -> Result<Self, Error> {
         let (connection, _screen) = RustConnection::connect(None)?;
         Ok(Self { connection })
     }
 
-    /// Cuts `cut` out of the child of `owner` that holds the window `page`, for drawing and for
-    /// the pointer alike; `None` makes it whole again. The cut holds however the window is
-    /// resized, hidden or shown later.
-    ///
-    /// # Errors
-    /// [`Error::Cutout`] when the window is gone or the connection broke.
     pub fn cut(
         &self,
         (page, owner): (u32, u32),
@@ -228,7 +214,6 @@ mod tests {
         assert!(!notched.iter().any(square), "square corners: {notched:?}");
     }
 
-    /// A window, its child and its grandchild: the shell, wry's holder and the page.
     fn nested(
         connection: &RustConnection,
         root: u32,
@@ -238,7 +223,6 @@ mod tests {
         [owner, holder, child(connection, holder)]
     }
 
-    /// X serves each connection on its own, so a cut is read only once the server has done it.
     fn settled(shape: &PageShape) {
         shape.connection.get_input_focus().unwrap().reply().unwrap();
     }

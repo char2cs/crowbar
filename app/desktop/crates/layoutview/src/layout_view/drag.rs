@@ -1,5 +1,3 @@
-//! Dragging over the split tree: drop targets and preview, pane zones, sashes, grip ghost.
-
 pub(crate) mod chat_sash_grab;
 pub(super) mod drop_hit;
 pub(super) mod drop_hover;

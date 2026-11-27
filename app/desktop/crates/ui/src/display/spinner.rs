@@ -1,5 +1,3 @@
-//! The rotating loading indicator.
-
 use gpui::{
     AnimationExt, App, ElementId, Hsla, IntoElement, Pixels, RenderOnce, Styled, Transformation,
     Window, percentage, svg,
@@ -18,7 +16,6 @@ use crate::foundation::tokens::timing;
 
 const OPACITY: f32 = 0.8;
 
-/// A `CircleNotch` turning once a second; it keeps spinning under reduced motion.
 #[derive(IntoElement)]
 pub struct Spinner {
     id: ElementId,
@@ -28,7 +25,6 @@ pub struct Spinner {
 }
 
 impl Spinner {
-    /// A 16px spinner.
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
@@ -38,7 +34,6 @@ impl Spinner {
         }
     }
 
-    /// Sets the edge length.
     #[must_use]
     pub fn size(
         mut self,
@@ -48,7 +43,6 @@ impl Spinner {
         self
     }
 
-    /// Takes the muted text colour of `surface`'s palette.
     #[must_use]
     pub fn on(
         mut self,
@@ -58,7 +52,6 @@ impl Spinner {
         self
     }
 
-    /// Draws the spinner in `color` instead of the muted text colour.
     #[must_use]
     pub fn color(
         mut self,

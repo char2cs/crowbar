@@ -16,14 +16,11 @@ import {
 import { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 
-// How much of a new chat's tool approval Crowbar answers itself. Daemon-owned (applied when a chat
-// starts), so it is GET/PUT /v0/settings/chat/permission-level, optimistic then reconciled.
 export function DefaultPermissionLevelSetting() {
   const { level, change } = useDefaultPermissionLevel()
   return <PermissionLevelRow level={level} onChange={change} />
 }
 
-/** The local daemon's default permission level, or `hostId`'s, and the one way to change it. */
 export function useDefaultPermissionLevel(hostId?: string) {
   const [level, setLevel] = useState<PermissionLevel>('guarded')
 
@@ -45,8 +42,6 @@ export function useDefaultPermissionLevel(hostId?: string) {
     }
   }, [hostId])
 
-  // One writer can still fire twice before the first PUT settles; without this fence a late
-  // rejection of the first pick would rewind the second, successful one.
   const writeGeneration = useRef(0)
 
   const change = useCallback(
@@ -60,7 +55,7 @@ export function useDefaultPermissionLevel(hostId?: string) {
           ? updateDefaultPermissionLevel(value)
           : updateDefaultPermissionLevel(value, hostId)
       void write.catch(() => {
-        if (writeGeneration.current !== generation) return // superseded by a later pick
+        if (writeGeneration.current !== generation) return
         setLevel(previous)
         toast.error(
           'Could not save permission level',

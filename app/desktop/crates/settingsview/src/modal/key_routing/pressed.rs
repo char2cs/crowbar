@@ -1,5 +1,3 @@
-//! Translates GPUI key presses into the capture rule's vocabulary.
-
 use gpui::Keystroke;
 
 use settings::{ModifierKey, Pressed};

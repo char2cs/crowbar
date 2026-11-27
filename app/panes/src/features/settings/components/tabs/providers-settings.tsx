@@ -13,9 +13,6 @@ import { ChatPresentationSetting } from './chat-presentation-setting'
 import { DefaultPermissionLevelSetting } from './default-permission-level-setting'
 import { ProvidersSettingsView } from './providers-settings-view'
 
-// "Agents" is only the user-facing name ("agent" is overloaded internally); code and wire say
-// provider. Edits the local daemon's list from anywhere, and PUTs to the server rather than
-// `updateSetting`'s localStorage, since provider state is server-owned.
 export const ProvidersSettings = () => {
   const { providers, status, retry, toggle, toggleTools, reorder } = useProvidersSettings()
   const [uploading, setUploading] = useState(false)

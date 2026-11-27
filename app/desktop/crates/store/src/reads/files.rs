@@ -1,5 +1,3 @@
-//! What the Files panel menu asks of the followed workspace.
-
 use sidebar::{Command, FolderPhase};
 
 use crate::live::HostSlot;

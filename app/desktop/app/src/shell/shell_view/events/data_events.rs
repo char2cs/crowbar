@@ -15,7 +15,6 @@ use crate::shell::shell_view::events::notices::show_alert;
 use crate::shell::shell_view::settings::settings_modal::{open_settings, settings_config};
 use crate::shell::window::notice_key::NoticeKey;
 
-// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule WebKit's chooser for the descriptor `<input accept=…>`.
 const DESCRIPTOR_CHOICE: ui::FileChoice = ui::FileChoice {
     title: "Select File",
     kind: ui::ChoiceKind::File,

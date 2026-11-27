@@ -1,5 +1,3 @@
-//! The shell's rotating log, its sinks and the crash report left beside it.
-
 pub(crate) mod adapters;
 mod crash_report;
 mod log_file;

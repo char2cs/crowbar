@@ -1,20 +1,15 @@
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 
-/** Re-parses spent per prompt; past this a prompt keeps its other escapes. */
 const PARSE_BUDGET = 16
-/** Above this a prompt goes as serialized: one parse of it costs too much. */
 const LENGTH_CAP = 2000
 
 let last = { draft: '', sent: '' }
 
-/** The draft's markdown as sent: a remark escape stays only if dropping it would change what a
- *  re-parse gives back (the bubble, queue and history all re-parse it). */
 export function chatPromptToSend(draft: string): string {
   if (last.draft !== draft) last = { draft, sent: withoutNeedlessEscapes(draft) }
   return last.sent
 }
 
-/** Where `md` holds a backslash escape: a `\` before ASCII punctuation. */
 function escapesIn(md: string): number[] {
   const at: number[] = []
   for (let i = 0; i < md.length - 1; i++) {
@@ -25,7 +20,6 @@ function escapesIn(md: string): number[] {
   return at
 }
 
-/** Halves are tried before singles, so a prompt of needless escapes costs two parses. */
 function withoutNeedlessEscapes(md: string): string {
   const escapes = md.length > LENGTH_CAP ? [] : escapesIn(md)
   if (escapes.length === 0) return md

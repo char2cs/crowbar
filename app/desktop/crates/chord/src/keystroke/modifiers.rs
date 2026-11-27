@@ -4,12 +4,10 @@ const PRIMARY_BIT: u8 = 1;
 const SHIFT_BIT: u8 = 2;
 const ALT_BIT: u8 = 4;
 
-/// The modifier keys held down together, in no particular order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Modifiers(u8);
 
 impl Modifiers {
-    /// Whether `modifier` is held.
     #[must_use]
     pub fn contains(
         self,

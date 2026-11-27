@@ -14,7 +14,6 @@ opt_in_rules:
   - file_name
   - force_unwrapping
   - implicitly_unwrapped_optional
-  - missing_docs
   - multiline_arguments
   - multiline_parameters
   - no_magic_numbers
@@ -51,8 +50,6 @@ type_body_length:
 line_length:
   warning: 100
   error: 120
-missing_docs:
-  warning: [open, public]
 multiline_arguments:
   first_argument_location: next_line
   only_enforce_after_first_closure_on_first_line: true

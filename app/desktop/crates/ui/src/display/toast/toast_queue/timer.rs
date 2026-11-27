@@ -53,7 +53,6 @@ impl ToastQueue {
             .for_each(|entry| pause(entry, now));
     }
 
-    /// Holds the expiry while `pointer` rests on the column, and releases it when it leaves.
     pub fn follow_pointer(
         &mut self,
         pointer: Pose,
@@ -65,8 +64,6 @@ impl ToastQueue {
         }
     }
 
-    /// Holds the expiry while `window` does not hold the keyboard, as develop's toasts wait for
-    /// someone to look.
     pub fn follow_window(
         &mut self,
         window: &Window,

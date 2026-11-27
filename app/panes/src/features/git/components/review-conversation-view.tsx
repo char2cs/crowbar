@@ -15,7 +15,6 @@ import { ReviewGeneralComposer } from './review-general-composer'
 
 interface ReviewConversationViewProps {
   wsId: string
-  /** Switch to Files changed and reveal the thread's line. */
   onJumpToLine: (thread: ReviewThread) => void
 }
 
@@ -68,7 +67,6 @@ function ThreadHeader({
   )
 }
 
-/** An open thread shows its code and messages; a resolved one folds to its header until opened. */
 function ThreadCard({
   thread,
   wsId,
@@ -118,8 +116,6 @@ function ThreadCard({
   )
 }
 
-/** Description, every thread, then a general composer. Reads only threads, never the file list,
- *  so it costs the same on an empty branch and a million-line one. */
 export function ReviewConversationView({ wsId, onJumpToLine }: ReviewConversationViewProps) {
   const description = useWorkspaceStoreContext((s) => s.branchReview.description)
   const threads = useReviewThreads(wsId)

@@ -1,5 +1,3 @@
-//! A two-valued state that remembers when it last flipped, to animate between its values.
-
 use std::time::Instant;
 
 use gpui::Context;

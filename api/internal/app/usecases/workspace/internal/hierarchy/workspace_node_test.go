@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// fakeNodeCreator stands in for the Node surface WithNodes wires: it records
-// every Create call so a test can prove a workspace's own Node row was minted
-// (or was not, when the create itself failed) with no separate backfill step.
 type fakeNodeCreator struct {
 	created []tree.Node
 	err     error
@@ -47,10 +44,6 @@ func (f *fakeNodeCreator) idFor(id string) (tree.Node, bool) {
 	return tree.Node{}, false
 }
 
-// TestCreateChild_NoRepoPath_MintsWorkspaceNode proves the path-less/no-worktree
-// CreateChild branch mints the new workspace's own Node{Kind:workspace} row
-// immediately, with no separate backfill or lazy-mint step (2026-09-08
-// sidebar-placement-unification Task 7).
 func TestCreateChild_NoRepoPath_MintsWorkspaceNode(t *testing.T) {
 	g := &fakeGit{}
 	ws := &fakeWorkspace{
@@ -71,8 +64,6 @@ func TestCreateChild_NoRepoPath_MintsWorkspaceNode(t *testing.T) {
 	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
-// TestCreateChild_WorktreeBacked_MintsWorkspaceNode proves the real,
-// worktree-creating CreateChild path (a live fork) mints the same invariant.
 func TestCreateChild_WorktreeBacked_MintsWorkspaceNode(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha123"}
 	ws := &fakeWorkspace{
@@ -99,9 +90,6 @@ func TestCreateChild_WorktreeBacked_MintsWorkspaceNode(t *testing.T) {
 	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
-// TestCreateChild_AdoptMainWorktree_MintsWorkspaceNode proves the repo-home
-// adoption path (a locked-branch/repo-home workspace-kind row) mints its own
-// Node row too, unconditionally — the same invariant as an ordinary fork.
 func TestCreateChild_AdoptMainWorktree_MintsWorkspaceNode(t *testing.T) {
 	g := &fakeGit{revParseSha: "headsha"}
 	ws := &fakeWorkspace{
@@ -128,9 +116,6 @@ func TestCreateChild_AdoptMainWorktree_MintsWorkspaceNode(t *testing.T) {
 	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
-// TestCreateFromImport_Placeholder_MintsWorkspaceNode proves the batch-import
-// placeholder fallback (a branch that could not be materialised) also mints
-// its own Node row — the fourth and last hierarchy-package creation path.
 func TestCreateFromImport_Placeholder_MintsWorkspaceNode(t *testing.T) {
 	var placeholderID string
 	inner := &fakeWorkspace{
@@ -139,7 +124,7 @@ func TestCreateFromImport_Placeholder_MintsWorkspaceNode(t *testing.T) {
 			return domain.Workspace{ID: in.ID}, nil
 		},
 	}
-	g := &fakeGit{addErr: errBoom} // WorktreeAddBranch fails: a plain git failure, no holder involved
+	g := &fakeGit{addErr: errBoom}
 	nodes := &fakeNodeCreator{}
 	uc := hierarchy.New(inner, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
 	withOwningChats(uc)
@@ -157,11 +142,6 @@ func TestCreateFromImport_Placeholder_MintsWorkspaceNode(t *testing.T) {
 	assert.Equal(t, tree.KindWorkspace, n.Kind)
 }
 
-// TestCreateChild_NoWithNodesOption_UsesNoOpDefaultAndStillSucceeds proves
-// hierarchy.New defaults u.nodes to a trivially-succeeding no-op when no
-// WithNodes option is given at all (the shape all ~180 pre-existing
-// hierarchy.New(...) test call sites use), so those tests keep passing
-// unchanged even though u.nodes is never nil.
 func TestCreateChild_NoWithNodesOption_UsesNoOpDefaultAndStillSucceeds(t *testing.T) {
 	g := &fakeGit{}
 	ws := &fakeWorkspace{
@@ -178,21 +158,6 @@ func TestCreateChild_NoWithNodesOption_UsesNoOpDefaultAndStillSucceeds(t *testin
 	assert.NotEmpty(t, out.ID)
 }
 
-// ── Node-mint failure ⇒ full rollback (2026-09-08 sidebar-placement-unification
-// Task 7 review fix) ─────────────────────────────────────────────────────────
-//
-// The mint used to be best-effort: log a warning, let the create stand. That
-// was wrong even in a perfectly healthy, fully-wired daemon — u.nodes.Create
-// runs AFTER a potentially-slow git worktree operation, so a client
-// disconnect/timeout cancelling ctx in that window fails it as a direct
-// consequence, not a misconfiguration, and (unlike the old EnsureOwningChat)
-// there is no boot-time backfill to catch the straggler. Every path below now
-// proves the WHOLE create rolls back instead: no orphaned Workspace row
-// survives with no Node row of its own.
-
-// TestCreateChild_NoRepoPath_NodeMintFails_RollsBackWorkspaceRow covers the
-// path-less/no-worktree branch: nothing on disk to unwind, but the just-created
-// workspace row must still be taken back out.
 func TestCreateChild_NoRepoPath_NodeMintFails_RollsBackWorkspaceRow(t *testing.T) {
 	g := &fakeGit{}
 	var createdID string
@@ -220,12 +185,6 @@ func TestCreateChild_NoRepoPath_NodeMintFails_RollsBackWorkspaceRow(t *testing.T
 		"the workspace whose own node row could not be minted must be taken back out")
 }
 
-// TestCreateChild_WorktreeBacked_NodeMintFails_RollsBackWorktreeBranchAndRow
-// is the critical regression test: a live fork (very likely the most common
-// workspace-creation path in the app) whose worktree and branch were already
-// created on disk must have ALL of it — worktree, branch, and the workspace
-// row itself — rolled back when its own Node row fails to mint, exactly as a
-// failed workspaces.Create already does, not just logged and left standing.
 func TestCreateChild_WorktreeBacked_NodeMintFails_RollsBackWorktreeBranchAndRow(t *testing.T) {
 	g := &fakeGit{addStartSha: "sha123"}
 	var createdID string
@@ -262,10 +221,6 @@ func TestCreateChild_WorktreeBacked_NodeMintFails_RollsBackWorktreeBranchAndRow(
 	assert.Contains(t, ops, "ForceDeleteBranch", "the orphaned branch must be deleted too")
 }
 
-// TestCreateChild_AdoptMainWorktree_NodeMintFails_RollsBackWorkspaceRow covers
-// the repo-home adoption path: no NEW worktree/branch was created (it adopts
-// the repo's existing checkout in place), but the workspace row itself must
-// still be rolled back.
 func TestCreateChild_AdoptMainWorktree_NodeMintFails_RollsBackWorkspaceRow(t *testing.T) {
 	g := &fakeGit{revParseSha: "headsha"}
 	var createdID string
@@ -299,11 +254,6 @@ func TestCreateChild_AdoptMainWorktree_NodeMintFails_RollsBackWorkspaceRow(t *te
 		"the adopted workspace whose own node row could not be minted must be taken back out")
 }
 
-// TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat
-// covers the fourth hierarchy-package path: a placeholder whose own Node row
-// fails to mint must take BOTH the workspace row and the chat minted to own
-// it back out, via the same discardUnownedWorkspace path a failed
-// AttachOwningWorkspace already uses.
 func TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat(t *testing.T) {
 	var createdID string
 	var deletedIDs []string
@@ -317,7 +267,7 @@ func TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat(t 
 			return nil
 		},
 	}
-	g := &fakeGit{addErr: errBoom} // WorktreeAddBranch fails: a plain git failure, no holder involved
+	g := &fakeGit{addErr: errBoom}
 	nodes := &fakeNodeCreator{err: errors.New("node create boom")}
 	uc := hierarchy.New(inner, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
 	chats := withOwningChats(uc)

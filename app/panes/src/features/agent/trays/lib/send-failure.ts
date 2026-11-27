@@ -3,11 +3,9 @@ import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 export interface SendFailureText {
   headline: string
   hint: string
-  /** A resend would fail the same way, so only Discard is offered. */
   final: boolean
 }
 
-/** A failed send in plain, provider-neutral words; the raw error is never shown. */
 export function describeSendFailure(item: Pick<OutboxItem, 'code'>): SendFailureText {
   switch (item.code) {
     case 'session_lost':

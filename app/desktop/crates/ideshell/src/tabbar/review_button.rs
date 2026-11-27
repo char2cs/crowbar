@@ -1,5 +1,3 @@
-//! Develop's "Review this branch" shortcut at the end of a pane's tab row.
-
 use ui::IconName;
 
 use crate::tabbar::tab_actions::TabAction;

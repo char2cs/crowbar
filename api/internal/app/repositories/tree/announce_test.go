@@ -91,9 +91,6 @@ func TestAnnounce_AMoveReemitsTheChatFrame(t *testing.T) {
 	assert.Empty(t, h.take(), "a position row is not a chat's own placement")
 }
 
-// A row the panel reads from its position Node (a workspace, a repo, a chat)
-// is heard when that Node moves;
-// a chat with a Node is heard through it, never through its own record.
 func TestAnnounce_AMovedPositionNodeIsHeard(t *testing.T) {
 	ctx := context.Background()
 	ax := openTree(t, t.TempDir())

@@ -17,8 +17,6 @@ import (
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
 
-// --- test helpers ---
-
 func newProviderSyncUsecase(
 	t *testing.T,
 ) (
@@ -32,8 +30,6 @@ func newProviderSyncUsecase(
 	uc := provider.New(wsRepo, eng)
 	return wsRepo, eng, uc
 }
-
-// --- SyncFromState tests ---
 
 func TestProviderSync_SyncFromState_NilPR(t *testing.T) {
 	wsRepo, _, uc := newProviderSyncUsecase(t)
@@ -59,25 +55,12 @@ func TestProviderSync_SyncFromState_NilPR(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestProviderSync_SyncFromState_BranchNewlyProtected_NoOwningChatReconciler
-// is the regression test 2026-09-08 sidebar-placement-unification Task 7's
-// brief asks for: a provider poll reporting a branch newly protected used to
-// hand the workspace to a chat-tree reconciler (EnsureOwningChat) so its
-// owning row became a branch row immediately. That call is now a pure
-// deletion — Usecase no longer exposes a reconciler setter at all — because
-// every Workspace mints its own Node{Kind:workspace} row unconditionally at
-// creation, so there is no more "does this now-locked workspace have an
-// owning row yet" question left for a poll to answer. This proves the
-// newly-protected transition itself still syncs cleanly with nothing wired
-// into that former gap.
 func TestProviderSync_SyncFromState_BranchNewlyProtected_NoOwningChatReconciler(t *testing.T) {
 	wsRepo, _, uc := newProviderSyncUsecase(t)
 	ctx := context.Background()
 	now := time.Unix(2000, 0)
 
 	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
-		// Status starts unlocked: this is the "newly protected" transition, not
-		// a re-poll of an already-locked branch.
 		return domain.Workspace{ID: id, Branch: "main", WorktreePath: "/repos/x", Status: domain.WorkspaceStatusNew, Provisioning: domain.WorkspaceProvisioned}, nil
 	}
 	var syncedProtected bool
@@ -152,8 +135,6 @@ func TestProviderSync_SyncFromState_SyncProviderError_Propagates(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- PollWorkspace tests ---
-
 func TestProviderSync_PollWorkspace_HappyPath(t *testing.T) {
 	wsRepo, eng, uc := newProviderSyncUsecase(t)
 	ctx := context.Background()
@@ -207,7 +188,6 @@ func TestProviderSync_PollWorkspace_GetError_Propagates(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// A project home rides no repo and has no remote: holding its forge: scope polls nothing.
 func TestProviderSync_PollWorkspace_AHomeIsNotPolled(t *testing.T) {
 	wsRepo, eng, uc := newProviderSyncUsecase(t)
 	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
@@ -256,7 +236,7 @@ func TestSyncFromState_AutoReparentsWhenPRTargetMatchesWorkspace(t *testing.T) {
 			ID:             currentWsID,
 			RepoID:         repoID,
 			Branch:         "feature/foo",
-			ParentID:       "", // no parent yet
+			ParentID:       "",
 			PRTargetBranch: "develop",
 		}, nil
 	}
@@ -287,9 +267,6 @@ func TestSyncFromState_AutoReparentsWhenPRTargetMatchesWorkspace(t *testing.T) {
 	assert.Equal(t, parentWsID, reparentedParent)
 }
 
-// TestSyncFromState_SkipsSelfParentWhenPRTargetsOwnBranch proves R15: a PR that
-// targets the workspace's own branch (candidate == ws) must never self-parent.
-// A self-loop detaches the node from the tree and makes it unreparentable.
 func TestSyncFromState_SkipsSelfParentWhenPRTargetsOwnBranch(t *testing.T) {
 	called := false
 	wsRepo, _, uc := newProviderSyncUsecase(t)
@@ -298,7 +275,7 @@ func TestSyncFromState_SkipsSelfParentWhenPRTargetsOwnBranch(t *testing.T) {
 		return domain.Workspace{
 			ID:       "ws1",
 			RepoID:   "r1",
-			Branch:   "develop", // same as the PR target below
+			Branch:   "develop",
 			ParentID: "",
 		}, nil
 	}
@@ -323,16 +300,10 @@ func TestSyncFromState_SkipsSelfParentWhenPRTargetsOwnBranch(t *testing.T) {
 	assert.False(t, called, "SetParentFromPR must not be called when the PR targets the workspace's own branch")
 }
 
-// TestSyncFromState_SkipsReparentThatWouldCreateCycle proves R15: if ws is
-// already an ancestor of the candidate (candidate's ParentID chain reaches ws),
-// parenting ws under the candidate closes a cycle. Any later tree walk would then
-// spin forever, so the reparent must be skipped.
 func TestSyncFromState_SkipsReparentThatWouldCreateCycle(t *testing.T) {
 	called := false
 	wsRepo, _, uc := newProviderSyncUsecase(t)
 
-	// Tree: A (no parent) <- B (parent A). A's PR targets B's branch. Reparenting
-	// A under B would form A -> B -> A.
 	wsRepo.GetFn = func(_ context.Context, _ string) (domain.Workspace, error) {
 		return domain.Workspace{
 			ID:       "A",
@@ -363,12 +334,6 @@ func TestSyncFromState_SkipsReparentThatWouldCreateCycle(t *testing.T) {
 	assert.False(t, called, "SetParentFromPR must not be called when it would create a parent cycle")
 }
 
-// TestSyncFromState_SkipsReparentForProtectedWorkspace proves a protected
-// (locked) branch is a branch-tree root and must never be auto-reparented under
-// another branch, even when an OPEN PR targets a sibling workspace. This mirrors
-// the user-facing reparent invariant (locked rows are undraggable; guardReparent
-// rejects a locked parent) which the provider auto-reparent path previously
-// bypassed — a protected `master` with a PR into `develop` was wrongly nested.
 func TestSyncFromState_SkipsReparentForProtectedWorkspace(t *testing.T) {
 	called := false
 	wsRepo, _, uc := newProviderSyncUsecase(t)
@@ -379,7 +344,7 @@ func TestSyncFromState_SkipsReparentForProtectedWorkspace(t *testing.T) {
 			RepoID:   "r1",
 			Branch:   "master",
 			ParentID: "",
-			Status:   domain.WorkspaceStatusLocked, // protected → tree root
+			Status:   domain.WorkspaceStatusLocked,
 		}, nil
 	}
 	wsRepo.SyncProviderFn = func(_ context.Context, _ workspace.ProviderInput, _ time.Time) (domain.Workspace, error) {
@@ -405,10 +370,6 @@ func TestSyncFromState_SkipsReparentForProtectedWorkspace(t *testing.T) {
 	assert.False(t, called, "SetParentFromPR must not be called for a protected (locked) workspace")
 }
 
-// TestSyncFromState_SkipsReparentForNonOpenPR proves only an OPEN PR drives the
-// auto-reparent. A closed or merged PR is stale history and must not reshape the
-// tree — a long-closed `master → develop` PR previously pinned the branch under
-// develop on the very first poll after import.
 func TestSyncFromState_SkipsReparentForNonOpenPR(t *testing.T) {
 	for _, prStatus := range []string{"closed", "merged"} {
 		t.Run(prStatus, func(t *testing.T) {
@@ -455,7 +416,7 @@ func TestSyncFromState_SkipsReparentWhenParentAlreadySet(t *testing.T) {
 		return domain.Workspace{
 			ID:             "ws1",
 			RepoID:         "r1",
-			ParentID:       "already-set", // already has parent
+			ParentID:       "already-set",
 			PRTargetBranch: "develop",
 		}, nil
 	}

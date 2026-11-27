@@ -1,6 +1,3 @@
-//! The language servers the daemon runs for chats' workspaces, reached as develop's
-//! `lsp-client.ts` reaches them: REST routes of the chat that owns the workspace.
-
 use std::sync::Arc;
 
 use daemonapi::{Call, Route};
@@ -12,7 +9,6 @@ use crate::live::Hub;
 use crate::live::State;
 use crate::sidebar_commands::{FileDone, FileError};
 
-/// Asks the language servers of the workspace a chat shows, for the editor panes.
 #[derive(Clone)]
 pub struct LanguageServers {
     hub: Arc<Hub>,
@@ -31,9 +27,6 @@ impl std::fmt::Debug for LanguageServers {
 }
 
 impl LanguageServers {
-    /// Posts `body` to the LSP route `verb` of the chat that owns `chat`'s workspace and hands
-    /// the answer's data to `done`. A workspace with no language servers (the project home, or
-    /// one not loaded yet) answers `null`, as develop's client does.
     pub fn post(
         &self,
         (chat, verb): (&str, &str),
@@ -51,8 +44,6 @@ impl LanguageServers {
         });
     }
 
-    /// Reads the state of the language server of the file at `path` in `chat`'s workspace and
-    /// hands it to `done`; `null` where [`LanguageServers::post`] answers `null`.
     pub fn status(
         &self,
         (chat, path): (&str, &str),
@@ -71,7 +62,6 @@ impl LanguageServers {
 }
 
 impl Store {
-    /// The editor panes' language servers.
     pub fn language_servers(&self) -> LanguageServers {
         LanguageServers {
             hub: Arc::clone(&self.hub),

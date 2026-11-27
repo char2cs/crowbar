@@ -1,5 +1,3 @@
-//! Whether a host offers any agent that runs in a terminal.
-
 use crate::live::fleet::catalog as providers;
 use crate::live::fleet::catalog::Provider;
 use crate::live::state::Hub;

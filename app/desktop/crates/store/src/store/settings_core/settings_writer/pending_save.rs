@@ -1,5 +1,3 @@
-//! What the settings writer has still to do.
-
 use std::collections::BTreeMap;
 
 use settings::Value;

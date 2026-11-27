@@ -27,7 +27,6 @@ func TestMap_AnAskBindsToTheOpenToolOfItsScope(t *testing.T) {
 	assert.Equal(t, "t1", bodyOf[ledger.Ask](t, rows[0]).ToolID)
 }
 
-// The card offers a reason box only on an option whose reply carries the reason.
 func TestMap_AnAskSaysWhichOptionCarriesAReason(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -75,7 +74,6 @@ func TestMap_AnAskCrowbarCannotHoldIsNotAnswerable(t *testing.T) {
 	assert.Len(t, c.st.PendingAsks(), 1, "it is still asked, of the CLI's own surface")
 }
 
-// Held ⇔ answerable: wherever a held ask was raised, its CLI blocks on it.
 func TestMap_AnAskIsOpenAndAnswerableExactlyWhenItIsHeld(t *testing.T) {
 	ask := permission(engineagents.ChoicePrompt{Kind: "tool_permission", ToolName: "Bash"})
 	inA := func(ev engineagents.CanonicalEvent) engineagents.CanonicalEvent {
@@ -170,8 +168,6 @@ func TestMap_AnElicitationCarriesWhatItSaid(t *testing.T) {
 	assert.Empty(t, ask.Kind, "offering no choice, it is no card")
 }
 
-// Of two open calls of one name, the ask names the one given the same input,
-// however each delivery spelled it; with no input, the newest.
 func TestMap_AnAskBindsByToolNameAndCanonicalInput(t *testing.T) {
 	for name, tc := range map[string]struct{ input, want string }{
 		"the first call's input":  {`{ "timeout": 5, "command": "ls" }`, "t1"},
@@ -198,8 +194,6 @@ func TestMap_AnAskBindsByToolNameAndCanonicalInput(t *testing.T) {
 	}
 }
 
-// Two asks with different inputs are two asks, whichever call each binds: the
-// second never joins the first, so never takes its relay.
 func TestRegression_AsksOfDifferentInputsNeverJoin(t *testing.T) {
 	c := liveChatRows(t)
 	c.typed("go")
@@ -220,8 +214,6 @@ func TestRegression_AsksOfDifferentInputsNeverJoin(t *testing.T) {
 	assert.Len(t, c.st.PendingAsks(), 2)
 }
 
-// An ask whose input none of its tool's open calls was given binds to none,
-// and says so; one with no such call open, or bound, says nothing.
 func TestMap_AnAskNoOpenCallWasGivenTheInputOfIsReported(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input   string
@@ -255,8 +247,6 @@ func TestMap_AnAskNoOpenCallWasGivenTheInputOfIsReported(t *testing.T) {
 	assert.Empty(t, fx.Unbound, "no call of its tool is open")
 }
 
-// An ask says what its call does; an input too big for the row keeps its
-// leading text, marked as cut, never dropped.
 func TestMap_AnAskKeepsItsCallsInputUpToABound(t *testing.T) {
 	small := `{"file_path":"a.go"}`
 	big := `{"content":"` + strings.Repeat("é", maxAskInput) + `"}`
@@ -294,8 +284,6 @@ func TestMap_AnAskKeepsItsCallsInputUpToABound(t *testing.T) {
 	}
 }
 
-// An api CLI is refused every ask Crowbar does not hold, so that is how the
-// ask closes: never a pending card nobody can answer.
 func TestMap_AnAPIAskCrowbarDoesNotHoldIsClosedAsRefused(t *testing.T) {
 	api := func(edit func(*Source)) Source {
 		s := hooksSource()

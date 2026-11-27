@@ -12,8 +12,6 @@ import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '@/features/settings/components/settings-section'
 import { useSettingsStore } from '@/features/settings/store'
 
-// Mirrors the hand-written JSX structure of the Appearance tab: multiple
-// Sections, each containing SettingRows with label + description.
 const AppearanceLikePanel = () => (
   <div>
     <Section title="Theme">
@@ -72,17 +70,14 @@ describe('settings search row filtering', () => {
 
     setQuery('font')
 
-    // Matching rows (label match, case-insensitive) stay visible.
     expect(screen.getByText('UI Font Family')).toBeInTheDocument()
     expect(screen.getByText('UI Font Size')).toBeInTheDocument()
     expect(screen.getByText('Typography')).toBeVisible()
 
-    // Non-matching rows no longer render.
     expect(screen.queryByText('Color Theme')).not.toBeInTheDocument()
     expect(screen.queryByText('Icon Theme')).not.toBeInTheDocument()
     expect(screen.queryByText('Sidebar Position')).not.toBeInTheDocument()
 
-    // Sections whose every row was filtered out hide their headings too.
     expect(screen.getByText('Theme')).not.toBeVisible()
     expect(screen.getByText('Icons')).not.toBeVisible()
     expect(screen.getByText('Layout')).not.toBeVisible()
@@ -126,7 +121,6 @@ describe('settings search row filtering', () => {
   })
 })
 
-// The phone's native Settings hosts these tabs: one line per setting, in a card.
 describe('mobile setting rows', () => {
   const rowOf = (label: string) => screen.getByText(label).closest('[data-setting-layout]')
 
@@ -146,7 +140,6 @@ describe('mobile setting rows', () => {
     expect(row?.closest('[data-settings-card]')).not.toBeNull()
   })
 
-  // The phone sizes every stepper alike so their columns line up; the row finds it by this slot.
   it('wraps a stepper in the number-input slot its row sizes', () => {
     platform.mobile = true
     render(

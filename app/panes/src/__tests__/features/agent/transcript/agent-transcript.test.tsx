@@ -51,7 +51,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/** The message list laid out as a box this tall and that high on screen. */
 function layList(scrollHeight: number, clientHeight: number) {
   const list = screen.getByTestId('agent-message-list')
   const box = { scrollHeight, clientHeight }
@@ -184,8 +183,6 @@ describe('AgentTranscript', () => {
 
     act(() => chatStore.setState({ outbox: { 'chat-1': [outboxItem('r2')] } }))
 
-    // Rows measure 800 each (the stubbed rect), so the new prompt, second, starts
-    // at 800; the floor leaves a viewport below it, less the header it must clear.
     expect(stream.style.minHeight).toBe(`${800 + 800 - 52}px`)
   })
 
@@ -261,7 +258,6 @@ describe('AgentTranscript', () => {
     act(() => applyFeedFrame('chat-1', { type: 'delta', delta: delta('m1', 1, 'Found ') }))
     expect(list.scrollTop).toBe(1200)
 
-    // A streaming row's growth reaches the list as a virtualizer re-render.
     box.scrollHeight = 2300
     redraw({ tail: '2026-10-01T12:00:00Z' })
     expect(list.scrollTop).toBe(1200)
@@ -282,7 +278,6 @@ describe('AgentTranscript', () => {
     act(() => vi.advanceTimersByTime(16))
     fireEvent.scroll(list)
 
-    // The first row, far above the view, grows; the virtualizer moves the view by as much.
     const first = list.querySelector<HTMLElement>('[data-index="0"]')!
     first.getBoundingClientRect = () => ({ ...rect, height: 900, toJSON: () => rect })
     box.scrollHeight = 2400
@@ -304,7 +299,6 @@ describe('AgentTranscript', () => {
     redraw({ tail: 'a' })
     expect(list.scrollTop).toBe(1800)
 
-    // Its report comes between layout and paint; the re-render it asks for comes after.
     const first = list.querySelector<HTMLElement>('[data-index="0"]')!
     first.getBoundingClientRect = () => ({ ...rect, height: 300, toJSON: () => rect })
     observed.get(first)?.([{ target: first } as never], {} as ResizeObserver)
@@ -371,7 +365,7 @@ describe('AgentTranscript', () => {
     const { list, box } = layList(3000, 800)
     redraw({ tail: 'a' })
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
-    list.scrollTop = 2000 // a few rows back is still the end: inside the grace
+    list.scrollTop = 2000
     fireEvent.scroll(list)
     expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull()
     list.scrollTop = 500
@@ -400,7 +394,6 @@ describe('AgentTranscript', () => {
 
     act(() => seedFeed('chat-1', [l.end('turn-2')]))
     redraw({ dockHeight: 92, working: false })
-    // Two rows of 800, the gap above the dock's room, and that room (dock + 32).
     expect(stream.style.minHeight).toBe(`${1600 + 18 + 92 + 32}px`)
     expect(stream.dataset.pin).toBe('released')
   })
@@ -434,7 +427,6 @@ describe('AgentTranscript', () => {
   })
 
   it("lands the opening's correction of estimated row heights", () => {
-    // Rows measure 150 (estimates are 96); the list is its rows plus 200 of chrome.
     restoreRows = measureRows({ row: 150, viewport: 200 })
     const l = ledger()
     seedFeed('chat-1', [l.prompt('r1', 'one'), l.prompt('r2', 'two')])
@@ -451,7 +443,6 @@ describe('AgentTranscript', () => {
     redraw({ tail: 'a' })
     expect(list.scrollTop).toBe(1200)
 
-    // The dock measures after the opening, and its room grows the list.
     box.scrollHeight = 2086
     redraw({ dockHeight: 86 })
     expect(list.scrollTop).toBe(1286)

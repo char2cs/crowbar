@@ -1,5 +1,3 @@
-//! Box shadows of the spec (Tailwind defaults and the custom ones).
-
 use gpui::{BoxShadow, Hsla, hsla, point, px};
 
 fn black(alpha: f32) -> Hsla {
@@ -42,32 +40,26 @@ fn layers(
         .collect()
 }
 
-/// `shadow-xs` at the given black alpha (default 5% via `shadow-xs/5`).
 pub fn xs(alpha: f32) -> Vec<BoxShadow> {
     layers(XS, alpha)
 }
 
-/// `shadow-sm` with every layer at `alpha` (0.1 plain, 0.05 for `/5`).
 pub fn sm(alpha: f32) -> Vec<BoxShadow> {
     layers(SM, alpha)
 }
 
-/// `shadow-md` with every layer at `alpha`.
 pub fn md(alpha: f32) -> Vec<BoxShadow> {
     layers(MD, alpha)
 }
 
-/// `shadow-lg` with every layer at `alpha`.
 pub fn lg(alpha: f32) -> Vec<BoxShadow> {
     layers(LG, alpha)
 }
 
-/// `shadow-xl` with every layer at `alpha`.
 pub fn xl(alpha: f32) -> Vec<BoxShadow> {
     layers(XL, alpha)
 }
 
-/// `shadow-xs` tinted with `color`, as buttons do with `shadow-primary/24`.
 pub fn xs_tinted(color: Hsla) -> Vec<BoxShadow> {
     layers(XS, 0.0)
         .into_iter()
@@ -75,12 +67,10 @@ pub fn xs_tinted(color: Hsla) -> Vec<BoxShadow> {
         .collect()
 }
 
-/// The custom dropdown shadow `0 14px 30px -24px rgba(0,0,0,.45)`.
 pub fn dropdown() -> Vec<BoxShadow> {
     layers(DROPDOWN, DROPDOWN_ALPHA)
 }
 
-/// The pane handle shadow `0 0 5px 1px rgba(0,0,0,.1)`.
 pub fn handle() -> Vec<BoxShadow> {
     layers(HANDLE, crate::foundation::tokens::opacity::PERCENT_10)
 }

@@ -11,9 +11,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// deriveWorktreePath returns <home>/projects/<project>/<slug>/<branch>/worktree for a branch. It rejects
-// a workspace ROOT that collides case-insensitively with a sibling root (ErrInvalidArgument), comparing
-// roots with roots via worktreepath.WorkspaceRoot.
 func (u *hierarchyUsecase) deriveWorktreePath(
 	ctx context.Context,
 	home string,
@@ -30,8 +27,6 @@ func (u *hierarchyUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
-	// The directory is named for the branch at creation and never follows a rename, so a frozen name may
-	// belong to a workspace that moved on; take the next free variant rather than refuse.
 	pathBranch, err := worktreepath.FreePathBranch(home, projectID, slug, branch, siblings)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", problem.ErrInvalidArgument, err)
@@ -43,8 +38,6 @@ func (u *hierarchyUsecase) deriveWorktreePath(
 	return path, nil
 }
 
-// resolveSlug resolves the repo's on-disk identity slug. It always loads the repo row so a remote that
-// encodes no identity can fall back to the repo NAME; a caller-supplied remoteURL is applied on top.
 func (u *hierarchyUsecase) resolveSlug(
 	ctx context.Context,
 	repoID string,
@@ -63,9 +56,6 @@ func (u *hierarchyUsecase) resolveSlug(
 	return worktreepath.RemoteSlug(*repo), nil
 }
 
-// addWorktree applies the checkout-vs-create decision and returns the fork point. An existing remote
-// branch is checked out at origin's tip (the fork point is that tip); otherwise the branch is created
-// from the parent's start point, which becomes the fork point.
 func (u *hierarchyUsecase) addWorktree(
 	ctx context.Context,
 	in CreateChildInput,
@@ -78,29 +68,19 @@ func (u *hierarchyUsecase) addWorktree(
 	if onRemote {
 		return u.checkoutRemoteBranch(ctx, in, path)
 	}
-	// Resolved only on the create path: the checkout path ignores it, and FetchRef is a real network fetch
-	// under the contended per-clone repo lock.
 	startPoint := u.parentStartPoint(ctx, in)
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, startPoint)
 	if err != nil {
 		return addedWorktree{}, fmt.Errorf("create child: worktree add: %w", err)
 	}
-	// `worktree add -b` refuses an existing branch, so success means the branch
-	// is new — Crowbar's to delete with the workspace.
 	return addedWorktree{startSha: startSha, createdBranch: true}, nil
 }
 
-// addedWorktree is what a successful worktree add reports: the fork point to
-// record, and whether the branch was created by the add (and so is Crowbar's
-// to delete later) or already existed (and so never is).
 type addedWorktree struct {
 	startSha      string
 	createdBranch bool
 }
 
-// parentStartPoint resolves origin's FRESH tip of the parent, else the local parent ref. FetchRef, not a
-// fast-forward, because git refuses to fetch into a branch checked out in any worktree, and protected
-// parents always are. The parent never moves here; every failure degrades to the local tip and warns.
 func (u *hierarchyUsecase) parentStartPoint(
 	ctx context.Context,
 	in CreateChildInput,
@@ -126,9 +106,6 @@ func (u *hierarchyUsecase) parentStartPoint(
 	return remoteTip
 }
 
-// branchIsRemoteBranch trusts the local origin/<branch> ref first, so the decision matches the branch
-// list the user picked from; the live ls-remote fallback (failures read as false) must never veto a
-// branch a local remote-tracking ref already confirms.
 func (u *hierarchyUsecase) branchIsRemoteBranch(
 	ctx context.Context,
 	repoPath string,
@@ -148,9 +125,6 @@ func (u *hierarchyUsecase) branchIsRemoteBranch(
 	return remote, nil
 }
 
-// checkoutRemoteBranch refreshes origin/<branch> and checks the worktree out AT that ref: importing
-// means origin's branch, so a diverged local branch must not win. FetchRef only moves the remote ref,
-// which git always allows; a failed fetch proceeds from a present local origin/<branch>, else is fatal.
 func (u *hierarchyUsecase) checkoutRemoteBranch(
 	ctx context.Context,
 	in CreateChildInput,
@@ -164,8 +138,6 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 		slog.WarnContext(ctx, "create child: could not fetch origin branch; checking out from local remote-tracking ref",
 			"branch", in.Branch, "err", fetchErr)
 	}
-	// Read BEFORE the reset moves it. No local branch is the one case where `-B`
-	// creates it; a local branch that already existed stays the user's.
 	localTip, err := provision.LocalTip(ctx, u.git, in.RepoPath, in.Branch)
 	if err != nil {
 		return addedWorktree{}, fmt.Errorf("create child: %w", err)
@@ -175,8 +147,6 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 		return addedWorktree{}, fmt.Errorf("create child: worktree checkout: %w", err)
 	}
 	provision.WarnOnDiscardedLocalTip(ctx, u.git, in.RepoPath, in.Branch, localTip, forkPoint)
-	// `git worktree add -B` sets no upstream, so this alone makes the branch track origin/<branch> (the
-	// ahead/behind contract). Best-effort: the content is already correct.
 	if err := u.git.SetUpstream(ctx, in.RepoPath, in.Branch); err != nil {
 		slog.WarnContext(ctx, "create child: could not set upstream on imported branch; content is correct but ahead/behind may not report",
 			"branch", in.Branch, "err", err)

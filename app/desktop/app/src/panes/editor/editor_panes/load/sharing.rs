@@ -1,6 +1,3 @@
-//! One document per file whatever panes show it: a pane arriving on a file another pane shows
-//! joins that pane's document, as develop's `findOpenBuffer` seats the open buffer again.
-
 use std::collections::BTreeMap;
 
 use editorview::{Document, EditorView};
@@ -193,8 +190,6 @@ mod tests {
         window: &'cx mut VisualTestContext,
     }
 
-    /// A file shown in `f1` under chat `c1`, typed into, then opened in `f2` under chat `c2`
-    /// of the same workspace.
     fn shared(cx: &mut TestAppContext) -> Shared<'_> {
         cx.update(|cx| ui::init(cx).unwrap());
         cx.update(editorview::init);

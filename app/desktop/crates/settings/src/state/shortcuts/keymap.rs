@@ -1,5 +1,3 @@
-//! Effective chords of the shortcuts: defaults overridden by what the user set.
-
 use std::collections::BTreeMap;
 
 use crate::keys::ChordSource;

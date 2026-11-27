@@ -9,9 +9,6 @@ import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-s
 import { browserHomepage } from '@/features/browser/lib/homepage'
 import { useSettingsStore } from '@/features/settings/store'
 
-/** The one set of actions a New Tab page and an empty editor area offer, so they can't differ.
- *  All but the review need the pane's workspace (`ensurePaneChatThenOpen`); with `replaceTabId`
- *  the choice takes that New Tab page's place. */
 export function usePaneNewTabActions(
   wsId: string | null | undefined,
   paneId: string,
@@ -48,7 +45,6 @@ export function usePaneNewTabActions(
           )
         })
       },
-      // The header's Branch Review shortcut opens it the same way.
       onReviewBranch: () => {
         openBranchReviewForWorkspace(wsId, paneId, replaceTabId)
       },

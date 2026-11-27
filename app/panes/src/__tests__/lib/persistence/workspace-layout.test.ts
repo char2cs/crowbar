@@ -5,12 +5,9 @@ import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { createLeaf } from '@/features/panes/utils/pane-layout'
 
-// The fixed key of the one persisted window layout row.
 const WINDOW_SESSION_ID = 'window'
 
 const mockLayout: WorkspaceLayout = {
-  // Layout is window-level: the keyPath is still `workspaceId`, but saveWorkspaceLayout always
-  // stamps the fixed WINDOW_SESSION_ID there.
   workspaceId: WINDOW_SESSION_ID,
   panes: {
     [ROOT_PANE_ID]: {

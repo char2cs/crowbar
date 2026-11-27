@@ -10,7 +10,6 @@ const tabs = [
   { id: 'c', name: 'gamma.ts' },
 ]
 
-/** jsdom has no layout: a scroller whose content is `content` px wide in a `box` px box. */
 function scroller(content: number, box: number) {
   const el = document.createElement('div')
   Object.defineProperty(el, 'scrollWidth', { configurable: true, get: () => content })
@@ -35,7 +34,6 @@ describe('TabOverflowMenu', () => {
     render(<TabOverflowMenu scrollRef={ref} tabs={tabs} activeId="a" onSelect={onSelect} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'More tabs' }))
-    // base-ui mounts the popup after the click resolves, so wait for it.
     expect((await screen.findAllByRole('menuitem')).map((i) => i.textContent)).toEqual([
       'alpha.ts',
       'beta.ts',

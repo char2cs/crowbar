@@ -47,7 +47,6 @@ func answering() *spec.Descriptor {
 	return d
 }
 
-// setEventReply replaces one ask event's reply templates and budget.
 func setEventReply(d *spec.Descriptor, canonical string, timeout int, reply map[string]string) {
 	e := d.Events[canonical]
 	e.TimeoutSeconds = timeout
@@ -55,8 +54,6 @@ func setEventReply(d *spec.Descriptor, canonical string, timeout int, reply map[
 	d.Events[canonical] = e
 }
 
-// setEventMap replaces one event's canonical field map, for the tests that probe what
-// happens when a path is not declared.
 func setEventMap(d *spec.Descriptor, canonical string, fields spec.FieldMap) {
 	e := d.Events[canonical]
 	e.Map = fields
@@ -261,8 +258,6 @@ func TestRender_AnUnencodableAnswerFallsBackToAnEmptyObject(t *testing.T) {
 	assert.JSONEq(t, `{"picks":{},"input":{}}`, string(out))
 }
 
-// Picking a suggestion grants it: the reply hands the provider back exactly the
-// grants picked, as it offered them.
 func TestRender_ASuggestionHandsBackTheGrantsPicked(t *testing.T) {
 	d := answering()
 	e := d.Events["permission"]

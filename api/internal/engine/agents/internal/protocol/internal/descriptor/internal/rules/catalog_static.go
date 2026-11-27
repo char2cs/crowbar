@@ -11,8 +11,6 @@ type catalogStatic struct{}
 
 func (catalogStatic) Name() string { return "catalog_static" }
 
-// Check keeps the declared commands names and the workspace directories inside
-// the workspace: the catalogue reads them without the CLI, so nothing else does.
 func (catalogStatic) Check(d *spec.Descriptor) error {
 	sc := d.Presentation.SlashCatalog
 	if sc == nil {

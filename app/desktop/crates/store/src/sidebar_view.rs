@@ -1,5 +1,3 @@
-//! The sidebar's read side over the shared state.
-
 mod file_tree;
 mod hosts;
 mod icons;
@@ -19,7 +17,6 @@ use crate::{
     reads::{files as files_reads, space_icons},
 };
 
-/// What `sidebar::Source` reads, answered from the entities the streams delivered.
 #[derive(Debug, Clone)]
 pub struct SidebarView {
     pub(crate) hub: Arc<Hub>,

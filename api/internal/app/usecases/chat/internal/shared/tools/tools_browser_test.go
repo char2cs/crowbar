@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// desktopPeer is a fake desktop app: it reports its tabs to the real bridge,
-// records every request it is asked to run, and answers each with reply.
 type desktopPeer struct {
 	mu       sync.Mutex
 	requests []map[string]any
@@ -54,7 +52,7 @@ func (d *desktopPeer) reportTabs(tabs ...[2]string) {
 
 type browserWorld struct {
 	peer *desktopPeer
-	a, b *tools.ToolSet // two agents, in chat-a and chat-b
+	a, b *tools.ToolSet
 }
 
 func newBrowserWorld(t *testing.T) browserWorld {
@@ -227,8 +225,6 @@ func TestBrowserTools_NoDesktopIsAClearError(t *testing.T) {
 	require.ErrorIs(t, err, browserbridge.ErrNoDesktop)
 }
 
-// resolverOnChat is a resolver whose runner is currently on chatID, in one workspace
-// shared by every chat: two agents there must still not share a browser.
 func resolverOnChat(t *testing.T, chatID string) (*tools.Resolver, *tools.TokenMinter) {
 	t.Helper()
 	m, err := tools.NewTokenMinter()

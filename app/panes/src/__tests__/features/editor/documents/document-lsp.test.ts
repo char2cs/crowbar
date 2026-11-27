@@ -18,12 +18,9 @@ import { workspaceRef, type DocumentRef } from '@/lib/api/documents'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// The document, not the pane, is what the language server knows: one open per
-// document, addressed to the document's own workspace, whichever is active.
 type DiagnosticsHandler = (path: string, diagnostics: LspDiagnostic[]) => void
 const { client, handlers, sent } = vi.hoisted(() => {
   const handlers = new Map<string, Set<DiagnosticsHandler>>()
-  // The text each open sends: the real client reads it as it opens.
   const sent: (string | null)[] = []
   const client = {
     documentOpen: vi.fn(
@@ -65,10 +62,8 @@ const push = (ws: string, path: string, message: string) => {
   for (const handler of [...(handlers.get(ws) ?? [])]) handler(path, [diagnostic])
 }
 
-// Runs the idle-deferred opens; a mounted editor's caret blink would keep runAll spinning.
 const idle = () => vi.runOnlyPendingTimersAsync()
 
-/** What the language picker does: the buffer's override is the document's language. */
 function pickLanguage(bufferId: string, languageOverride: string) {
   windowPaneStore.setState((state) => ({
     buffers: state.buffers.map((b) => (b.id === bufferId ? { ...b, languageOverride } : b)),
@@ -197,7 +192,6 @@ describe('document language-server sync', () => {
     host.documents.open(A, 'typescript', 'x = 1')
     await idle()
 
-    // What the pane's model options do the first time a pane shows it.
     monacoEditor.setModelLanguage(modelOf(A), 'python')
     await idle()
 

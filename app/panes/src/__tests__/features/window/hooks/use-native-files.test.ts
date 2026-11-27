@@ -100,8 +100,6 @@ describe('useNativeFiles', () => {
     expect(last().expanded).toEqual(['src'])
   })
 
-  // The drawer is the only thing on screen until the tab exists: closing it on the tap would
-  // show the IDE's empty pane for as long as the file takes to load.
   it('opens a picked file as a preview and slides the drawer away once its tab can draw', async () => {
     mount()
     send({ type: 'openFile', path: 'README.md' })
@@ -111,7 +109,6 @@ describe('useNativeFiles', () => {
     )
     expect(useMobileScreenStore.getState().filesOpen).toBe(true)
     await act(async () => opened.settle!())
-    // The tab exists, but its editor is still loading: the pane would be blank.
     expect(useMobileScreenStore.getState().filesOpen).toBe(true)
     await act(async () => surface.settle!())
     expect(useMobileScreenStore.getState().filesOpen).toBe(false)

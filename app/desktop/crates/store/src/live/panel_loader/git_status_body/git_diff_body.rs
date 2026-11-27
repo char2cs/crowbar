@@ -1,5 +1,3 @@
-//! One file of the daemon's `GET chats/:id/git/diff`, as far as the Changes panel reads it.
-
 use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]

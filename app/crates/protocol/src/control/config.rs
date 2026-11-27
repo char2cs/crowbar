@@ -1,5 +1,3 @@
-//! What the shell pushes about the user's setup: setting keys and values, theme tokens and key bindings.
-
 mod key_binding;
 mod key_chord;
 mod pane_setting_keys;

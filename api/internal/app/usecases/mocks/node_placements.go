@@ -9,46 +9,32 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// NodePlacements is a fake project.NodePlacements: it holds every Node row
-// minted so far and records the two placement writes apart — a renumber may
-// write an index and must be unable to write a parent.
 type NodePlacements struct {
-	Rows      []tree.Node
-	CreateErr error
-	GetErr    error
-	ListErr   error
-	OrderErr  error
-	PlaceErr  error
-	// OrderErrForID and PlaceErrForID fail only that id's SetOrder/SetPlacement, so one
-	// sibling's write can fail while another in the same operation succeeds.
+	Rows          []tree.Node
+	CreateErr     error
+	GetErr        error
+	ListErr       error
+	OrderErr      error
+	PlaceErr      error
 	OrderErrForID map[string]error
 	PlaceErrForID map[string]error
 	Placed        []NodePlacementWrite
 	Ordered       []NodeOrderWrite
-	// Forgotten records every id Forget purged, in call order — so a test can
-	// prove a rolled-back import's Node row was actually taken back out, not
-	// merely that Forget was never asked to fail.
-	Forgotten []string
-	ForgetErr error
+	Forgotten     []string
+	ForgetErr     error
 }
 
-// NodePlacementWrite is one recorded call to SetPlacement: the node moved,
-// and where to.
 type NodePlacementWrite struct {
 	ID       string
 	ParentID string
 	Order    int
 }
 
-// NodeOrderWrite is one recorded call to SetOrder: a node a densify
-// renumbered, and the index it was given. It carries no parent, which is the
-// whole point.
 type NodeOrderWrite struct {
 	ID    string
 	Order int
 }
 
-// NewNodePlacements returns an empty NodePlacements.
 func NewNodePlacements() *NodePlacements {
 	return &NodePlacements{}
 }
@@ -113,8 +99,6 @@ func (s *NodePlacements) ListAll(
 	return append([]tree.Node(nil), s.Rows...), nil
 }
 
-// SetOrder writes the index and leaves the parent as it stands. It refuses an id with no
-// row, as the real command's Validate does; a silently no-op fake once hid a real bug.
 func (s *NodePlacements) SetOrder(
 	ctx context.Context,
 	id string,
@@ -159,8 +143,6 @@ func (s *NodePlacements) SetPlacement(
 	return fmt.Errorf("node: set placement: no node: %w", asynxModels.ErrValidation)
 }
 
-// Forget purges id's row and records the call even when no row matched: the real store
-// does not error on an unknown id either.
 func (s *NodePlacements) Forget(
 	ctx context.Context,
 	id string,

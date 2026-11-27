@@ -1,5 +1,3 @@
-//! Opening, closing and drawing the Files panel's filter box.
-
 mod file_search;
 mod filter_button;
 mod match_direction;

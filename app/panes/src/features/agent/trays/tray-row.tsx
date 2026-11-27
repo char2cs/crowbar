@@ -8,16 +8,7 @@ function ranSeconds({ startedAt, endedAt }: TrayRow): number {
   return Number.isNaN(span) ? 0 : Math.round(span / 1000)
 }
 
-/** One subagent, shell or monitor: a spinner while it runs, its name, what it is doing or how
- *  it ended, how long it has run. The name and the action share a line, or stack on a phone. */
-export function TrayRowView({
-  row,
-  onStop,
-}: {
-  row: TrayRow
-  /** Asks the agent to end this shell or monitor; absent where it cannot be asked. */
-  onStop?: (shellId: string) => void
-}) {
+export function TrayRowView({ row, onStop }: { row: TrayRow; onStop?: (shellId: string) => void }) {
   const running = row.status === 'running'
   const noun = row.kind === 'monitor' ? 'monitor' : 'shell'
   const { shellId } = row

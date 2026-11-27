@@ -1,5 +1,3 @@
-//! Finds web addresses in text.
-
 use std::ops::Range;
 
 const SCHEMES: [&str; 2] = ["http://", "https://"];

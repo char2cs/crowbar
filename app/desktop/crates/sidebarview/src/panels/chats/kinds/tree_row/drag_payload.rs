@@ -1,5 +1,3 @@
-//! What a row of the chats tree carries when it is dragged.
-
 use std::sync::Arc;
 
 use sidebar::Row;
@@ -14,7 +12,6 @@ pub(super) fn of(row: &Row) -> DraggedRow {
     }
 }
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/sidebar/lib/pane-drop-actions.ts (paneChatSubject: a locked branch opens its owner)
 fn opens_chat(row: &Row) -> bool {
     matches!(row.kind, sidebar::RowKind::Chat | sidebar::RowKind::Branch)
 }

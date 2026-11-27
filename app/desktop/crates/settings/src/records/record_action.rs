@@ -1,8 +1,5 @@
-//! A button on a record.
-
 use crate::schema::Confirm;
 
-/// The action a record offers, such as Kill or Revoke.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordAction {
     pub(crate) id: String,
@@ -13,25 +10,21 @@ pub struct RecordAction {
 }
 
 impl RecordAction {
-    /// A label shown next to the icon, if any.
     #[must_use]
     pub fn label(&self) -> Option<&str> {
         self.label.as_deref()
     }
 
-    /// The id of the action.
     #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// File stem of the Phosphor icon the action is drawn as.
     #[must_use]
     pub fn icon(&self) -> &str {
         &self.icon
     }
 
-    /// An action `id` drawn as the icon with file stem `icon`, explained by `tooltip`.
     pub fn new(
         id: impl Into<String>,
         icon: impl Into<String>,
@@ -46,7 +39,6 @@ impl RecordAction {
         }
     }
 
-    /// Shows `label` next to the icon.
     #[must_use]
     pub fn labelled(
         mut self,
@@ -56,13 +48,11 @@ impl RecordAction {
         self
     }
 
-    /// What is asked before the action runs, if anything.
     #[must_use]
     pub fn confirmation(&self) -> Option<&Confirm> {
         self.confirm.as_ref()
     }
 
-    /// Asks `confirm` before the action runs.
     #[must_use]
     pub fn confirm(
         mut self,

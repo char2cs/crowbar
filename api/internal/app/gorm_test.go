@@ -18,10 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// failOnNthExecPool wraps a *sql.DB and injects an error on ExecContext calls
-// after the first failAt successful calls. QueryRowContext always passes through
-// because *sql.Row carries no error until Scan; ExecContext is what the SQLite
-// AutoMigrate CREATE TABLE statement goes through.
 type failOnNthExecPool struct {
 	inner  *sql.DB
 	mu     sync.Mutex
@@ -52,13 +48,8 @@ func (p *failOnNthExecPool) QueryRowContext(ctx context.Context, query string, a
 	return p.inner.QueryRowContext(ctx, query, args...)
 }
 
-// GetDBConn satisfies gorm's GetDBConnector interface used internally by GORM.
 func (p *failOnNthExecPool) GetDBConn() (*sql.DB, error) { return p.inner, nil }
 
-// newFailAfterExecDB opens an in-memory SQLite GORM DB whose ExecContext will
-// succeed for the first failAt calls and return an error for every subsequent
-// call. Both db.ConnPool and db.Statement.ConnPool are replaced so that all
-// operations go through the wrapper.
 func newFailAfterExecDB(t *testing.T, failAt int) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(glebarez.Open(":memory:"), &gorm.Config{
@@ -98,10 +89,6 @@ func TestNewGORMStores_ClosedDB_ReturnsError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestNewGORMStores_RepositoryStoreError triggers the "repository store" error
-// branch by letting only the first ExecContext (Project CREATE TABLE) succeed.
-// SQLite AutoMigrate issues exactly one ExecContext per table, so failAt=1
-// causes repositories CREATE TABLE to fail.
 func TestNewGORMStores_RepositoryStoreError(t *testing.T) {
 	db := newFailAfterExecDB(t, 1)
 	_, err := newGORMStores(db)
@@ -109,9 +96,6 @@ func TestNewGORMStores_RepositoryStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "app: repository store:")
 }
 
-// TestNewGORMStores_TerminalProfileStoreError triggers the "terminal profile
-// store" error branch by allowing the first two ExecContext calls (Project and
-// Repository CREATE TABLE) to succeed before injecting a failure.
 func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
 	db := newFailAfterExecDB(t, 2)
 	_, err := newGORMStores(db)
@@ -119,10 +103,6 @@ func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "app: terminal profile store:")
 }
 
-// TestNewGORMStores_TerminalSessionStoreError triggers the "terminal session
-// store" error branch by allowing the first three ExecContext calls (everything
-// up to and including TerminalProfile's CREATE TABLE) to succeed before
-// injecting a failure.
 func TestNewGORMStores_TerminalSessionStoreError(t *testing.T) {
 	db := newFailAfterExecDB(t, 3)
 	_, err := newGORMStores(db)

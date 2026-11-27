@@ -6,8 +6,6 @@ import type { DescriptorReport } from '@/features/agent/api/agent-providers-api'
 type Load =
   { state: 'loading' } | { state: 'failed' } | { state: 'ready'; reports: DescriptorReport[] }
 
-/** The daemon's boot-time validation: an error blocks the provider, a warning is
- *  advice, and an override with errors falls back to the shipped descriptor. */
 export function DescriptorStatus() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
 

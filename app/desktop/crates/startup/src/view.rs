@@ -12,16 +12,12 @@ const STAGE_GAP: f32 = 36.0;
 const WORDMARK_SIZE: f32 = 44.0;
 const WORDMARK_LINE_HEIGHT_RATIO: f32 = 1.1;
 
-/// The halt gate: once the daemon halts it replaces the window's content with why, until the
-/// daemon is started again. Every other daemon state is told elsewhere, by toasts and the
-/// crash panel.
 pub struct View {
     halt: Option<(HaltReason, String)>,
     actions: Rc<dyn Actions>,
 }
 
 impl View {
-    /// A gate with nothing to show; `actions` receives the user's commands.
     pub fn new(actions: Rc<dyn Actions>) -> Self {
         Self {
             halt: None,
@@ -29,7 +25,6 @@ impl View {
         }
     }
 
-    /// Feeds what the daemon supervisor reported: a halt shows the gate, a restart lifts it.
     pub fn apply(
         &mut self,
         input: Input,
@@ -45,7 +40,6 @@ impl View {
         cx.notify();
     }
 
-    /// Whether the gate covers the window, hiding the layout under it.
     pub fn covers(&self) -> bool {
         self.halt.is_some()
     }

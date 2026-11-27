@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// OwnerOnly makes the database at path owner-only before SQLite opens it: a new
-// file is created 0600, which SQLite copies onto its -wal and -shm, and existing
-// ones lose their group and other bits (a read-only file stays read-only).
 func OwnerOnly(
 	path string,
 ) error {
@@ -20,7 +17,7 @@ func OwnerOnly(
 	f, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0o600) //nolint:gosec // G304: path is a database file of the daemon's own home
 	switch {
 	case errors.Is(err, fs.ErrPermission):
-		return nil // SQLite reports the read-only database in its own words
+		return nil
 	case err != nil:
 		return fmt.Errorf("sqlite: create %s: %w", path, err)
 	}

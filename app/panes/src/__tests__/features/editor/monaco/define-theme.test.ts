@@ -104,17 +104,14 @@ describe('defineMonacoTheme', () => {
   })
 
   it('makes the current-line highlight a subtle wash, not a solid block', () => {
-    // `ui.border` is an opaque hairline color; at full strength it paints a solid grey bar.
     const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
     const lineHighlight = colors['editor.lineHighlightBackground']
     expect(lineHighlight.slice(0, 7)).toBe(UI.border.slice(0, 7))
-    expect(lineHighlight).toHaveLength(9) // #rrggbb + alpha byte
+    expect(lineHighlight).toHaveLength(9)
     expect(lineHighlight.slice(7)).not.toBe('ff')
   })
 
   it('gives sticky scroll its own opaque background so scrolled text cannot show through it', () => {
-    // Monaco defaults the sticky-scroll backgrounds to editor.background, which this theme makes
-    // transparent; sticky scroll floats over scrolled content, so it needs its own opaque color.
     const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
     expect(colors['editorStickyScroll.background']).toBe(UI.widgetBackground)
     expect(colors['editorStickyScrollGutter.background']).toBe(UI.widgetBackground)
@@ -134,8 +131,8 @@ describe('defineMonacoTheme', () => {
     const fg = (t: string) => rules.find((r) => r.token === t)?.foreground
     expect(fg('function')).toBe('6fb0e0')
     expect(fg('type')).toBe('c4a6dd')
-    expect(fg('property')).toBe('cfc9bd') // not present in the Monarch TOKEN_MAP
-    expect(fg('method')).toBe('6fb0e0') // server types share their category's color
+    expect(fg('property')).toBe('cfc9bd')
+    expect(fg('method')).toBe('6fb0e0')
     expect(fg('decorator')).toBe('d6a95c')
     expect(fg('attribute')).toBe('d6a95c')
   })

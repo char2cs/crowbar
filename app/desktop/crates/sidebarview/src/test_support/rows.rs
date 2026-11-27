@@ -1,5 +1,3 @@
-//! Row values and handlers the row tests share.
-
 use sidebar::{Row, RowKind};
 use std::cell::RefCell;
 use std::rc::Rc;

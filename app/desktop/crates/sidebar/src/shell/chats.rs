@@ -1,5 +1,3 @@
-//! Row data of the chats tree: rows, ids, kinds, move targets, notices and marks.
-
 mod drop_mode;
 mod facets;
 mod mark;

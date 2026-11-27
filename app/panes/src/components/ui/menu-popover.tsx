@@ -46,7 +46,6 @@ const TRANSFORM_ORIGIN: Record<`${AnchorSide}-${AnchorAlign}`, string> = {
   'top-end': 'bottom right',
 }
 
-/** The dropdown's portalled surface, growing out of its anchor; wheel scrolling stays inside it. */
 export function MenuPopover({
   isOpen,
   menuRef,

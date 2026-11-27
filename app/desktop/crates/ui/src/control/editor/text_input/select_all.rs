@@ -1,11 +1,8 @@
-//! Selecting the whole text of a [`TextInput`] from code, as an editor does when it opens on a name.
-
 use gpui::Context;
 
 use crate::control::editor::text_input::TextInput;
 
 impl TextInput {
-    /// Selects the whole text, so typing replaces it.
     pub fn select_all(
         &mut self,
         cx: &mut Context<'_, Self>,

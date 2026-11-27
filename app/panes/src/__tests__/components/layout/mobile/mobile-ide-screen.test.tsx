@@ -8,7 +8,6 @@ import { resetChatStore, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-// A terminal's xterm has its own suite; this one is about the IDE's tabs.
 vi.mock('@/features/panes/components/terminal-pane', () => ({
   TerminalPane: (props: { bufferId: string; isVisible?: boolean }) =>
     createElement('div', {
@@ -47,7 +46,6 @@ describe('MobileIdeScreen', () => {
     expect(screen.queryByRole('button', { name: /new browser/i })).not.toBeInTheDocument()
   })
 
-  // The tab strip itself is native (use-native-tabs); the IDE keeps every tab's view mounted.
   it('keeps each terminal mounted while another is shown', () => {
     render(<MobileIdeScreen hidden={false} />)
     fireEvent.click(screen.getByRole('button', { name: /new terminal/i }))
@@ -78,7 +76,6 @@ describe('MobileIdeScreen', () => {
     expect(useMobileScreenStore.getState().screen).toBe('ide')
   })
 
-  // The pane recorded where the chat ran when it opened; a move since is the chat's to say.
   it('opens a moved chat’s tabs in the worktree it runs in now', () => {
     act(() => writeChat({ id: 'c1', workspaceId: 'ws-2' }))
     render(<MobileIdeScreen hidden={false} />)

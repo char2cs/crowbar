@@ -27,8 +27,6 @@ import (
 
 const wsProvider = "wsprov"
 
-// wsDescriptor is a serve-less provider reached over a websocket: connect prints
-// the endpoint, and every event it speaks is declared here.
 const wsDescriptor = `schema_version: 0
 id: wsprov
 display_name: Socket Provider
@@ -94,7 +92,6 @@ events:
 
 var callIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-// withoutCallID returns a turn/send's params minus its per-call id, which it checks is fresh-looking.
 func withoutCallID(t *testing.T, params json.RawMessage) string {
 	t.Helper()
 	var m map[string]any
@@ -107,17 +104,15 @@ func withoutCallID(t *testing.T, params json.RawMessage) string {
 	return string(out)
 }
 
-// socketRig is a daemon whose only provider dials a fake socket.
 type socketRig struct {
 	*rig
 	ws       *kit.FakeWS
 	endpoint string
 	calls    chan wireMsg
-	reject   sync.Map // method -> error message the socket answers it with
-	results  sync.Map // method -> result JSON the socket answers it with, over the default
+	reject   sync.Map
+	results  sync.Map
 }
 
-// wireMsg is one message the daemon wrote to the socket.
 type wireMsg struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -130,8 +125,6 @@ func newSocketRig(t *testing.T) *socketRig {
 	return newSocketRigFor(t, wsProvider, func(endpoint string) []byte { return fmt.Appendf(nil, wsDescriptor, endpoint) })
 }
 
-// newSocketRigFor is a socketRig whose provider is the descriptor describe renders
-// for the endpoint file the rig serves.
 func newSocketRigFor(t *testing.T, provider string, describe func(endpoint string) []byte) *socketRig {
 	t.Helper()
 	s := &socketRig{ws: kit.NewFakeWS(t), endpoint: filepath.Join(t.TempDir(), "endpoint.json"), calls: make(chan wireMsg, 64)}
@@ -144,7 +137,6 @@ func newSocketRigFor(t *testing.T, provider string, describe func(endpoint strin
 	return s
 }
 
-// offerEndpoint publishes a fresh single-use ticket for the next (re)connect.
 func (s *socketRig) offerEndpoint(t *testing.T) {
 	t.Helper()
 	doc, err := json.Marshal(map[string]string{"url": s.ws.URL(s.ws.NewTicket())})
@@ -152,7 +144,6 @@ func (s *socketRig) offerEndpoint(t *testing.T) {
 	require.NoError(t, os.WriteFile(s.endpoint, doc, 0o600))
 }
 
-// answer replies to every call the daemon makes and records all it writes.
 func (s *socketRig) answer(ctx context.Context) {
 	results := map[string]string{"session/new": `{"id":"sess-1"}`, "turn/send": `{"turn":"turn-1"}`}
 	for {
@@ -184,7 +175,6 @@ func (s *socketRig) answer(ctx context.Context) {
 	}
 }
 
-// next is the next frame the daemon wrote.
 func (s *socketRig) next(t *testing.T) wireMsg {
 	t.Helper()
 	select {
@@ -196,7 +186,6 @@ func (s *socketRig) next(t *testing.T) wireMsg {
 	}
 }
 
-// nextMethod skips replies and returns the next call named method.
 func (s *socketRig) nextMethod(t *testing.T, method string) wireMsg {
 	t.Helper()
 	for {
@@ -211,8 +200,6 @@ func (s *socketRig) push(t *testing.T, msg string) {
 	require.NoError(t, s.ws.Send([]byte(msg)))
 }
 
-// A websocket descriptor with no serve connects, runs a whole turn over the
-// socket, answers a server-initiated approval over it, and ends cleanly.
 func TestRegression_WebsocketDeliveryRunsAChatTurn(t *testing.T) {
 	s := newSocketRig(t)
 	chatID := s.spawn(wsProvider)
@@ -257,8 +244,6 @@ func TestRegression_WebsocketDeliveryRunsAChatTurn(t *testing.T) {
 	assert.Equal(t, domain.AgentExitStopped, s.exitReason(chatID))
 }
 
-// A socket that drops mid-turn fails that turn in the ledger, then redials with a
-// fresh ticket and re-enters the same session without replaying the prompt.
 func TestRegression_WebsocketDropFailsTheTurnAndResumesTheSession(t *testing.T) {
 	s := newSocketRig(t)
 	chatID := s.spawn(wsProvider)
@@ -286,9 +271,6 @@ func TestRegression_WebsocketDropFailsTheTurnAndResumesTheSession(t *testing.T) 
 		"the resumed session never answered")
 }
 
-// A chat whose only channel is the socket has no argv to carry a prompt or a
-// session: after its connection is gone, a send redials, resumes the bound
-// session by the descriptor's own step, and delivers over the new connection.
 func TestRegression_WebsocketDormantChatResumesItsSessionToDeliverAPrompt(t *testing.T) {
 	s := newSocketRig(t)
 	chatID := s.spawn(wsProvider)
@@ -309,9 +291,6 @@ func TestRegression_WebsocketDormantChatResumesItsSessionToDeliverAPrompt(t *tes
 	assert.JSONEq(t, `{"id":"sess-1","text":"second"}`, withoutCallID(t, send.Params))
 }
 
-// A connection-only provider that refuses to open the session fails the spawn: the
-// prompt is settled, nothing is left working, and the exit carries the provider's own
-// reason rather than the wrapped spawn chain.
 func TestRegression_WebsocketRefusedSessionFailsTheSpawnWithTheProvidersReason(t *testing.T) {
 	s := newSocketRig(t)
 	s.reject.Store("session/new", "storage unavailable")
@@ -330,8 +309,6 @@ func TestRegression_WebsocketRefusedSessionFailsTheSpawnWithTheProvidersReason(t
 	assert.False(t, s.working(chatID), "the prompt that could not be carried is settled")
 }
 
-// Every prompt delivery mints its own {call_id}, so a re-send never reuses an id the
-// provider already admitted.
 func TestRegression_WebsocketEachPromptCarriesAFreshCallID(t *testing.T) {
 	s := newSocketRig(t)
 	chatID := s.spawn(wsProvider)
@@ -352,8 +329,6 @@ func TestRegression_WebsocketEachPromptCarriesAFreshCallID(t *testing.T) {
 	assert.NotEqual(t, ids[0], ids[1])
 }
 
-// A prompt the provider refuses leaves the chat's stop notice carrying the provider's own
-// reason, not a guess about its CLI.
 func TestRegression_WebsocketRefusedPromptRecordsItsReasonOnTheExit(t *testing.T) {
 	s := newSocketRig(t)
 	chatID := s.spawn(wsProvider)
@@ -372,8 +347,6 @@ func TestRegression_WebsocketRefusedPromptRecordsItsReasonOnTheExit(t *testing.T
 	}, "no exit row carried the provider's reason")
 }
 
-// interruptParams drives a turn to the point a retract interrupts it and returns the
-// params of the cancel the daemon sends.
 func (s *socketRig) interruptParams(t *testing.T, chatID, text string) map[string]any {
 	t.Helper()
 	requestID := uuid.NewString()
@@ -389,8 +362,6 @@ func (s *socketRig) interruptParams(t *testing.T, chatID, text string) map[strin
 	return params
 }
 
-// A receipt whose generation is null (queued admission) says nothing new, so the
-// interrupt still names the last number the provider gave; a later number replaces it.
 func TestRegression_WebsocketNullGenerationKeepsTheLastKnownOne(t *testing.T) {
 	s := newSocketRig(t)
 	s.results.Store("session/new", `{"id":"sess-1","generation":3}`)

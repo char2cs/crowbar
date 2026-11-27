@@ -22,7 +22,6 @@ use self::answers::deliver;
 use self::handlers::Handlers;
 use self::template_request::TemplateRequest;
 
-// SPEC: docs/plans/2026-11-26-overlay-rule.md#the-rule WebKit's chooser for an `<input type=file multiple>`.
 const UPLOADS: ui::FileChoice = ui::FileChoice {
     title: "Select Files",
     kind: ui::ChoiceKind::Files,

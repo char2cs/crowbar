@@ -1,5 +1,3 @@
-//! The merge box of the Changes panel: commit form, strategy, merge and the reasons it may not.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, Context, Div, FontWeight, InteractiveElement, IntoElement, ParentElement,

@@ -1,5 +1,3 @@
-//! One menu entry as a page writes it.
-
 use serde::Deserialize;
 use webview::MenuEntry;
 

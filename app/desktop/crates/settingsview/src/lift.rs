@@ -1,6 +1,3 @@
-//! The record a drag holds up and the slot it hovers, so the list shows the order it would drop into.
-//! Spec: web/src/features/settings/components/tabs/providers-settings-view.tsx (dnd-kit sortable).
-
 use settings::Record;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

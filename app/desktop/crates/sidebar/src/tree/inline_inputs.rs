@@ -8,13 +8,10 @@ use crate::tree::Tree;
 use crate::tree::editing::Editing;
 
 impl Tree {
-    /// The inline input a tree row is showing, if any.
     pub fn editing(&self) -> &Editing {
         &self.editing
     }
 
-    /// Shows the rename input on `row`, replacing any other inline input.
-    /// A locked branch refuses and nothing changes.
     pub fn start_rename(
         &mut self,
         row: &Row,
@@ -25,7 +22,6 @@ impl Tree {
         self.editing = Editing::Renaming(row.id.clone());
     }
 
-    /// Shows the rename input on `row`, a row made to be named that may not be drawn yet.
     pub fn start_naming(
         &mut self,
         row: &RowId,
@@ -33,7 +29,6 @@ impl Tree {
         self.editing = Editing::Renaming(row.clone());
     }
 
-    /// Shows the branch-name input on `row`, replacing any other inline input.
     pub fn start_branching(
         &mut self,
         row: &RowId,
@@ -41,7 +36,6 @@ impl Tree {
         self.editing = Editing::Branching(row.clone());
     }
 
-    /// Shows a draft input under `parent`, unfolding `parent` so the input is visible.
     pub fn start_draft(
         &mut self,
         parent: &RowId,
@@ -50,7 +44,6 @@ impl Tree {
         self.editing = Editing::Drafting(parent.clone());
     }
 
-    /// Shows the rename input on the file at `path`, replacing any other inline input.
     pub fn start_file_rename(
         &mut self,
         path: String,
@@ -58,7 +51,6 @@ impl Tree {
         self.editing = Editing::RenamingFile(path);
     }
 
-    /// Shows the input that renames a space, replacing any other inline input.
     pub fn start_project_rename(
         &mut self,
         project: ProjectId,
@@ -66,7 +58,6 @@ impl Tree {
         self.editing = Editing::RenamingProject(project);
     }
 
-    /// Shows the input that names a new `entry` in the directory `dir`.
     pub fn start_file_create(
         &mut self,
         dir: String,
@@ -75,7 +66,6 @@ impl Tree {
         self.editing = Editing::Creating { dir, entry };
     }
 
-    /// Closes whatever inline input is showing.
     pub fn stop_editing(&mut self) {
         self.editing = Editing::Nothing;
     }

@@ -27,17 +27,11 @@ import {
   type ViewState,
 } from './view-state'
 
-// The only structural writers (insert/remove/move/fillPane), so view-integrity.ts's invariants
-// are kept in one place. None repairs focus: commitViewWrite settles it once after each write.
-
-/** Apply one pane write; afterwards `activePaneId` names a pane on screen. */
 export function commitViewWrite<S extends ViewState>(state: S, recipe: (state: S) => void): void {
   recipe(state)
   settleFocus(state)
 }
 
-/** Drop a record and every pane still in its layout; when it was the one on
- *  screen, show the next view of the same project and workspace. */
 export function removeView(state: ViewState, viewId: string): void {
   const view = state.views[viewId]
   if (!view) return
@@ -49,9 +43,6 @@ export function removeView(state: ViewState, viewId: string): void {
   dropRecord(state, viewId, shown)
 }
 
-/** `shown`: the workspaces the dropped view showed. The route names that
- *  workspace and only a gesture moves it, so another workspace's view never
- *  comes forward in its place — the stage does. */
 function dropRecord(state: ViewState, viewId: string, shown: ReadonlySet<string | null>): void {
   const view = state.views[viewId]
   if (!view) return
@@ -65,7 +56,6 @@ function dropRecord(state: ViewState, viewId: string, shown: ReadonlySet<string 
   }
 }
 
-/** The stage holds a chat now: its layout becomes a new record. */
 function promoteStage(state: ViewState, projectId: string): string {
   const first = getFirstLeafId(state.stage)
   const id = state.views[first] ? nanoid() : first
@@ -82,9 +72,6 @@ function promoteStage(state: ViewState, projectId: string): string {
   return id
 }
 
-/** `split` carves `pane` from the target into its view (a chat in the stage promotes it); `view`
- *  mints a record after `after`. Returns the joined view id, null for stage/bottom, undefined
- *  when refused. Focus is the caller's. */
 export function insertPane(
   state: ViewState,
   pane: PaneGroup,
@@ -122,7 +109,6 @@ export function insertPane(
   return viewId
 }
 
-/** Hand a leaving pane's editor tabs to the pane that takes its place. */
 function transferTabs(state: ViewState, closing: PaneGroup, survivorId: string): void {
   if (closing.editorTabIds.length === 0) return
   const survivor = state.panes[survivorId]
@@ -143,8 +129,6 @@ function transferTabs(state: ViewState, closing: PaneGroup, survivorId: string):
   }
 }
 
-/** A pane leaving as its view's last member takes its tabs along, except unsaved ones (the only
- *  copy of those edits), which move to the stage. Call before `removePane`. */
 export function keepUnsavedTabs(
   state: ViewState & { buffers: PaneContent[] },
   paneId: string,
@@ -163,8 +147,6 @@ export function keepUnsavedTabs(
   stage.editorOpen = true
 }
 
-/** Its tabs go to the pane taking its place; a view left chatless goes too (invariant 2); an
- *  emptied stage or bottom tray is reseeded with one empty pane. */
 export function removePane(state: ViewState, paneId: string): void {
   const pane = state.panes[paneId]
   const home = homeOf(state, paneId)
@@ -197,8 +179,6 @@ export function removePane(state: ViewState, paneId: string): void {
   }
 }
 
-/** Re-home a pane as a split of a target (joining its view) or as a new record after `after`;
- *  the view it left goes when that took its last chat. */
 export function movePane(state: ViewState, paneId: string, at: InsertAt): boolean {
   const pane = state.panes[paneId]
   const from = homeOf(state, paneId)
@@ -257,8 +237,6 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
   return true
 }
 
-/** A chat lands in a chatless pane, never replacing one (invariant 5); a stage pane promotes
- *  the stage to a record of `projectId`. Returns the pane's view, or undefined when refused. */
 export function fillPane(
   state: ViewState,
   paneId: string,

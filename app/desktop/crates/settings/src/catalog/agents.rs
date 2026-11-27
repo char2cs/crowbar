@@ -1,5 +1,3 @@
-//! The Agents page.
-
 use super::rows::row;
 use crate::schema::Action;
 use crate::schema::ButtonFace;

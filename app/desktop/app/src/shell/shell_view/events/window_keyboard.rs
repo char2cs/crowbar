@@ -1,5 +1,3 @@
-//! The keyboard follows the window: it goes back to the shell's holder when the window is active.
-
 use gpui::{App, Context, Window};
 
 use crate::shell::shell_view::ShellView;

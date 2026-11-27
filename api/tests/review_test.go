@@ -23,16 +23,6 @@ type reviewFilesDTO struct {
 	Files []reviewFileSummary `json:"files"`
 }
 
-// TestReview_FilesSummary_FullBranchPicture proves GET /review/files returns the
-// full changed-files picture — committed branch changes, uncommitted tracked
-// edits, and untracked files — each with +N/-N counts and the right uncommitted
-// flag, all WITHOUT any line-level diff content in the payload.
-//
-// This also carries what TestReview_BlendedDiffFlagsUncommitted used to: that
-// test read the blend off `/review`'s composite `diff.files`, which no longer
-// exists (see TestRegression_ReviewCompositeCarriesNoDiff). /review/files is
-// where the blend lives now, and it reports strictly more — status and counts
-// as well as the flag.
 func TestReview_FilesSummary_FullBranchPicture(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -44,14 +34,11 @@ func TestReview_FilesSummary_FullBranchPicture(t *testing.T) {
 	save := func(path, content string) {
 		h.put(documentsContent, map[string]string{"workspaceId": imported.workspaceID, "path": path, "content": content}, nil)
 	}
-	// A committed change on the branch.
 	save("committed.txt", "one\ntwo\n")
 	h.post(base+"/git/stage", map[string]any{"paths": []string{"committed.txt"}}, 200, &saved)
 	h.post(base+"/git/commit", map[string]string{"subject": "add committed.txt"}, 200, &saved)
 
-	// An uncommitted working-tree edit of a tracked file.
 	save("README.md", "edited line\n")
-	// A brand-new untracked file (no diff against the fork point).
 	save("scratch.txt", "scratch\n")
 
 	var summary reviewFilesDTO

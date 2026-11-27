@@ -10,11 +10,6 @@ use crate::backend::view::view_focus::ViewFocus;
 use crate::backend::view::view_layout::ViewLayout;
 use crate::backend::view::view_lifecycle::ViewLifecycle;
 
-/// The operations a platform backend offers, as the small capabilities they are made of. One
-/// implementation per platform; a recording implementation exists for tests of crates built on
-/// top (feature `mock`).
-///
-/// Backends live on the thread that created them (the GPUI main thread), hence no `Send`.
 pub trait Platform:
     ViewLifecycle
     + ViewLayout

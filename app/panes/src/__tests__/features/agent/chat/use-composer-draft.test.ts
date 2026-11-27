@@ -1,5 +1,3 @@
-// A chat's stashes have one owner, its stored list: a failed prompt the outbox
-// stashes while the composer is open must survive the composer's own next write.
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useComposerDraft } from '@/features/agent/chat/use-composer-draft'

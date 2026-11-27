@@ -19,9 +19,7 @@ func TestEngine_Create_BadShell(t *testing.T) {
 	dir := t.TempDir()
 
 	_, err := eng.Create(ctx, "chat-bad", dir, nil)
-	// With no profile, it uses $SHELL or /bin/sh which is valid, so this test
-	// exercises the profile resolution path. To trigger an error we need a bad profile.
-	require.NoError(t, err) // default shell succeeds
+	require.NoError(t, err)
 	_ = eng.Kill(ctx, eng.ListSessions()[0])
 }
 

@@ -12,11 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// TestFileSummaries_FullBranchPicture drives FileSummaries against a real repo
-// with committed branch work AND working-tree edits, proving the name-status +
-// numstat merge classifies every case (modify/add/delete/rename/binary) with
-// the right +/- counts, and that untracked files (no diff vs the fork point)
-// are excluded — the caller folds those in from git status.
 func TestFileSummaries_FullBranchPicture(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "keep.txt", "a\nb\nc\n")
@@ -27,7 +22,6 @@ func TestFileSummaries_FullBranchPicture(t *testing.T) {
 	mustGit(t, dir, "commit", "-m", "initial")
 	fork := headSHA(t, dir)
 
-	// Committed branch work: modify, rename, delete, add, change binary.
 	writeFile(t, dir, "keep.txt", "a\nb\nc\nd\ne\n")
 	mustGit(t, dir, "mv", "torename.txt", "renamed.txt")
 	mustGit(t, dir, "rm", "todelete.txt")
@@ -36,7 +30,6 @@ func TestFileSummaries_FullBranchPicture(t *testing.T) {
 	mustGit(t, dir, "add", "-A")
 	mustGit(t, dir, "commit", "-m", "branch work")
 
-	// Working-tree edits on top of the committed work, plus a plain untracked file.
 	writeFile(t, dir, "keep.txt", "a\nb\nc\nd\ne\nf\n")
 	writeFile(t, dir, "untracked.txt", "not\ntracked\n")
 
@@ -72,8 +65,6 @@ func TestFileSummaries_FullBranchPicture(t *testing.T) {
 	assert.NotContains(t, byPath, "untracked.txt", "untracked files have no diff vs fork; excluded here")
 }
 
-// TestFileSummaries_CleanTree returns an empty summary when nothing changed
-// since the ref.
 func TestFileSummaries_CleanTree(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "hello\n")
@@ -86,24 +77,14 @@ func TestFileSummaries_CleanTree(t *testing.T) {
 	assert.Empty(t, files)
 }
 
-// TestFileSummaries_NameStatusExecError covers the exec.RequireSuccess guard
-// on the leading `git diff --name-status` invocation: any directory that
-// isn't a git repository at all fails there, before summaryCounts ever runs.
 func TestFileSummaries_NameStatusExecError(t *testing.T) {
-	dir := t.TempDir() // not a git repo
+	dir := t.TempDir()
 
 	_, err := diff.FileSummaries(context.Background(), dir, "HEAD", nil)
 
 	require.Error(t, err)
 }
 
-// TestFileSummaries_CommittedCountsErrorPropagates proves a failure inside the
-// committed-count half of the dirty-set split (summaryCounts's cached
-// ref->HEAD numstat query) reaches the caller through FileSummaries' own error
-// check, not just summaryCounts's internal one. The seam is runGit, not
-// exec.Git, so the name-status call FileSummaries runs first is unaffected and
-// succeeds normally against the real repo; only the treeCounts half is made to
-// fail.
 func TestFileSummaries_CommittedCountsErrorPropagates(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "1\n")
@@ -118,8 +99,6 @@ func TestFileSummaries_CommittedCountsErrorPropagates(t *testing.T) {
 	})
 	t.Cleanup(restore)
 
-	// dirty must be non-nil (and not a range ref) to route through the
-	// committed/dirty split rather than straight to worktreeCounts.
 	_, err := diff.FileSummaries(context.Background(), dir, "HEAD", []string{})
 
 	require.Error(t, err)

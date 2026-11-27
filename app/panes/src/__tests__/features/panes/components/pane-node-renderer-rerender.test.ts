@@ -7,11 +7,6 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 
-// ── Per-pane render probe ────────────────────────────────────────────
-// PaneContainer is the leaf's only child; it is NOT independently memoized, so
-// each render of it corresponds 1:1 to a render of the PaneNodeRenderer leaf
-// that hosts it. Keyed by pane id, so we can assert that mutating pane A never
-// re-renders pane B's leaf.
 const paneRenderCounts = new Map<string, number>()
 vi.mock('@/features/panes/components/pane-container', () => ({
   PaneContainer: ({ pane }: { pane: { id: string } }) => {
@@ -20,7 +15,6 @@ vi.mock('@/features/panes/components/pane-container', () => ({
   },
 }))
 
-// Imported AFTER the mock (vi.mock is hoisted regardless; kept explicit).
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { PaneNodeRenderer } from '@/features/panes/components/pane-node-renderer'
 import { SplitViewRoot } from '@/features/panes/components/split-view-root'
@@ -47,8 +41,6 @@ function paneGroup(id: string, editorTabIds: string[], activeEditorTabId: string
   }
 }
 
-// Panes live on the window-level `windowPaneStore`, so pane-a/pane-b are seeded there; the
-// workspace store is only for the `workspaceId` PaneContainer reads off its context.
 function setupStore() {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
@@ -86,8 +78,6 @@ describe('PaneNodeRenderer leaf render isolation', () => {
     expect(beforeA).toBeGreaterThan(0)
     expect(beforeB).toBeGreaterThan(0)
 
-    // Switch the ACTIVE tab of pane A only. immer's structural sharing keeps
-    // panes['pane-b'] referentially identical, so B's leaf must stay put.
     act(() => {
       windowPaneStore.getState().paneActions.activateEditorTabInPane('pane-a', 'a2')
     })
@@ -122,8 +112,6 @@ describe('SplitViewRoot end-to-end leaf isolation', () => {
       windowPaneStore.getState().paneActions.activateEditorTabInPane('pane-a', 'a2')
     })
 
-    // SplitViewRoot doesn't subscribe to the whole `panes` record, so it does not
-    // re-render the layout tree; only pane A's own leaf reacts.
     expect(paneRenderCounts.get('pane-b')).toBe(beforeB)
   })
 })

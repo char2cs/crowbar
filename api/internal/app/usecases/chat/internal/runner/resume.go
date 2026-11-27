@@ -8,8 +8,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// ResumeChat revives a dormant chat's last provider. Split out of lifecycle.go
-// (responsibility, not size) once lastActiveProviderID's own fix landed there.
 func (rs *Runners) ResumeChat(
 	ctx context.Context,
 	chatID string,
@@ -31,13 +29,10 @@ func (rs *Runners) ResumeChat(
 	if err != nil {
 		return "", fmt.Errorf("agent: resume chat: %w", err)
 	}
-	// The chat is already held: call the inner body, never SwitchProvider itself.
 	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
 	return rs.switchProviderLocked(ctx, h, chatID, providerID)
 }
 
-// settledRunner is the runner on h's chat once any end under way has finished,
-// waited out with the chat's lock released.
 func (rs *Runners) settledRunner(h *hold) (engineagents.Runner, bool, error) {
 	for {
 		v, ok := rs.live.view(h.chatID)
@@ -53,8 +48,6 @@ func (rs *Runners) settledRunner(h *hold) (engineagents.Runner, bool, error) {
 	}
 }
 
-// lastActiveProviderID answers "who comes back" for a dormant chat: its durable
-// domain.Chat.ProviderID. None is ErrChatProviderUnknown, never a missing RUNNER.
 func (rs *Runners) lastActiveProviderID(ctx context.Context, chatID string) (string, error) {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {

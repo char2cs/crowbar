@@ -4,7 +4,6 @@ import { useHostConfigStore } from '@/features/hosts/stores/host-config-store'
 import { LOCAL_HOST, type HostDotState, type HostStatus } from '@/features/hosts/types'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 
-/** A host's status as the app last saw it — read only; its probes and streams keep it. */
 function useHostStatus(hostId: string): HostStatus {
   const subscribe = useCallback(
     (onChange: () => void) => subscribeHostStatusOf(hostId, onChange),
@@ -13,8 +12,6 @@ function useHostStatus(hostId: string): HostStatus {
   return useSyncExternalStore(subscribe, () => hostStatusOf(hostId))
 }
 
-/** What `hostId`'s status dot says. 'no-live-stream' while it answers but every live stream
- *  of it is closed (refused or dropped): what the app shows of it is not being kept current. */
 export function useHostDotState(hostId: string): HostDotState {
   const status = useHostStatus(hostId)
   const streamsClosed = useConnectionStore((s) => s.hostStreams[hostId] === 'disconnected')
@@ -26,12 +23,8 @@ interface HostView {
   state: HostDotState
 }
 
-/** Host views handed in whole, for a page that renders a snapshot and watches no host itself
- *  (the phone's sidebar page). */
 export const HostViewsContext = createContext<ReadonlyMap<string, HostView> | null>(null)
 
-/** `hostId` as a surface names it: its name and dot. A host no longer configured has no name
- *  and is 'not-available' — never Local. */
 export function useHostView(hostId: string): HostView {
   const given = use(HostViewsContext)
   const name = useHostConfigStore((s) =>

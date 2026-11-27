@@ -1,7 +1,3 @@
-//! Where a relayed drag goes inside the window: the deepest window under the pointer inside the
-//! XDND-aware child window there, and the drag's point in that window's parent, where GTK looks
-//! for it in a web view's window. Over the window itself or a child that takes no drags, nowhere.
-
 use x11rb::NONE;
 use x11rb::errors::ReplyError;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _, TranslateCoordinatesReply};

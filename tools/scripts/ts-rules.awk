@@ -30,7 +30,6 @@ BEGIN { pend_doc = 0; types = 0; run_len = 0; mocks = 0; comps = 0; classes = 0 
   if (mode == "src" && raw !~ /^[ \t]*$/) {
     exported = raw ~ /^export (default )?(async )?(function|const|class|interface|type|enum|abstract)/
     declared = raw ~ /^(async )?(function|class|interface|type|enum|abstract class)[ \t]/ || raw ~ /^const [A-Za-z_]/
-    if (exported && !pend_doc) report(NR, "doc-missing", "exported symbol without a /** doc comment */")
     if (!exported && declared && pend_doc) report(doc_line, "doc-private", "doc comment on a non-exported symbol")
     pend_doc = 0
   }

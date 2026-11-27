@@ -13,11 +13,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// blockingExec returns an execFn-compatible function that answers
-// "rev-parse --git-common-dir" immediately (so common-dir resolution, which
-// runs before any lock is taken, never blocks) and otherwise signals on
-// started before blocking on release — letting a test control exactly when a
-// git subprocess "returns" without sleeping.
 func blockingExec(
 	started chan<- string,
 	release <-chan struct{},
@@ -32,16 +27,6 @@ func blockingExec(
 	}
 }
 
-// waitUntilParkedOnRLock blocks until a goroutine running WouldMergeConflict is
-// parked inside sync.(*RWMutex).RLock.
-//
-// This is the real signal that the read is *waiting for the lock*: the runtime's
-// own goroutine dump says so. A duration cannot say so — sleeping 50ms and
-// finding the read unfinished proves nothing about why, and under load it is
-// simply a guess. The wait is bounded by the reader itself, so it always ends in
-// one of three states, never in a timeout: the read parks (return), the read
-// reaches its git subprocess, or the read completes. The last two are exactly the
-// regression this test exists to catch, and both fail immediately.
 func waitUntilParkedOnRLock(
 	t *testing.T,
 	readDone <-chan struct{},
@@ -89,11 +74,6 @@ func TestRWMutex_ConcurrentReadsDoNotSerialize(t *testing.T) {
 		}()
 	}
 
-	// Both reads must reach their blocking exec call — proving neither waited for
-	// the other to finish (both hold RLock concurrently). The receives ARE the
-	// assertion: the first read never returns (it is parked on release), so if
-	// reads serialized, the second receive could never complete and `go test
-	// -timeout` reports it with a full goroutine dump. No wall-clock guess needed.
 	<-started
 	<-started
 
@@ -114,8 +94,6 @@ func TestRWMutex_WriteBlocksConcurrentRead(t *testing.T) {
 		close(writeDone)
 	}()
 
-	// The write is now inside its exec call, holding the exclusive lock. Every
-	// later value on started can therefore only come from the read.
 	<-started
 
 	readDone := make(chan struct{})
@@ -124,15 +102,11 @@ func TestRWMutex_WriteBlocksConcurrentRead(t *testing.T) {
 		close(readDone)
 	}()
 
-	// Blocks until the runtime reports the read parked on the lock — and fails the
-	// instant the read instead slips through to its git subprocess or finishes.
 	waitUntilParkedOnRLock(t, readDone, started)
 
 	close(release)
 	<-writeDone
 
-	// Released: the read must now proceed. A read that stays parked hangs here and
-	// is reported by `go test -timeout`.
 	<-readDone
 }
 
@@ -145,8 +119,5 @@ func TestRWMutex_DiscardDoesNotDeadlockOnStatus(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- e.Discard(context.Background(), dir, "file.txt") }()
 
-	// If Status re-took the lock Discard already holds, this receive never
-	// completes and `go test -timeout` dumps the deadlocked goroutines — strictly
-	// more diagnostic than a 2s t.Fatal, and it cannot false-fail under load.
 	require.NoError(t, <-done)
 }

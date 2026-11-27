@@ -7,12 +7,6 @@ use crate::slot::Slot;
 use crate::slot::is_browser;
 
 impl PaneHost {
-    /// Drives the web view of a browser pane. Only browser panes take part: anything else is
-    /// refused so a pane type can never be navigated away from its own bundle.
-    ///
-    /// # Errors
-    /// [`Error::NotShown`] when `pane` is not a browser pane with a web view and
-    /// [`Error::WebView`] when the web view layer fails.
     pub fn browse(
         &self,
         pane: &PaneId,

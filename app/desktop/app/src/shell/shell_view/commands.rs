@@ -1,5 +1,3 @@
-//! Key commands and pane commands.
-
 mod chat_zoom;
 mod closing;
 mod direction;

@@ -28,22 +28,14 @@ const GAP: f32 = 6.0;
 const LABEL_SIZE: f32 = 13.0;
 const READ_ONLY_TIP: &str = "Read-only: this branch is locked";
 
-/// One editor tab of the tab bar.
 #[derive(IntoElement)]
 pub struct StripTab {
-    /// The pane the tab shows.
     pub pane: PaneId,
-    /// Its label, glyph and marks.
     pub look: TabLook,
-    /// Whether it is the shown tab.
     pub state: TabState,
-    /// What its end button does.
     pub end: TabEnd,
-    /// Its context menu.
     pub menu: Rc<[MenuItem]>,
-    /// What pressing and closing it do.
     pub actions: TabActions,
-    /// Whether the keyboard focus ring is drawn on it; the bar sets it.
     pub ringed: bool,
 }
 

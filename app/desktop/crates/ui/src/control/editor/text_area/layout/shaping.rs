@@ -1,5 +1,3 @@
-//! The inputs of shaping a text into wrapped lines.
-
 use gpui::{Pixels, SharedString, TextRun};
 
 pub(crate) struct Shaping<'a> {

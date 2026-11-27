@@ -12,8 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// stubRevParser answers `<commit>^` with parent, or an error when the commit is
-// a root commit.
 type stubRevParser struct {
 	parent string
 	err    error
@@ -30,10 +28,6 @@ func (s *stubRevParser) RevParse(
 }
 
 func TestCommitRange_NamesBothEnds(t *testing.T) {
-	// The load-bearing property. Every read underneath passes this ref to
-	// `git diff <ref> --`, which against a SINGLE ref means "ref versus the
-	// working tree" — for a commit that answers "everything since then", the
-	// opposite of what the reader asked for.
 	rev := &stubRevParser{parent: "aaaa1111"}
 	got := commitRange(context.Background(), rev, "/repo", "bbbb2222")
 
@@ -42,9 +36,6 @@ func TestCommitRange_NamesBothEnds(t *testing.T) {
 }
 
 func TestCommitRange_RootCommitDiffsAgainstTheEmptyTree(t *testing.T) {
-	// A root commit has no parent, so `<commit>^` does not resolve. Falling back
-	// to the empty tree is what `git show` does; without it the very first commit
-	// of a repository could not be viewed at all.
 	rev := &stubRevParser{err: errors.New("unknown revision")}
 	got := commitRange(context.Background(), rev, "/repo", "cccc3333")
 
@@ -52,8 +43,6 @@ func TestCommitRange_RootCommitDiffsAgainstTheEmptyTree(t *testing.T) {
 }
 
 func TestCommitRange_EmptyParentIsTreatedAsRoot(t *testing.T) {
-	// RevParse answering "" without an error is not a parent; taking it at face
-	// value would build the ref "..cccc3333", which git reads as HEAD..cccc3333.
 	rev := &stubRevParser{parent: ""}
 	got := commitRange(context.Background(), rev, "/repo", "cccc3333")
 
@@ -61,19 +50,17 @@ func TestCommitRange_EmptyParentIsTreatedAsRoot(t *testing.T) {
 }
 
 func TestResolveScopeRef_RejectsAnythingButAHexObjectName(t *testing.T) {
-	// The resolved ref becomes an ARGUMENT to `git diff`, and git reads a leading
-	// `-` as a flag. These must never reach a subprocess.
 	u := &branchReviewUsecase{}
 	for _, commit := range []string{
 		"--output=/tmp/pwned",
 		"-U9999",
-		"HEAD",          // a valid ref, but not how this surface addresses a commit
-		"main..other",   // range syntax must be built here, never accepted
-		"abc",           // too short to be an object name
-		"zzzz",          // not hex
-		"aaaa bbbb",     // whitespace
-		"aaaa;rm -rf /", // punctuation
-		"$(whoami)",     //
+		"HEAD",
+		"main..other",
+		"abc",
+		"zzzz",
+		"aaaa bbbb",
+		"aaaa;rm -rf /",
+		"$(whoami)",
 	} {
 		_, err := u.resolveScopeRef(context.Background(), domain.Workspace{}, commit)
 		require.Errorf(t, err, "commit %q must be refused", commit)
@@ -82,8 +69,6 @@ func TestResolveScopeRef_RejectsAnythingButAHexObjectName(t *testing.T) {
 }
 
 func TestIsCommitScoped(t *testing.T) {
-	// Drives whether the outline may be cached while the working tree is dirty:
-	// a commit-scoped read is a diff of two immutable trees, so it may.
 	assert.False(t, isCommitScoped(""))
 	assert.True(t, isCommitScoped("aaaa1111"))
 }

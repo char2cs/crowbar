@@ -6,7 +6,6 @@ import { getReviewFiles } from './review-api'
 
 export const COMMITS_PER_PAGE = 50
 
-/** The sidebar's changed-files list; null when the summary could not be fetched. */
 export async function fetchReviewFiles(wsId: string): Promise<GitDiff[] | null> {
   try {
     return reviewFilesSummaryToChangedFiles(await getReviewFiles({ wsId }))
@@ -17,7 +16,6 @@ export async function fetchReviewFiles(wsId: string): Promise<GitDiff[] | null> 
 
 export interface GitData {
   status: GitStatus | null
-  /** Why the status could not be read; null when it was. */
   statusError: string | null
   commits: GitCommit[]
   reviewFiles: GitDiff[] | null

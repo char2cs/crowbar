@@ -7,29 +7,18 @@ use crate::pane_host::reconcile::overlays::Overlays;
 use crate::pane_host::reconcile::pane_kinds::PaneKinds;
 use crate::pane_host::reconcile::visible_pane::VisiblePane;
 
-/// What the pane host needs from the shell to reconcile: the layout it reads panes and their
-/// state from (borrowed, never copied), the window, the holes panes are shown in, the focused
-/// pane, and who draws each pane.
 #[derive(Debug, Clone)]
 pub struct LayoutSnapshot<'a> {
-    /// The model. Pane state is read from here and nowhere else.
     pub layout: &'a Layout,
-    /// The native parent window.
     pub parent: ParentWindow,
-    /// Panes shown in the active tab and where.
     pub visible: Vec<VisiblePane>,
-    /// The focused pane of the tab the window shows.
     pub focused: Option<PaneId>,
-    /// Who the keys go to while that pane is shown and nothing covers the panes.
     pub keyboard: Keyboard,
-    /// What the shell draws over the panes.
     pub overlays: Overlays,
-    /// Whether a page or a native view draws each pane.
     pub kinds: &'a dyn PaneKinds,
 }
 
 impl<'a> LayoutSnapshot<'a> {
-    /// The snapshot of `layout` with `visible` holes in `parent`.
     #[must_use]
     pub fn from_layout(
         layout: &'a Layout,
@@ -47,7 +36,6 @@ impl<'a> LayoutSnapshot<'a> {
         }
     }
 
-    /// The same snapshot under the shell's `overlays`.
     #[must_use]
     pub fn with_overlays(
         mut self,
@@ -57,8 +45,6 @@ impl<'a> LayoutSnapshot<'a> {
         self
     }
 
-    /// The same snapshot with `focused` as the pane that has focus: the focus of the tab the
-    /// window shows, which only the shell knows.
     #[must_use]
     pub fn with_focus(
         mut self,
@@ -68,7 +54,6 @@ impl<'a> LayoutSnapshot<'a> {
         self
     }
 
-    /// The same snapshot with the keys going to `keyboard`.
     #[must_use]
     pub fn with_keyboard(
         mut self,
@@ -78,7 +63,6 @@ impl<'a> LayoutSnapshot<'a> {
         self
     }
 
-    /// The same snapshot with `kinds` deciding who draws each pane.
     #[must_use]
     pub fn with_kinds(
         mut self,

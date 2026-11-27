@@ -1,5 +1,3 @@
-//! The terminal palette of the installed theme.
-
 use gpui::{App, Hsla, Rgba};
 use terminal::Rgb;
 use ui::{Surface, Theme};

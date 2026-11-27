@@ -1,5 +1,3 @@
-//! Asks a [`Question`] as the desktop's message dialog.
-
 use gpui::{Context, Task, TaskExt as _, Window};
 use sidebar::{Command, Question, Stakes};
 use ui::{AlertButton, AlertRequest, AlertRole, NativeAlert};

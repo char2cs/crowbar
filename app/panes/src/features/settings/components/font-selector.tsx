@@ -17,7 +17,6 @@ import {
   SelectItem,
 } from '@/components/ui/select'
 
-// Bundled fonts that are always available
 const BUNDLED_FONTS: FontInfo[] = [
   {
     name: 'CalSansUI',
@@ -25,16 +24,12 @@ const BUNDLED_FONTS: FontInfo[] = [
     style: 'Regular',
     is_monospace: false,
   },
-  // Kept selectable as the UI-font alternate to CalSansUI.
   {
     name: 'Geist Variable',
     family: 'Geist Variable',
     style: 'Regular',
     is_monospace: false,
   },
-  // Default Heading Font Family — also selectable as a UI font, and the UI
-  // fonts above are equally selectable as a heading font. One picker, one
-  // bundled list, for both settings.
   {
     name: 'Instrument Serif',
     family: 'Instrument Serif',
@@ -68,19 +63,17 @@ export const FontSelector = ({
 
   const [isCustomFontValid, setIsCustomFontValid] = useState(false)
 
-  // Load fonts on mount
   useEffect(() => {
     if (monospaceOnly) {
-      loadMonospaceFonts(true) // Force refresh
+      loadMonospaceFonts(true)
     } else {
-      loadAvailableFonts(true) // Force refresh
+      loadAvailableFonts(true)
     }
   }, [monospaceOnly, loadAvailableFonts, loadMonospaceFonts])
 
   const systemFonts = monospaceOnly ? monospaceFonts : availableFonts
   const bundledFonts = monospaceOnly ? BUNDLED_FONTS.filter((f) => f.is_monospace) : BUNDLED_FONTS
 
-  // Combine bundled fonts with system fonts, avoiding duplicates
   const systemFontFamilies = new Set(systemFonts.map((f) => f.family))
   const uniqueBundledFonts = bundledFonts.filter((f) => !systemFontFamilies.has(f.family))
   const fonts = [...uniqueBundledFonts, ...systemFonts]
@@ -89,13 +82,11 @@ export const FontSelector = ({
   const resolvedValue = resolveAvailableFontFamily(value, fallbackFontFamily, availableFontFamilies)
   const primaryValue = getPrimaryFontFamily(value)
 
-  // Convert fonts to dropdown options
   const fontOptions = fonts.map((font: FontInfo, index) => ({
     value: font.family,
     label: index < uniqueBundledFonts.length ? `${font.family} (bundled)` : font.family,
   }))
 
-  // Add custom font option only for real system fonts that validate successfully.
   const currentFontInList = fontOptions.some((option) => option.value === resolvedValue)
   if (!currentFontInList && isCustomFontValid && primaryValue && value && value.trim() !== '') {
     fontOptions.unshift({

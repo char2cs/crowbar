@@ -1,5 +1,3 @@
-//! One static finding of a descriptor check.
-
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Default, Deserialize)]

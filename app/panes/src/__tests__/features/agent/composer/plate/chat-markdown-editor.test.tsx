@@ -14,8 +14,6 @@ import {
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import * as serialization from '@/features/agent/composer/plate/chat-composer-serialization'
 
-// Captures the config of the editor's own key plugin so its real handler can be
-// called directly: jsdom cannot drive Slate's selection-dependent keydown.
 const createPlatePluginSpy = vi.hoisted(() => vi.fn())
 
 vi.mock('platejs/react', async (importOriginal) => {
@@ -61,7 +59,6 @@ describe('ChatMarkdownEditor — autoFocus', () => {
     expect(getByRole('textbox', { name: 'Message the agent' })).toHaveFocus()
   })
 
-  // On the phone a focused field raises the keyboard over the chat just opened.
   it('leaves focus alone on the phone', () => {
     platform.mobile = true
     const { getByRole } = drawEditor({ autoFocus: true })
@@ -194,7 +191,6 @@ describe('ChatMarkdownEditor imperative handle', () => {
     expect(ref.current?.getMarkdown()).not.toContain('blob:local-preview')
   })
 
-  // The handle is how text gets in from outside now; none of it may remount.
   it('loads restored markdown through setMarkdown, with nothing to undo back to', async () => {
     const onShapeChange = vi.fn()
     const { ref, editable, type } = await renderEditor(onShapeChange)
@@ -223,8 +219,6 @@ describe('ChatMarkdownEditor imperative handle', () => {
   })
 })
 
-// Every extra commit per keystroke queues behind the next key; enough in a row
-// is React's #185 "Maximum update depth exceeded".
 describe('ChatMarkdownEditor shape and commits', () => {
   it('reports empty and the slash query without producing markdown', async () => {
     const serialize = vi.spyOn(serialization, 'chatValueToMarkdown')
@@ -267,8 +261,6 @@ describe('ChatMarkdownEditor shape and commits', () => {
   })
 })
 
-// The guard's two branches in isolation; the end-to-end drop at the real
-// editable lives in agent-composer.test.tsx.
 describe('ChatMarkdownEditor drop guard (Wave 6, Bug 1)', () => {
   function renderAndCapture(): DropGuardHandler {
     drawEditor({ wsId: 'w1', chatId: 'c1' })
@@ -400,8 +392,6 @@ describe('ChatMarkdownEditor key handling', () => {
     },
   )
 
-  // No live trigger: a real document always has edges. A stand-in editor is the
-  // only way to make them resolve to nothing.
   it('still consumes Cmd+A without selecting when the document has no resolvable edges', () => {
     const onKeyDown: OnKeyDownMock = vi.fn()
     const handleKeyDown = renderAndCapture(onKeyDown)
@@ -420,8 +410,6 @@ describe('ChatMarkdownEditor key handling', () => {
   })
 })
 
-// A controllable stand-in: jsdom has no ResizeObserver. `trigger()` is the
-// browser calling back on a size change.
 class FakeResizeObserver {
   static instances: FakeResizeObserver[] = []
   observed: Element | null = null
@@ -456,12 +444,9 @@ describe('ChatMarkdownEditor height reporting', () => {
     const onHeightChange = vi.fn()
     drawEditor({ onHeightChange })
 
-    // jsdom reports an empty box, which is the absence of a box: not reported.
     expect(onHeightChange).not.toHaveBeenCalled()
   })
 
-  // Reported during commit, so a box that mounts multi-line paints its first
-  // frame at the right height.
   it('reports the height of the box it mounts into', () => {
     const rect = vi
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
@@ -496,8 +481,6 @@ describe('ChatMarkdownEditor height reporting', () => {
     expect(onHeightChange).toHaveBeenCalledWith(64)
   })
 
-  // A remount gives the editable a fresh node: the old observer goes, a new one
-  // watches the new node (an effect with stable deps kept watching a detached one).
   it('tears down the old observer and attaches a fresh one across a genuine remount', () => {
     const onHeightChange = vi.fn()
     const { container, unmount } = drawEditor({ onHeightChange })

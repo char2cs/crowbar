@@ -49,7 +49,6 @@ function show(shell: Shell, toast: Shown): void {
   })
 }
 
-/** Shows every `toastManager` toast in the shell's toast host, where develop's one viewport (the sidebar column) sits; it is the pane's only listener, so toasts raised before it started are shown too. Returns the stop. */
 export function forwardToastsToShell(shell: Shell): () => void {
   const shown = new Map<string, Shown>()
   const put = (toast: Shown) => {

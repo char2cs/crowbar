@@ -1,9 +1,3 @@
-// Pure conversions between Crowbar editor positions/ranges and Monaco's 1-based ones, plus
-// diagnostic→marker mapping.
-
-// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
-// singleton as the bare 'monaco-editor' specifier, without eagerly bundling
-// all built-in language contributions.
 import { MarkerSeverity } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
 import type { Position, Range } from '../types/editor'
@@ -46,7 +40,6 @@ function severityToMonaco(severity: string): Monaco.MarkerSeverity {
   }
 }
 
-// Backend diagnostics use 0-based line/character; Monaco markers are 1-based.
 export function toMonacoMarker(diagnostic: LspDiagnostic): Monaco.editor.IMarkerData {
   return {
     severity: severityToMonaco(diagnostic.severity),
@@ -60,8 +53,6 @@ export function toMonacoMarker(diagnostic: LspDiagnostic): Monaco.editor.IMarker
   }
 }
 
-// Diagnostic paths and buffer paths are both workspace-relative, but tolerate a
-// leading-slash or absolute mismatch by comparing suffixes.
 export function pathsMatch(a: string, b: string): boolean {
   if (a === b) return true
   return a.endsWith(b) || b.endsWith(a)

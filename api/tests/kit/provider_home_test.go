@@ -47,8 +47,6 @@ func TestIsolateProviderHomes_ClaudeConfigIsSeededWithNoPlaces(t *testing.T) {
 		"without this the CLI opens on its theme picker instead of the trust dialog")
 }
 
-// A credential file is copied in, never linked: a CLI that rewrites its own
-// credential must not write through to the file the test was handed.
 func TestIsolateProviderHomes_CopiesTheNamedCredentialFile(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "auth.json")
 	require.NoError(t, os.WriteFile(src, []byte(`{"token":"t"}`), 0o600))
@@ -68,8 +66,6 @@ func TestIsolateProviderHomes_CopiesTheNamedCredentialFile(t *testing.T) {
 		"no credential is named for claude, so none is written")
 }
 
-// A helper writes or deletes under a provider home only when the env var
-// resolves inside the test's temp dir; a link out of it does not count.
 func TestProviderHomeIn_RefusesAHomeOutsideTheTestsTempDir(t *testing.T) {
 	root, elsewhere := t.TempDir(), t.TempDir()
 	inside := filepath.Join(root, "codex")
@@ -101,8 +97,6 @@ func TestProviderHomeIn_RefusesAHomeOutsideTheTestsTempDir(t *testing.T) {
 	}
 }
 
-// A credential in a provider's own home is refused, named directly or through
-// a link to it.
 func TestIsolateProviderHomes_RefusesACredentialInAProviderHome(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)

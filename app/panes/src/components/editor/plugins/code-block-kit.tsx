@@ -10,8 +10,6 @@ export const CodeBlockKit = [
   CodeBlockPlugin.configure({
     inputRules: [CodeBlockRules.markdown({ on: 'match' })],
     node: { component: CodeBlockElement },
-    // Plate types the option as a lowlight instance; shikiLowlight implements
-    // the three methods it calls (highlight, highlightAuto, listLanguages).
     options: { lowlight: shikiLowlight as unknown as CodeBlockConfig['options']['lowlight'] },
     shortcuts: { toggle: { keys: 'mod+alt+8' } },
   }),

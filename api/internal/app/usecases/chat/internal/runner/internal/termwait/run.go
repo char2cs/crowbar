@@ -7,8 +7,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
 
-// Run sweeps immediately and then on the interval, but only while a runner is live:
-// otherwise the loop parks until Wake, so an idle daemon does no periodic work.
 func (d *detector) Run(ctx context.Context, publish Publish) {
 	go func() {
 		defer safego.Recover("agent.termwait.run")
@@ -37,8 +35,6 @@ func (d *detector) Run(ctx context.Context, publish Publish) {
 	}()
 }
 
-// Wake resumes a parked Run loop. Non-blocking, and safe to call whether or
-// not the loop is parked or running at all.
 func (d *detector) Wake() {
 	select {
 	case d.wake <- struct{}{}:

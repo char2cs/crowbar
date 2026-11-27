@@ -7,27 +7,15 @@ import { searchReviewDiff } from '@/features/git/api/review-window-api'
 import type { SearchDiffResult, SearchHit } from '@/features/git/api/review-window-api'
 import { cn } from '@/utils/cn'
 
-// Find-in-diff: the client holds only a window, so the daemon searches. Queries are debounced
-// (each can scan the whole diff) and generation-guarded (out-of-order answers would show stale
-// hits). Where a hit lands is the surface's job, via onSelectHit.
-
-/** Not a taste knob: a no-match query scans the whole diff (~700ms over 46 MB). 200ms makes a
- *  typed word cost one scan and still feels like find-as-you-type. */
 export const SEARCH_DEBOUNCE_MS = 200
 
 const EMPTY_RESULT: SearchDiffResult = { hits: [], truncated: false }
 
 export interface ReviewSearchBarProps {
   wsId: string
-  /** Scopes the search to ONE commit instead of the workspace's branch. */
   commit?: string
-  /** Called with the hit the reader moved to — by clicking it, or via next/prev.
-   *  The surface materialises the hit's file and scrolls to its line. */
   onSelectHit: (hit: SearchHit) => void
-  /** Rendered as a close affordance and bound to Escape when supplied. */
   onClose?: () => void
-  /** Server-side cap on hits. Omitted takes the endpoint's default of 200; the
-   *  endpoint clamps anything above its hard maximum of 1000. */
   limit?: number
   className?: string
 }
@@ -46,20 +34,13 @@ export function ReviewSearchBar({
   const [result, setResult] = useState<SearchDiffResult>(EMPTY_RESULT)
   const [error, setError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
-  /** -1 = results exist but the reader has not moved into them yet. New results
-   *  never auto-jump: scrolling the diff on every keystroke of a find-as-you-type
-   *  box is motion sickness, so the first next/prev is what commits to a hit. */
   const [activeIndex, setActiveIndex] = useState(-1)
 
-  // Bumped on every run of the effect below (query, option, unmount); a response whose id isn't
-  // current when it resolves is superseded and dropped.
   const generation = useRef(0)
 
   useEffect(() => {
     const gen = ++generation.current
 
-    // An empty box is the state this opens in. The daemon answers it with an empty result rather
-    // than an error, but there is nothing to ask about, so it costs no request at all.
     if (query === '') {
       setResult(EMPTY_RESULT)
       setError(null)
@@ -80,9 +61,6 @@ export function ReviewSearchBar({
         })
         .catch((err: unknown) => {
           if (generation.current !== gen) return
-          // An unparseable regex is a 400 the usecase raises from regexp.Compile
-          // before it spawns anything — an ordinary answer to a half-typed
-          // pattern, so it belongs inline in the bar, not in an error boundary.
           setResult(EMPTY_RESULT)
           setError(actionErrorMessage(err, 'Search failed'))
           setSearching(false)
@@ -120,8 +98,6 @@ export function ReviewSearchBar({
   const positionLabel = activeIndex >= 0 ? `${activeIndex + 1}/${hits.length}` : ''
 
   return (
-    // <search> is the native landmark for this (Baseline 2023) and carries the
-    // "search" role for free.
     <search
       className={cn(
         'flex shrink-0 flex-col gap-1 border-border border-b bg-background px-2 py-1.5',
@@ -221,11 +197,6 @@ export function ReviewSearchBar({
 
       {hits.length > 0 && (
         <ul className="max-h-64 overflow-y-auto">
-          {/* Keyed on path:side:line, which identifies a hit on its own — the
-              scanner records at most ONE hit per line (diff/search.go `record`
-              returns early on no match, then appends once). No index tiebreaker
-              is needed, so the key stays stable when a new query replaces the
-              list. */}
           {hits.map((h, index) => (
             <li key={`${h.path}:${h.side}:${h.lineNumber}`}>
               <button
@@ -255,8 +226,6 @@ export function ReviewSearchBar({
   )
 }
 
-/** The line under the box saying what the results are. Truncation (at `limit`, default 200, max
- *  1000) is stated: a capped list shown as complete is a claim the reader can't check. */
 function SearchStatus({
   query,
   searching,

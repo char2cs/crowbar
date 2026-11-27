@@ -7,7 +7,6 @@ vi.mock('@/features/file-system/controllers/platform', () => ({ readDirectory })
 import { useFileExplorerDialogs } from '@/features/file-explorer/file-explorer/hooks/use-file-explorer-dialogs'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 
-// "Open All" scans the workspace the tree shows, not whichever one is in view.
 describe('useFileExplorerDialogs — Open All', () => {
   beforeEach(() => {
     vi.clearAllMocks()

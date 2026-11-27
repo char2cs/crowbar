@@ -56,43 +56,29 @@ import { chatPromptToSend } from '@/features/agent/composer/plate/chat-prompt-se
 export interface AgentChatViewProps {
   wsId: string
   chatId: string
-  /** The chat's live provider: what its CLI is now, never a staged pick. */
   providerId: string
   providers: AgentProvider[]
-  /** On the provider's own terminal the daemon refuses a Crowbar compaction. */
   onTerminalSurface?: boolean
-  /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   live: boolean
-  /** The chat exists, so a prompt can be queued: live, dormant or spawning. */
   canSend: boolean
-  /** The chat's host does not answer: the composer is read-only. */
   offline?: boolean
-  /** The CLI the chat is moving onto is still connecting. */
   connecting?: string
   active: boolean
   visible: boolean
   isActivePane: boolean
   onOpenTerminal: () => void
-  /** The daemon found the CLI blocked on a prompt Crowbar cannot answer. */
   terminalWaiting?: boolean
   terminalWaitKind?: string
   terminalWaitAnswers?: AgentTerminalAnswer[]
-  /** The overlay header's clickable row, for opaque content under it. */
   headerClearancePx?: number
-  /** The header's full dissolve reach, which scrolled text must clear. */
   transcriptHeaderClearancePx?: number
-  /** Nothing has been said yet: the empty document stands in for the dock. */
   onBlankChange?: (blank: boolean) => void
-  /** The pane's own signpost for a blank chat, in the empty document's control slot. */
   blankSignpost?: ReactNode
-  /** The effective provider/model/effort: the chat's, or a staged pick over it. */
   provider: string
   model: string
   effort: string
-  /** What the live runner spawned as; '' on a dormant chat. */
   launchModel?: string
-  /** False until the chat list lands: '' would then read as a deliberate clear. */
   selectionKnown?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
   presentation: ChatPresentation
@@ -100,7 +86,6 @@ export interface AgentChatViewProps {
   onSelectPresentation: (next: ChatPresentation) => void
 }
 
-/** The chat surface: a transcript and one bar under it, wired from the feed. */
 // react-doctor-disable-next-line react-doctor/no-giant-component -- the wiring between the view's hooks and parts is its one job
 export function AgentChatView({
   wsId,
@@ -137,14 +122,12 @@ export function AgentChatView({
   useChatFeed(chatId)
   const facts = useComposerFacts(chatId)
   const feedError = useFeedError(chatId)
-  // A failed feed keeps its rows on screen but takes no more, so the bar says why.
   const unfollowed =
     facts.status === 'error'
       ? feedError || 'Couldn’t reach this chat. Crowbar keeps trying.'
       : undefined
   const { working, compacting } = facts
   const telemetry = useChatTelemetry(chatId)
-  // Read once: the view remounts per chat, and the anchor restores on mount.
   const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
   const dock = useDock()
   const [chatSurfaceEl, setChatSurfaceEl] = useState<HTMLElement | null>(null)
@@ -176,9 +159,6 @@ export function AgentChatView({
   const place = useChatPlace(chatId, wsId)
   const prompts = useChatSend(wsId, chatId, steer, editPrompt)
 
-  // An empty chat is a writing surface, not an empty transcript; it stops being
-  // one the moment anything is in flight. Until the feed answers, which surface
-  // it is cannot be known, so the transcript's loading state stands alone.
   const nothingYet = facts.empty && prompts.queued === 0
   const blank = nothingYet && facts.status === 'live'
   const settling = nothingYet && facts.status === 'connecting'
@@ -187,16 +167,12 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
-  // The picker shows a staged pick at once; labels and the catalogue stay on the live CLI.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
-  // The person's pick first, then what the last turn reported running at.
   const effectiveEffort = effort || facts.latestEffort
   const reportedModel = telemetry?.model?.displayName || telemetry?.model?.id || ''
   const terminalWait = terminalWaiting
     ? { kind: terminalWaitKind ?? '', answers: terminalWaitAnswers }
     : undefined
-  // The pick wins: the chip says what the next message runs as. Unpicked, the
-  // report's display name wins over the last confirmed raw launch id.
   const shownModel =
     declaredModel(effectiveProvider, model) || (reportedModel ? '' : confirmedModel)
   const idle = !!provider?.compaction && live && !compacting && !working && !onTerminalSurface
@@ -223,7 +199,6 @@ export function AgentChatView({
     [prompts.actions, wsId, chatId, onOpenTerminal, onCompact, providerLabel],
   )
 
-  // A chat recording no agent cannot start; it says what would let it.
   const agentNote =
     !selectionKnown || effectiveProviderId
       ? undefined
@@ -232,7 +207,6 @@ export function AgentChatView({
         : 'No agent is installed. Add one in Settings → Agents to start this chat.'
   const note = providerId ? undefined : agentNote
 
-  // The one serialization of a prompt: the key handler's read, or the box's on a click.
   const enqueueDraft = (text?: string) => {
     if (agentNote) return composer.setError(agentNote)
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
@@ -246,7 +220,6 @@ export function AgentChatView({
       composer.setError(result.error ?? '')
       return
     }
-    // Only the first send has an empty document to slide the dock in from.
     if (blank) dock.noteArrivalOrigin(emptyDocRef.current?.getHandleRect() ?? null)
     composer.clear()
     composer.setError('')
@@ -254,8 +227,6 @@ export function AgentChatView({
     history.reset()
   }
 
-  // Before its turn begins a prompt is stopped by taking it back, so Stop shows while it is
-  // taken up (a provider switch can hold that for seconds), not only once the CLI runs it.
   const canStop = working ? live : prompts.sending
   const { stop: handleStop, retract } = usePromptTakeBack({
     wsId,
@@ -266,7 +237,6 @@ export function AgentChatView({
     retract: prompts.retract,
   })
 
-  // An open @ path picker takes the keys before the skill picker: it completes in place.
   const picker = mention.open ? mention : slash
   const selectSlashItem = (item: PickerItem) =>
     mention.open
@@ -315,7 +285,6 @@ export function AgentChatView({
     onText: (text) => load(composer.read() + text),
   })
 
-  // The empty document's cluster and the dock's bar offer the same controls.
   const permissionTarget = { wsId, chatId, levels: provider?.permissionLevels }
   const selection = {
     provider: effectiveProvider,
@@ -346,8 +315,6 @@ export function AgentChatView({
     />
   )
 
-  // Two clearances: scrolled text must clear the header's whole dissolve, the
-  // composer and empty document only its clickable row.
   const headerClearanceStyle = {
     '--agent-header-clearance': `${headerClearancePx}px`,
     '--agent-transcript-header-clearance': `${transcriptHeaderClearancePx}px`,
@@ -372,7 +339,6 @@ export function AgentChatView({
     />
   )
 
-  // The phone's switch sits in the footer, or beside the model chip while the chat is blank.
   const viewSwitch = IS_MOBILE && presentation === 'chat' && provider?.hasTerminal !== false && (
     <ViewSwitch
       presentation={presentation}
@@ -381,8 +347,6 @@ export function AgentChatView({
     />
   )
 
-  // One tree for the blank document and the dock: the composer keeps its node, and
-  // its text, when the first send moves it down.
   return (
     <DndScope>
       <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>

@@ -1,8 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import type { KeyboardEvent } from 'react'
 import { LinkPlugin } from '@platejs/link/react'
-// `Value` resolves from `platejs` (re-exported from `@platejs/slate`), not
-// from `platejs/react` — the react entrypoint's barrel does not re-export it.
 import type { Value } from 'platejs'
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { MARKDOWN_PROSE_CLASS } from '@/features/panes/lib/markdown-prose'
@@ -11,25 +9,17 @@ import { commentEditorKeyAction } from './comment-editor-keys'
 import { commentPlugins } from './comment-plugins'
 import { commentMarkdownToValue, commentValueToMarkdown } from './comment-serialization'
 
-/** Roughly three lines — the room the CodeMirror box this replaces reserved. */
 const COMPOSER_MIN_HEIGHT_PX = 72
 
 interface MarkdownCommentEditorProps {
-  /** Existing markdown to edit. Read ONCE, at mount. */
   initialValue?: string
   placeholder?: string
   autoFocus?: boolean
-  /** Fires with the document's markdown after any content change. */
   onChange: (markdown: string) => void
-  /** Cmd/Ctrl+Enter. Receives the CURRENT markdown, not a captured value. */
   onSubmit: (markdown: string) => void
-  /** Escape. */
   onCancel: () => void
 }
 
-/** The rich markdown editable behind the review comment composer. It has no preview mode because
- *  it is the preview: `MARKDOWN_PROSE_CLASS` is the class `MarkdownPreview` styles a posted
- *  comment with, so the two agree by construction. */
 export function MarkdownCommentEditor({
   initialValue = '',
   placeholder,
@@ -38,22 +28,15 @@ export function MarkdownCommentEditor({
   onSubmit,
   onCancel,
 }: MarkdownCommentEditorProps) {
-  // Deserialize ONCE. Re-parsing on every render would rebuild the document
-  // under the caret on each keystroke; a comment's text only enters from
-  // outside at mount (a fresh draft, or the body of the comment being edited).
   const initial = useMemo(
     () => commentMarkdownToValue(initialValue),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial value only, deliberately not re-derived
     [],
   )
 
-  // `autoSelect: 'end'` so editing an existing comment puts the caret after
-  // the last word rather than before the first one.
   const editor = usePlateEditor({ plugins: commentPlugins, value: initial, autoSelect: 'end' })
 
   const handleChange = useCallback(() => {
-    // A selection-only change (click, arrow key) cannot change the serialization, so it is not
-    // re-serialized. An empty op list says nothing about what happened, so it still serializes.
     const ops = editor.operations
     if (ops.length > 0 && ops.every((op) => op.type === 'set_selection')) return
     onChange(commentValueToMarkdown(editor.children as Value))
@@ -70,9 +53,6 @@ export function MarkdownCommentEditor({
         onCancel()
         return
       }
-      // Serialized HERE rather than read from a value captured at render: this
-      // handler can outlive the render that installed it, and posting a
-      // keystroke-old comment would silently drop the last thing typed.
       onSubmit(commentValueToMarkdown(editor.children as Value))
     },
     [editor, onCancel, onSubmit],
@@ -80,15 +60,11 @@ export function MarkdownCommentEditor({
 
   return (
     <Plate editor={editor} onChange={handleChange}>
-      {/* `relative` anchors the selection toolbar, an absolute sibling of the editable;
-          without it the toolbar lands hundreds of pixels from its words. */}
       <div className="relative">
         <PlateContent
           autoFocus={autoFocus}
           placeholder={placeholder}
           onKeyDown={handleKeyDown}
-          // A style prop, not a `min-h-*` class: Slate writes `min-height: 20px` inline,
-          // beating any class, and spreads the caller's style after its own defaults.
           style={{ minHeight: COMPOSER_MIN_HEIGHT_PX }}
           className={cn(MARKDOWN_PROSE_CLASS, 'outline-none')}
         />

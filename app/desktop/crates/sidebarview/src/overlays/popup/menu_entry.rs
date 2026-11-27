@@ -1,5 +1,3 @@
-//! One line of a context menu, as plain data.
-
 use sidebar::Intent;
 
 use crate::overlays::popup::check::Check;

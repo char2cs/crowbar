@@ -4,22 +4,15 @@ use crate::error::Error;
 
 const BLANK: &str = "about:blank";
 
-/// A URL a browser pane may load: `http`, `https` or `about:blank`. `file:`, `javascript:`,
-/// `data:` and the shell's own `crowbar:` scheme are never loadable in a browser pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageUrl(String);
 
 impl PageUrl {
-    /// Whether `text` is the empty page every browser view starts on, which no request waits for.
     #[must_use]
     pub fn is_blank(text: &str) -> bool {
         text == BLANK
     }
 
-    /// Parses `text` and checks its scheme.
-    ///
-    /// # Errors
-    /// [`Error::Invalid`] when `text` is not a URL, [`Error::Scheme`] for a refused scheme.
     pub fn parse(text: &str) -> Result<Self, Error> {
         if text == BLANK {
             return Ok(Self(BLANK.to_owned()));
@@ -34,14 +27,11 @@ impl PageUrl {
         }
     }
 
-    /// Whether a browser pane may navigate to `text`.
     #[must_use]
     pub fn is_loadable(text: &str) -> bool {
         Self::parse(text).is_ok()
     }
 
-    /// Whether the page is served by the computer that opens it: localhost and its subdomains,
-    /// 127.0.0.0/8, 0.0.0.0, `[::1]`, `[::]` and IPv4-mapped loopback addresses.
     #[must_use]
     pub fn is_loopback(&self) -> bool {
         let Ok(url) = Url::parse(&self.0) else {
@@ -60,7 +50,6 @@ impl PageUrl {
         }
     }
 
-    /// The URL text.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0

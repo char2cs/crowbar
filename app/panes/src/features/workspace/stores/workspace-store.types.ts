@@ -9,7 +9,6 @@ interface WorkspaceBaseState {
   workspaceId: string
 }
 
-// Per-workspace LIVE resources only; pane/buffer layout is window-level (window-pane-store.ts).
 export type WorkspaceState = WorkspaceBaseState &
   TerminalSlice &
   FileWatcherSlice &

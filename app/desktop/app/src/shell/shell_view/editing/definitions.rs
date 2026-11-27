@@ -1,7 +1,3 @@
-//! Go to definition across files, as develop's editor opener and definition provider do: a
-//! definition in another workspace file opens it at its line, and one only outside the
-//! workspace says so.
-
 use gpui::{Context, Window};
 use protocol::PaneId;
 use ui::{ToastContent, ToastKind, ToastLifetime};

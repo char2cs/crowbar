@@ -1,5 +1,3 @@
-//! What the shell is asked to do: agent commands and operations, tab summaries and the `TabCommands` port.
-
 mod agent_command;
 mod agent_op;
 mod dom_op;

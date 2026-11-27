@@ -2,7 +2,6 @@ pub(crate) const NEW_CHAT: &str = "New chat";
 pub(crate) const LOADING_CHAT: &str = "Loading…";
 pub(crate) const NEW_THREAD: &str = "New thread";
 
-// SPEC: docs/plans/2026-11-24-draft-thread.md#steps (step 2: a draft's tab reads "New thread")
 pub(crate) fn unloaded_label(thread: Option<&str>) -> &'static str {
     if thread.is_some_and(store::DraftThread::is_draft) {
         return NEW_THREAD;

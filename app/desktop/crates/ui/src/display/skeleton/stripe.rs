@@ -1,5 +1,3 @@
-//! One highlight stripe across the window.
-
 use std::ops::Range;
 
 use gpui::Pixels;

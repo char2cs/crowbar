@@ -1,5 +1,3 @@
-//! Resolved colours of one button variant.
-
 use gpui::{App, BoxShadow, Entity, Hsla, StyleRefinement, Styled, Window, hsla};
 
 use crate::control::button::button_variant::ButtonVariant;

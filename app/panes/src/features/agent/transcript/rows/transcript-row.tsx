@@ -12,10 +12,8 @@ import { ReasoningRow } from '@/features/agent/transcript/rows/reasoning-row'
 import { SubagentCard } from '@/features/agent/transcript/rows/subagent-card'
 import { UserRow, type PromptActions } from '@/features/agent/transcript/rows/user-row'
 
-/** Everything a transcript row can do. */
 export type RowActions = PromptActions & FailureActions & NoticeActions
 
-/** What a row's place in the conversation says about it, from the transcript. */
 export interface RowPlace {
   firstTurn?: boolean
   firstReply?: boolean
@@ -30,7 +28,6 @@ function useTurnFact(
   return useChatStore((s) => (turnId ? s.feeds[chatId]?.facts[fact][turnId] : undefined))
 }
 
-/** One transcript item, drawn by the component for its kind. */
 function TranscriptRowBody({
   chatId,
   id,
@@ -44,7 +41,6 @@ function TranscriptRowBody({
   providers: AgentProvider[]
   place?: RowPlace
   actions: RowActions
-  /** A run's calls, when `id` names a run. */
   members?: string[]
 }) {
   const item = useChatItem(chatId, id)
@@ -55,7 +51,6 @@ function TranscriptRowBody({
   switch (item?.kind) {
     case undefined:
     case 'user':
-      // An id with no item yet is a prompt still in the outbox.
       if (!item && !id.startsWith('p:')) return null
       return (
         <UserRow

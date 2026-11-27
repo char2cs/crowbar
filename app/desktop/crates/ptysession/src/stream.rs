@@ -1,5 +1,3 @@
-//! The terminal websocket: frames to the view, the view's messages to the daemon.
-
 mod attachment;
 pub(crate) mod dial;
 mod duplex;

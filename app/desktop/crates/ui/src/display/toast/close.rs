@@ -1,5 +1,3 @@
-//! The dismiss button in the corner of a toast.
-
 use gpui::{
     App, ElementId, InteractiveElement as _, IntoElement, ParentElement as _, RenderOnce,
     StatefulInteractiveElement as _, Styled as _, Window, div, px,

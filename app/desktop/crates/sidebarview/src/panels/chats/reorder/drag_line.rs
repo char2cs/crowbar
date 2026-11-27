@@ -1,5 +1,3 @@
-//! The sliding drop line, drawn above the whole window while a row is dragged.
-
 use gpui::{
     AnchoredPositionMode, AnyElement, Context, IntoElement, ParentElement, Window, anchored,
     deferred, point, px,

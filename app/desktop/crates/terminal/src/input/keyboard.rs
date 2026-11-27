@@ -1,5 +1,3 @@
-//! Key input and its encoding into the bytes a program reads.
-
 mod cursor_keys;
 mod encoder;
 mod key_input;

@@ -3,14 +3,8 @@ import { createdInstant } from '@/lib/store/created-instant'
 import { resolveHomeOwnerId, resolveOwnerChats } from '@/components/sidebar/lib/workspace-owners'
 import { indexNodes, type TreeIndex, type TreeNode } from './tree-index'
 
-// Today's placement fields (folderId, fork parent, chat parent, workspace ground) turned
-// into explicit containers once, so row derivation never reads a fallback. Goes when the
-// daemon's Tree reaches the client.
-
-/** A project's home chats and folders, and the workspace and owner they hang off. */
 export interface LegacyHome {
   workspaceId: string
-  /** The owner GET /home named; the chat list's own marker is the fallback. */
   owningChatId?: string
   chats: readonly Chat[]
   folders: readonly Folder[]
@@ -34,7 +28,6 @@ function createdOf(node: Built): string | undefined {
   return node.kind === 'chat' ? node.chat.createdAt : node.workspace.createdAt
 }
 
-/** The workspace whose sibling space holds `id`, walking up through folders and chats. */
 function anchorOf(
   id: string,
   nodes: ReadonlyMap<string, Built>,
@@ -52,7 +45,6 @@ function anchorOf(
   return undefined
 }
 
-/** Where a workspace hangs: its folder, unless that folder would split its fork chain. */
 function workspaceParent(
   ws: Workspace,
   nodes: ReadonlyMap<string, Built>,
@@ -60,7 +52,6 @@ function workspaceParent(
 ): string | undefined {
   const forkParent = ws.parentId && nodes.has(ws.parentId) ? ws.parentId : undefined
   const folder = ws.folderId && nodes.has(ws.folderId) ? ws.folderId : undefined
-  // A fork root has no chain to split, so its folder wins wherever the folder sits.
   if (folder && (forkParent === undefined || anchorOf(folder, nodes, parentOf) === forkParent))
     return folder
   return forkParent
@@ -90,7 +81,6 @@ function sortLevel(level: Built[], arrival: ReadonlyMap<string, number>): void {
   for (const node of level) sortLevel(node.children, arrival)
 }
 
-/** One scope's rows as a forest: a parent that names nothing here, or closes a cycle, roots. */
 function buildForest(
   workspaces: readonly Workspace[],
   folders: readonly Folder[],
@@ -99,7 +89,6 @@ function buildForest(
   const nodes = new Map<string, Built>()
   const arrival = new Map<string, number>()
   const parentOf = new Map<string, string | undefined>()
-  // Folders, then branches, then chats: the arrival tiebreak of an undragged level.
   for (const folder of folders)
     nodes.set(folder.id, { kind: 'folder', id: folder.id, folder, children: [] })
   for (const ws of workspaces)
@@ -126,7 +115,6 @@ function buildForest(
   return roots
 }
 
-/** A workspace and the chat that owns it are one node: the owner's threads join the workspace's. */
 function foldOwners(roots: Built[], ownerChats: ReadonlyMap<string, string>): Built[] {
   const owners = new Set(ownerChats.values())
   const detached = new Map<string, Built>()
@@ -163,8 +151,6 @@ function emit(out: TreeNode[], level: readonly Built[], parentId: string): void 
   })
 }
 
-/** The one home chat kept off the tree: the home worktree's owner. A chat GET /home names that
- *  the list marks as not owning the worktree is a conversation, and is drawn. */
 export function homeOwnerRowId(
   homeWorkspaceId: string,
   chats: readonly Chat[],
@@ -175,7 +161,6 @@ export function homeOwnerRowId(
   return resolveHomeOwnerId(homeWorkspaceId, owningChatId, chats)
 }
 
-/** A repo's own members: never another repo's chats, never its home or a tombstone. */
 export function repoMembers(repo: Repo): { chats: Chat[]; workspaces: Workspace[] } {
   const homeId = repo.defaultWorkspaceId
   return {
@@ -184,7 +169,6 @@ export function repoMembers(repo: Repo): { chats: Chat[]; workspaces: Workspace[
   }
 }
 
-/** One project's tree from today's stores: home rows at the root beside its repos. */
 export function legacyTreeIndex(repos: readonly Repo[], home: LegacyHome | null): TreeIndex {
   const out: TreeNode[] = []
   if (home) {

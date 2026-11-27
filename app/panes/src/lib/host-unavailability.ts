@@ -12,8 +12,6 @@ import {
 } from '@/lib/host-resolve'
 import type { HostUnavailable } from '@/lib/host-path'
 
-// A wait only on hosts the app tried and could not reach is still a wait (one may come back
-// with the project), but it is not "opening" any more: the pane says the host is not there.
 function paneUnavailability(key: HostKey): HostUnavailable | null {
   const final = hostUnavailability(key)
   if (final !== null || unplacedProject(key) === null) return final
@@ -24,9 +22,6 @@ function paneUnavailability(key: HostKey): HostUnavailable | null {
   return unreached ? 'host-unavailable' : null
 }
 
-/** What a pane waiting on `key`'s host says: why it is not coming (`hostUnavailability`),
- *  'host-unavailable' while it waits only on hosts that do not answer, or null (opening, or
- *  no key: nothing to wait on). */
 export function useHostUnavailable(key: HostKey | null): HostUnavailable | null {
   const wsId = key?.wsId
   const subscribe = useCallback(

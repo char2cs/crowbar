@@ -38,7 +38,6 @@ function makeRepo(overrides: Partial<Repo> = {}): Repo {
   } as Repo
 }
 
-/** What the tab bar's hook answers for a chat once the tree holds `repos` and `homeTrees`. */
 function chatIsThreadIn(
   repos: Repo[],
   chatId: string | null,
@@ -50,10 +49,6 @@ function chatIsThreadIn(
   return renderHook(() => useChatIsThread(chatId)).result.current
 }
 
-// The chat's own worktree OWNERSHIP is the only signal that may gate branch
-// chrome — `Chat.workspaceId` cannot, because a thread carries its parent's
-// and so names a worktree it does not own. Same authority `deriveRows`
-// folds a `branch` row from.
 describe('useChatIsThread over the tree', () => {
   it('calls a chat that owns no worktree on its parent branch a thread', () => {
     const repos = [
@@ -61,7 +56,6 @@ describe('useChatIsThread over the tree', () => {
         defaultOwningChatId: 'chat-main',
         chats: [
           makeChat({ id: 'chat-main', workspaceId: 'w-home', ownsWorktree: true, title: 'main' }),
-          // Nested under the branch's own chat, running on its ground.
           makeChat({
             id: 'chat-1',
             workspaceId: 'w-home',
@@ -78,9 +72,6 @@ describe('useChatIsThread over the tree', () => {
     const repos = [
       makeRepo({
         defaultOwningChatId: 'chat-main',
-        // Deliberately no `ownsWorktree` on the row: the repo home is never a
-        // member of `repo.workspaces`, so `Repo.defaultOwningChatId` is the
-        // only join available for a row cached before the field existed.
         chats: [makeChat({ id: 'chat-main', workspaceId: 'w-home', title: 'main' })],
       }),
     ]
@@ -101,15 +92,12 @@ describe('useChatIsThread over the tree', () => {
     const repos = [
       makeRepo({
         workspaces: [makeWorkspace({ id: 'w-fork', owningChatId: 'chat-fork' })],
-        // The chat half arrived before its own `ownsWorktree` did.
         chats: [makeChat({ id: 'chat-fork', workspaceId: 'w-fork' })],
       }),
     ]
     expect(chatIsThreadIn(repos, 'chat-fork')).toBe(false)
   })
 
-  // `Repo.chats` is absent while a repo's seed is in flight, and for a folded
-  // section that has no subscription open at all — "not yet", never "no".
   it('answers false for a chat no repo in the tree can name yet', () => {
     expect(chatIsThreadIn([makeRepo({ chats: undefined })], 'chat-1')).toBe(false)
     expect(chatIsThreadIn([], 'chat-1')).toBe(false)
@@ -119,15 +107,11 @@ describe('useChatIsThread over the tree', () => {
     expect(chatIsThreadIn([makeRepo({ chats: [] })], null)).toBe(false)
   })
 
-  // A project-home chat rides no repo at all (home-tree.ts's own doc), so it
-  // can never own a worktree — unlike the repos-scan miss above, this is a
-  // permanent structural fact, not a "not yet seeded" gap.
   it('calls a chat found only in a project home tree a thread', () => {
     const homeTrees = {
       'proj-1': makeHomeTree({ chats: [makeChat({ id: 'chat-home', repoId: '' })] }),
     }
     expect(chatIsThreadIn([], 'chat-home', homeTrees)).toBe(true)
-    // Also true when repos are present but none of them name the chat either.
     expect(chatIsThreadIn([makeRepo({ chats: [] })], 'chat-home', homeTrees)).toBe(true)
   })
 
@@ -138,8 +122,6 @@ describe('useChatIsThread over the tree', () => {
   })
 })
 
-// Every chat's working flag and title rewrite the repos; a tab bar or a New Tab page
-// reading this must not render for each.
 describe('useChatIsThread', () => {
   it('renders nothing for a change to a chat that leaves the answer as it was', () => {
     seedChats([{ id: 'c1' }, { id: 'c2' }])

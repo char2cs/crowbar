@@ -1,6 +1,3 @@
-// Package main is a dev-only seeder that writes a synthetic chat straight into
-// the stores the daemon reads, as cmd/crowbar-seed does for git fixtures.
-// Built with `go run -tags noEmbed`; never linked into the shipped binary.
 package main
 
 import (
@@ -22,11 +19,8 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// errNoProvider is a home with no registered descriptor to seed a chat on.
 var errNoProvider = errors.New("crowbar-seed-chat: no provider is registered")
 
-// seedOptions describes one synthetic chat. An empty ProviderID is the first
-// registered descriptor's.
 type seedOptions struct {
 	WorkspaceID      string
 	ChatID           string
@@ -35,8 +29,6 @@ type seedOptions struct {
 	ToolCallsPerTurn int
 }
 
-// buildAsynx mirrors internal/app.newAsynx (unexported, in a package this
-// main package cannot import), with the same options.
 func buildAsynx[T any](
 	es asynxModels.Store,
 	ss asynxModels.SnapshotStore,
@@ -61,7 +53,6 @@ func buildAsynx[T any](
 	return b.Build()
 }
 
-// firstProvider is the id of the first descriptor registered under homeDir.
 func firstProvider(ctx context.Context, homeDir string) (string, error) {
 	engine := engineagents.New()
 	defer engine.Close()
@@ -75,8 +66,6 @@ func firstProvider(ctx context.Context, homeDir string) (string, error) {
 	return agents[0].ID(), nil
 }
 
-// seedChat writes opts.Turns turns, each with opts.ToolCallsPerTurn finished
-// tool calls, into the chat store and the chat's ledger, and returns its id.
 func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions) (string, error) {
 	chatID := opts.ChatID
 	if chatID == "" {
@@ -140,8 +129,6 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 	return chatID, nil
 }
 
-// turnRows are turn i as ledger rows: the prompt that opened it, its tool
-// calls, its reply and its end.
 func turnRows(chatID, provider string, i, toolCalls int) ([]ledger.Row, error) {
 	turnID := uuid.NewString()
 	var rows []ledger.Row

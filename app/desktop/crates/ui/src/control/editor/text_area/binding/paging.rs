@@ -1,5 +1,3 @@
-//! Page Up and Page Down of [`TextArea`]: move the caret a viewport height, keeping its column.
-
 use gpui::{Context, point};
 
 use crate::control::editor::text_area::TextArea;

@@ -1,5 +1,3 @@
-//! The name card that follows the pointer while a Files row is dragged.
-
 use std::rc::Rc;
 
 use gpui::{
@@ -11,7 +9,6 @@ use ui::{Surface, Theme, radius};
 use crate::panels::chats::{GhostBuild, RowGhost};
 use crate::sidebar::{SPACE_LG, SPACE_SM, TEXT_SMALL};
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/hooks/use-file-explorer-drag-drop.ts
 const BESIDE_POINTER: Point<Pixels> = point(px(10.0), px(-10.0));
 const OPACITY: f32 = 0.95;
 const SHADOW_DROP: Pixels = px(4.0);

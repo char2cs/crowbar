@@ -170,7 +170,6 @@ describe('setNativeModelPicker', () => {
   })
 })
 
-// Modal questions the main webview asks over whatever native sheet is up.
 describe('nativeConfirm and nativePrompt', () => {
   const confirm = {
     title: 'Revoke host?',
@@ -224,7 +223,6 @@ describe('onNativeChromeIntent', () => {
     await vi.waitFor(() => expect(host.unregister).toHaveBeenCalledOnce())
   })
 
-  // Unsubscribed before the plugin answered: the listener it hands back is let go at once.
   it('lets go of a listener that registers after the unsubscribe', async () => {
     let registered!: (listener: { unregister: () => Promise<void> }) => void
     host.addPluginListener.mockReturnValue(new Promise((resolve) => (registered = resolve)))

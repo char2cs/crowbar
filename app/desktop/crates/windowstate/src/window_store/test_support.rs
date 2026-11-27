@@ -1,4 +1,3 @@
-//! Fakes shared by the unit tests.
 #![cfg(test)]
 
 use std::io;
@@ -7,7 +6,6 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::window_store::state_file::StateFile;
 
-/// A state file kept in memory.
 #[derive(Debug)]
 pub(crate) struct MemoryFile {
     path: PathBuf,

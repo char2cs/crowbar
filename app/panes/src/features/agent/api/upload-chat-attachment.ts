@@ -16,7 +16,6 @@ export interface UploadedChatAttachment {
 export type UploadChatAttachmentInput = { file: File } | { path: string }
 
 export interface UploadOptions {
-  /** Bytes the daemon holds, and the file's size; only a file larger than a chunk reports. */
   onProgress?: (loaded: number, total: number) => void
   signal?: AbortSignal
 }
@@ -25,9 +24,6 @@ interface UploadAttachmentResponseBody {
   data: { ref: string; fileName: string; size: number; contentType: string }
 }
 
-/** Multipart bytes for a `File`, or JSON `{path, id}` for a desktop drop the daemon reads itself;
- *  a remote daemon can't read this disk, so a remote chat's path is read here and sent as bytes.
- *  Pass `id` only when the caller must reuse it. */
 export async function uploadChatAttachment(
   wsId: string,
   chatId: string,
@@ -52,11 +48,8 @@ export async function uploadChatAttachment(
   return { ref: data.ref, filename: data.fileName, size: data.size, contentType: data.contentType }
 }
 
-// The daemon's attachments.MaxBytes is the authority on the cap.
 const ATTACHMENT_LIMIT = { bytes: 25 * 1024 * 1024, label: '25 MB attachment' }
 
-// The bytes of `path` for a chat whose host (named by its qualified `base`) is remote,
-// or null for a local chat, whose daemon reads the path itself.
 async function fileForRemoteChat(base: string, path: string): Promise<File | null> {
   if (splitHostPath(base).hostId === LOCAL_HOST.id) return null
   return readDesktopFile(path, ATTACHMENT_LIMIT)

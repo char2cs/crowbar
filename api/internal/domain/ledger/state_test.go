@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// sequenced numbers rows from 1 the way the store does.
 func sequenced(t *testing.T, rows ...ledger.Row) []ledger.Row {
 	t.Helper()
 	for i := range rows {
@@ -145,13 +144,11 @@ func bound(t *testing.T, provider, session, cause, previous string) ledger.Row {
 	})
 }
 
-// turnedOn is a turn the provider started on session.
 func turnedOn(t *testing.T, provider, session string) ledger.Row {
 	t.Helper()
 	return row(t, ledger.KindTurnStarted, "T-"+session, ledger.TurnStarted{Provider: provider, SessionID: session})
 }
 
-// lostS1 is provider's session S1 refused by its CLI.
 func lostS1(t *testing.T, provider string) ledger.Row {
 	t.Helper()
 	return row(t, ledger.KindSessionLost, "", ledger.SessionLost{Provider: provider, SessionID: "S1", Reason: "refused"})

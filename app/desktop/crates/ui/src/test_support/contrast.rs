@@ -1,5 +1,3 @@
-//! WCAG contrast of two colours.
-
 use gpui::{Hsla, Rgba};
 
 const LINEAR_THRESHOLD: f32 = 0.04045;
@@ -37,9 +35,6 @@ fn over(
     }
 }
 
-/// WCAG 2.x contrast ratio (1 to 21) of `foreground` painted over an opaque `background`.
-///
-/// A translucent foreground is composited over the background first.
 pub(crate) fn contrast_ratio(
     foreground: Hsla,
     background: Hsla,

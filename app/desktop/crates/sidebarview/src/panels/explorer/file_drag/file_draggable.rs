@@ -1,6 +1,3 @@
-//! Makes a Files row pressable and draggable, and reports the pointer coming over it and
-//! leaving it; each row clears only the target it set, as Zed's project panel does.
-
 use std::rc::Rc;
 use std::sync::Arc;
 

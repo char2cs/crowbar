@@ -17,8 +17,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// leadDescriptor is wsDescriptor for a provider whose only channel for Crowbar's context is
-// the user text of a session's first prompt, and whose lost-session error is code 4001.
 func leadDescriptor(endpoint string) []byte {
 	doc := fmt.Sprintf(wsDescriptor, endpoint)
 	doc = strings.Replace(doc, "rpc_code: -32600", "rpc_code: 4001", 1)
@@ -31,7 +29,6 @@ func newLeadRig(t *testing.T) *socketRig {
 	return newSocketRigFor(t, wsProvider, leadDescriptor)
 }
 
-// sentText is the text of the turn/send the daemon wrote next.
 func (s *socketRig) sentText(t *testing.T) string {
 	t.Helper()
 	var params struct {
@@ -41,8 +38,6 @@ func (s *socketRig) sentText(t *testing.T) string {
 	return params.Text
 }
 
-// answerTurn plays the provider's side of a turn on session: it echoes the prompt it was
-// sent and finishes with reply.
 func (s *socketRig) answerTurn(t *testing.T, chatID, session, sent, reply string) {
 	t.Helper()
 	s.push(t, fmt.Sprintf(`{"method":"item/user","params":{"session_id":%q,"text":%q}}`, session, sent))
@@ -51,7 +46,6 @@ func (s *socketRig) answerTurn(t *testing.T, chatID, session, sent, reply string
 		"the turn never closed")
 }
 
-// userSaid is every user message of chatID's ledger, as typed.
 func (s *socketRig) userSaid(chatID string) []string {
 	var out []string
 	for _, line := range s.said(chatID) {
@@ -62,9 +56,6 @@ func (s *socketRig) userSaid(chatID string) []string {
 	return out
 }
 
-// A session the provider no longer has is replaced by a new one, and a provider that takes
-// no instructions at all is handed Crowbar's record of the conversation as the leading
-// section of that session's first prompt: once, never as something the person typed.
 func TestRegression_LostSessionReplacementCarriesTheRecordOnItsFirstPrompt(t *testing.T) {
 	s := newLeadRig(t)
 	chatID := s.spawn(wsProvider)
@@ -100,7 +91,6 @@ func TestRegression_LostSessionReplacementCarriesTheRecordOnItsFirstPrompt(t *te
 		"the ledger holds what was typed, never the record that rode with it")
 }
 
-// A resumed session has its own history: reviving a chat that lost nothing hands it no record.
 func TestRegression_CleanResumeCarriesNoRecordOnItsPrompt(t *testing.T) {
 	s := newLeadRig(t)
 	chatID := s.spawn(wsProvider)

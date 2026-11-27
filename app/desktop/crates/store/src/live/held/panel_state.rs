@@ -1,5 +1,3 @@
-//! What the Files and Changes panels were last told about the focused workspace.
-
 mod asking;
 mod expansions;
 mod file_entry;

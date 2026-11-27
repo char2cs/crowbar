@@ -6,7 +6,6 @@ import type { HostDotState } from '@/features/hosts/types'
 import { useConnectionStore } from '@/lib/ws/connection-store'
 import type { NativeHostsSettings } from '@/lib/native-chrome'
 
-/** Re-renders when any of `hostIds` changes status. */
 function useHostStatusVersion(hostIds: readonly string[]): number {
   const [version, setVersion] = useState(0)
   const key = hostIds.join('\n')
@@ -21,10 +20,6 @@ function useHostStatusVersion(hostIds: readonly string[]): number {
   return version
 }
 
-/**
- * Every paired host as a native host list shows it, plus the revoke that list asks for. Revoke
- * runs here, where the IPC is, with the desktop's own flow (its questions are asked natively).
- */
 export function useNativeHostsSnapshot(shownHost: string | null) {
   const hosts = useHostConfigStore((s) => s.hosts)
   const hostStreams = useConnectionStore((s) => s.hostStreams)
@@ -32,7 +27,6 @@ export function useNativeHostsSnapshot(shownHost: string | null) {
   const [revoking, setRevoking] = useState<ReadonlySet<string>>(() => new Set())
 
   const snapshot = useMemo<NativeHostsSettings>(() => {
-    // hostStatusOf is a module-level read: the version is what says it changed.
     void statusVersion
     const stateOf = (id: string): HostDotState => {
       const status = hostStatusOf(id)

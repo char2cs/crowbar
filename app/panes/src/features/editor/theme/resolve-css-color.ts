@@ -1,6 +1,3 @@
-// CSS-first color resolution: canonical colors are custom properties in theme.css. Monaco and
-// xterm can't read CSS variables, so they are resolved off the DOM and converted to #hex here.
-
 function clamp255(n: number): number {
   return Math.max(0, Math.min(255, Math.round(n)))
 }
@@ -22,7 +19,6 @@ function gammaEncode(c: number): number {
   return v * 255
 }
 
-/** OKLCH → sRGB hex. Math per Björn Ottosson's OKLab reference. */
 function oklchToHex(l: number, c: number, hDeg: number, alpha: number): string {
   const h = (hDeg * Math.PI) / 180
   const a = c * Math.cos(h)
@@ -51,8 +47,6 @@ function parseAlpha(raw: string | undefined): number {
   return Number.parseFloat(t)
 }
 
-/** A CSS color as #rrggbb (#rrggbbaa when alpha < 1), from the formats theme.css uses: #hex/#rgb,
- *  rgb()/rgba(), oklch(). Null when empty or unrecognized. */
 export function cssColorToHex(value: string): string | null {
   const v = value.trim().toLowerCase()
   if (!v) return null
@@ -78,12 +72,10 @@ export function cssColorToHex(value: string): string | null {
   return null
 }
 
-/** Set a #hex/#hexAA color's alpha to `alpha` (0-1), dropping any alpha it already had. */
 export function withAlpha(hex: string, alpha: number): string {
   return `${hex.slice(0, 7)}${toHexByte(alpha * 255)}`
 }
 
-/** Syntax token keys → their CSS variable is `--syntax-<key>`. */
 const SYNTAX_TOKEN_KEYS = [
   'keyword',
   'string',
@@ -116,7 +108,6 @@ const SYNTAX_TOKEN_KEYS = [
 ] as const
 export type SyntaxTokenKey = (typeof SYNTAX_TOKEN_KEYS)[number]
 
-/** ANSI keys → their CSS variable is `--terminal-<key>`. */
 const TERMINAL_ANSI_KEYS = [
   'black',
   'red',
@@ -137,9 +128,6 @@ const TERMINAL_ANSI_KEYS = [
 ] as const
 export type TerminalAnsiKey = (typeof TERMINAL_ANSI_KEYS)[number]
 
-/** Resolve a CSS variable to #hex, or null. getPropertyValue returns a custom property's specified
- *  value (a literal `var(--x)`), so a var() reference is assigned to a real property on a temp
- *  element and read back as rgb() for the browser to resolve the chain. */
 export function resolveCssVar(name: string, el: Element = document.documentElement): string | null {
   const raw = getComputedStyle(el).getPropertyValue(name).trim()
   if (!raw) return null

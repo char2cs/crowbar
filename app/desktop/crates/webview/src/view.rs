@@ -1,5 +1,3 @@
-//! What a web view is: its config, id, kind, bounds, colour, visibility, parent window, snapshot and page events.
-
 mod bounds;
 mod color;
 mod config;

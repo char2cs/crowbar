@@ -1,5 +1,3 @@
-//! Insertion, deletion, clipboard and undo commands of [`TextArea`].
-
 use std::ops::Range;
 
 use gpui::{ClipboardItem, Context};

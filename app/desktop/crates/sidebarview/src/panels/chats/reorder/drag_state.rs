@@ -1,5 +1,3 @@
-//! What the sidebar remembers about a row drag between pointer events.
-
 use sidebar::{DropMode, RowId};
 
 use crate::panels::chats::reorder::drop_hint::DropHint;

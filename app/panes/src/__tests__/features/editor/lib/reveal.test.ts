@@ -1,12 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
-// Invariant: the cursor lands on the right line after a cross-file reveal. reveal() waits for the
-// pane's editor to show the target model, however long that takes, rather than a guessed delay.
-
 const { readDisk } = vi.hoisted(() => ({ readDisk: vi.fn() }))
 vi.mock('@/lib/api/documents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api/documents')>()),
-  // The daemon answers an absolute path outside every workspace as a host document.
   readDocument: async (target: DocumentTarget) => {
     const ref = 'absolutePath' in target ? { authority: 'host', path: target.absolutePath } : target
     return { ref, text: await readDisk(ref) }
@@ -46,7 +42,6 @@ function openBuffer(path: string): string {
   })
 }
 
-/** Publish "the pane now shows `doc`", the way the editor controller does. */
 function showInPane(paneId: string, path: string, editor: unknown, workspaceId = 'ws-1') {
   show(paneId, workspaceRef(workspaceId, path), editor)
 }
@@ -58,7 +53,6 @@ interface Caret {
   startLineNumber: number
 }
 
-/** A widget whose caret lives in its view state, as Monaco's does. */
 function caretEditor(): IEditorLike & { caret: Caret | null } {
   let model: IModelLike | null = null
   const ed = {
@@ -82,7 +76,6 @@ function caretEditor(): IEditorLike & { caret: Caret | null } {
   return ed
 }
 
-/** The pane's editor surface, minus Monaco: a real manager and controller in StrictMode. */
 function mountPaneEditor(paneId: string) {
   const created: ReturnType<typeof caretEditor>[] = []
   const editors = { create: () => created[created.push(caretEditor()) - 1] }
@@ -111,7 +104,6 @@ function mountPaneEditor(paneId: string) {
   return { created, manager }
 }
 
-// Opening a closed file opens its Monaco model.
 beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
 beforeEach(() => {
@@ -132,7 +124,6 @@ describe('revealInEditor', () => {
       position: { line: 1200, character: 4 },
     })
     await vi.waitFor(() => expect(readDisk).toHaveBeenCalled())
-    // The pane still shows the previous file: nothing may be placed yet.
     showInPane(paneId, 'src/app.ts', editor)
     expect(editor.setSelection).not.toHaveBeenCalled()
 
@@ -165,7 +156,6 @@ describe('revealInEditor', () => {
       doc: workspaceRef('ws-1', 'src/cold-three.ts'),
       position: { line: 8, character: 0 },
     })
-    // No editor is mounted yet: the pane's surface mounts once the tab is active.
     await vi.waitFor(() => {
       const state = windowPaneStore.getState()
       expect(state.panes[paneId]?.activeEditorTabId).toBeTruthy()
@@ -173,7 +163,7 @@ describe('revealInEditor', () => {
     const { created, manager } = mountPaneEditor(paneId)
 
     expect(await pending).not.toBeNull()
-    expect(created).toHaveLength(2) // StrictMode disposed the first widget
+    expect(created).toHaveLength(2)
     const live = created.find((ed) => manager.getEditor(paneId) === ed)
     expect(live?.caret?.startLineNumber).toBe(9)
   })

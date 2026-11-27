@@ -47,7 +47,6 @@ describe('probeHost', () => {
     expect(await probeHost('h1')).toEqual({ status: 'needs-repair' })
   })
 
-  // /v0/health is guarded over TLS: a revoked token answers 401 on the periodic probe.
   it('says needs-repair when the host refuses the token', async () => {
     fetchMock.mockResolvedValue(health(401))
 
@@ -55,7 +54,6 @@ describe('probeHost', () => {
   })
 
   it('says down when the host never answers, without waiting on the proxy’s own timeout', async () => {
-    // The deadline's own clock is the platform's: the test fires it.
     const deadline = new AbortController()
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
     fetchMock.mockImplementation(

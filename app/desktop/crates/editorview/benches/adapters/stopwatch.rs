@@ -1,5 +1,3 @@
-//! Wall-clock stopwatch behind the benchmark's timing.
-
 use std::time::Instant;
 
 pub(crate) struct Stopwatch {

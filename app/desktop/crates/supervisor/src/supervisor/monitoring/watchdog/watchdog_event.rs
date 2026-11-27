@@ -1,5 +1,3 @@
-//! What the watchdog logs as it probes the daemon and reports a wedge.
-
 use std::fmt;
 
 use journal::{Event, Level};

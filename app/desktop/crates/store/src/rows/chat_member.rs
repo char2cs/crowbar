@@ -1,5 +1,3 @@
-//! A chat as one member of a view tab: its title and the glyph its workspace gives it.
-
 use sidebar::{Activity, Row, RowKind, Worktree};
 
 use crate::live::Entities;

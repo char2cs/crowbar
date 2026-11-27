@@ -1,5 +1,3 @@
-//! Elements the user picked in the page and their text for chat.
-
 mod pick_report;
 mod pointer_item;
 mod pointer_text;

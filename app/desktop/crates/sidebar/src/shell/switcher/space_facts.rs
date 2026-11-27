@@ -1,21 +1,14 @@
-//! Whether the create-space panel may create, and why not.
-
 use crate::shell::daemons::Host;
 use crate::shell::daemons::HostKind;
 use crate::shell::daemons::HostTone;
 
-/// Whether the create-space panel's Create button is enabled, and the hint shown beside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpaceFacts {
-    /// A folder is chosen and the host is reachable.
     pub can_create: bool,
-    /// Why a remote host cannot create yet, if it cannot.
     pub hint: Option<String>,
 }
 
 impl SpaceFacts {
-    /// The facts for creating a space in `folder` on `host`.
-    /// A local host needs only a folder; a remote one must also be online.
     pub fn of(
         host: &Host,
         folder: &str,

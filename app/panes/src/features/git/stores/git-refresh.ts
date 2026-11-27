@@ -1,14 +1,11 @@
 import { create } from 'zustand'
 
-// Per-workspace git signals, so a save reloads only its own workspace. `requested` bumps when
-// something local knows status is stale (the git effect reloads); `changed` bumps after a reload
-// or a daemon git change, and git-derived views refetch on it.
 interface GitRefreshState {
   requested: Record<string, number>
   changed: Record<string, number>
 }
 
-/** @internal Exported for unit tests. */
+/** @internal */
 export const useGitRefreshStore = create<GitRefreshState>(() => ({ requested: {}, changed: {} }))
 
 export function requestGitRefresh(wsId: string): void {
@@ -23,14 +20,12 @@ export function markGitStatusChanged(wsId: string): void {
   }))
 }
 
-/** Subscribe to reload requests for one workspace. */
 export function onGitRefreshRequested(wsId: string, listener: () => void): () => void {
   return useGitRefreshStore.subscribe((state, prev) => {
     if (state.requested[wsId] !== prev.requested[wsId]) listener()
   })
 }
 
-/** Subscribe to "`wsId`'s git status changed" (already coalesced upstream). */
 export function onGitStatusChanged(wsId: string, listener: () => void): () => void {
   return useGitRefreshStore.subscribe((state, prev) => {
     if (state.changed[wsId] !== prev.changed[wsId]) listener()

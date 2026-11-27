@@ -7,9 +7,6 @@ use crate::geometry::pane_frame::PaneFrame;
 use crate::host::pane_hole::PaneHole;
 use crate::host::pane_source::PaneSource;
 
-/// The content hole of every pane of `tab` when the layout fills `content`. The shell gives
-/// these rectangles to the pane host in place of the model's raw slots, so web views sit inside
-/// the pane borders the view draws.
 #[must_use]
 pub fn pane_holes(
     tab: &Tab,
@@ -54,8 +51,6 @@ fn hole_at(
     }
 }
 
-/// Like [`pane_holes`], but asks `source` about each pane: a native pane gets no hole because no
-/// web view is placed for it, and a pane with a chrome strip gets a hole that starts below it.
 #[must_use]
 pub fn pane_holes_with(
     tab: &Tab,

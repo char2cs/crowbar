@@ -1,5 +1,3 @@
-//! Counts rapid clicks to choose between character, word and line selection.
-
 use std::time::Duration;
 
 use crate::input::geometry::ViewPoint;
@@ -9,7 +7,6 @@ const MULTI_CLICK_WINDOW: Duration = Duration::from_millis(500);
 const WORD_CLICKS: u32 = 2;
 const LINE_CLICKS: u32 = 3;
 
-/// Remembers the last press so the next one can tell whether it continues a double or triple click.
 #[derive(Debug, Clone, Default)]
 pub struct ClickTracker {
     last: Option<(Duration, ViewPoint)>,
@@ -17,7 +14,6 @@ pub struct ClickTracker {
 }
 
 impl ClickTracker {
-    /// Records a press at `point` made `at` (any monotonic clock) and returns what it selects.
     pub fn press(
         &mut self,
         point: ViewPoint,

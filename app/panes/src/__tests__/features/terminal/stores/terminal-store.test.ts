@@ -13,7 +13,6 @@ describe('terminal store updateSession no-op skip', () => {
     })
     const before = useTerminalStore.getState().sessions
 
-    // Same OSC7 cwd + title reported again — the hot-path no-op case.
     useTerminalStore.getState().updateSession('session-a', {
       title: 'zsh',
       currentDirectory: '/Users/x',

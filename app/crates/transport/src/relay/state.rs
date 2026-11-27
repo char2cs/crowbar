@@ -1,7 +1,3 @@
-//! Lock order: `tokens` before `connections`, always. Admitting a stream (check the token, then
-//! register it) and revoking (drop the tokens, then cancel the streams) each hold `tokens`
-//! across both steps, so a stream is either refused or cancelled, never left open by a race.
-
 pub(crate) mod adapters;
 mod clock;
 
@@ -169,8 +165,6 @@ mod tests {
 
     type Revoke = fn(&State);
 
-    /// Both ways a host leaves (it is removed, or the follower fell behind and reconciles) must
-    /// cancel exactly the streams and tokens of hosts the registry no longer lists.
     const CASES: [Revoke; 2] = [
         |state| state.revoke_host(&HostId::new("gone").unwrap()),
         State::revoke_unregistered_hosts,

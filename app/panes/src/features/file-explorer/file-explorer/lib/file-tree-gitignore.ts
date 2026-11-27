@@ -31,12 +31,9 @@ export interface FileTreeGitIgnoreRules {
   ruleSets: GitIgnoreRuleSet[]
 }
 
-/** Backend paths are workspace-relative ('web/src/x.ts') and always in the active root; only
- *  the explorer's rootFolderPath (and desktop-heritage trees) are absolute. */
 export const isWorkspaceRelativePath = (path: string): boolean =>
   !path.startsWith('/') && !path.startsWith('\\') && !/^[A-Za-z]:[\\/]/.test(path)
 
-/** The owning directory of a root-level .gitignore in a relative tree is '' (or '.'). */
 const isRootDirectoryPath = (directoryPath: string): boolean => {
   const normalized = normalizePath(stripTrailingPathSeparators(directoryPath))
   return normalized === '' || normalized === '.'
@@ -62,7 +59,7 @@ function addGitIgnoreContent(matcher: IgnoreMatcher, content: string): void {
     try {
       matcher.add(line)
     } catch {
-      continue // a malformed pattern is skipped so the rest of the file still applies
+      continue
     }
   }
 }
@@ -74,8 +71,6 @@ export function collectGitIgnoreFileReferences(
   if (!rootFolderPath) return []
 
   const references = new Map<string, GitIgnoreFileReference>()
-  // Backend paths are workspace-relative and rootFolderPath is a synthetic display prefix, so
-  // relative paths are in-root; only an absolute path from another root is filtered out.
   const isInRoot = (path: string) =>
     !path.startsWith('/') || pathStartsWithRoot(path, rootFolderPath)
   const addReference = (path: string) => {
@@ -102,9 +97,6 @@ export function collectGitIgnoreFileReferences(
 
   walk(files)
 
-  // Only .gitignore files present in the loaded tree; none is synthesized. The tree includes
-  // dotfiles and loads the root level first, so a real root .gitignore is always found, and a
-  // synthetic one would 404 for roots without one (e.g. a bare project-home directory).
   return [...references.values()].sort(compareIgnoreReferences)
 }
 
@@ -143,8 +135,6 @@ function toMatcherPath(fullPath: string, directoryPath: string, isDir: boolean):
   let relative: string
 
   if (isRootDirectoryPath(directoryPath)) {
-    // Root .gitignore over a workspace-relative tree: the entry path already
-    // is the matcher path. Absolute paths cannot be relativized against ''.
     if (!isWorkspaceRelativePath(fullPath)) return null
     relative = fullPath
   } else if (pathStartsWithRoot(fullPath, directoryPath)) {

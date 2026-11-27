@@ -9,9 +9,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// SlashCatalog probes the chat's provider with the descriptor's own short-lived
-// command. It needs no live TUI: the catalogue is the provider's and the
-// worktree's, so a dormant chat is answered the same as a live one.
 func (rs *Runners) SlashCatalog(
 	ctx context.Context,
 	chatID string,
@@ -44,8 +41,6 @@ func (rs *Runners) SlashCatalog(
 		Env: os.Environ(),
 	}, rs.catalogs.AcquireProcess)
 
-	// A chat switched to another provider mid-probe gets that one's catalogue
-	// on its next request; this one would be shown under the wrong CLI.
 	if current, curErr := rs.conversations.ChatProviderID(ctx, chatID); curErr != nil || current != providerID {
 		return engineagents.SlashCatalog{}, ErrSlashCatalogSuperseded
 	}

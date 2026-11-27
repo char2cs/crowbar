@@ -28,7 +28,6 @@ describe('effectiveSelection', () => {
   })
 })
 
-// With nothing to check a model against, the daemon passes it through too.
 describe('declaredModel', () => {
   it('keeps any model for a provider with no catalogue to check against', () => {
     expect(declaredModel({ models: [] }, 'haiku')).toBe('haiku')

@@ -16,12 +16,7 @@ fn validate(value: &str) -> Result<()> {
     }
 }
 
-string_id!(
-    /// The text of a pane's tab: at most 256 bytes, no control characters.
-    /// Empty means the shell shows the pane type's default title.
-    PaneTitle,
-    validate
-);
+string_id!(PaneTitle, validate);
 
 #[cfg(test)]
 mod tests {

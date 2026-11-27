@@ -1,5 +1,3 @@
-//! The listings a folder browser holds, each applied only by the latest request for its path.
-
 use std::collections::HashMap;
 
 use crate::store::folder_browse::folder_listing::FolderListing;

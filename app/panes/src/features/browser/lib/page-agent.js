@@ -1,7 +1,4 @@
 /* global clearTimeout, document, Event, getComputedStyle, KeyboardEvent, location, MouseEvent, MutationObserver, Node, setTimeout, window -- runs in the page, not the app */
-// Injected into an agent-driven page as `const run = (<this file>)()`; `run(op, args)`
-// does one DOM operation. It is plain page script: nothing here can reach the app.
-// Bump VERSION when an op's output shape changes.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- the host evaluates this file as text, so nothing here references the name
 function pageAgent() {
   const VERSION = 1
@@ -195,7 +192,6 @@ function pageAgent() {
     if (key.length === 1 || key === 'Enter')
       target.dispatchEvent(new KeyboardEvent('keypress', init))
     target.dispatchEvent(new KeyboardEvent('keyup', init))
-    // Untrusted key events run no browser default, so the common ones are done here.
     if (!down) return
     if (key === 'Enter') {
       if (target.form && target.tagName !== 'TEXTAREA') target.form.requestSubmit()
@@ -294,7 +290,6 @@ function pageAgent() {
     if (!fn) throw new Error(`unknown browser op ${JSON.stringify(op)} (agent script v${VERSION})`)
     return fn(args ?? {})
   }
-  // The pointer script builds on these, so refs from both come from one registry.
   run.helpers = { roleOf, nameOf, hidden, refOf }
   return run
 }

@@ -179,7 +179,6 @@ function LinkOpenButton() {
       onMouseOver={(e) => {
         e.stopPropagation()
       }}
-      // The webview opens no new window for the app, so the OS browser gets it explicitly.
       onClick={(e) => handleMarkdownAnchorClick(e, attributes.href, wsId)}
       aria-label="Open link in a new tab"
       target="_blank"

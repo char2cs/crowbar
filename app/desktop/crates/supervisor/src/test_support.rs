@@ -1,5 +1,3 @@
-//! In-memory fakes shared by the unit tests of this crate.
-
 pub(crate) mod events;
 pub(crate) mod fake_daemon;
 pub(crate) mod memory_sink;

@@ -1,16 +1,11 @@
-//! How an app dialog's header lays out its heading, actions and close button.
-
 use gpui::{AnyElement, Div, InteractiveElement, ParentElement, Styled, div};
 
 use crate::foundation::tokens::spacing;
 
-/// The arrangement of an app dialog's header.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HeaderFlow {
-    /// One line: heading, actions, then the close button at the end.
     #[default]
     Row,
-    /// Two columns: the heading over the close button, the actions beside the heading.
     Grid,
 }
 

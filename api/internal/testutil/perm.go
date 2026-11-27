@@ -1,5 +1,3 @@
-// Package testutil holds helpers shared by tests across packages. Nothing in
-// production code may import it.
 package testutil
 
 import (
@@ -8,8 +6,6 @@ import (
 	"testing"
 )
 
-// RequirePermissionEnforcement skips a test that relies on file permissions failing
-// when the OS will not enforce them: on Windows, and as root, which bypasses chmod.
 func RequirePermissionEnforcement(tb testing.TB) {
 	tb.Helper()
 	if runtime.GOOS == "windows" {

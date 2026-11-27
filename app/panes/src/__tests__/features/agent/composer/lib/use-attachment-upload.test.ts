@@ -83,8 +83,6 @@ describe('useAttachmentUpload', () => {
   })
 })
 
-// An image File with both pending-image callbacks gets an instant local preview instead of
-// waiting on the upload; a non-image, a Tauri `{path}` or no callbacks insert on resolve (above).
 describe('useAttachmentUpload — optimistic image preview', () => {
   it('inserts a pending image immediately, before the upload resolves, for an image file', async () => {
     let resolveUpload!: (markdown: string) => void
@@ -106,8 +104,6 @@ describe('useAttachmentUpload — optimistic image preview', () => {
       uploadPromise = result.current.uploadAndInsert({ file })
     })
 
-    // Inserted synchronously, before `uploadAttachmentMarkdown` has resolved
-    // at all — `onInsert` (the non-optimistic path) never fires for this one.
     expect(onInsertPendingImage).toHaveBeenCalledTimes(1)
     const [objectUrl, alt] = onInsertPendingImage.mock.calls[0]!
     expect(typeof objectUrl).toBe('string')
@@ -163,8 +159,6 @@ describe('useAttachmentUpload — optimistic image preview', () => {
     expect(onInsert).toHaveBeenCalledWith('[report.pdf](chats/c1/attachments/report.pdf)')
   })
 
-  // A Tauri `{path}` drop has no client-side `File`/bytes to build a preview
-  // from at all — the daemon reads the path itself.
   it('does not use the optimistic path for a Tauri path input, even with callbacks supplied', async () => {
     vi.mocked(uploadAttachmentMarkdown).mockResolvedValue('![a.png](chats/c1/attachments/a.png)')
     const onInsert = vi.fn()

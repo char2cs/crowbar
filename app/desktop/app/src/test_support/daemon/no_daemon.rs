@@ -13,7 +13,6 @@ impl NoDaemon {
         }
     }
 
-    /// Times out like [`NoDaemon::timing_out`], telling `heard` each request as "METHOD target".
     pub(crate) fn telling(heard: async_channel::Sender<String>) -> Self {
         Self {
             heard: Some(heard),

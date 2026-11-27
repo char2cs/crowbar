@@ -21,7 +21,6 @@ func TestMain(
 	m.Run()
 }
 
-// stubOps replays nothing and starts nothing: the routes are only probed.
 type stubOps struct{}
 
 func (stubOps) Start(context.Context, operation.Spec, operation.Work) (domain.Operation, error) {
@@ -65,8 +64,6 @@ func TestRegisterMountsRoutes(
 	t *testing.T,
 ) {
 	r := gin.New()
-	// repos.Register mounts on the project-scoped group, so build the
-	// hierarchical prefix to mirror the production router chain.
 	projectScoped := r.Group("/v0/projects/:projectId")
 	repos.Register(projectScoped, stubStore{}, nil, nil, nil, nil, nil, nil, nil, stubOps{},
 		func() (string, error) { return t.TempDir(), nil })

@@ -1,5 +1,3 @@
-//! A button in a row or between blocks.
-
 mod action;
 mod button_face;
 mod confirm;
@@ -10,7 +8,6 @@ pub use confirm::Confirm;
 
 use crate::schema::condition::Condition;
 
-/// A labelled button that runs an [`Action`], optionally after a confirmation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ButtonSpec {
     pub(crate) label: String,
@@ -24,19 +21,16 @@ pub struct ButtonSpec {
 }
 
 impl ButtonSpec {
-    /// The text on the button.
     #[must_use]
     pub fn label(&self) -> &str {
         &self.label
     }
 
-    /// File stem of the Phosphor icon shown before the label, if any.
     #[must_use]
     pub fn icon_stem(&self) -> Option<&str> {
         self.icon.as_deref()
     }
 
-    /// What the button does when pressed.
     #[must_use]
     pub fn action(&self) -> &Action {
         &self.action
@@ -85,13 +79,11 @@ impl ButtonSpec {
         self
     }
 
-    /// The help line drawn under a button that stands between blocks.
     #[must_use]
     pub fn note(&self) -> Option<&str> {
         self.note.as_deref()
     }
 
-    /// How the button is drawn between blocks.
     #[must_use]
     pub fn face(&self) -> ButtonFace {
         self.face

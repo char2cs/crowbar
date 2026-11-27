@@ -1,5 +1,3 @@
-//! The icon of a file in the file tree.
-
 use gpui::{AnyElement, App, Div, Hsla, IntoElement, ParentElement, Styled, div};
 use ui::{Icon, IconName, IconWeight, MaterialTable, Palette, ProviderGlyph};
 

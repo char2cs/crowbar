@@ -1,5 +1,3 @@
-//! Dropping files from the operating system onto the Files panel.
-
 use std::path::PathBuf;
 
 use gpui::{App, ExternalPaths, Window};

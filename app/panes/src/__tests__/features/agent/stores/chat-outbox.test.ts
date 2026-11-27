@@ -246,7 +246,6 @@ describe('chat outbox', () => {
     expect(detach).toHaveBeenCalledTimes(1)
   })
 
-  // A prompt queued behind a turn is the chat's stash until it is sent: a reload keeps it.
   it('sends the next prompt on the turn_ended row, never on a clock', async () => {
     vi.useFakeTimers()
     const l = busy()
@@ -284,7 +283,6 @@ describe('chat outbox', () => {
     expect(reported).not.toHaveBeenCalled()
   })
 
-  // A failed prompt is the outbox's alone, so its text is kept as a stash a reload keeps.
   it('reports a send refused before its row, but not a lost session', async () => {
     const stashed = () => loadPromptStashes('w1', 'c1').map((stash) => stash.markdown)
     seedFeed('c1', [])

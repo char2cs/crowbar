@@ -1,5 +1,3 @@
-//! In-memory stand-ins for the diagnostics ports.
-
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};

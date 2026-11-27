@@ -46,19 +46,6 @@ import { destroyHostRuntime } from '@/features/hosts/stores/host-runtime-registr
 import { pairRemoteHost, resetHostWorld } from '@/__tests__/__fixtures__/remote-host'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-/**
- * COMMITTING A REMOVAL — the one step that destroys anything.
- *
- * Two things had to be true for "I deleted these chats and they came back",
- * and both are pinned here:
- *
- *   1. the DELETE has to be addressed correctly, from a source of truth that
- *      is actually populated for a row the user has only ever SEEN;
- *   2. something has to tell the sidebar to re-read its rows afterwards, or
- *      the chat half of the deleted row paints again the moment the optimistic
- *      hide releases.
- */
-
 function repo(over: Partial<Repo> = {}): Repo {
   return {
     id: 'r1',
@@ -127,17 +114,6 @@ afterEach(() => {
 })
 
 describe('committing a workspace removal', () => {
-  /**
-   * THE FALSE NEGATIVE. `getOwningChatId` reads `workspace-scope.ts`'s own
-   * module-level registry — a SECOND copy of "who owns this workspace",
-   * written on navigation and on seed. A workspace the user has only ever seen
-   * as a row, never opened, can legitimately be absent from it. Asking it first
-   * turned that absence into a rejected delete on a perfectly valid row; the
-   * row had already been optimistically hidden, so the removal looked like it
-   * worked right up until the next reseed brought it straight back.
-   *
-   * No scope is recorded in this test AT ALL, which is the point.
-   */
   it('addresses the owning chat from the sidebar tree, with no scope recorded', async () => {
     await commitRemoval(entry(), context)
 
@@ -145,8 +121,6 @@ describe('committing a workspace removal', () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
-  /** The same answer via `Chat.ownsWorktree`, for the window where the
-   *  `Workspace` record has not landed but the chat has. */
   it('falls back to the chat’s own ownership claim when the Workspace has no owningChatId', async () => {
     const half = repo()
     half.workspaces = [{ id: 'ws-fork', branch: 'feature/one', age: '', order: 0 }]
@@ -157,7 +131,6 @@ describe('committing a workspace removal', () => {
     expect(deleteChat).toHaveBeenCalledExactlyOnceWith('ws-fork', 'chat-fork')
   })
 
-  // The create's spinner row would otherwise stand in for the deleted chat forever.
   it('dismisses the succeeded create that made what it removed', async () => {
     const created: Operation = {
       ...{ id: 'op-create', kind: 'branch.create', subject: { kind: 'repo', id: 'r1' } },
@@ -174,7 +147,6 @@ describe('committing a workspace removal', () => {
     expect(operationsState().ops['op-other']?.dismissed).toBe(false)
   })
 
-  // A partly failed import keeps its failed sibling's reason until the user acts on it.
   it('leaves a partly failed create alone when one of its successes is removed', async () => {
     const partial: Operation = {
       ...{ id: 'op-import', kind: 'branch.import', subject: { kind: 'repo', id: 'r1' } },
@@ -294,8 +266,6 @@ describe('committing a workspace removal', () => {
   })
 })
 
-// A project-home draft (`repoId: ''`) must DELETE through its project/home-workspace routes,
-// never the repo-scoped calls, which would 404 or misresolve a home folder.
 describe('committing a project-home removal', () => {
   it('a home chat deletes through its own home workspace', async () => {
     seedHomeTree('p1', {
@@ -376,7 +346,6 @@ describe('committing a project-home removal', () => {
   })
 })
 
-// A repo or project delete is an operation; the rows wait on it.
 describe('committing a repo removal', () => {
   const hideRepo = () => treeUiStore.setState({ hiddenIds: new Set(['r1']) })
   const repoEntry = () =>
@@ -423,7 +392,6 @@ describe('committing a repo removal', () => {
 
     await vi.waitFor(() => expect(treeUiStore.getState().hiddenIds.has('r1')).toBe(false))
     expect(newestProblem(selectFailedOps(operationsState()), ['r1'])).toEqual(reason)
-    // The operations watcher tells it, once.
     expect(toastError).not.toHaveBeenCalled()
   })
 })
@@ -446,8 +414,6 @@ describe('a removal sent as the page unloads', () => {
   })
 })
 
-// The daemon refuses a delete that would destroy work existing nowhere else.
-// That refusal is a question for the user, never a silent failure or a retry.
 describe('a removal refused over work at risk', () => {
   const lost: WorkAtRisk[] = [
     { workspaceId: 'ws-fork', branch: 'feature/one', uncommittedFiles: 2, unmergedCommits: 1 },

@@ -10,8 +10,6 @@ interface Running {
   hostId?: string
 }
 
-/** `hostId`'s projects scope says `id`'s agent is running, viewed by `viewers` connections,
- *  as that daemon's frames would. */
 export function runChat(id: string, over: Running = {}): void {
   const { title = id, workspaceId = 'ws-1', viewers = 0, hostId = 'local' } = over
   const daemon = streamDaemonFor(hostId)
@@ -21,6 +19,5 @@ export function runChat(id: string, over: Running = {}): void {
     const presence = { viewers }
     daemon.deliver({ t: 'entity', scope: 'projects', kind: 'presence', id, v: ++v, data: presence })
   }
-  // A paired host's rows land with its snapshot; the local daemon's projects scope is live.
   if (hostId !== 'local') daemon.deliver({ t: 'synced', scope: 'projects' })
 }

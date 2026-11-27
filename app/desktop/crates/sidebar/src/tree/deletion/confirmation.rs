@@ -1,5 +1,3 @@
-//! The last question before a repository or space is deleted.
-
 use crate::shell::Command;
 use crate::tree::deletion::hold::Hold;
 use crate::tree::deletion::removal_kind::RemovalKind;
@@ -19,15 +17,11 @@ const WORK_AT_RISK_LEAD: (&str, &str) = (
     "Deleting removes it for good. Your own checkout is never touched.",
 );
 
-/// The dialog shown before a repository or space is deleted, worded by what it removes and
-/// whether any work would be lost.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Confirmation {
-    /// What the deletion removes once confirmed.
     pub target: RemovalTarget,
     pub(crate) kind: RemovalKind,
     pub(crate) label: String,
-    /// Work that exists nowhere else and would be lost; empty when nothing is at risk.
     pub at_risk: Vec<WorkAtRisk>,
 }
 
@@ -44,8 +38,6 @@ impl Confirmation {
         }
     }
 
-    /// The dialog title, naming the noun and label, e.g. "Delete repository “demo”?".
-    /// It adds "and lose work" when work is at risk.
     pub fn title(&self) -> String {
         let (noun, label) = (self.kind.noun(), &self.label);
         if self.at_risk.is_empty() {
@@ -54,8 +46,6 @@ impl Confirmation {
         format!("Delete {noun} “{label}” and lose work?")
     }
 
-    /// The headline and detail sentences under the title.
-    /// They warn about lost work when any is at risk, otherwise they describe the cascade.
     pub fn lead(&self) -> (&'static str, &'static str) {
         if !self.at_risk.is_empty() {
             return WORK_AT_RISK_LEAD;
@@ -66,8 +56,6 @@ impl Confirmation {
         }
     }
 
-    /// What accepting sends: the delete of the space or the row, the row's sent with consent to
-    /// lose the work at risk when the question named any.
     pub fn command(&self) -> Command {
         match &self.target {
             RemovalTarget::Project(project) => Command::DeleteProject(project.clone()),
@@ -78,7 +66,6 @@ impl Confirmation {
         }
     }
 
-    /// The confirm button's text: `"Delete <noun>"`, or "Delete anyway" when work is at risk.
     pub fn confirm_label(&self) -> String {
         if self.at_risk.is_empty() {
             return format!("Delete {}", self.kind.noun());

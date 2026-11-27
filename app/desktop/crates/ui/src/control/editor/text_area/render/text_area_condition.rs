@@ -1,15 +1,9 @@
-//! Whether a text area accepts input and whether its content is flagged.
-
-/// How a [`crate::TextArea`] presents itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum TextAreaCondition {
-    /// Editable.
     #[default]
     Normal,
-    /// Editable, with the destructive border of `aria-invalid`.
     Invalid,
-    /// Not focusable, not editable, drawn at 64% opacity.
     Disabled,
 }
 

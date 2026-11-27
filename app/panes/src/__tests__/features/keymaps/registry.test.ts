@@ -25,9 +25,6 @@ describe('keymap registry — New Tab commands', () => {
     expect(getCommand(TAB_NEW_TERMINAL)?.defaultChord).toBe('mod+j')
   })
 
-  // The unshifted chord belongs to the chat — starting a conversation is the
-  // thing this app is opened to do — and New File takes the shifted one. They
-  // shipped the other way round; this pins the swap.
   it('binds New Chat to mod+n and New File to mod+shift+n', () => {
     expect(getCommand(AGENT_NEW_CHAT)?.defaultChord).toBe('mod+n')
     expect(getCommand(TAB_NEW_FILE)?.defaultChord).toBe('mod+shift+n')
@@ -41,10 +38,6 @@ describe('keymap registry — New Tab commands', () => {
     })
   })
 
-  // Toggles the open chat between its Chat and Terminal surfaces. Registered
-  // like every other chord so it is rebindable rather than a hardcoded literal
-  // buried in the chat pane.
-  //
   it('binds Toggle chat/terminal view to mod+/, a chord macOS actually delivers', () => {
     expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.defaultChord).toBe('mod+/')
   })
@@ -53,17 +46,10 @@ describe('keymap registry — New Tab commands', () => {
     expect(getCommand(AGENT_TOGGLE_VIEW_MODE)?.category).toBe('Chats')
   })
 
-  // Unbound rather than given another default, so it never silently fights a second command
-  // for one chord; users assign their own in Settings → Keybindings.
   it('leaves Cycle chat provider unbound by default now that mod+/ toggles the view instead', () => {
     expect(getCommand(AGENT_CYCLE_PROVIDER)?.defaultChord).toBe('')
   })
 
-  // The Keybindings tab renders ONLY the categories listed in CATEGORY_ORDER, so
-  // a command in a category missing from it is invisible in settings — bound and
-  // working, but unfindable and unrebindable. Every category in use must appear.
-  // Settings lists every command as a shortcut a person can press; nothing mounts a switcher.
-  // A pane groups chats, never tabs, so there is no tab split for a shortcut to run.
   it('advertises no split shortcut that would do nothing', () => {
     expect(COMMANDS.filter((c) => /split/i.test(c.label))).toEqual([])
   })
@@ -78,8 +64,6 @@ describe('keymap registry — New Tab commands', () => {
     }
   })
 
-  // Every chord the New Tab surface draws must be rebindable, or the badge
-  // it renders can never go out of sync with reality by design.
   it('makes every tab and chat command live-editable', () => {
     for (const id of [
       TAB_NEW,

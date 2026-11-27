@@ -1,6 +1,3 @@
-/* A wavy hairline instead of a flat one — the shape lives in a repeating SVG
-   mask (alpha only), painted by a real background-color, so it themes for
-   free instead of needing a light/dark SVG pair. */
 .wavy-rule {
   flex: 1;
   height: 9px;

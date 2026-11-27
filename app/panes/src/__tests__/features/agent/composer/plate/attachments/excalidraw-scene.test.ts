@@ -33,13 +33,10 @@ describe('parseExcalidrawScene', () => {
     expect(parseExcalidrawScene('42')).toBeNull()
   })
 
-  // Additional comprehensive tests for full branch coverage
   it('rejects null at the top level', () => {
     expect(parseExcalidrawScene('null')).toBeNull()
   })
 
-  // Real `.excalidraw` files (and agent-written JSON) often omit appState; it holds view state,
-  // never what's drawn, so it defaults to `{}` instead of rejecting the scene.
   it('accepts a scene with no appState at all, defaulting to {}', () => {
     expect(parseExcalidrawScene(JSON.stringify({ elements: [{ type: 'rectangle' }] }))).toEqual({
       elements: [{ type: 'rectangle' }],
@@ -47,8 +44,6 @@ describe('parseExcalidrawScene', () => {
     })
   })
 
-  // The real shape that surfaced this: type/version/elements/files, no
-  // appState — a genuine .excalidraw file export.
   it('accepts the real .excalidraw file export shape (type/version/elements/files, no appState)', () => {
     const raw = JSON.stringify({
       type: 'excalidraw',
@@ -146,11 +141,8 @@ describe('parseExcalidrawScene', () => {
   })
 })
 
-// The placeholder reserves the diagram's real footprint from its element bounds, so nothing
-// changes height when the lazily imported SVG render lands (a jump follow-scroll would glide).
 describe('computeSceneAspectRatio', () => {
   it('is the bounding box of the scene’s elements, height over width', () => {
-    // A 200x100 rectangle at the origin: exactly 0.5.
     expect(
       computeSceneAspectRatio([{ type: 'rectangle', x: 0, y: 0, width: 200, height: 100 }]),
     ).toBe(0.5)
@@ -159,18 +151,16 @@ describe('computeSceneAspectRatio', () => {
   it('spans multiple elements, not just the first one', () => {
     const elements = [
       { x: 0, y: 0, width: 100, height: 50 },
-      { x: 300, y: 0, width: 100, height: 400 }, // pushes the overall bounds far taller/wider
+      { x: 300, y: 0, width: 100, height: 400 },
     ]
-    // Overall bounds: x from 0 to 400 (width 400), y from 0 to 400 (height 400) -> ratio 1.
     expect(computeSceneAspectRatio(elements)).toBe(1)
   })
 
   it('ignores elements with negative offsets correctly (bounds, not just widths/heights)', () => {
     const elements = [
-      { x: -50, y: -50, width: 50, height: 50 }, // spans x: -50..0, y: -50..0
-      { x: 0, y: 0, width: 50, height: 50 }, // spans x: 0..50, y: 0..50
+      { x: -50, y: -50, width: 50, height: 50 },
+      { x: 0, y: 0, width: 50, height: 50 },
     ]
-    // Overall bounds: x -50..50 (width 100), y -50..50 (height 100) -> ratio 1.
     expect(computeSceneAspectRatio(elements)).toBe(1)
   })
 
@@ -183,10 +173,7 @@ describe('computeSceneAspectRatio', () => {
   })
 
   it('skips malformed elements but still uses the well-formed ones', () => {
-    const elements = [
-      { type: 'rectangle' }, // no bounds — skipped, not a crash
-      { x: 0, y: 0, width: 300, height: 150 },
-    ]
+    const elements = [{ type: 'rectangle' }, { x: 0, y: 0, width: 300, height: 150 }]
     expect(computeSceneAspectRatio(elements)).toBe(0.5)
   })
 
@@ -195,9 +182,6 @@ describe('computeSceneAspectRatio', () => {
   })
 })
 
-// excalidrawSceneFromCodeBlock calls this on every render of an attachment block, so it caches by
-// source text: a fresh object re-runs ExcalidrawPreview's export effect and loops into React error
-// #185 (maximum update depth).
 describe('parseExcalidrawScene identity stability', () => {
   it('returns the SAME object reference for the same source text across repeated calls', () => {
     const raw = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: { zoom: 1 } })

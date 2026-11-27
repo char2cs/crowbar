@@ -1,5 +1,3 @@
-//! Keyboard handling of the view.
-
 use gpui::{ClipboardItem, Context, KeyDownEvent, Window};
 
 use crate::terminal_view::TerminalView;

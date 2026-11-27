@@ -9,17 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// fakeOwningChats stands in for the chat side every workspace this usecase
-// creates is now born under, and it is deliberately not a null object: it
-// delegates the actual workspace create back through CreateChild exactly as the
-// container's real adapter delegates it through the chat usecase.
-//
-// That fidelity is the point. These are regression tests about GIT — a real
-// worktree on disk, a real placeholder, a real PR chain — and a fake that
-// merely returned a fabricated id would let every one of them pass while
-// creating nothing. Delegating keeps the git half honest and adds only the half
-// this change introduces: an owning chat minted before the workspace, and taken
-// back out when the workspace never arrives.
 type fakeOwningChats struct {
 	mu sync.Mutex
 	uc hierarchy.Usecase
@@ -29,11 +18,7 @@ type fakeOwningChats struct {
 	attached  map[string]string
 	discarded []string
 
-	// mintErr fails MintOwningChat, so a test can prove nothing is created when
-	// the chat cannot be minted first.
-	mintErr error
-	// attachErr fails AttachOwningWorkspace, the double fault that would
-	// otherwise leave a workspace nothing owns.
+	mintErr   error
 	attachErr error
 }
 
@@ -41,9 +26,6 @@ func newFakeOwningChats(uc hierarchy.Usecase) *fakeOwningChats {
 	return &fakeOwningChats{uc: uc, attached: map[string]string{}}
 }
 
-// ImportBranchAsChat mirrors production: mint the chat (as in.ChatID when
-// given), create the workspace, attach the two; a failure after the mint
-// returns the chat with it, for the caller's placeholder.
 func (f *fakeOwningChats) ImportBranchAsChat(
 	ctx context.Context,
 	in hierarchy.ImportedBranch,
@@ -123,8 +105,6 @@ func (f *fakeOwningChats) DiscardOwningChat(
 	return nil
 }
 
-// ownerOf reports the chat that ended up owning a workspace, and whether one
-// did at all — the question every test about this change is really asking.
 func (f *fakeOwningChats) ownerOf(
 	workspaceID string,
 ) (string, bool) {
@@ -140,8 +120,6 @@ func (f *fakeOwningChats) discards() []string {
 	return append([]string{}, f.discarded...)
 }
 
-// withOwningChats wires a usecase to a fresh fake and hands both back, so a
-// test that only needs the import to work says so in one line.
 func withOwningChats(
 	uc hierarchy.Usecase,
 ) *fakeOwningChats {

@@ -8,9 +8,6 @@ import {
 import { ApiError } from '@/lib/errors/api-error'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// The windowed review routes are addressed through the chat owning the
-// worktree now (reviewBaseForWorkspace), so each scope also carries an
-// owningChatId.
 beforeEach(() => {
   for (const wsId of ['ws-1', 'ws-2', 'ws-3']) {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: `chat-of-${wsId}` })
@@ -33,7 +30,6 @@ function mockEnvelope(data: unknown): ReturnType<typeof vi.fn> {
   return fetchMock
 }
 
-/** A real Response so headers behave exactly as the browser's do. */
 function mockText(body: string, headers: Record<string, string> = {}): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(
     async () =>
@@ -83,8 +79,6 @@ describe('getReviewOutline', () => {
     expect(outline[0].oldPath).toBe('old.ts')
   })
 
-  // Go marshals a nil []HunkShape as `null`, which is exactly what a binary file
-  // produces (git emits no @@ headers for one). Consumers map over hunks.
   it('normalises a null hunks array to [] (binary file)', async () => {
     mockEnvelope({
       files: [{ path: 'logo.png', hunks: null, isPartial: false, isBinary: true }],
@@ -133,8 +127,6 @@ describe('getReviewPatch', () => {
     expect(result.patch).toBe(patch)
   })
 
-  // text/plain, not the {success,data} envelope. A patch that happens to look
-  // like JSON must come back byte-for-byte, never unwrapped.
   it('does not run the body through the JSON envelope', async () => {
     const patch = '{"success":true,"data":"not a patch"}'
     mockText(patch)
@@ -153,8 +145,6 @@ describe('getReviewPatch', () => {
     expect(result.truncated).toBe(false)
   })
 
-  // Truncation travels in a leading RESPONSE HEADER, deliberately not an HTTP
-  // trailer: fetch() exposes no trailers, so a trailer could never be read here.
   it('reads truncation from the X-Crowbar-Diff-Truncated response header', async () => {
     mockText('diff --git a/big b/big\n', { 'X-Crowbar-Diff-Truncated': 'true' })
 
@@ -163,9 +153,6 @@ describe('getReviewPatch', () => {
     expect(result.truncated).toBe(true)
   })
 
-  // A header-only patch under the cap is the fixture's 420k-line single-hunk
-  // monster: nothing fits, so the body is scaffolding alone. It must read as
-  // truncated, never as an empty file.
   it('reports a header-only capped patch as truncated rather than empty', async () => {
     const headerOnly =
       'diff --git a/monster.js b/monster.js\nindex 000..111 100644\n--- a/monster.js\n+++ b/monster.js\n'
@@ -192,8 +179,6 @@ describe('getReviewPatch', () => {
     expect(urlOf(fetchMock)).toContain('maxLines=500')
   })
 
-  // maxLines=0 is the engine's "unlimited" — the "show all" refetch. The server
-  // streams it and reports nothing, because an uncapped patch cannot be truncated.
   it('sends maxLines=0 for an uncapped refetch and reports truncated:false', async () => {
     const fetchMock = mockText('diff --git a/big b/big\n')
 
@@ -296,7 +281,6 @@ describe('searchReviewDiff', () => {
     expect(url).not.toContain('limit=')
   })
 
-  // The backend's case-sensitivity parameter is named `case`, not `caseSensitive`.
   it('maps caseSensitive onto the wire parameter `case`', async () => {
     const fetchMock = mockEnvelope({ hits: [], truncated: false })
 
@@ -315,8 +299,6 @@ describe('searchReviewDiff', () => {
     const url = urlOf(fetchMock)
     expect(url).toContain('regex=true')
     expect(url).toContain('limit=50')
-    // `*` is a legal query character and stays unescaped; the pattern must reach
-    // the daemon intact rather than mangled.
     expect(url).toContain('q=a.*b')
   })
 
@@ -357,10 +339,6 @@ describe('searchReviewDiff', () => {
   })
 })
 
-// A commit scope is what lets the history surface reuse the review surface
-// instead of keeping a second diff renderer alive for it. If the parameter
-// silently failed to travel, every route would quietly answer the BRANCH — a
-// plausible-looking diff of the wrong thing, which is the worst kind of wrong.
 describe('commit scope', () => {
   it('omits the sha entirely when the scope is the branch', async () => {
     const fetchMock = mockEnvelope({ files: [] })
@@ -387,8 +365,6 @@ describe('commit scope', () => {
   })
 
   it('treats an empty commit as no scope at all', async () => {
-    // `''` is what a caller threading an optional prop through produces; it must
-    // mean the branch, not a request for the commit named "".
     const fetchMock = mockEnvelope({ files: [] })
 
     await getReviewOutline({ wsId: 'ws-1', commit: '' })

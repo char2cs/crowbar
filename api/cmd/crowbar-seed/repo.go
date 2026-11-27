@@ -15,8 +15,6 @@ type repoDTO struct {
 	DefaultBranch string `json:"defaultBranch"`
 }
 
-// pickRepo filters on the project id as well as the name because the repos
-// route answers with every repo the daemon knows, not just this project's.
 func pickRepo(
 	projectID string,
 ) func([]repoDTO) (repoDTO, bool) {
@@ -30,9 +28,6 @@ func pickRepo(
 	}
 }
 
-// ensureRepo imports the fixture repo under the seed project, reusing an
-// existing one. Import is the step that provisions the locked base-branch
-// worktree, so a second import would fight the first one for the branch.
 func ensureRepo(
 	ctx context.Context,
 	d *daemon,

@@ -7,8 +7,6 @@ import {
 } from '@/lib/api/errors'
 import { ApiError } from '@/lib/errors/api-error'
 
-// What ws_open rejects with for a remote host (desktop/src-tauri/src/ws_bridge/remote.rs):
-// `<x-crowbar-proxy value>: <reason>`. Tauri hands a string error to JS as a string.
 describe('streamFailureOf', () => {
   it('names an identity change the way an HTTP request failing that way is named', () => {
     const err = streamFailureOf(
@@ -57,9 +55,6 @@ describe('streamFailureOf', () => {
   })
 })
 
-// What the desktop proxy answers in the daemon's place (x-crowbar-proxy): a resolved response,
-// not a fetch rejection. Named, and never retried — the proxy already spent the read budget,
-// so with eight attempts allowed fetch still runs exactly once.
 describe('apiFetch on a proxy-marked answer', () => {
   const eightAttempts = { attempts: 8, baseDelayMs: 0, maxDelayMs: 0, sleep: async () => {} }
   const isDaemonUnavailableError = (err: unknown) =>

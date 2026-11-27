@@ -26,7 +26,6 @@ interface FileExplorerTreeRowsProps {
   rowVirtualizer: ReturnType<typeof useFileExplorerVisibleRows>['rowVirtualizer']
   activePath?: string
   highlightedPath?: string
-  /** The search bar sits inside the scroll container, above the sticky rows. */
   searchBarOpen: boolean
   searchQuery?: string
   matchedPaths: ReadonlySet<string>
@@ -43,8 +42,6 @@ interface FileExplorerTreeRowsProps {
   >
 }
 
-/** The virtualized rows with their sticky ancestors. Not memoized on purpose: the virtualizer
- *  instance is stable, so a scroll re-renders the owning tree and this must follow. */
 export function FileExplorerTreeRows({
   visibleRows,
   rowVirtualizer,
@@ -58,8 +55,6 @@ export function FileExplorerTreeRows({
   const fileTreeDensity = useSettingsStore((s) => s.settings.fileTreeDensity)
   const indentSize = useSettingsStore((s) => s.settings.fileTreeIndentSize)
 
-  // Guide targets for every row, recomputed on structural changes only: per-row
-  // getGuideAncestorRows in the render loop is O(N×depth) on every scroll.
   const guideTargetsByIndex = useMemo(() => {
     return visibleRows.map((_, i) =>
       getGuideAncestorRows(visibleRows, i).map((ancestor) =>
@@ -96,9 +91,6 @@ export function FileExplorerTreeRows({
   )
   const stickyAncestorsStyle = {
     '--file-tree-container-inset': `${FILE_TREE_CONTAINER_INSET}px`,
-    // Only the search bar actually occupies FILE_TREE_HEADER_HEIGHT inside the
-    // scrollable container; applying it unconditionally locked the sticky
-    // ancestor below the viewport's real top and sheared off the row under it.
     '--file-tree-header-height': `${searchBarOpen ? FILE_TREE_HEADER_HEIGHT : 0}px`,
     '--file-tree-sticky-stack-height': `${stickyAncestors.length * densityConfig.rowHeight}px`,
   } as React.CSSProperties

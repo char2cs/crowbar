@@ -1,5 +1,3 @@
-//! The record lists of the settings modal: what they hold and what can be done to a record.
-
 use std::sync::Arc;
 
 use daemonapi::Call;

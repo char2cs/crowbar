@@ -1,5 +1,3 @@
-//! Pixel geometry of the character grid.
-
 use crate::input::geometry::cell_hit::CellHit;
 use crate::input::geometry::cell_side::CellSide;
 use crate::input::geometry::cell_units::{cells_f32, floor_cells};
@@ -10,21 +8,15 @@ const MIN_COLUMNS: usize = 2;
 const MIN_LINES: usize = 1;
 const HALF: f32 = 2.0;
 
-/// The size of one cell and the grid made of them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellMetrics {
-    /// Cell width in pixels.
     pub cell_width: f32,
-    /// Line height in pixels.
     pub line_height: f32,
-    /// Columns in the grid.
     pub columns: usize,
-    /// Rows in the grid.
     pub lines: usize,
 }
 
 impl CellMetrics {
-    /// How many columns and lines fit in `width` by `height` pixels (at least 2 by 1).
     pub fn fit(
         cell_width: f32,
         line_height: f32,
@@ -37,7 +29,6 @@ impl CellMetrics {
         )
     }
 
-    /// The cell at `x`, `y` pixels from the grid's top-left corner.
     pub fn hit(
         &self,
         x: f32,

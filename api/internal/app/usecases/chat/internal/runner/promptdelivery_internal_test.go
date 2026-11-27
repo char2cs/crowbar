@@ -15,7 +15,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// boundTestLedger is an in-memory ledger with chat-1 bound to provider's sessionID.
 func boundTestLedger(t *testing.T, provider, sessionID string) *ledgerstore.Store {
 	t.Helper()
 	l := newTestLedger(t)
@@ -26,7 +25,6 @@ func boundTestLedger(t *testing.T, provider, sessionID string) *ledgerstore.Stor
 	return l
 }
 
-// turnedTestLedger is boundTestLedger after a finished turn on the session.
 func turnedTestLedger(t *testing.T, provider, sessionID string) *ledgerstore.Store {
 	t.Helper()
 	l := boundTestLedger(t, provider, sessionID)
@@ -41,7 +39,6 @@ func turnedTestLedger(t *testing.T, provider, sessionID string) *ledgerstore.Sto
 	return l
 }
 
-// runningTestLedger is a ledger whose chat-1 is running a turn.
 func runningTestLedger(t *testing.T) *ledgerstore.Store {
 	t.Helper()
 	l := newTestLedger(t)
@@ -134,8 +131,6 @@ func TestLaunchSession_AProviderThatTakesNoIDLaunchesFreshUnlessItTurned(t *test
 	assert.Equal(t, sessionLaunch{resumeID: "X1"}, resumed)
 }
 
-// pinsRelay is a provider whose session calls name {relay_id}, so it keeps that identity for
-// the session's life.
 const pinsRelayDescriptor = `
 id: pins-relay
 spawn:
@@ -173,8 +168,6 @@ func pinsRelayAgent(t *testing.T) engineagents.Agent {
 	return agent
 }
 
-// bindWithRelay is chat-1 bound to the provider's session "S1" with relay id relay, after a
-// finished turn.
 func bindWithRelay(t *testing.T, provider, relay string) ledger.State {
 	t.Helper()
 	l := newTestLedger(t)
@@ -191,8 +184,6 @@ func bindWithRelay(t *testing.T, provider, relay string) ledger.State {
 	return chatState(t, l)
 }
 
-// Every launch on one binding names the relay id the session was created with; a session
-// created anew is the only one that gets a new id.
 func TestLaunchSession_AResumeKeepsTheRelayIDOfItsBindingAndAFreshSessionMintsOne(t *testing.T) {
 	agent := pinsRelayAgent(t)
 	require.True(t, agent.SessionPinsRelay())
@@ -214,14 +205,12 @@ func TestLaunchSession_AResumeKeepsTheRelayIDOfItsBindingAndAFreshSessionMintsOn
 	assert.NotEqual(t, "R1", fresh.relayID)
 }
 
-// A session bound before its provider pinned a relay has none to resume with.
 func TestLaunchSession_ASessionBoundBeforeTheRelayHasNoRelayID(t *testing.T) {
 	launch, err := launchSession(bindWithRelay(t, "pins-relay", ""), pinsRelayAgent(t))
 	require.NoError(t, err)
 	assert.Equal(t, sessionLaunch{resumeID: "S1"}, launch)
 }
 
-// A provider that pins no block is launched exactly as before.
 func TestLaunchSession_AProviderThatPinsNoRelayIsGivenNone(t *testing.T) {
 	agent := testAgent(t, "codex")
 	require.False(t, agent.SessionPinsRelay())
@@ -230,8 +219,6 @@ func TestLaunchSession_AProviderThatPinsNoRelayIsGivenNone(t *testing.T) {
 	assert.Empty(t, fresh.relayID)
 }
 
-// A launch that displaces a CLI is planned once that CLI has quit: its refusal
-// on the way out lost the session the launch would otherwise resume.
 func TestSubmitPrompt_ALaunchIsPlannedOnceTheCLIItDisplacesHasQuit(t *testing.T) {
 	h := newSpawnHarness(t, "")
 	term := &refusingTerm{}

@@ -1,25 +1,15 @@
-//! What the user is told when a remote host is why an action failed: the one native owner of
-//! develop's host failure copy.
-//!
-//! Spec: develop `web/src/features/hosts/lib/host-failure-notice.ts`.
-
 use crate::error::Error;
 use crate::host_failure::HostFailure;
 
 const PAIR_AGAIN: &str = "To use it again, remove it here, then add it back in Settings \u{2192} Hosts with a new code from Settings \u{2192} Devices on that host (or crowbar pair on a headless host).";
 
-/// A host failure's headline and, when it has one, the line under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostNotice {
-    /// The headline, which says what to do on its own when shown alone.
     pub message: String,
-    /// The line under it.
     pub description: Option<String>,
 }
 
 impl HostNotice {
-    /// Why a request to a remote host failed when the host is why, else `None`; `name` is the
-    /// host's, `None` once it is no longer paired. Only a remote host's failure is asked.
     #[must_use]
     pub fn of(
         error: &Error,
@@ -39,7 +29,6 @@ impl HostNotice {
         )
     }
 
-    /// A remote host that did not answer, named `name`.
     #[must_use]
     pub fn unreachable(name: &str) -> Self {
         Self::described(

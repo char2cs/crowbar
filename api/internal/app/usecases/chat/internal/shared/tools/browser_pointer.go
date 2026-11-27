@@ -30,8 +30,6 @@ const browserResolveSchema = `{"type":"object","properties":{` +
 	`"detail":{"type":"string","enum":["refs","text","html","styles"],"description":"What to return besides the ref; default refs."}` +
 	`},"required":["pointer"],"additionalProperties":false}`
 
-// pointer is one decoded ⌖data line. Items stay raw: the page side owns their
-// shape and gets them back verbatim.
 type pointer struct {
 	V     int               `json:"v"`
 	Tab   string            `json:"tab"`
@@ -50,7 +48,6 @@ type pointerItem struct {
 	Text string `json:"text"`
 }
 
-// label is the short human name of an item, for echoing the gist.
 func (it pointerItem) label() string {
 	name := it.Name
 	if name == "" {
@@ -266,7 +263,6 @@ func foundText(r resolvedItem, detail string) string {
 	return s
 }
 
-// decodeItem reads one pointed-at item; a malformed one only loses its label.
 func decodeItem(raw json.RawMessage) pointerItem {
 	var it pointerItem
 	if json.Unmarshal(raw, &it) != nil {

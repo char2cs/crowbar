@@ -8,9 +8,6 @@ import { useTodoListElement, useTodoListElementState } from '@platejs/list/react
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 
-// The todo-list renderers for `block-list.tsx`'s `config` lookup. They live in
-// their own module so neither file declares more than two components.
-
 export function TodoMarker(props: PlateElementProps) {
   const state = useTodoListElementState({ element: props.element })
   const { checkboxProps } = useTodoListElement(state)

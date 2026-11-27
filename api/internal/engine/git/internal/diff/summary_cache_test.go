@@ -13,10 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// countCommittedQueries wraps the seam the cached ref->HEAD numstat reaches git
-// through and returns a pointer to its invocation count. Every assertion below
-// is made on that count: a cache hit is an invocation that did not happen, not
-// a call that finished quickly, so nothing here depends on timing.
 func countCommittedQueries(
 	t *testing.T,
 ) *int {
@@ -58,9 +54,6 @@ func seedCacheRepo(
 	return repo, ref
 }
 
-// TestSummaryCache_HitsWhenOnlyWorktreeChanged is the case the split exists
-// for: while an agent churns the tree, every tick re-reads the same two commits
-// and only the working tree has moved, so the expensive half must run once.
 func TestSummaryCache_HitsWhenOnlyWorktreeChanged(t *testing.T) {
 	calls := countCommittedQueries(t)
 	repo, ref := seedCacheRepo(t)
@@ -126,8 +119,6 @@ func TestSummaryCache_IsPerRepo(t *testing.T) {
 	calls := countCommittedQueries(t)
 	repo, ref := seedCacheRepo(t)
 
-	// A clone shares the source's commit SHAs, so the two keys differ in the
-	// repo path and nothing else — exactly what this asserts is part of the key.
 	clone := filepath.Join(t.TempDir(), "clone")
 	mustGit(t, repo, "clone", repo, clone)
 
@@ -139,8 +130,6 @@ func TestSummaryCache_IsPerRepo(t *testing.T) {
 	assert.Equal(t, first, second)
 }
 
-// TestSummaryCache_BoundedSize pins the eviction: a session moving across many
-// base refs and commits must not grow the cache without limit.
 func TestSummaryCache_BoundedSize(t *testing.T) {
 	countCommittedQueries(t)
 	repo := initRepo(t)
@@ -161,8 +150,6 @@ func TestSummaryCache_BoundedSize(t *testing.T) {
 		"the cache must evict rather than grow past its cap")
 }
 
-// TestSummaryCache_ColdEntryStillCorrect guards the eviction path: a key pushed
-// out and asked for again must recompute rather than return an empty map.
 func TestSummaryCache_ColdEntryStillCorrect(t *testing.T) {
 	calls := countCommittedQueries(t)
 	repo, ref := seedCacheRepo(t)

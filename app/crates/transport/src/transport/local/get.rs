@@ -4,12 +4,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::error::Error;
 use crate::transport::http_conn::exchange;
 
-/// One HTTP/1.1 `GET` of `target` (path and query) over an already connected daemon stream,
-/// buffering at most `limit` bytes of the answer. Connecting is the caller's, so it can tell a
-/// daemon that does not answer from a process that has no descriptors left to dial with.
-///
-/// # Errors
-/// [`Error::Exchange`], [`Error::TooLarge`] or [`Error::Body`] when the exchange fails.
 pub async fn local_get<S>(
     stream: S,
     target: &str,

@@ -1,5 +1,3 @@
-//! A file pane's page (its rich view or its preview) over the text the pane's editor owns.
-
 use gpui::{Context, Window};
 use protocol::{PaneId, ShellFrame};
 

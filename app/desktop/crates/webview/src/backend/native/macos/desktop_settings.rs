@@ -1,5 +1,3 @@
-//! The caret blink of `AppKit` text fields and the scheme of its menus and alerts.
-
 use std::time::Duration;
 
 use crate::backend::desktop::caret_blink::{CaretBlink, CaretReport};

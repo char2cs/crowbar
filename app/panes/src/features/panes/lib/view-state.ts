@@ -11,7 +11,6 @@ import type {
 import { createLeaf, findLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { paneChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace-id'
 
-/** The pane slice's structural state; see `view-ops.ts` for the only writers. */
 export interface ViewState {
   panes: Record<string, PaneGroup>
   views: Record<string, ViewRecord>
@@ -82,7 +81,6 @@ export function initialViewState(): Pick<
   }
 }
 
-/** The tree on screen: the active record's layout, or the stage. */
 export function showingLayout(
   state: Pick<ViewState, 'views' | 'activeViewId' | 'stage'>,
 ): LayoutNode {
@@ -116,7 +114,6 @@ export function writeLayout(state: ViewState, home: PaneHome, layout: LayoutNode
   else state.bottomLayout = layout
 }
 
-/** A view's chats, in layout order. */
 export function viewChatIds(state: Pick<ViewState, 'panes' | 'views'>, viewId: string): string[] {
   const view = state.views[viewId]
   if (!view) return []
@@ -128,7 +125,6 @@ export function viewChatIds(state: Pick<ViewState, 'panes' | 'views'>, viewId: s
   return out
 }
 
-/** A view's members — its chats with their workspaces — in layout order. */
 export function viewMembers(
   state: Pick<ViewState, 'panes' | 'views'>,
   viewId: string,
@@ -143,7 +139,6 @@ export function viewMembers(
   return out
 }
 
-/** The workspace `chatId` runs in, if a pane shows it. */
 export function chatWorkspaceIn(
   panes: Readonly<Record<string, PaneGroup>>,
   chatId: string,
@@ -170,7 +165,6 @@ export function forgetPaneId(state: ViewState, paneId: string): void {
   if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
 }
 
-/** Put `viewId` (or the stage, for null) on screen and focus a pane in it. */
 export function showView(state: ViewState, viewId: string | null, focusPaneId?: string): void {
   state.activeViewId = viewId && state.views[viewId] ? viewId : null
   const leaves = getAllLeafIds(showingLayout(state))
@@ -185,9 +179,6 @@ export function showView(state: ViewState, viewId: string | null, focusPaneId?: 
   if (state.activeViewId && projectId) state.activeViewByProject[projectId] = state.activeViewId
 }
 
-/** The view to fall back to in `projectId` (any project for null): the most
- *  recently focused one, else the first in band order — limited, when given,
- *  to views showing one of `workspaces`. */
 export function nextViewFor(
   state: ViewState,
   projectId: string | null,
@@ -207,9 +198,6 @@ export function nextViewFor(
   return state.viewOrder.find(eligible) ?? null
 }
 
-/** Focus is derived: an activePaneId off screen (and out of the bottom tray) falls back to the
- *  most recent one on screen, else the first showing leaf. Run per write (commitViewWrite)
- *  and per load (repairViewState). */
 export function settleFocus(state: ViewState): void {
   const showing = getAllLeafIds(showingLayout(state))
   const bottom = getAllLeafIds(state.bottomLayout)
@@ -232,14 +220,11 @@ export function projectOf(state: ViewState, viewId: string | null | undefined): 
   return (viewId && state.views[viewId]?.projectId) || ''
 }
 
-/** Law 2: whether the active project may show `viewId` here. */
 export function mayShow(state: ViewState, viewId: string): boolean {
   const project = projectOf(state, viewId)
   return !project || !state.activeProjectId || project === state.activeProjectId
 }
 
-/** Focus `paneId`, bringing its view on screen — or, for another project's
- *  view, only remembering it so the route's switch lands there. */
 export function focusPane(state: ViewState, paneId: string): void {
   const home = homeOf(state, paneId)
   if (!home) return

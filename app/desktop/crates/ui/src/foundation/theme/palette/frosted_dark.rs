@@ -1,5 +1,3 @@
-//! Resolved hex values of the frosted dark palette (spec 00-tokens section 2).
-
 use super::Palette;
 use crate::foundation::theme::palette::color::hex;
 

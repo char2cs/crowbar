@@ -1,5 +1,3 @@
-//! Size scale of buttons.
-
 use gpui::{Pixels, px};
 
 use crate::foundation::ControlScale;
@@ -10,25 +8,18 @@ use crate::foundation::tokens::text_size;
 const ICON_XL: Pixels = px(18.0);
 const BASE_ICON_GROWTH: f32 = 2.0;
 
-/// Height steps of a button; the icon-only form is square at the same size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum ButtonSize {
-    /// 24px.
     Xs,
-    /// 28px.
     Sm,
-    /// 32px, the default.
     #[default]
     Md,
-    /// 36px.
     Lg,
-    /// 40px.
     Xl,
 }
 
 impl ButtonSize {
-    /// Outer height (and width of the icon-only form).
     pub fn height(self) -> Pixels {
         match self {
             Self::Xs => spacing::STEP_6,
@@ -39,7 +30,6 @@ impl ButtonSize {
         }
     }
 
-    /// Horizontal padding inside the 1px border.
     pub fn padding_x(self) -> Pixels {
         match self {
             Self::Xs => spacing::STEP_1_5,
@@ -50,7 +40,6 @@ impl ButtonSize {
         }
     }
 
-    /// Gap between icon and label.
     pub fn gap(self) -> Pixels {
         match self {
             Self::Xs => spacing::STEP_1,
@@ -59,7 +48,6 @@ impl ButtonSize {
         }
     }
 
-    /// Label font size.
     pub fn text(self) -> Pixels {
         match self {
             Self::Xs => text_size::XS,
@@ -68,7 +56,6 @@ impl ButtonSize {
         }
     }
 
-    /// Icon edge length.
     pub fn icon(self) -> Pixels {
         match self {
             Self::Xs => spacing::STEP_3_5,
@@ -96,7 +83,6 @@ impl ButtonSize {
         )
     }
 
-    /// Corner radius.
     pub fn radius(self) -> Pixels {
         match self {
             Self::Xs => radius::MD,

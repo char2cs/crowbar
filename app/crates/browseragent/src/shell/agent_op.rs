@@ -17,51 +17,20 @@ const NEW_TAB: &str = "newTab";
 const JS: &str = "js";
 const ARGS: &str = "args";
 
-/// What an agent asked of a browser tab, checked before anything is run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentOp {
-    /// Opens a tab in the chat's pane, or reuses one, at an address.
-    Open {
-        /// Where to go, when given.
-        url: Option<PageUrl>,
-        /// Open another tab even when the chat has one.
-        new_tab: bool,
-    },
-    /// Loads an address.
-    Navigate {
-        /// Where to go.
-        url: PageUrl,
-    },
-    /// Closes the tab.
+    Open { url: Option<PageUrl>, new_tab: bool },
+    Navigate { url: PageUrl },
     Close,
-    /// One page back.
     Back,
-    /// One page forward.
     Forward,
-    /// Loads the page again.
     Reload,
-    /// Runs JavaScript, the body of an async function, in the page.
-    Eval {
-        /// The code.
-        js: String,
-    },
-    /// Takes a picture of what the tab shows.
+    Eval { js: String },
     Screenshot,
-    /// An operation the page script does.
-    Page {
-        /// Which one.
-        op: DomOp,
-        /// Its arguments, as the daemon sent them.
-        args: Value,
-    },
+    Page { op: DomOp, args: Value },
 }
 
 impl AgentOp {
-    /// Reads the operation `op` with `args`.
-    ///
-    /// # Errors
-    /// [`Error::UnknownOp`], [`Error::Argument`] for an argument that is missing or mistyped,
-    /// and [`Error::Address`] for an address a browser pane does not load.
     pub fn parse(
         op: &str,
         args: &Value,
@@ -81,7 +50,6 @@ impl AgentOp {
         }
     }
 
-    /// How long the operation may take before the shell gives up on it.
     #[must_use]
     pub fn limit(&self) -> Duration {
         match self {

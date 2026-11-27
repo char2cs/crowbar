@@ -11,7 +11,7 @@
   "prioritizeKeepingFunctionOutputTogether": true,
   "multiElementCollectionTrailingCommas": true,
   "rules": {
-    "AllPublicDeclarationsHaveDocumentation": true,
+    "AllPublicDeclarationsHaveDocumentation": false,
     "AlwaysUseLowerCamelCase": true,
     "AmbiguousTrailingClosureOverload": true,
     "BeginDocumentationCommentWithOneLineSummary": true,

@@ -1,5 +1,3 @@
-//! Setting, resetting and uploading the icon of a space.
-
 use std::path::Path;
 
 use daemonapi::Call;

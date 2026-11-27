@@ -1,5 +1,3 @@
-//! A text or list field.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{InteractiveElement, IntoElement, ParentElement, Styled, div, px};
 use settings::{Control, Row};
@@ -8,7 +6,6 @@ use crate::frame::Frame;
 use crate::frame::RowLayout;
 
 const INLINE_TEXTAREA_DESCENT: f32 = 5.0;
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/ui/input.tsx
 const DISABLED_OPACITY: f32 = 0.64;
 
 pub(crate) fn field_control(

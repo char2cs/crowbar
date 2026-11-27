@@ -1,5 +1,3 @@
-//! What attaching the window to the daemon's browser peer socket logs.
-
 use std::fmt;
 
 use journal::Level;

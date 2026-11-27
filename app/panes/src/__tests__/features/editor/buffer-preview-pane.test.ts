@@ -9,10 +9,6 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
 
-// Preview/pinned are the tab's own `isPreview`/`isPinned` on the window-level store.
-// `openContent` resolves an unspecified `workspaceId` from `getActiveWorkspaceId()` and scopes
-// its dedup and tab cap on it, so this registers a real active workspace rather than ''.
-
 const createMockStorage = () => {
   const storage = new Map<string, string>()
 
@@ -75,7 +71,6 @@ describe('buffer preview pane integration', () => {
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    // The split became the active pane, so the second preview opens there.
     const secondPreviewId = bufferActions.openContent({
       type: 'editor',
       doc: workspaceRef('test-ws', '/workspace/b.ts'),
@@ -89,8 +84,6 @@ describe('buffer preview pane integration', () => {
     ])
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual([firstPreviewId])
     expect(paneActions.getPaneById(rightPaneId)?.editorTabIds).toEqual([secondPreviewId])
-    // Each pane's own preview is marked, and marking one never clears the other
-    // pane's (preview is per-pane, and the two panes hold different tabs).
     expect(bufferById(firstPreviewId)?.isPreview).toBe(true)
     expect(bufferById(secondPreviewId)?.isPreview).toBe(true)
   })
@@ -122,7 +115,6 @@ describe('buffer preview pane integration', () => {
       isPreview: true,
     })
 
-    // Pin: promote the preview (clears isPreview everywhere) then pin the tab.
     bufferActions.promotePreview(previewId)
     paneActions.setEditorTabPinned(ROOT_PANE_ID, previewId, true)
 

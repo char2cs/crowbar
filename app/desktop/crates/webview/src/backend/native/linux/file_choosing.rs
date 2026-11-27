@@ -1,5 +1,3 @@
-//! The shell's own file choosers: develop's GTK dialog, with each caller's title and filter.
-
 use std::path::PathBuf;
 
 use gtk::glib;

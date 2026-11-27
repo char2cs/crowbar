@@ -5,11 +5,8 @@ import type React from 'react'
 import { cn } from '@/lib/utils'
 
 export type CheckboxRootProps = CheckboxPrimitive.Root.Props & {
-  /** Crowbar compat: boolean checked state shorthand */
   checked?: boolean
-  /** Crowbar compat: change handler receiving boolean */
   onChange?: ((checked: boolean) => void) | React.Dispatch<React.SetStateAction<boolean>>
-  /** Crowbar compat: aria-label shorthand */
   ariaLabel?: string
 }
 

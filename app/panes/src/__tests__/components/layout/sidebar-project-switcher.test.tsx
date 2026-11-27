@@ -43,7 +43,6 @@ const project = (id: string, name = id): Project => ({
 })
 
 describe('SidebarProjectSwitcher', () => {
-  // The phone's header draws the active project's icon larger than the desktop's.
   it('draws the active project icon larger under the touch scale', () => {
     const glyph = (touch: boolean) => {
       const { container, unmount } = render(
@@ -156,7 +155,6 @@ describe('SidebarProjectSwitcher', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  // The active project's name and mark are where the space is renamed and its icon edited.
   describe('editing the active project', () => {
     const renderActive = () =>
       render(
@@ -211,7 +209,6 @@ describe('SidebarProjectSwitcher', () => {
     })
   })
 
-  // Local is the app itself: only a remote active project has a host to show.
   describe('the active project’s host', () => {
     const onHost = (id: string, name: string, hostId: string): Project => ({
       ...project(id, name),
@@ -250,7 +247,6 @@ describe('SidebarProjectSwitcher', () => {
       expect(hostLine()).toHaveTextContent(/^homelab-prox$/)
       expect(hostLine()).toContainElement(screen.getByTestId('host-status-h1'))
       expect(hostLine()).not.toHaveAttribute('data-host-tone')
-      // Its own line under the name, apart from the active mark: not a badge beside it.
       expect(hostLine().parentElement).toBe(name().parentElement)
       expect(name().compareDocumentPosition(hostLine())).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
       expect(name().parentElement).not.toContainElement(
@@ -326,7 +322,6 @@ describe('SidebarProjectSwitcher', () => {
       expect(hostLine().parentElement).toBe(block)
     })
 
-    // Truncation is layout jsdom does not run: this pins the structure it relies on.
     it('keeps a long host name whole on its own line, apart from the project name', () => {
       const long = 'homelab-prox-in-the-basement-rack-behind-the-old-nas-and-the-ups'
       pairRemoteHost('h1', long)
@@ -343,12 +338,10 @@ describe('SidebarProjectSwitcher', () => {
 
       expect(screen.queryByRole('button', { name: /^Host settings/ })).toBeNull()
       expect(screen.queryByText(/Offline/)).toBeNull()
-      // One line, with no room kept for a host line.
       expect(name().parentElement?.children).toHaveLength(1)
     })
   })
 
-  // The other projects' marks: a remote one wears its host's dot, whichever project is active.
   describe('another project’s host', () => {
     const onHost = (id: string, name: string, hostId: string): Project => ({
       ...project(id, name),
@@ -425,7 +418,6 @@ describe('SidebarProjectSwitcher', () => {
   })
 })
 
-// The switcher over the store, as the shell mounts it, fed by each host's own stream.
 describe('the projects each host streams', () => {
   const h1 = streamDaemonFor('h1')
   function Switcher() {

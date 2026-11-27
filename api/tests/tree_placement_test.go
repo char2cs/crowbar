@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These pin today's placement wire, so the Tree that replaces its storage has to
-// answer every verb with the same parent and order, and refuse the same moves.
-
-// placedRow is the placement half of every row the placement routes read back.
 type placedRow struct {
 	ID       string `json:"id"`
 	ParentID string `json:"parentId"`
@@ -23,9 +19,6 @@ type placedRow struct {
 	Order    int    `json:"order"`
 }
 
-// placementOf reads rowID's parent and order off the lists the sidebar reads:
-// the repos (a repo's parent is its home folder), the project home's chats and
-// folders, and each repo's chats and folders.
 func placementOf(
 	t *testing.T,
 	h *harness,
@@ -57,7 +50,6 @@ func placementOf(
 	return "", 0
 }
 
-// placed is one row's expected parent and order.
 type placed struct {
 	id       string
 	parentID string
@@ -79,7 +71,6 @@ func requirePlaced(
 	}
 }
 
-// workspaceFolderOf reads a workspace's own folder edge off the workspace list.
 func workspaceFolderOf(
 	t *testing.T,
 	h *harness,
@@ -98,7 +89,6 @@ func workspaceFolderOf(
 	return ""
 }
 
-// importBranch imports branch from the fixture's origin and returns its workspace.
 func importBranch(
 	t *testing.T,
 	h *harness,
@@ -117,9 +107,6 @@ func importBranch(
 	return wsID
 }
 
-// TestTree_PlacementVerbsOverHTTP: a "" parent is the root of the row's own
-// scope (the project home, the repo, or a chat's workspace), and each verb
-// renumbers the sibling space it lands in densely.
 func TestTree_PlacementVerbsOverHTTP(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -168,13 +155,11 @@ func TestTree_PlacementVerbsOverHTTP(t *testing.T) {
 	assert.Equal(t, f.mainWSID, workspaceFolderOf(t, h, repo, ws), "the branch's workspace rises with its row")
 }
 
-// placementRefusal is the status and problem code a refused placement answers with.
 type placementRefusal struct {
 	status int
 	code   string
 }
 
-// patchRefusal sends a placement PATCH that is expected to be refused.
 func patchRefusal(
 	t *testing.T,
 	h *harness,
@@ -197,8 +182,6 @@ func patchRefusal(
 	return placementRefusal{status: resp.StatusCode, code: env.Code}
 }
 
-// TestTree_PlacementRefusals: every refused move answers 409 with the code of
-// the rule it breaks, and moves nothing.
 func TestTree_PlacementRefusals(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -234,9 +217,6 @@ func TestTree_PlacementRefusals(t *testing.T) {
 	requirePlaced(t, h, f.projectID, "the refusals", before...)
 }
 
-// TestRegression_Tree_ABranchFiledInAFolderUnderAnotherBranchIsRefused: a
-// folder hanging under one branch's row resolves to that branch, so filing
-// another branch there splits its fork chain, through either placement route.
 func TestRegression_Tree_ABranchFiledInAFolderUnderAnotherBranchIsRefused(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -258,9 +238,6 @@ func TestRegression_Tree_ABranchFiledInAFolderUnderAnotherBranchIsRefused(t *tes
 	assert.Equal(t, folderID, workspaceFolderOf(t, h, repo, wsA))
 }
 
-// TestRegression_Tree_AChatWithNowhereToRunIsRefusedBeforeItIsMade: a repo
-// chat create naming neither a workspace nor a parent row is a bad request,
-// and leaves no chat behind.
 func TestRegression_Tree_AChatWithNowhereToRunIsRefusedBeforeItIsMade(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -283,8 +260,6 @@ func TestRegression_Tree_AChatWithNowhereToRunIsRefusedBeforeItIsMade(t *testing
 	assert.Equal(t, before, after, "no chat is left behind")
 }
 
-// TestTree_AMoveReachesTheProjectsScope: placement lives in the Tree, and a move
-// reaches a live holder as the chat's new placement.
 func TestTree_AMoveReachesTheProjectsScope(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -301,8 +276,6 @@ func TestTree_AMoveReachesTheProjectsScope(t *testing.T) {
 	requirePlaced(t, h, f.projectID, "the move", placed{chat, folder, 0})
 }
 
-// TestTree_ALockedBranchMoveReachesTheProjectsScope: a locked branch is placed
-// by its own workspace Node, and a live holder sees it land in the folder.
 func TestTree_ALockedBranchMoveReachesTheProjectsScope(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -319,8 +292,6 @@ func TestTree_ALockedBranchMoveReachesTheProjectsScope(t *testing.T) {
 	})
 }
 
-// TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent: a thread of a
-// thread is placed under the chat it was spawned from, read off the Tree.
 func TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -335,10 +306,6 @@ func TestTree_AThreadSpawnedAfterTheUpgradeInheritsItsParent(t *testing.T) {
 	requirePlaced(t, h, p, "threads spawned", placed{thread, owner, 0}, placed{nested, thread, 0})
 }
 
-// TestRegression_Tree_ARootForkMovesToItsRepoRootHoweverTheRootIsSpelled: main
-// forks the repo's default checkout, so "", the default checkout's id and the
-// repo row's id (its owning chat; the workspace route only, the chat route
-// refuses a chat parent of another workspace) all name the level it belongs to.
 func TestRegression_Tree_ARootForkMovesToItsRepoRootHoweverTheRootIsSpelled(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -359,8 +326,6 @@ func TestRegression_Tree_ARootForkMovesToItsRepoRootHoweverTheRootIsSpelled(t *t
 	}
 }
 
-// patchPlacement is patchRefusal for a PATCH that may succeed: a 200 reads as
-// status 200 and no code.
 func patchPlacement(t *testing.T, h *harness, path string, body any) placementRefusal {
 	t.Helper()
 	got := patchRefusal(t, h, path, body)

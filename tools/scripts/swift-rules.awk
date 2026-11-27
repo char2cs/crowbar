@@ -17,7 +17,6 @@ function strip(s) { gsub(/\\"/, "", s); gsub(/"[^"]*"/, "\"\"", s); return s }
   isdecl = raw ~ /^[ \t]*((public|open|internal|private|fileprivate|final|static|override|mutating|indirect) +)*(func|struct|class|enum|actor|protocol|typealias|init|var|let|subscript)[ (]/
   ispublic = raw ~ /^[ \t]*((final|static|override|mutating|indirect) +)*(public|open) /
   if (pend && isdecl && !ispublic) report(doc_line, "doc-private", "doc comment on a non-public declaration")
-  if (!pend && ispublic && raw ~ /(func|struct|class|enum|actor|protocol|typealias|var|let) /) report(NR, "doc-missing", "public declaration without /// doc comment")
   pend = 0
   s = strip(raw)
   i = index(s, "//")

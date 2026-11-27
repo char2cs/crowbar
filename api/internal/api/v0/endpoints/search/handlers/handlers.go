@@ -1,5 +1,3 @@
-// Package handlers holds the gin handlers backing the search endpoint: global
-// workspace search and in-place replace.
 package handlers
 
 import (
@@ -13,16 +11,13 @@ import (
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
-// SearchEngine is the global search/replace surface the handlers need.
 type SearchEngine interface {
-	// Search searches repoPath for the query specified in req.
 	Search(
 		ctx context.Context,
 		repoPath string,
 		req enginesearch.SearchRequest,
 	) (enginesearch.SearchResponse, error)
 
-	// Replace rewrites matching occurrences on disk.
 	Replace(
 		ctx context.Context,
 		repoPath string,
@@ -31,13 +26,10 @@ type SearchEngine interface {
 	) error
 }
 
-// Handlers serves the search and replace routes from the search engine,
-// mounted on /v0/chats/:chatId/search... (routes.go).
 type Handlers struct {
 	searchEng SearchEngine
 }
 
-// New builds the search Handlers from the search engine.
 func New(
 	searchEng SearchEngine,
 ) *Handlers {
@@ -46,8 +38,6 @@ func New(
 	}
 }
 
-// resolveWorkspace is the workspace this request acts on, read back from reqscope where the chat
-// group's resolveChatWorktree middleware stashed it; no chat-scoped URL carries a workspace id.
 func (h *Handlers) resolveWorkspace(
 	ctx *gin.Context,
 ) (domain.Workspace, error) {

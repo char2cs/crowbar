@@ -1,5 +1,3 @@
-//! A titled group of rows.
-
 use gpui::{
     AnyElement, App, InteractiveElement as _, IntoElement, ParentElement, Styled, Window, div,
 };

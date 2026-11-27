@@ -16,11 +16,9 @@ export interface OperationItem {
   label: string
   state: OperationState
   error?: Problem
-  /** Client-side placement of a local item. */
   parentId?: string
 }
 
-/** Work that outlives its request, as the daemon records it (`domain.Operation`). */
 export interface Operation {
   id: string
   kind: string
@@ -34,18 +32,13 @@ export interface Operation {
   version: number
   createdAt: string
   updatedAt: string
-  /** Started by this client and not yet answered by the daemon. */
   local?: true
-  /** Met in its scope's snapshot, not as a live change. */
   snapshot?: boolean
 }
 
 export interface OperationsState {
-  /** By operation id: a client-minted uuid, so one host's never meets another's. */
   ops: Record<string, Operation>
-  /** Operation id → the host that streamed it; a local one has none until it does. */
   hostOf: Record<string, string>
-  /** Entity id → the newest operation naming it. */
   latestFor: Record<string, string>
 }
 
@@ -58,7 +51,6 @@ function newestFor(ops: Record<string, Operation>): Record<string, string> {
   for (const op of Object.values(ops)) {
     for (const id of namedIds(op)) {
       const newest = ops[latestFor[id]]
-      // By time, not text: stamps differ in offset and fractional precision.
       if (!newest || Date.parse(newest.createdAt) <= Date.parse(op.createdAt)) latestFor[id] = op.id
     }
   }
@@ -73,7 +65,6 @@ let memo:
     }
   | undefined
 
-/** Every operation: the stream's rows, and the local ones it has not delivered yet. */
 export function operationsState(): OperationsState {
   const server = entityStore.getState().byKind.operation
   const local = useLocalOperationsStore.getState().ops
@@ -84,14 +75,12 @@ export function operationsState(): OperationsState {
     const { hostId, id } = splitHostKey(key)
     hostOf[id] = hostId
     const reply = local[id]
-    // A daemon reply newer than the stream's row (a dismiss) shows until its frame arrives.
     if (!reply || reply.local || reply.version <= held.data.version) ops[id] = held.data
   }
   memo = { server, local, view: { ops, hostOf, latestFor: newestFor(ops) } }
   return memo.view
 }
 
-/** Calls `listener` whenever operationsState() may have changed. */
 export function subscribeOperations(listener: () => void): () => void {
   const stopServer = entityStore.subscribe((s, prev) => {
     if (s.byKind.operation !== prev.byKind.operation) listener()
@@ -103,13 +92,10 @@ export function subscribeOperations(listener: () => void): () => void {
   }
 }
 
-/** A component's narrow read of every operation. */
 export function useOperations<T>(selector: (s: OperationsState) => T): T {
   return useSyncExternalStore(subscribeOperations, () => selector(operationsState()))
 }
 
-/** Writes an operation the stream has not delivered: a local one, or a daemon
- *  reply newer than what is held. */
 export function putLocalOperation(op: Operation): void {
   const hostId = operationsState().hostOf[op.id]
   const streamed = hostId
@@ -128,14 +114,12 @@ function failedOpFor(s: OperationsState, entityId: string): Operation | null {
   return op && op.state === 'failed' && !op.dismissed ? op : null
 }
 
-/** Why `op` failed for `entityId`: its item's own error, else the operation's. */
 function problemIn(op: Operation, entityId: string): Problem | null {
   const item = op.items.find((i) => i.ref.id === entityId)
   if (item && op.subject.id !== entityId) return item.error ?? null
   return op.error ?? null
 }
 
-/** Every entity whose newest operation failed, keyed to that operation (shallow-stable). */
 export function selectFailedOps(s: OperationsState): Record<string, Operation> {
   const failed: Record<string, Operation> = {}
   for (const entityId of Object.keys(s.latestFor)) {
@@ -145,7 +129,6 @@ export function selectFailedOps(s: OperationsState): Record<string, Operation> {
   return failed
 }
 
-/** The reason of the newer failure among `entityIds` (a row names its chat and its workspace). */
 export function newestProblem(
   failed: Readonly<Record<string, Operation>>,
   entityIds: readonly (string | null | undefined)[],
@@ -159,7 +142,6 @@ export function newestProblem(
   return newest ? problemIn(newest.op, newest.id) : null
 }
 
-/** Whether an operation naming `entityId` is still accepted or running. */
 export function selectEntityBusy(s: OperationsState, entityId: string): boolean {
   for (const op of Object.values(s.ops)) {
     if (op.state !== 'accepted' && op.state !== 'running') continue

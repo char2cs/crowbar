@@ -1,5 +1,3 @@
-//! A native menu that records what it is asked for and answers a fixed choice.
-
 use gpui::TestAppContext;
 
 use crate::floating::MenuPath;

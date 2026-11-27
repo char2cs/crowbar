@@ -54,8 +54,6 @@ func (h *Handlers) AnswerChoice(ctx *gin.Context) {
 	libs.WriteMutationOK(ctx, http.StatusOK, ctx.Param("choiceId"))
 }
 
-// AnswerTerminalWait types one of the descriptor-declared replies into the
-// provider's own terminal prompt, so the human need not open the terminal.
 func (h *Handlers) AnswerTerminalWait(ctx *gin.Context) {
 	chat, ok := h.requireChatInWorkspace(ctx, ctx.Param("id"))
 	if !ok {

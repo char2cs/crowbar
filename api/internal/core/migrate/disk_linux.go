@@ -8,9 +8,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// freeBytes reports the bytes an unprivileged process can still allocate on
-// the filesystem holding path. Linux counts the free blocks in fragment-size
-// units, which can differ from the preferred I/O block size.
 func freeBytes(
 	path string,
 ) (uint64, error) {

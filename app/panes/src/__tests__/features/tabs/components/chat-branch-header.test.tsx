@@ -93,8 +93,6 @@ function renderHeader({
   )
 }
 
-/** A store whose chat list simply does not carry `chat-1` — a pane restored
- *  from a saved layout, or a list that raced it. */
 function renderHeaderWithoutChatRecord() {
   const store = createWorkspaceStore('w1')
   resetChatStore()
@@ -114,11 +112,6 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-// The chat interface's own identity header (replaces ChatHead in this
-// position — spec: "Branch icon, branch name... same style that rows use,
-// but without the row chrome"). Reuses the sidebar row's rule-6 two-line
-// shape (title, then branch name + change counts) but never draws the row's
-// hover/selection chrome — it isn't a selectable row or tab here.
 describe('ChatBranchHeader', () => {
   it('renders the chat title', () => {
     renderHeader()
@@ -130,11 +123,6 @@ describe('ChatBranchHeader', () => {
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
   })
 
-  // Live-reported: the pane header read "Untitled chat" for a chat the sidebar
-  // and the daemon both called "repochat-RN", and only a reload fixed it — the
-  // header's `?.title || UNTITLED_CHAT_LABEL` made "this store has not got the
-  // record" indistinguishable from "this chat has no name". A gap must look
-  // like a gap.
   it('shows no title, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
     renderHeaderWithoutChatRecord()
     const title = screen.getByTestId('chat-branch-header-title')
@@ -243,12 +231,6 @@ describe('ChatBranchHeader', () => {
     expect(screen.getByTestId('chat-branch-header-branch-icon')).toBeInTheDocument()
   })
 
-  // Live-reported: a THREAD ("Hi claude", nested under main's own chat and
-  // running on main's ground) drew the branch mark, because the header keyed
-  // off the workspace the chat RUNS IN — which a thread inherits from its
-  // parent — instead of the workspace it OWNS. Same rule `RowGlyph`
-  // (sidebar-row.tsx) already applies in the tree: no `ownsWorktree`, no
-  // branch mark.
   it('draws the chat bubble, not the branch mark, for a thread that owns no worktree', () => {
     renderHeader({
       repos: [

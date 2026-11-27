@@ -8,12 +8,9 @@ const WITHIN_THE_WINDOW: [NotifyDetail; 4] = [
     NotifyDetail::NONE,
 ];
 
-/// A followed window gained or lost the keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusChange {
-    /// The window holds the keyboard now.
     Gained(u32),
-    /// The window gave the keyboard up.
     Lost(u32),
 }
 

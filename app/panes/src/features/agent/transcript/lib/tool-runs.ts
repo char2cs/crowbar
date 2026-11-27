@@ -1,7 +1,6 @@
 import type { ItemMap } from '@/features/agent/stores/lib/item-map'
 import type { ToolItem, TranscriptItem } from '@/features/agent/stores/lib/transcript-items'
 
-/** One transcript line: an item, or a run of read-only calls keyed by its first. */
 export interface DisplayRow {
   id: string
   members?: string[]
@@ -16,16 +15,11 @@ function sameRow(a: DisplayRow | undefined, b: DisplayRow): boolean {
   return x.length === y.length && x.every((id, i) => id === y[i])
 }
 
-/** A person decided on it, so its row is the record of what they approved. */
 const asked = (item: ToolItem) => item.askId !== undefined || item.askNote !== undefined
 
 const foldable = (item: TranscriptItem | undefined): item is ToolItem =>
   item?.kind === 'tool' && FOLDS.has(item.family)
 
-/** The order as drawn: meta and plan calls hidden, consecutive read-only calls
- *  of one turn folded into a run whose key stays as it grows. Depends only on
- *  each item's kind, family and turn, which never change; a row as it was in
- *  `prev` is that same object, so its memoized line skips. */
 export function displayRows(order: string[], items: ItemMap, prev?: DisplayRow[]): DisplayRow[] {
   const rows: DisplayRow[] = []
   let run: (DisplayRow & { members: string[]; turn?: string }) | null = null
@@ -52,12 +46,10 @@ export function displayRows(order: string[], items: ItemMap, prev?: DisplayRow[]
 
 const NOUNS: Partial<Record<ToolItem['family'], [string, string, string, string]>> = {
   read: ['reading', 'read', 'file', 'files'],
-  // A search may be a pattern, a file glob or a web query: it is counted as a search.
   search: ['running', 'ran', 'search', 'searches'],
   fetch: ['fetching', 'fetched', 'page', 'pages'],
 }
 
-/** "Reading 2 files, searching 1 pattern…" while live, "Read 2 files, …" after. */
 export function runSentence(items: ToolItem[], live: boolean): string {
   const counts = new Map<ToolItem['family'], number>()
   for (const item of items) counts.set(item.family, (counts.get(item.family) ?? 0) + 1)

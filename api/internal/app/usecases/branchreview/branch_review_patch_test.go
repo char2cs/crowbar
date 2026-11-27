@@ -43,10 +43,6 @@ func TestBranchReview_GetPatch_UsesTheSameDiffRefAsGetFiles(t *testing.T) {
 	assert.Equal(t, "diff --git a/a.go b/a.go\n", out.String())
 }
 
-// The engine already guards an empty path (diff.ErrEmptyPatchPath) because
-// ":(top,literal)" alone matches the top of the tree and would silently turn the
-// one query guaranteed to be O(one file) into a read of the whole branch diff.
-// The usecase repeats the guard so the request dies before a subprocess exists.
 func TestBranchReview_GetPatch_EmptyPath_IsInvalidArgumentAndNeverReachesGit(t *testing.T) {
 	ctx := context.Background()
 
@@ -85,8 +81,6 @@ func TestBranchReview_GetPatch_TruncationIsReported(t *testing.T) {
 	assert.True(t, truncated)
 }
 
-// maxLines <= 0 is the engine's "unlimited" and must reach it verbatim rather
-// than being rewritten into a cap on the way through.
 func TestBranchReview_GetPatch_UnlimitedMaxLinesIsForwardedVerbatim(t *testing.T) {
 	ctx := context.Background()
 

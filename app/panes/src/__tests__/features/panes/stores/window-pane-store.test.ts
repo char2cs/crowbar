@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
-// Mock the IDB-backed persistence so tests don't need a real IndexedDB write
-// path, and so we can assert exactly when saveWorkspaceLayout is called.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
@@ -17,22 +15,12 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceRef } from '@/lib/api/documents'
 
-/** Flush the microtask queue a few times — enough for one dynamic `import()`
- *  plus its `.then()` chain (destroyWorkspaceStore's window-pane-store
- *  teardown) to settle. Fake timers (active file-wide in this suite) only
- *  fake macrotasks/timers, never microtasks, so plain awaits suffice. */
 async function flushMicrotasks(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
 
 const mockSave = saveWorkspaceLayout as ReturnType<typeof vi.fn>
 
-// Fake timers for EVERY test in this file, not just the "persistence
-// subscription" describe block below: `createWindowPaneStore()` wires a real
-// 300ms-debounced `setTimeout` on construction, and a test elsewhere in this
-// file that creates a store and mutates it (without awaiting/advancing)
-// would otherwise leave a REAL background timer running that can fire mid-
-// way through a LATER fake-timer test and double-count `mockSave`.
 beforeEach(() => {
   vi.useFakeTimers()
   mockSave.mockClear()
@@ -46,10 +34,6 @@ afterEach(() => {
 
 describe('createWindowPaneStore', () => {
   it('pane layout survives switching the active workspace pointer', () => {
-    // The active-workspace pointer changing alone (no destroy) was never the
-    // actual trap — see the singleton test below for the real one
-    // (destroyWorkspaceStore). This just pins that a plain switch is a no-op
-    // for panes/buffers, on an isolated store.
     const store = createWindowPaneStore()
     store.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
@@ -85,8 +69,6 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
     expect(a.windowPaneStore).toBe(windowPaneStore)
   })
 
-  // A workspace leaving keep-alive is destroyed via destroyWorkspaceStore; the pane layout
-  // must outlive it, so this drives the real singleton and the real destroy call.
   it("pane layout survives destroyWorkspaceStore for the chat's own (evicted) workspace", async () => {
     resetWindowPaneStoreForTests()
     getOrCreateWorkspaceStore('ws-evicted')
@@ -121,9 +103,6 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
 describe('windowPaneStore — persistence subscription', () => {
   beforeEach(() => {
     resetWindowPaneStoreForTests()
-    // The reset above is itself a persisted-field change (fresh panes/
-    // buffers references) — flush it out so each test starts from a clean
-    // mock-call slate, not just a clean call COUNT.
     vi.runOnlyPendingTimers()
     mockSave.mockClear()
   })
@@ -131,7 +110,6 @@ describe('windowPaneStore — persistence subscription', () => {
   it('debounces a persisted-field mutation and saves once after 300ms', () => {
     windowPaneStore.getState().paneActions.openChat('chat-1')
 
-    // Not yet — the write is debounced.
     expect(mockSave).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(400)
@@ -144,7 +122,6 @@ describe('windowPaneStore — persistence subscription', () => {
     vi.advanceTimersByTime(100)
     windowPaneStore.getState().paneActions.openChat('chat-b')
     vi.advanceTimersByTime(100)
-    // Still inside the re-armed 300ms window from the second mutation.
     expect(mockSave).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(300)
@@ -170,7 +147,6 @@ describe('windowPaneStore — persistence subscription', () => {
     expect(windowPaneStore.getState().buffers[0]).toMatchObject({ unavailable })
   })
 
-  // A window with no IndexedDB, or a refused write, loses the layout; the rejection must not escape.
   it('reports a layout save that fails instead of leaving it unhandled', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     onTestFinished(() => error.mockRestore())

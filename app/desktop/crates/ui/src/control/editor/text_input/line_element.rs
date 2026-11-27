@@ -1,5 +1,3 @@
-//! Paints the text, selection and caret of a text field and registers its input handler.
-
 pub(super) mod caret_scroll;
 pub(super) mod layout;
 pub(super) mod line_surface;

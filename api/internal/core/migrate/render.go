@@ -11,7 +11,6 @@ import (
 	"text/tabwriter"
 )
 
-// Render writes the report as the text `crowbar migrate --plan` prints.
 func (r Report) Render(
 	w io.Writer,
 ) error {
@@ -28,7 +27,6 @@ func (r Report) Render(
 	return errors.Join(p.err, tw.Flush())
 }
 
-// printer keeps the first write error, so Render reports it once.
 type printer struct {
 	w   io.Writer
 	err error
@@ -61,7 +59,6 @@ func (r Report) renderHome(
 	p.linef("%-10s%s", "last run", r.Last.describe())
 }
 
-// Each step's actions are one column block, so they align within a step.
 func (r Report) renderSteps(
 	p *printer,
 ) {
@@ -101,7 +98,6 @@ func (r Report) renderBackup(
 	}
 }
 
-// renderBackups lists the backups on disk a person could restore from.
 func (r Report) renderBackups(
 	p *printer,
 ) {
@@ -123,7 +119,6 @@ func countText(
 	return strconv.FormatInt(n, 10)
 }
 
-// describe is the run on one line; a nil run is none.
 func (s *RunSummary) describe() string {
 	if s == nil {
 		return "none"

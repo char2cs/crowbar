@@ -1,14 +1,9 @@
-/// What a tab menu row does with the file a tab shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PathAction {
-    /// Put the file's full path on the clipboard.
     CopyPath,
-    /// Put the file's path relative to its workspace on the clipboard.
     CopyRelativePath,
-    /// Show the file in the system file manager.
     Reveal,
-    /// Open a terminal in the file's folder.
     OpenInTerminal,
 }
 
@@ -16,7 +11,6 @@ const SCHEME_SEPARATOR: &str = "://";
 const VIRTUAL_ACTIONS: usize = 3;
 
 impl PathAction {
-    /// Every action, in menu order.
     pub const ALL: [Self; 4] = [
         Self::CopyPath,
         Self::CopyRelativePath,
@@ -24,8 +18,6 @@ impl PathAction {
         Self::OpenInTerminal,
     ];
 
-    /// The actions a tab menu offers for `path`: a virtual path has no folder to open a terminal
-    /// in (develop's `tab-context-menu.tsx`).
     #[must_use]
     pub fn offered_for(path: &str) -> &'static [Self] {
         if Self::is_virtual(path) {
@@ -34,13 +26,11 @@ impl PathAction {
         &Self::ALL
     }
 
-    /// Whether `path` names no file on disk, as a terminal tab's `terminal://<pane>` does.
     #[must_use]
     pub fn is_virtual(path: &str) -> bool {
         path.contains(SCHEME_SEPARATOR)
     }
 
-    /// The menu row's text.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {

@@ -1,5 +1,3 @@
-//! The bars shown before the projects scope has synced.
-
 use gpui::{InteractiveElement, IntoElement, ParentElement, Pixels, Styled, div, px};
 use ui::Skeleton;
 

@@ -1,23 +1,15 @@
-//! The files staged by Copy or Cut, waiting for a Paste.
-
 use crate::shell::ClipMode;
 use crate::shell::Command;
 use crate::shell::PathText;
 
-/// Files staged in one workspace, to be copied or moved on Paste.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileClipboard {
-    /// The root of the workspace the files were staged in.
     pub root: Option<String>,
-    /// The staged files, relative to that root.
     pub paths: Vec<String>,
-    /// Whether Paste copies or moves them.
     pub mode: ClipMode,
 }
 
 impl FileClipboard {
-    /// The commands that copy or move every staged file into `dir` of the workspace at `root`.
-    /// A workspace other than the one the files were staged in gets none.
     pub fn paste_into(
         &self,
         (root, dir): (&Option<String>, &str),
@@ -46,7 +38,6 @@ impl FileClipboard {
         }
     }
 
-    /// Whether the files stay staged after a Paste: a copy does, a cut does not.
     pub fn survives_paste(&self) -> bool {
         self.mode == ClipMode::Copy
     }

@@ -1,8 +1,5 @@
 import type { MdRules } from '@platejs/markdown'
 
-// Raw HTML blocks round-trip as a void Plate `html` element carrying the raw string (rendered
-// sanitized by html-node.tsx); the default turns them into escaped text that a save mangles.
-// remark-stringify emits `html` nodes verbatim, so the bytes come back exactly.
 export const htmlMarkdownRules: MdRules = {
   html: {
     deserialize(mdastNode) {

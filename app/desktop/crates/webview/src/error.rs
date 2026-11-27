@@ -3,38 +3,27 @@ use thiserror::Error;
 
 use crate::view::Id;
 
-/// Everything that can go wrong while hosting web views.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The parent window's handle is of a kind this platform cannot embed into.
     #[error("unsupported parent window handle: {0}")]
     UnsupportedParent(&'static str),
-    /// The parent window did not give out a handle.
     #[error("parent window handle unavailable: {0}")]
     Handle(#[from] HandleError),
-    /// The toolkit thread could not be started.
     #[error("platform thread failed to start: {0}")]
     PlatformThread(String),
-    /// The toolkit thread has stopped.
     #[error("platform thread has stopped")]
     HostStopped,
-    /// The toolkit thread did not answer in time.
     #[error("the platform thread did not answer in time")]
     TimedOut,
-    /// A call that must run on the main thread ran elsewhere.
     #[error("must be called on the main thread")]
     NotMainThread,
-    /// No live web view has this id.
     #[error("no web view {0}")]
     UnknownWebView(Id),
-    /// The engine refused an operation.
     #[error("web view engine error: {0}")]
     Engine(#[from] wry::Error),
-    /// The operating system refused an operation, such as moving the keyboard to a view.
     #[error("operating system error: {0}")]
     Os(#[from] platform::Error),
 }
 
-/// Result alias using the crate [`enum@Error`].
 pub type Result<T> = std::result::Result<T, Error>;

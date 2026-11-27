@@ -1,5 +1,3 @@
-//! The name a duplicate of a file takes in its folder.
-
 use std::path::Path;
 
 fn split(name: &str) -> (&str, String) {

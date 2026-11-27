@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// BenchmarkHook measures the relayed-hook hot path end to end: runner
-// resolution, the chat's lock, and the observation the hook records. A
-// tool_pre/tool_post pair is the commonest delivery a working agent sends.
 func BenchmarkHook(b *testing.B) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))

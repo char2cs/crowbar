@@ -1,7 +1,3 @@
-//! One document at its language server, as develop's `document-lsp.ts` and
-//! `lsp-client.ts` keep it: didOpen with the text, a full-text didChange once edits pause (sent
-//! early by any request), didSave and didClose.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;

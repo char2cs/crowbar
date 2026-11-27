@@ -14,17 +14,11 @@ export interface ButtonProps extends useRender.ComponentProps<'button'> {
   variant?: VariantProps<typeof buttonVariants>['variant']
   size?: VariantProps<typeof buttonVariants>['size']
   loading?: boolean
-  /** Active state — adds bg-accent/20 highlight when true */
   active?: boolean
-  /** Compact mode (compat, no visual effect) */
   compact?: boolean
-  /** Tooltip text — renders a real tooltip on hover */
   tooltip?: string
-  /** Keyboard shortcut shown in the tooltip */
   shortcut?: string
-  /** Tooltip side preference */
   tooltipSide?: 'top' | 'right' | 'bottom' | 'left'
-  /** Command ID for keybinding hints (compat, not rendered) */
   commandId?: string
 }
 

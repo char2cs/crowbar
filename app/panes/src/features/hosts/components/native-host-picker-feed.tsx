@@ -9,18 +9,12 @@ import {
 
 const close = () => useUIState.getState().setIsHostPickerOpen(false)
 
-/**
- * Feeds the phone's native host picker sheet while it is open: the paired hosts, pushed whole on
- * each change. Picking a host is the chat list's own `selectHost` intent; the sheet closes with
- * it. Revoke asks natively first; Add host is the sidebar's intent.
- */
 export function NativeHostPickerFeed({ shownHost }: { shownHost: string | null }) {
   const { snapshot, revoke } = useNativeHostsSnapshot(shownHost)
 
   useEffect(() => {
     setNativeHostPicker({ ...snapshot, open: true })
   }, [snapshot])
-  // Unmounting is how the web closes the sheet.
   useEffect(
     () => () => setNativeHostPicker({ hosts: [], revoking: [], shownHost: null, open: false }),
     [],

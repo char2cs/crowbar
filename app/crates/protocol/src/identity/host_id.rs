@@ -7,12 +7,7 @@ fn validate(value: &str) -> Result<()> {
     })
 }
 
-string_id!(
-    /// Identifies a daemon host: `local` or a paired remote host. It is the authority of
-    /// `crowbar://<host>/...` URLs, so it holds only lower case letters, digits and hyphens.
-    HostId,
-    validate
-);
+string_id!(HostId, validate);
 
 #[cfg(test)]
 mod tests {

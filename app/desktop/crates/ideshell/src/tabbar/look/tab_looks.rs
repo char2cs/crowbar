@@ -1,13 +1,8 @@
-//! How each pane's tab looks in a tab bar.
-
 use layout::PaneInstance;
 
 use crate::tabbar::look::tab_look::TabLook;
 
-/// Gives the tab bar the look of each pane's tab; the shell implements it from the pane's title,
-/// type and unsaved work.
 pub trait TabLooks {
-    /// How the pane's tab looks in a tab bar.
     fn tab_look(
         &self,
         instance: &PaneInstance,

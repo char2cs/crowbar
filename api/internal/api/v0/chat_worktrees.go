@@ -8,14 +8,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// chatWorktrees adapts the app container to the chat handlers' Worktrees port. The
-// reads come from two owners: the row and merge overlay from the workspace usecase,
-// the sibling list (with its derived Working overlay) from the repository container.
 type chatWorktrees struct {
 	app *app.Container
 }
 
-// Get implements chathandlers.Worktrees.
 func (w chatWorktrees) Get(
 	ctx context.Context,
 	workspaceID string,
@@ -23,7 +19,6 @@ func (w chatWorktrees) Get(
 	return w.app.Usecases.Workspace.Get(ctx, workspaceID)
 }
 
-// ListInRepo implements chathandlers.Worktrees.
 func (w chatWorktrees) ListInRepo(
 	ctx context.Context,
 	projectID string,
@@ -32,7 +27,6 @@ func (w chatWorktrees) ListInRepo(
 	return w.app.Repositories.ListWorkspacesInRepo(ctx, projectID, repoID)
 }
 
-// MergeEligibilitiesFor implements chathandlers.Worktrees.
 func (w chatWorktrees) MergeEligibilitiesFor(
 	ctx context.Context,
 	wss []domain.Workspace,

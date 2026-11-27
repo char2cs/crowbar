@@ -1,5 +1,3 @@
-//! The icon element.
-
 mod assets;
 mod file;
 mod files;
@@ -30,10 +28,6 @@ use crate::foundation::icon::files::FILES;
 
 const DEFAULT_SIZE: Pixels = px(16.0);
 
-/// A Phosphor icon drawn with a colour token; defaults to 16px regular in the text colour.
-///
-/// Without a colour it takes the text colour it is painted in, a parent's hover colour included
-/// (stock `svg()` paints only a colour set on itself).
 #[derive(Debug, Clone, IntoElement)]
 pub struct Icon {
     name: IconName,
@@ -44,7 +38,6 @@ pub struct Icon {
 }
 
 impl Icon {
-    /// An icon at 16px, regular weight, inheriting the text colour.
     pub fn new(name: IconName) -> Self {
         Self {
             name,
@@ -55,7 +48,6 @@ impl Icon {
         }
     }
 
-    /// Selects the stroke weight; the file must be embedded or nothing is drawn.
     #[must_use]
     pub fn weight(
         mut self,
@@ -65,7 +57,6 @@ impl Icon {
         self
     }
 
-    /// Sets the square size.
     #[must_use]
     pub fn size(
         mut self,
@@ -75,7 +66,6 @@ impl Icon {
         self
     }
 
-    /// Sets the colour; without it the glyph takes the inherited text colour.
     #[must_use]
     pub fn color(
         mut self,
@@ -85,7 +75,6 @@ impl Icon {
         self
     }
 
-    /// Turns the glyph clockwise by `radians`.
     #[must_use]
     pub fn rotate(
         mut self,
@@ -95,7 +84,6 @@ impl Icon {
         self
     }
 
-    /// Asset path of the embedded file for this name and weight, if it exists.
     pub fn path(
         name: IconName,
         weight: IconWeight,

@@ -14,27 +14,16 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// AnswerUsecase is the human half of a provider prompt: the relay blocked on a
-// person, and deciding for it. Its state is a desk of live relays; the verdict
-// is recorded in the chat's ledger.
 type AnswerUsecase interface {
-	// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
-	// verdict its hook has not collected yet; either way the hook must be held.
 	HoldsAnswer(
 		askID string,
 	) bool
 
-	// AwaitAnswer blocks the relay held on askID until a person answers, its budget
-	// expires, or ctx is cancelled. Empty stdout leaves the prompt to the provider's
-	// own UI; a verdict is claimed by EXACTLY ONE relay, never replayed.
 	AwaitAnswer(
 		ctx context.Context,
 		askID string,
 	) (HookAnswer, error)
 
-	// AnswerChoice renders the picked options in the provider's answer format for the
-	// relay holding the prompt. ErrNoLongerWaiting (a problem.ErrConflict) when no relay
-	// still holds it; problem.ErrInvalidArgument when the provider cannot express it.
 	AnswerChoice(
 		ctx context.Context,
 		chatID string,
@@ -44,18 +33,12 @@ type AnswerUsecase interface {
 		content []byte,
 	) error
 
-	// AnswerTerminalWait types the descriptor-declared reply answerID into the
-	// terminal prompt chatID's CLI is parked on: problem.ErrConflict when the
-	// prompt has gone, problem.ErrInvalidArgument for an unknown answer.
 	AnswerTerminalWait(
 		ctx context.Context,
 		chatID string,
 		answerID string,
 	) error
 
-	// SetChatPermissionLevel overrides chatID's trust dial for the rest of its lifetime,
-	// independent of the global default. Refuses a level the chat's current provider
-	// does not declare, with problem.ErrInvalidArgument.
 	SetChatPermissionLevel(
 		ctx context.Context,
 		chatID string,
@@ -65,28 +48,16 @@ type AnswerUsecase interface {
 
 var _ AnswerUsecase = (*Usecase)(nil)
 
-// ErrNoLongerWaiting refuses an answer to a prompt whose relay stopped waiting
-// first, so the answer would reach no CLI.
 var ErrNoLongerWaiting = answerdesk.ErrNotWaiting
 
-// HookAnswer is what a relay prints. An empty Stdout means nobody answered in
-// time.
 type HookAnswer = answerdesk.HookAnswer
 
-// The answer desk is in memory by necessity: a slot is a live hook process holding a
-// provider gate open, so one surviving a restart would promise a process that is gone.
-
-// HoldsAnswer reports whether askID is on the desk: still open, or decided with a
-// verdict its hook has not collected yet; either way the hook must be held.
 func (u *Usecase) HoldsAnswer(
 	askID string,
 ) bool {
 	return u.answers.Holds(askID)
 }
 
-// AwaitAnswer blocks the relay held on askID until a person answers, its declared
-// budget expires, or ctx is cancelled. A verdict is claimed by exactly one relay,
-// and a relay that hangs up or runs out prints nothing: its CLI asks it itself.
 func (u *Usecase) AwaitAnswer(
 	ctx context.Context,
 	askID string,
@@ -98,9 +69,6 @@ func (u *Usecase) AwaitAnswer(
 	return answer, err
 }
 
-// AnswerChoice renders the picked options in the CLI's own answer format and
-// hands them to the relay holding the prompt. Everything that can refuse runs
-// first; the answer is written only while that relay is claimed and waiting.
 func (u *Usecase) AnswerChoice(
 	ctx context.Context,
 	chatID string,
@@ -155,8 +123,6 @@ func (u *Usecase) AnswerChoice(
 	return nil
 }
 
-// askResolver closes a chat's asks: the outcome a relay reached, or a person's
-// answer.
 type askResolver struct{ writes ingress.Writer }
 
 func (r askResolver) ResolveAsk(ctx context.Context, chatID, askID, resolution string) error {
@@ -168,8 +134,6 @@ func (r askResolver) ResolveAsk(ctx context.Context, chatID, askID, resolution s
 
 func always() bool { return true }
 
-// resolve closes askID as resolution if it is still open and, at its turn at
-// the chat's lock, may still be closed, and reports whether it did.
 func (r askResolver) resolve(
 	ctx context.Context, chatID, askID, resolution string, optionIDs []string, may func() bool,
 ) (bool, error) {
@@ -182,7 +146,6 @@ func (r askResolver) resolve(
 	return len(rows) > 0, err
 }
 
-// openAsks are each chat's open questions, read off its ledger.
 type openAsks struct{ ledger *ledgerstore.Store }
 
 func (o openAsks) PendingChoices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error) {
@@ -193,9 +156,6 @@ func (o openAsks) PendingChoices(ctx context.Context, chatID string) ([]domain.A
 	return st.OpenAsks(), nil
 }
 
-// pendingChoice finds the still-open question by id. A prompt the CLI has already
-// resolved its own way is gone from here, which is what makes "no longer pending"
-// a real refusal rather than a race.
 func (u *Usecase) pendingChoice(
 	ctx context.Context,
 	chatID string,
@@ -213,9 +173,6 @@ func (u *Usecase) pendingChoice(
 	return domain.ActivityChoice{}, false, nil
 }
 
-// agentForChat resolves the descriptor that will render the answer. It goes
-// through the LIVE runner rather than the chat's stored provider: the answer has
-// to be in the format of the CLI that is actually holding the prompt open.
 func (u *Usecase) agentForChat(
 	ctx context.Context,
 	chatID string,
@@ -235,8 +192,6 @@ func (u *Usecase) agentForChat(
 	return agent, nil
 }
 
-// AnswerTerminalWait types the reply into the chat's terminal prompt; the sweep
-// clears the wait once the prompt leaves the screen.
 func (u *Usecase) AnswerTerminalWait(ctx context.Context, chatID, answerID string) error {
 	return u.runners.AnswerTerminalWait(ctx, chatID, answerID)
 }

@@ -8,7 +8,6 @@ import {
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 
-/** A tab's kind, as every tab strip marks it. */
 export function TabBufferIcon({ buffer }: { buffer: PaneContent }) {
   if (buffer.path === 'extensions://marketplace')
     return <Package className="text-muted-foreground" />

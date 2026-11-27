@@ -1,4 +1,3 @@
-// Package stash internal tests exercise unexported helpers directly.
 package stash
 
 import (
@@ -13,10 +12,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
-
-// ---------------------------------------------------------------------------
-// parseLine
-// ---------------------------------------------------------------------------
 
 func TestParseLine_TooFewParts(
 	t *testing.T,
@@ -49,12 +44,6 @@ func TestParseLine_Valid(
 	assert.False(t, s.Date.IsZero())
 }
 
-// ---------------------------------------------------------------------------
-// countChangedFiles
-// ---------------------------------------------------------------------------
-
-// TestCountChangedFiles_RequireSuccessError exercises the RequireSuccess error
-// path by asking for stats on a nonexistent stash reference.
 func TestCountChangedFiles_RequireSuccessError(
 	t *testing.T,
 ) {
@@ -71,18 +60,10 @@ func TestCountChangedFiles_RequireSuccessError(
 	rr := exec.Git(ctx, dir, "commit", "-m", "init")
 	require.Equal(t, 0, rr.ExitCode, rr.Stderr)
 
-	// stash show on a nonexistent ref exits non-zero.
 	_, err := countChangedFiles(ctx, dir, "stash@{99}")
 	require.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// List loop: blank-line and !ok branches
-// ---------------------------------------------------------------------------
-
-// listProcessRaw is a helper that replicates the stash-line loop from List.
-// It is defined here purely to test the blank-line and !ok guard branches
-// without requiring real git output containing those edge cases.
 func listProcessRaw(
 	raw string,
 ) []string {
@@ -104,18 +85,15 @@ func listProcessRaw(
 	return ids
 }
 
-// TestListProcessRaw_BlankLine verifies blank lines are skipped.
 func TestListProcessRaw_BlankLine(
 	t *testing.T,
 ) {
-	// Insert a blank line between two valid entries.
 	valid := "stash@{0}\x00msg\x002024-01-15 10:30:00 +0000\x00"
 	raw := valid + "\n\n" + strings.Replace(valid, "stash@{0}", "stash@{1}", 1)
 	ids := listProcessRaw(raw)
 	assert.Equal(t, []string{"stash@{0}", "stash@{1}"}, ids)
 }
 
-// TestListProcessRaw_MalformedLine verifies malformed lines are skipped.
 func TestListProcessRaw_MalformedLine(
 	t *testing.T,
 ) {

@@ -1,20 +1,3 @@
-/**
- * "Chat is the default presentation" (spec §11): a USER-level preference, on by
- * default, that picks the surface a chat LANDS on and nothing else.
- *
- * Two things have to hold, and only one of them is about the default value:
- *
- * 1. It lives in the global settings store, not the per-workspace registry. That
- *    registry is DESTROYED on a workspace switch, so a preference parked there
- *    would silently revert the first time the user changed workspace. The switch
- *    below is a real destroy/recreate, and the workspace copy it takes with it is
- *    asserted alongside the preference that survives it — otherwise a test that
- *    never actually destroyed anything would pass just as green.
- * 2. Turning it OFF takes nothing away. Its whole output domain is the two
- *    surfaces the chat's own switcher already moves between, and flipping it
- *    writes exactly one settings key — it cannot disable Chat because it has no
- *    value that means "no Chat".
- */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   getDefaultChatPresentation,
@@ -40,8 +23,6 @@ import {
   setActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 
-/** Every surface the preference can name. There is no third value, and no
- *  absence — which is why turning it off cannot remove a surface. */
 const SURFACES: ChatPresentation[] = ['chat', 'terminal']
 
 beforeEach(() => {
@@ -59,7 +40,6 @@ afterEach(() => {
 
 describe('the chat landing-surface preference', () => {
   describe('with nothing stored', () => {
-    // Crowbar is a chat over the CLI: a new chat lands on it unless the person says otherwise.
     it('is on, so a chat lands on Chat', () => {
       expect(defaultSettings.chatIsDefaultPresentation).toBe(true)
       expect(getDefaultChatPresentation()).toBe('chat')
@@ -72,8 +52,6 @@ describe('the chat landing-surface preference', () => {
       expect(getDefaultChatPresentation()).toBe('chat')
     })
 
-    // An older profile, or a hand-edited export, carries no choice at all here —
-    // which is not the same as choosing Terminal.
     it.each([undefined, null, 'terminal', 0])(
       'treats a stored %p as no choice and stays on Chat',
       (stored) => {
@@ -96,9 +74,6 @@ describe('the chat landing-surface preference', () => {
       expect(getDefaultChatPresentation()).toBe('terminal')
     })
 
-    // The claim under test is that this is a LANDING choice, not a capability
-    // one: the value it produces is one of the two surfaces the chat's switcher
-    // already toggles between, and the write touches nothing else in Settings.
     it('changes the landing surface and nothing else', async () => {
       const before = { ...useSettingsStore.getState().settings }
       await useSettingsStore.getState().updateSetting('chatIsDefaultPresentation', false)
@@ -127,13 +102,10 @@ describe('the chat landing-surface preference', () => {
       getOrCreateWorkspaceStore('w1')
       setActiveWorkspaceId('w1')
 
-      // THE SWITCH, as the app performs it: the outgoing workspace's store is
-      // destroyed and the incoming one is built from nothing.
       destroyWorkspaceStore('w1')
       setActiveWorkspaceId('w2')
       getOrCreateWorkspaceStore('w2')
 
-      // The preference is not in the registry, so the switch cannot touch it.
       expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(false)
       expect(getDefaultChatPresentation()).toBe('terminal')
     })

@@ -16,13 +16,9 @@ const OPTIONS: FileDiffOptions<undefined, undefined> = {
 
 type Snippet = { patch: string | null } | { failed: true } | null
 
-/** A thread's anchored lines, via the diff view's own per-file patch request. Nothing while
- *  loading or when the anchor left the patch; says so when the read fails. */
 export function ReviewThreadSnippet({ wsId, thread }: { wsId: string; thread: ReviewThread }) {
   const { filePath, side, lineNumber, startLine } = thread
   const [snippet, setSnippet] = useState<Snippet>(null)
-  // The patch route is addressed through the owning chat and its host, both recorded
-  // after a cold launch; reading before them only throws.
   const owningChatId = useOwningChatId(wsId)
   const hostResolved = useHostResolved({ wsId })
   const ready = owningChatId !== null && hostResolved
@@ -52,11 +48,9 @@ export function ReviewThreadSnippet({ wsId, thread }: { wsId: string; thread: Re
     [side, lineNumber, startLine],
   )
 
-  // The library's 'system' default follows the OS, not the app's own toggle.
   const themeVersion = useThemeVersion()
   const options = useMemo(
     () => ({ ...OPTIONS, themeType: isDarkMode() ? ('dark' as const) : ('light' as const) }),
-    // themeVersion is a pure invalidation signal; the mode is read from the DOM.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- themeVersion only triggers the re-read
     [themeVersion],
   )

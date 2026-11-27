@@ -12,7 +12,6 @@ import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pa
 import type { Chat, Repo } from '@/core/entities/repo-types'
 import { useSettingsStore } from '@/features/settings/store'
 
-// useSidebar() only feeds the reopen toggle; stubbed so no SidebarProvider is needed.
 const sidebar = vi.hoisted(() => ({ open: true }))
 vi.mock('@/components/ui/sidebar', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/sidebar')>()
@@ -80,8 +79,6 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
   } as AgentChat
 }
 
-/** Seeds a single pane (ROOT_PANE_ID) with the given editor tabs and, when
- *  `chatId` is set, that chat in the ChatStore. */
 function setupPaneStore({
   buffers = [],
   chatId = null,
@@ -131,7 +128,6 @@ describe('TabBar "+" placement', () => {
     const scrollContainer = screen.getByTestId('editor-tab-scroller')
     expect(scrollContainer).not.toBeNull()
 
-    // Inside the tabs' own scroller, after every tab.
     expect(addButton.parentElement).toBe(scrollContainer)
     expect(scrollContainer.lastElementChild).toBe(addButton)
 
@@ -163,7 +159,6 @@ describe('TabBar "+" placement', () => {
 })
 
 describe('TabBar "+" click behaviour', () => {
-  // A different workspace is in view: what the "+" opens belongs to the pane's.
   beforeEach(() => {
     setActiveWorkspaceId('w-in-view')
   })
@@ -185,7 +180,6 @@ describe('TabBar "+" click behaviour', () => {
     const pane = windowPaneStore.getState().panes[ROOT_PANE_ID]
     expect(pane?.editorTabIds).toHaveLength(2)
     const page = windowPaneStore.getState().buffers.find((b) => b.id === pane?.editorTabIds[1])
-    // The pane's own workspace, not the one in view.
     expect(page).toMatchObject({ type: 'newTabPage', name: 'New Tab', workspaceId: 'w-pane' })
     expect(pane?.activeEditorTabId).toBe(page?.id)
     expect(screen.getByRole('tab', { name: 'New Tab' })).toHaveAttribute('aria-selected', 'true')
@@ -207,8 +201,6 @@ describe('TabBar "+" click behaviour', () => {
   })
 })
 
-// The IDE sector's own row: split toggle, the tab scroller, the branch-review shortcut.
-// The chat draws its own header in the chat view.
 describe('TabBar pane-top-row anatomy', () => {
   it('the split toggle leads the row, outside the tab scroller', () => {
     const store = setupPaneStore({
@@ -222,7 +214,6 @@ describe('TabBar pane-top-row anatomy', () => {
     expect(children[0]).toBe('split-toggle')
   })
 
-  // The shared pane box paints none (it would block the chat view's vibrancy).
   it('paints its own opaque pane-background — the shared box no longer does', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
     renderTabBar(store)
@@ -235,7 +226,6 @@ describe('TabBar pane-top-row anatomy', () => {
     renderTabBar(store)
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
     expect(screen.queryByTestId('chat-head')).not.toBeInTheDocument()
-    // The row itself — split toggle — still draws.
     expect(screen.getByTestId('pane-top-row')).toBeInTheDocument()
     expect(screen.getByTestId('split-toggle')).toBeInTheDocument()
   })
@@ -249,8 +239,6 @@ describe('TabBar pane-top-row anatomy', () => {
   })
 })
 
-// A thread runs on its parent's worktree (`Chat.workspaceId` is inherited, so it can't
-// gate this): only the worktree's owning chat gets branch chrome.
 describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', () => {
   afterEach(() => seedRepos([]))
 
@@ -296,7 +284,6 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
     renderTabBar(store, { wsId: 'w1' })
     expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
-    // The rest of the IDE sector's row is untouched.
     expect(screen.getByTestId('editor-tab-scroller')).toBeInTheDocument()
   })
 
@@ -307,7 +294,6 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
     expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
   })
 
-  // An editor-only pane is handed no workspace (pane-container passes its chat's): nothing to open.
   it('hides it for an editor-only pane that holds no chat', () => {
     const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
     renderTabBar(store, { wsId: null })
@@ -315,8 +301,6 @@ describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', 
   })
 })
 
-// An emptied split pane leaves the layout, so an empty pane here is the window's last:
-// the "nothing is open" fallback, with no name, nothing to close and nothing to toggle.
 describe('TabBar — a pane holding nothing draws no chrome for it', () => {
   it('draws no split toggle and no tab strip', () => {
     const store = setupPaneStore({ chatId: null, buffers: [] })
@@ -344,8 +328,6 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
   })
 })
 
-// Collapsed, the chat is just another tab in the strip; pane-container decides when
-// (`showChatTab`), TabBar only draws it.
 describe('TabBar — chat as a tab (showChatTab)', () => {
   it('renders the chat as the FIRST entry in the scroller, before real tabs, when showChatTab is set', () => {
     const store = setupPaneStore({
@@ -394,7 +376,6 @@ describe('TabBar — chat as a tab (showChatTab)', () => {
 
     fireEvent.click(screen.getByTestId('chat-tab-item'))
 
-    // activeEditorTabId keeps naming buf-0, so the editor view doesn't unmount it.
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatSelected).toBe(true)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
@@ -440,7 +421,6 @@ describe('TabBar context menu', () => {
     expect(menu.onRevealInFinder).toBeUndefined()
   })
 
-  // A remote workspace's path means nothing to this machine's Finder.
   it('offers no Reveal for a tab whose workspace lives on a remote host', () => {
     resetHostWorld()
     pairRemoteHost('host-1')
@@ -456,8 +436,6 @@ describe('TabBar context menu', () => {
   })
 })
 
-// With the sidebar hidden, whoever draws the reopen toggle also carries the
-// build readout: this row when no view strip exists, the strip otherwise.
 describe('TabBar — build readout beside the reopen toggle', () => {
   afterEach(() => {
     sidebar.open = true
@@ -470,7 +448,6 @@ describe('TabBar — build readout beside the reopen toggle', () => {
       state.settings.buildBadgeOverride = 'beta'
       state.settings.sidebarPosition = side
     })
-    // jsdom has no layout: report a row flush against the window's top-left and right edges.
     const rect = { left: 0, top: 0, width: window.innerWidth, height: 32, right: window.innerWidth }
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(rect as DOMRect)
     const store = setupPaneStore({ buffers: [makeEditorBuffer(0)] })

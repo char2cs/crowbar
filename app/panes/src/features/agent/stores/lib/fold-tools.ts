@@ -23,10 +23,8 @@ export const markOutput = (fold: FeedFold, row: LedgerRow) => {
 
 export const applyToolCall: Apply<'tool_call'> = (fold, row) => {
   const { toolId } = row.body
-  // The end of a spawn may carry no kind: it is still its card's, never a tool row.
   const spawns = toolFamily(row.body) === 'subagent' || !!fold.item(subagentItemId(toolId))
   noteCall(fold, row, spawns ? subagentItemId(toolId) : toolItemId(toolId))
-  // A spawning call is its subagent's card, which takes the call's place.
   if (spawns) {
     markOutput(fold, row)
     openSpawn(fold, row, toolId, row.body.title)
@@ -95,7 +93,6 @@ export const applyAsk: Apply<'ask'> = (fold, row) => {
     at: row.at,
     scope,
     choice,
-    // The call's row names a file inside the workspace from there; the ask's copy is raw.
     toolTarget: tool?.body.target || body.toolTarget || '',
     toolId: body.toolId,
     toolInput: body.toolInput,
@@ -105,7 +102,6 @@ export const applyAsk: Apply<'ask'> = (fold, row) => {
     detail: body.detail,
   })
   if (!fold.facts.openAsks.includes(id)) fold.set('openAsks', [...fold.facts.openAsks, id])
-  // An ask on a call is said on the call's row; only a toolless one has a row.
   if (tool && tool.askId !== id) fold.put({ ...tool, askId: id })
   if (!known && !body.toolId) fold.place(id, scope)
 }
@@ -123,7 +119,6 @@ export const applyAskResolved: Apply<'ask_resolved'> = (fold, row) => {
     }
     fold.put({ ...known, choice })
     fold.set('decidedAsks', [...fold.facts.decidedAsks.filter((other) => other !== id), id])
-    // A denied tool never runs, so no post or fail row will settle it.
     const picked = new Set(row.body.optionIds)
     const denied =
       row.body.resolution === 'refused' ||

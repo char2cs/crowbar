@@ -1,5 +1,3 @@
-// A hot-swap chat's one process serves both views, so the daemon routes its asks and gates
-// compact by the surface the pane last recorded: every move the user sees must be recorded.
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as commandsApi from '@/features/agent/api/agent-chat-commands'
@@ -103,11 +101,9 @@ describe('useTerminalEscort — a hot-swap chat records every surface it is show
     act(() => result.current.chooseSurface('split'))
 
     expect(result.current.presentation).toBe('split')
-    // Split shows the chat, so its asks and compact belong there.
     expect(records).toEqual(['terminal', 'chat', 'terminal', 'chat'])
   })
 
-  // A TUI dialog is the banner's to signpost: the surface moves only by the person's hand.
   it('neither moves nor records a surface when the CLI starts or stops waiting', () => {
     const { result, rerender } = renderPane({ recorded: 'chat' })
 
@@ -163,7 +159,6 @@ describe('useTerminalEscort — on the phone, which shows only the chat', () => 
   })
 })
 
-// The exited agent's Open terminal: a terminal with no CLI behind it is a dead end.
 describe('useTerminalEscort — opening the terminal of a chat whose CLI is gone', () => {
   it('starts the CLI once the terminal is the recorded surface', async () => {
     const { result } = renderPane({ recorded: 'chat', dormant: true })

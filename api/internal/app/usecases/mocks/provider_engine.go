@@ -6,7 +6,6 @@ import (
 	provider "github.com/char2cs/crowbar/api/internal/engine/provider"
 )
 
-// ProviderEngine is a fake of the provider operations the import usecase consumes.
 type ProviderEngine struct {
 	Protected    []string
 	ProtectedErr error
@@ -16,7 +15,6 @@ type ProviderEngine struct {
 	PRLinksErr   error
 }
 
-// NewProviderEngine returns an empty ProviderEngine.
 func NewProviderEngine() *ProviderEngine {
 	return &ProviderEngine{}
 }

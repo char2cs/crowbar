@@ -1,5 +1,3 @@
-//! The Files panel's data: file rows, kinds, the access and source ports, view flags, density, icon theme and git status.
-
 mod file_access;
 mod file_kind;
 mod file_row;

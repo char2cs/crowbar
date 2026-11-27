@@ -15,9 +15,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat pins the LimitReader
-// cap behind Stat. A FIFO stats as size 0 and blocks open until the writer is
-// there, so the growth is deterministic without a race.
 func TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat(
 	t *testing.T,
 ) {
@@ -33,8 +30,6 @@ func TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat(
 			return
 		}
 		defer func() { _ = w.Close() }()
-		// Comfortably past the 4-byte injected cap regardless of how many bytes
-		// the capped read actually consumes.
 		_, _ = w.Write(make([]byte, 10))
 	}()
 	t.Cleanup(func() { <-done })
@@ -45,8 +40,6 @@ func TestRegression_Read_RejectsFileThatGrowsPastCapAfterStat(
 		"a file that grew past the cap after Stat must still be rejected as oversize")
 }
 
-// A read-only file must refuse a save, as a direct write would: renaming a temp over it needs only
-// the directory's write bit, so the atomic write would otherwise report a success the OS forbids.
 func TestWrite_RefusesAReadOnlyFile(t *testing.T) {
 	testutil.RequirePermissionEnforcement(t)
 	dir := t.TempDir()

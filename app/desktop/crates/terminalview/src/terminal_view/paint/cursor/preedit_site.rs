@@ -1,5 +1,3 @@
-//! Where the input-method composition is painted.
-
 use terminal::CursorCell;
 
 use crate::terminal_view::paint::cursor::look::Look;

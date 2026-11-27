@@ -1,7 +1,5 @@
-// `editor.api`, not bare 'monaco-editor': that entry statically imports every built-in language.
 import { languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
 
-// Matched both as a bare filename and as an extension: `.gitignore` is either.
 const IGNORE_FILES = [
   '.gitignore',
   '.dockerignore',
@@ -20,8 +18,6 @@ function ensureLanguage(id: string, extensions: string[], aliases: string[], fil
   languages.register({ id, extensions, aliases, filenames })
 }
 
-/** Registers the languages monaco ships no grammar for, each with a small Monarch tokenizer.
- *  Synchronous, so they need no loader in language-contributions.ts. */
 export function registerMonarchLanguages(): void {
   ensureLanguage('diff', ['.diff', '.patch'], ['Diff', 'diff', 'patch'])
   languages.setMonarchTokensProvider('diff', {

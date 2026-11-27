@@ -8,50 +8,20 @@ const MAX_TITLE_CHARS: usize = 200;
 const MAX_FAILURE_CHARS: usize = 200;
 const MAX_REPLY_BYTES: usize = 8 << 20;
 
-/// What the web engine reported about a browser pane's page. The shell builds these from the
-/// engine's own callbacks, never from anything the page posts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "page", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum PageUpdate {
-    /// A navigation to `url` started.
-    Loading {
-        /// The target.
-        url: String,
-    },
-    /// The page at `url` finished loading.
-    Loaded {
-        /// The loaded address.
-        url: String,
-    },
-    /// The page set a new title.
-    Title {
-        /// The title, shortened to a displayable length.
-        title: String,
-    },
-    /// The user finished a pick in the page.
-    Picked {
-        /// What the page found.
-        report: PickReport,
-    },
-    /// The pick ended with nothing: the user cancelled or the page went away.
+    Loading { url: String },
+    Loaded { url: String },
+    Title { title: String },
+    Picked { report: PickReport },
     PickEnded,
-    /// The pick could not run in the page.
-    PickFailed {
-        /// What the page said, shortened.
-        message: String,
-    },
-    /// The page answered a script the shell ran for an agent.
-    AgentReply {
-        /// The id the script was given.
-        id: String,
-        /// What the script returned, or what went wrong.
-        answer: AgentAnswer,
-    },
+    PickFailed { message: String },
+    AgentReply { id: String, answer: AgentAnswer },
 }
 
 impl PageUpdate {
-    /// A title update, cut to 200 characters so a page cannot flood the chrome.
     #[must_use]
     pub fn title(title: &str) -> Self {
         Self::Title {
@@ -59,14 +29,11 @@ impl PageUpdate {
         }
     }
 
-    /// The JSON text carried from the web view thread to the shell.
     #[must_use]
     pub fn encode(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
-    /// Reads an encoded update; `None` for anything else, and for an address a browser pane
-    /// would not load, so the chrome never displays a scheme it refuses.
     #[must_use]
     pub fn decode(text: &str) -> Option<Self> {
         let update: Self = serde_json::from_str(text).ok()?;
@@ -81,9 +48,6 @@ impl PageUpdate {
             | Self::AgentReply { .. } => Some(update),
         }
     }
-    /// Reads what the scripts the shell ran posted from the page: a finished pick or the answer to
-    /// an agent's script, the only messages a browsed page may send. Anything else, including a
-    /// message shaped like another update, is `None`.
     #[must_use]
     pub fn from_page_message(text: &str) -> Option<Self> {
         let message: serde_json::Value = serde_json::from_str(text).ok()?;

@@ -13,9 +13,6 @@ interface ChatOnlyPaneHeaderProps {
   wsId: string | null
 }
 
-/** Replaces TabBar's row for a pane holding a chat and no editor tabs: same PaneTopRow shell,
- *  with the chat's identity header in place of the tab strip. Closing a chat is a sidebar
- *  operation only, so this row has no close control. */
 export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { rowRef, isAtLeftEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
@@ -28,8 +25,6 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       isBottomPane={isBottomPane}
       isAtLeftEdge={isAtLeftEdge}
       isAtTopEdge={isAtTopEdge}
-      // This row IS the chat's toolbar, so it takes the chat glass; `overlay` lets the chat surface
-      // render full-height behind it.
       variant="chat-blur"
       overlay
     >

@@ -1,5 +1,3 @@
-//! The entries of a menu.
-
 mod menu_action;
 mod nested_items;
 
@@ -11,13 +9,10 @@ use gpui::SharedString;
 
 use crate::floating::menu::menu_item::nested_items::NestedItems;
 
-/// One entry of a menu.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum MenuItem {
-    /// A selectable row.
     Action(MenuAction),
-    /// A line between groups.
     Separator,
 }
 
@@ -35,7 +30,6 @@ impl MenuItem {
 }
 
 impl MenuAction {
-    /// A row that opens a nested menu of `items` to its right instead of running a callback.
     pub fn submenu(
         label: impl Into<SharedString>,
         items: impl Into<Rc<[MenuItem]>>,

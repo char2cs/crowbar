@@ -75,8 +75,6 @@ func newDescriptorTestCmd() *cobra.Command {
 	return cmd
 }
 
-// descriptorBytes reads a descriptor file, or the installed descriptor for a
-// provider id (the override under crowbar home, else the shipped one).
 func descriptorBytes(target string) ([]byte, error) {
 	if strings.HasSuffix(target, ".yaml") || strings.ContainsRune(target, os.PathSeparator) {
 		raw, err := os.ReadFile(target) //nolint:gosec // a path the user named on the command line
@@ -101,7 +99,6 @@ func descriptorBytes(target string) ([]byte, error) {
 	return nil, fmt.Errorf("descriptor: no provider %q", target)
 }
 
-// crowbarHome is the home whose descriptor overrides the commands check.
 func crowbarHome() (string, error) {
 	h, err := home.Resolve()
 	if err != nil {
@@ -151,7 +148,6 @@ func printReports(w io.Writer, reports []descriptorcheck.Report, asJSON bool) er
 	return nil
 }
 
-// emit writes v as JSON, or runs text for the human-readable form.
 func emit(w io.Writer, v any, asJSON bool, text func() error) error {
 	if !asJSON {
 		if err := text(); err != nil {
@@ -165,8 +161,6 @@ func emit(w io.Writer, v any, asJSON bool, text func() error) error {
 	return nil
 }
 
-// stickyWriter keeps the first write error, so a report either prints whole or
-// fails with what stopped it.
 type stickyWriter struct {
 	w   io.Writer
 	err error

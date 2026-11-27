@@ -1,5 +1,3 @@
-//! Copy, Cut and Paste of the Files panel and its keyboard.
-
 use gpui::{Context, KeyDownEvent, Window};
 use sidebar::{ClipMode, FileClipboard, FileKey};
 

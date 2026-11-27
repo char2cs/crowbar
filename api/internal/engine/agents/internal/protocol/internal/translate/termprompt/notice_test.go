@@ -122,9 +122,6 @@ func TestMatchNotice_FirstDeclaredMatchWins(t *testing.T) {
 	assert.Equal(t, "You've hit your usage limit", got.Needle)
 }
 
-// Model output or a prompt echo quoting the banner is not the banner, even
-// opening with its sentence or its glyph: only a row the declared anchor opens
-// at its first column is.
 func TestMatchNotice_AQuoteOfTheBannerIsNotTheBanner(t *testing.T) {
 	for _, screen := range []string{
 		"• The docs say You've hit your usage limit when credits run out.",

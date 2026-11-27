@@ -32,8 +32,6 @@ function ColorSwatch({
   value: string
   onPick: (color: string) => void
 }) {
-  // The tooltip merges onto the menu item itself (no wrapper), so the item
-  // keeps the `role="menuitem"` the surrounding menu drives.
   return (
     <WithTooltip
       trigger={
@@ -59,7 +57,6 @@ function ColorSwatch({
   )
 }
 
-/** Sets the background of the selected cells, or clears it. */
 export function TableCellColorMenu({
   children,
   tooltip,

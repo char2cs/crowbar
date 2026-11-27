@@ -1,5 +1,3 @@
-//! Percent-encoding of a value in a route's query string.
-
 fn keeps(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte)
 }

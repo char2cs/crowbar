@@ -18,7 +18,6 @@ import { isNotFoundError } from '@/lib/errors/api-error'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { joinPath } from '@/utils/path-helpers'
 
-/** Which pane a file opens into; omitted, the focused pane. */
 export interface FileOpenTarget {
   paneId?: string
 }
@@ -28,9 +27,6 @@ function parentDir(path: string): string {
   return idx === -1 ? '' : path.slice(0, idx)
 }
 
-// A "<name> copy" destination that skips loaded siblings, so a second duplicate becomes
-// "<name> copy 2" rather than clobbering the first. A leading dot belongs to the stem:
-// ".env" duplicates to ".env copy".
 function duplicateDestPath(srcPath: string, files: AppFile[]): string {
   const dir = parentDir(srcPath)
   const name = dir ? srcPath.slice(dir.length + 1) : srcPath
@@ -50,8 +46,6 @@ function duplicateDestPath(srcPath: string, files: AppFile[]): string {
   return dir ? joinPath(dir, candidate) : candidate
 }
 
-// Carry already-loaded children across a level refresh so a live file change
-// does not collapse expanded subtrees that are still present.
 function preserveLoadedChildren(current: AppFile[], fresh: AppFile[]): AppFile[] {
   return fresh.map((node) => {
     if (!node.isDir) return node
@@ -61,19 +55,16 @@ function preserveLoadedChildren(current: AppFile[], fresh: AppFile[]): AppFile[]
   })
 }
 
-/** Re-list one directory level (the root when `path` is empty) into `store`'s tree. */
 export async function refreshDirectory(
   wsId: string,
   store: WorkspaceStore,
   path?: string,
 ): Promise<void> {
-  // Only a level the tree holds is re-listed: an unopened or vanished folder would answer 404.
   if (path && !findNode(store.getState().files, path)?.children) return
   let fresh: AppFile[]
   try {
     fresh = await fetchFileTree(wsId, path || undefined)
   } catch (err) {
-    // A folder gone from disk leaves the expansion; its parent's re-list drops the node.
     if (path && isNotFoundError(err)) useFileTreeStore.getState().collapsePath(wsId, path)
     else report(err, { action: 'Refresh the file tree' })
     return
@@ -83,9 +74,6 @@ export async function refreshDirectory(
   fileTreeActions.setFiles(!path ? reconciled : mergeChildren(files, path, reconciled))
 }
 
-// Reveal in Finder. The tab menu passes a workspace-relative path, resolved against the on-disk
-// workspace root; the explorer passes an absolute one. Virtual buffers (diff:// …) have no disk
-// presence to reveal.
 export function revealInFolder(wsId: string, path: string): void {
   if (path.includes('://')) return
   const root = path.startsWith('/') ? '' : workspaceRootPath(wsId)
@@ -96,11 +84,7 @@ export function revealInFolder(wsId: string, path: string): void {
   })
 }
 
-/** The file explorer's mutations for one workspace. None refetch (except Refresh): the daemon's
- *  structural FileChangeEvent is reconciled into the tree by the files stream. */
 export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
-  // Tree paths are workspace-relative (root === ''); a dirPath equal to the
-  // absolute wsId is the root addressed by its full path (right-click empty space).
   const relativeDir = (dirPath: string) => (dirPath === wsId ? '' : dirPath)
   return {
     handleFileOpen: async (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
@@ -126,8 +110,6 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
     handleDeletePath: async (path: string) => {
       await deleteFileNode(wsId, path)
     },
-    // Duplicate goes through the daemon's server-side copy verb — byte faithful and recursive for
-    // directories; only the collision-free destination is derived client-side.
     handleDuplicatePath: async (path: string) => {
       try {
         await copyFileNode(wsId, path, duplicateDestPath(path, store.getState().files))
@@ -141,8 +123,6 @@ export function createFileTreeHandlers(wsId: string, store: WorkspaceStore) {
         await renameFileNode(wsId, path, dir ? joinPath(dir, newName) : newName)
         return
       }
-      // No newName → START an inline rename: an idempotent SET (never a toggle)
-      // so a double-click reliably opens the input whatever a prior edit left.
       const setRenaming = (nodes: AppFile[]): AppFile[] =>
         nodes.map((n) => {
           if (n.path === path) return { ...n, isRenaming: true, isEditing: true }

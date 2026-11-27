@@ -1,5 +1,3 @@
-//! What a [`crate::Condition`] is evaluated against.
-
 use std::collections::BTreeSet;
 
 use crate::values::Key;

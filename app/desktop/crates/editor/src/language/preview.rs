@@ -3,17 +3,13 @@ const EXTENSION: char = '.';
 const MARKDOWN: [&str; 2] = ["md", "markdown"];
 const HTML: [&str; 2] = ["html", "htm"];
 
-/// How a file's preview tab renders it, as develop's breadcrumb offers one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preview {
-    /// Rendered Markdown. A Markdown file also has a rich view beside its source.
     Markdown,
-    /// The page in a sandboxed frame.
     Html,
 }
 
 impl Preview {
-    /// The preview `path` has, by its extension; `None` for a file with none (`.mdx` included).
     #[must_use]
     pub fn of_path(path: &str) -> Option<Self> {
         let name = path.rsplit(SEPARATOR).next().unwrap_or(path);
@@ -25,7 +21,6 @@ impl Preview {
         HTML.contains(&extension.as_str()).then_some(Self::Html)
     }
 
-    /// Whether a file of `path` opens in its rich view, as develop opens Markdown.
     #[must_use]
     pub fn has_rich_view(path: &str) -> bool {
         Self::of_path(path) == Some(Self::Markdown)

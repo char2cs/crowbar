@@ -1,5 +1,3 @@
-//! Settings the shell applies: appearance, keymap, panes, fonts, readout.
-
 mod appearance_settings;
 mod change_unseen_event;
 mod editor_preferences;

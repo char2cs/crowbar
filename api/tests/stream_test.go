@@ -32,7 +32,6 @@ func TestStream_FirstFrameIsReady(t *testing.T) {
 	assert.NotEmpty(t, first.Epoch)
 }
 
-// A new daemon's versions start over, so the client must be told to drop what it holds.
 func TestStream_ReadyCarriesANewEpochAfterRestart(t *testing.T) {
 	h := newHarness(t)
 	before := dialStream(t, h).Next(t, isReady).Epoch
@@ -103,10 +102,9 @@ func TestStream_AnUnknownScopeIsRefusedWithAProblem(t *testing.T) {
 	assert.Equal(t, problem.InvalidArgument, closed.Problem.Code)
 
 	c.Sub(t, "projects", 0)
-	c.Next(t, isSynced("projects")) // the connection still serves
+	c.Next(t, isSynced("projects"))
 }
 
-// Review Focus 2: a resume sends every row after since once, in order, then synced at the head.
 func TestStream_ChatScopeResumesFromSinceWithoutGapOrDuplicate(t *testing.T) {
 	h := newHarness(t)
 	_, chatID, post := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -118,8 +116,6 @@ func TestStream_ChatScopeResumesFromSinceWithoutGapOrDuplicate(t *testing.T) {
 	c.Sub(t, scope, 0)
 	head := c.Next(t, isSynced(scope)).Seq
 	require.GreaterOrEqual(t, head, int64(2))
-	// The resume is a reconnect: frames the first connection still had in
-	// flight cannot reach the second.
 	require.NoError(t, c.conn.Close())
 
 	for i := range 3 {
@@ -143,9 +139,6 @@ func TestStream_ChatScopeResumesFromSinceWithoutGapOrDuplicate(t *testing.T) {
 	assert.Equal(t, head+4, live.Row.Seq, "live rows follow the replay with no gap")
 }
 
-// A pane that lets go of a chat and takes it back on one connection may still
-// get a row the first sub had in flight. A client that applies only the row
-// after its last one, as the web does, ends with every row once and no gap.
 func TestStream_ChatScopeResubscribedOnOneConnectionHasNoGap(t *testing.T) {
 	h := newHarness(t)
 	_, chatID, post := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)
@@ -192,7 +185,6 @@ func TestStream_DeletedChatClosesItsScopeOnly(t *testing.T) {
 	c.Next(t, func(f stream.Frame) bool { return isOperationFrame(f, op.ID) })
 }
 
-// sidebarEntity is one projects-scope entity as a test reads it.
 type sidebarEntity struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"projectId"`
@@ -208,7 +200,6 @@ func entityIn(t *testing.T, f stream.Frame) sidebarEntity {
 	return e
 }
 
-// sidebarSnapshot holds projects and answers its snapshot, keyed kind/id.
 func sidebarSnapshot(t *testing.T, c *streamClient) map[string]sidebarEntity {
 	t.Helper()
 	c.Sub(t, "projects", 0)
@@ -242,7 +233,6 @@ func TestStream_ProjectsScopeCarriesTheSidebar(t *testing.T) {
 		"a home chat is listed under its project and no repo")
 }
 
-// A live change reaches the holder as the entity the snapshot would carry.
 func TestStream_ProjectsScopeFollowsALiveFolder(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
@@ -258,7 +248,6 @@ func TestStream_ProjectsScopeFollowsALiveFolder(t *testing.T) {
 		entityIn(t, got))
 }
 
-// Index R16: an operation's succeeded frame comes after every entity its work wrote.
 func TestStream_OperationSucceededFollowsItsEntities(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -320,9 +309,6 @@ func TestStream_ADeletedChatIsGoneOnTheProjectsScope(t *testing.T) {
 	assert.NotContains(t, sidebarSnapshot(t, dialStream(t, h)), "chat/"+chatID)
 }
 
-// A live chat is filed under the scope its workspace answers: a repo chat in
-// any of its repo's workspaces under that repo, a home chat under its project
-// and no repo, whichever project or repo wrote last.
 func TestStream_ALiveChatIsFiledUnderItsOwnScope(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -348,9 +334,6 @@ func TestStream_ALiveChatIsFiledUnderItsOwnScope(t *testing.T) {
 
 func scopeOf(chat map[string]any) []any { return []any{chat["projectId"], chat["repoId"]} }
 
-// A tab open while a repo imports, branch chats fork under a chat, one moves
-// into a folder and an owning chat is deleted ends holding each workspace's
-// owner and place as a fresh tab reads them.
 func TestStream_AnOpenTabHoldsEachWorkspacesOwner(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -395,7 +378,6 @@ func TestStream_AnOpenTabHoldsEachWorkspacesOwner(t *testing.T) {
 	require.Positive(t, owned, "the fresh tab holds owned workspaces")
 }
 
-// lastRowOf is the index of the newest row f recorded for kind/id.
 func lastRowOf(f *sidebarFeed, kind, id string) int {
 	last := -1
 	for i, r := range f.rows() {
@@ -406,8 +388,6 @@ func lastRowOf(f *sidebarFeed, kind, id string) int {
 	return last
 }
 
-// Holding a chat's scope is viewing it: the projects scope counts each
-// connection that holds it, and says gone once none does.
 func TestStream_HoldingAChatIsViewingIt(t *testing.T) {
 	h := newHarness(t)
 	_, chatID, _ := newFeedChat(t, h, "streamstub", streamStubProviderDescriptorYAML)

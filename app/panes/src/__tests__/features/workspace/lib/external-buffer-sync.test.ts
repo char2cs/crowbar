@@ -43,13 +43,11 @@ const NOTES = { authority: 'host', path: '/tmp/s5/notes.md' } as const
 const NOTES_WATCH = `doc:${NOTES.path}`
 const change = (type: string) => ({ type, authority: 'host', path: NOTES.path, wsId: '' })
 
-/** The daemon as one host document meets it: its file, its watch scope, and the calls in order. */
 function hostDaemon(disk = 'v1') {
   const d = { disk, calls: [] as string[], reads: [] as Promise<string>[] }
   const daemon = Object.assign(d, {
     frame: (data: unknown) =>
       streamDaemon.deliver({ t: 'signal', scope: NOTES_WATCH, kind: 'file_change', data }),
-    /** How a sub is answered: resolving arms the watch, rejecting with a problem refuses it. */
     opened: (): Promise<void> => Promise.resolve(),
   })
   streamDaemon.answer = ({ op, scope }) => {
@@ -72,18 +70,15 @@ function hostDaemon(disk = 'v1') {
   return daemon
 }
 
-/** Every read the daemon was sent has landed. */
 const landed = (d: ReturnType<typeof hostDaemon>) => Promise.all(d.reads)
 
 let bufferId = ''
 
-/** README.md open in a tab: `text` in the editor, `saved` on disk at the last load. */
 async function seed(text = 'old content', saved = text, doc: DocumentRef = README) {
   resetWindowPaneStoreForTests()
   bufferId = await openTestDocument(doc, text, { saved })
 }
 
-/** A restored tab whose document has not opened: no text anywhere yet. */
 function seedTab(doc: DocumentRef, flags: Partial<EditorContent> = {}) {
   resetWindowPaneStoreForTests()
   const { bufferActions } = windowPaneStore.getState()
@@ -117,7 +112,6 @@ describe('syncBufferWithDisk', () => {
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
     const buf = getBuffer()
-    // The buffer's own workspace, never the active one: a sibling worktree can hold the same path.
     expect(readDiskMock).toHaveBeenCalledWith('ws-1', 'README.md')
     expect(documentText(README)).toBe('restored content')
     expect(savedDocumentText(README)).toBe('restored content')
@@ -128,7 +122,6 @@ describe('syncBufferWithDisk', () => {
 
   it('keeps a dirty buffer intact, flags the conflict and toasts once', async () => {
     await seed('user edits', 'old content')
-    // A genuine external edit: disk diverges from the baseline we last wrote.
     readDiskMock.mockResolvedValue('someone else wrote this')
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
@@ -141,7 +134,6 @@ describe('syncBufferWithDisk', () => {
     expect(toastWarning).toHaveBeenCalledTimes(1)
     expect(toastWarning.mock.calls[0][0]).toContain('README.md')
 
-    // Already flagged: neither a second toast nor a read.
     readDiskMock.mockClear()
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
     expect(toastWarning).toHaveBeenCalledTimes(1)
@@ -149,9 +141,8 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('does not toast when a dirty buffer matches disk (own-write echo)', async () => {
-    // A save can surface as several events; the single-shot marker cancels only the first.
     await seed('newer unsaved keystrokes', 'autosaved value')
-    readDiskMock.mockResolvedValue('autosaved value') // disk === saved text
+    readDiskMock.mockResolvedValue('autosaved value')
 
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
 
@@ -173,7 +164,6 @@ describe('syncBufferWithDisk', () => {
     expect(documentText(README)).toBe('old content')
     expect(useFileWatcherStore.getState().pendingSaves.has('README.md')).toBe(false)
 
-    // The next external event for the same path is no longer suppressed.
     readDiskMock.mockResolvedValue('external write')
     await syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
     expect(documentText(README)).toBe('external write')
@@ -198,7 +188,6 @@ describe('syncBufferWithDisk', () => {
     )
 
     const sync = syncBufferWithDisk(workspaceRef('ws-1', 'README.md'))
-    // User types while the read is pending.
     replaceDocumentText(README, 'typed meanwhile')
     resolveRead('disk content')
     await sync
@@ -223,7 +212,6 @@ describe('syncBufferWithDisk', () => {
   })
 
   it('does not flag a dirty buffer whose own text is what disk now holds', async () => {
-    // A save still in flight: its write reached disk before its answer reached the buffer.
     await seed('mine', 'old')
     readDiskMock.mockResolvedValue('mine')
 

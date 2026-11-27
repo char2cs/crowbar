@@ -1,5 +1,3 @@
-//! The terminal emulator: an alacritty grid fed by daemon frames and read as render snapshots.
-
 mod config;
 mod event;
 mod event_sink;
@@ -30,8 +28,6 @@ use crate::find::SearchState;
 use crate::snapshot::Snapshot;
 use crate::terminal::snapshot_builder::build_snapshot;
 
-/// A terminal emulator. It never answers the program itself: the daemon's PTY already does, so queries
-/// the emulator would reply to are dropped.
 pub struct Terminal {
     pub(crate) term: Term<EventSink>,
     pub(crate) feed: Feed,
@@ -53,7 +49,6 @@ impl std::fmt::Debug for Terminal {
 }
 
 impl Terminal {
-    /// An empty terminal of the configured size.
     pub fn new(config: Config) -> Self {
         let events = EventQueue::default();
         let size = GridSize {
@@ -74,7 +69,6 @@ impl Terminal {
         }
     }
 
-    /// Applies a daemon frame and returns what the program asked of the shell.
     pub fn apply(
         &mut self,
         frame: &DaemonFrame,
@@ -82,8 +76,6 @@ impl Terminal {
         self.apply_batch(std::slice::from_ref(frame))
     }
 
-    /// Applies `frames` in order and rescans an active search once for the whole batch, so fast
-    /// output does not rescan the scrollback per frame.
     pub fn apply_batch(
         &mut self,
         frames: &[DaemonFrame],
@@ -108,12 +100,10 @@ impl Terminal {
         queued.into_iter().filter_map(terminal_event).collect()
     }
 
-    /// The grid size in columns and lines.
     pub fn size(&self) -> (usize, usize) {
         (self.term.columns(), self.term.screen_lines())
     }
 
-    /// Resizes the grid; the emulator reflows its lines.
     pub fn resize(
         &mut self,
         columns: usize,
@@ -124,7 +114,6 @@ impl Terminal {
         self.term.resize(GridSize { columns, lines });
     }
 
-    /// Applies new settings (colours, scrollback, cursor); the grid size is kept.
     pub fn reconfigure(
         &mut self,
         config: Config,
@@ -138,7 +127,6 @@ impl Terminal {
         };
     }
 
-    /// The frame to draw.
     pub fn snapshot(&self) -> Snapshot {
         build_snapshot(&self.term, &self.config.palette, self.search.as_ref())
     }

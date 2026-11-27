@@ -8,7 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// GetModelManifestFetchEnabled handles GET /v0/settings/chat/model-manifest-fetch.
 func (h *Handlers) GetModelManifestFetchEnabled(
 	ctx *gin.Context,
 ) {
@@ -20,7 +19,6 @@ func (h *Handlers) GetModelManifestFetchEnabled(
 	libs.WriteQueryOK(ctx, gin.H{"enabled": enabled})
 }
 
-// PutModelManifestFetchEnabled handles PUT /v0/settings/chat/model-manifest-fetch.
 func (h *Handlers) PutModelManifestFetchEnabled(
 	ctx *gin.Context,
 ) {

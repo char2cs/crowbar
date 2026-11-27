@@ -12,27 +12,20 @@ import { DockStack } from '@/features/agent/chat/dock-stack'
 interface ChatDockProps {
   wsId: string
   chatId: string
-  /** Nothing said yet: the composer is the empty document and the footer is its own. */
   blank: boolean
   dockRef: Ref<HTMLDivElement>
   plan: PlanItem[] | undefined
   providers: AgentProvider[]
-  /** What the notice for a stopped turn can do. */
   failureActions: FailureActions
-  /** Asks the agent to end a shell; absent where the provider cannot be asked. */
   onStopShell?: (shellId: string) => void
-  /** Puts an unsent message's text back in the composer. */
   onEditPrompt: (text: string) => void
   pickers: ReactNode
-  /** Why the chat cannot take a prompt yet. */
   note?: string
-  /** A send-time error. */
   error: string
   composer: Omit<ComponentProps<typeof AgentComposer>, 'wsId' | 'chatId' | 'placement'>
   footer: ComponentProps<typeof ProviderBar>
 }
 
-/** What stands around the composer in a live chat, wired into the dock's slots. */
 export function ChatDock({
   wsId,
   chatId,

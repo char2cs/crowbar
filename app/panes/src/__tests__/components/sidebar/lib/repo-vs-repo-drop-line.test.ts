@@ -4,9 +4,6 @@ import { NO_MODES, REORDER_MODES } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 
-// A live drag's target is rebuilt from the DOM attributes SIDEBAR_DRAG_ROW_SPEC declares, which
-// never include `repoIcon` — so this builds targets that way, unlike the hand-built rows in
-// sidebar-drop-policy.test.ts.
 function liveDomTarget(id: string, parentId = ''): SidebarRow {
   return {
     kind: 'branch',

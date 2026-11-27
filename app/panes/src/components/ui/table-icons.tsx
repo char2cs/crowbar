@@ -6,7 +6,6 @@ type TableIconProps = SVGProps<SVGSVGElement>
 type Edge = 'top' | 'right' | 'bottom' | 'left'
 
 const GRID = [1, 3, 5, 7, 9, 11, 13]
-// A 2×2 table's outline and centre cross, dotted; a solid edge replaces its dots.
 const FRAME = new Set([1, 7, 13])
 const ON_EDGE: Record<Edge, (x: number, y: number) => boolean> = {
   top: (_x, y) => y === 1,

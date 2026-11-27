@@ -1,5 +1,3 @@
-//! The request pump and what the shell does with each event.
-
 pub(crate) mod backend;
 mod child_events;
 mod data_events;

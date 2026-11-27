@@ -3,7 +3,6 @@ import { render, type RenderOptions } from '@testing-library/react'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
 import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
-/** Renders chat-1's transcript, live and idle unless `overrides` say otherwise. */
 export function drawTranscript(
   overrides: Partial<ComponentProps<typeof AgentTranscript>> = {},
   options?: RenderOptions,

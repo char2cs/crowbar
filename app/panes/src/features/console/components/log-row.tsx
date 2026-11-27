@@ -15,7 +15,6 @@ const LEVEL_CLASS: Record<LogLevel, string> = {
   error: 'text-destructive',
 }
 
-// Only warnings and errors colour their message: a problem is the one line that is not plain.
 const MESSAGE_CLASS: Record<LogLevel, string> = {
   debug: '',
   info: '',
@@ -39,8 +38,6 @@ interface LogRowProps {
   onToggle: (id: number) => void
 }
 
-/** One daemon log line: time, level, message, then every other key as `key=value`. The
- *  component gets no column (most lines have none); it is in the record JSON, one click away. */
 export const LogRow = memo(function LogRow({ id, record, expanded, onToggle }: LogRowProps) {
   return (
     <div data-slot="log-row" data-level={record.level}>

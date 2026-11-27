@@ -15,21 +15,13 @@ const GAP: f32 = 6.0;
 const LABEL_SIZE: f32 = 13.0;
 const TITLE_MAX: f32 = 160.0;
 
-/// The chat's entry leading the tab bar when the group shows one view at a time. It never closes
-/// and never moves, so it sits before the editor tabs.
 #[derive(IntoElement)]
 pub struct ChatTab {
-    /// The chat pane.
     pub pane: PaneId,
-    /// The chat's title.
     pub label: SharedString,
-    /// The chat's glyph.
     pub icon: IconName,
-    /// The chat provider's SVG artwork, drawn in place of `icon` once it is known.
     pub artwork: Option<SharedString>,
-    /// Whether the chat is the view shown.
     pub state: TabState,
-    /// What a press does: show the chat.
     pub select: TabAction,
 }
 

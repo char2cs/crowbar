@@ -1,5 +1,3 @@
-//! The large mark at the top of an icon popover.
-
 use std::path::PathBuf;
 
 use gpui::StyledImage as _;

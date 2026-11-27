@@ -1,5 +1,3 @@
-//! Receives the emulator's events and keeps the ones the shell acts on.
-
 use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event, EventListener};

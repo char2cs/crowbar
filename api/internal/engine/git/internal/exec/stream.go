@@ -14,13 +14,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/perf"
 )
 
-// stderrCaptureLimit bounds retained stderr: git on a corrupt repo emits megabytes, and a failure
-// path proportional to output undoes what streaming bought. Far above any real diagnostic.
 const stderrCaptureLimit = 64 << 10
 
-// GitStream runs git in dir and streams stdout instead of buffering tens of megabytes. Close (required)
-// ends the subprocess early and reaps it; wait reports a non-zero exit as *GitError, idempotently.
-// No lock retry: a re-run would duplicate bytes already consumed, and streamed commands are read-only.
 func GitStream(
 	ctx context.Context,
 	dir string,
@@ -36,8 +31,6 @@ func GitStream(
 	return s, s.wait, nil
 }
 
-// startStream is safe to retry whole when the resolver recovers a vanished binary: only StdoutPipe
-// and Start can fail and both are pre-exec, so an error means no process ran and nothing was read.
 func startStream(
 	ctx context.Context,
 	bin string,
@@ -88,8 +81,6 @@ func (s *gitStream) Read(
 	return n, err
 }
 
-// Close kills the subprocess unless EOF was reached, closes the read end so git cannot wedge on a
-// full pipe, and reaps. The EOF check stops a fully-read stream reporting the cancellation as an error.
 func (s *gitStream) Close() error {
 	if !s.drained.Load() {
 		s.cancel()
@@ -107,8 +98,6 @@ func (s *gitStream) wait() error {
 	return s.exitError()
 }
 
-// finish reaps once and records the perf sample here, so it covers the whole time the consumer
-// spent reading, not just the fork.
 func (s *gitStream) finish() {
 	s.once.Do(func() {
 		s.waitErr = s.cmd.Wait()
@@ -121,9 +110,6 @@ func (s *gitStream) exitError() error {
 		return nil
 	}
 	r := Result{Stderr: s.stderr.String(), ExitCode: exitCode(s.cmd, s.waitErr)}
-	// A signal leaves no git-produced stderr, and a watchdog failure can even
-	// leave a zero exit status on a command that never ran to completion.
-	// Neither may be reported as success.
 	if r.ExitCode == 0 {
 		r.ExitCode = 1
 	}

@@ -1,21 +1,7 @@
-/**
- * The switch behind the chat's Split surface: a DIAGNOSTIC, which is the whole
- * reason it lives in Developer and starts off.
- *
- * Two gates, and both have to be asserted separately because either one alone
- * would be a hole. The BUILD gate is the Developer tab itself, which
- * settings-tab-items only appends under `import.meta.env.DEV`. The PREFERENCE
- * gate is this switch, and its default is the thing a regression would quietly
- * flip — two live surfaces cost real work, and nobody should pay for that
- * without having asked.
- */
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-// jsdom has no PointerEvent constructor; base-ui's Switch toggles by dispatching
-// a PointerEvent('click') on its hidden checkbox. A MouseEvent-backed shim is
-// enough — the checkbox's click activation still toggles and fires change.
 if (typeof window.PointerEvent !== 'function') {
   class PointerEventShim extends MouseEvent {}
   // @ts-expect-error install the shim onto the jsdom window
@@ -38,7 +24,6 @@ import { useSettingsStore } from '@/features/settings/store'
 
 const toggle = () => screen.getByTestId('chat-split-view-toggle')
 
-/** Read the hook the pane's switcher is gated on, without standing up a pane. */
 function SplitGate() {
   return <span data-testid="gate">{String(useSplitPresentationEnabled())}</span>
 }
@@ -62,17 +47,12 @@ describe('the split-view switch', () => {
     expect(toggle()).toHaveAttribute('aria-checked', 'false')
   })
 
-  // The build gate. The row is rendered by DeveloperSettings, and the Developer
-  // tab only exists in a development build — so in production there is no
-  // control at all, which is the point.
   it('rides on the Developer tab, which only a development build has', () => {
     expect(SETTINGS_TAB_ITEMS.some((tab) => tab.id === 'developer')).toBe(
       import.meta.env.DEV === true,
     )
   })
 
-  // Both gates, together. Off, the surface is not on offer no matter what build
-  // this is; on, it is on offer exactly when the build allows it.
   it('opens the surface only once the switch and the build agree', async () => {
     const user = userEvent.setup()
     render(
@@ -110,8 +90,6 @@ describe('the split-view switch', () => {
     expect(useSettingsStore.getState().settings.chatSplitPresentationEnabled).toBe(false)
   })
 
-  // An older profile, or a hand-edited export, carries no choice here — which is
-  // not the same as choosing to turn a diagnostic on.
   it.each([undefined, null, 'true', 1])(
     'treats a stored %p as no choice and stays off',
     (stored) => {

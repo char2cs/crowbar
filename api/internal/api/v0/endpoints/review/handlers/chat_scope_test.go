@@ -17,19 +17,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// This file pins the handler half of review's move onto /v0/chats/:chatId
-// (spec §4.2's shared bucket, §8 step 4c): WHICH worktree a handler acts on.
-//
-// review has no WorkspaceReader seam (unlike search/identity): every method
-// hands workspaceID's answer straight to the usecase. A handler that read
-// ctx.Param("wsId") on this chat-scoped route would find that param absent,
-// so it would call the usecase with the EMPTY string — not a 404, not a
-// panic, just every review read aimed at nothing. Asserting a status code
-// would not have caught it; only asserting the id the usecase was actually
-// handed does.
-
-// recordingUsecase is a ReviewUsecase that records which workspace id each
-// call was made with.
 type recordingUsecase struct {
 	seen []string
 }
@@ -103,17 +90,10 @@ func (r *recordingUsecase) SearchDiff(
 	return nil, false, nil
 }
 
-// resolvedWorkspace is the workspace the chat group's resolveChatWorktree
-// middleware stashes for chat "chat-1". Its id deliberately differs from every
-// chat id used below: a handler that reached for the chat id instead of
-// resolving it would pass this test's siblings by luck otherwise.
 func resolvedWorkspace() domain.Workspace {
 	return domain.Workspace{ID: "ws-resolved", ProjectID: "p1", RepoID: "r1"}
 }
 
-// reviewRouterForScopes wires review's one live mount the way router.go
-// does, including the chat group's middleware — the piece that makes a
-// chat-scoped request resolvable at all.
 func reviewRouterForScopes(
 	t *testing.T,
 	uc handlers.ReviewUsecase,
@@ -145,10 +125,6 @@ func doReviewRequest(
 	return rec
 }
 
-// TestChatScoped_ActsOnTheResolvedWorktreeNotTheChat is the core assertion: a
-// read reached through a chat operates on the WORKSPACE that chat resolves
-// to. Neither the chat id nor the empty string is an acceptable answer, and
-// both are what the obvious wrong implementations produce.
 func TestChatScoped_ActsOnTheResolvedWorktreeNotTheChat(t *testing.T) {
 	uc := &recordingUsecase{}
 	r := reviewRouterForScopes(t, uc)
@@ -163,9 +139,6 @@ func TestChatScoped_ActsOnTheResolvedWorktreeNotTheChat(t *testing.T) {
 	assert.NotEmpty(t, got, "an unresolved :wsId would silently aim review at nothing")
 }
 
-// TestWorkspaceScopedRouteIsGone proves spec §8 step 6's deletion is real:
-// the old /v0/workspaces/:wsId/review/... mount this handler set used to also
-// serve answers nothing on this router any more.
 func TestWorkspaceScopedRouteIsGone(t *testing.T) {
 	uc := &recordingUsecase{}
 	r := reviewRouterForScopes(t, uc)

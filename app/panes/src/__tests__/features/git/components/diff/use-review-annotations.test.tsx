@@ -17,17 +17,6 @@ import { warmDiffHighlighter } from '@/__tests__/__fixtures__/diff-highlighter'
 
 await warmDiffHighlighter()
 
-/**
- * Two things this file exists to pin down:
- *
- *  - the `old`/`new` ↔ `deletions`/`additions` side map, asserted LITERALLY and
- *    not merely as a round trip. A symmetric inversion round-trips perfectly and
- *    still puts every comment on the wrong half of the diff.
- *  - a thread whose file is not materialised has no line to attach to. The file
- *    header must still advertise it, and reaching it must materialise the file
- *    BEFORE scrolling — a scroll into a placeholder resolves no line at all.
- */
-
 const mocks = vi.hoisted(() => ({
   openThread: vi.fn(),
   replyToThread: vi.fn(),
@@ -62,21 +51,12 @@ vi.mock('@/features/git/api/review-window-api', async (importOriginal) => {
   return { ...actual, getReviewPatch: mocks.getReviewPatch }
 })
 
-// ── jsdom geometry ──────────────────────────────────────────────────
-//
-// jsdom has no layout, so a virtualised surface measures 0×0 and renders
-// nothing. Same stub as review-code-view.test.tsx / changed-files-tree.scale.
-
 const VIEWPORT_WIDTH = 900
 const VIEWPORT_HEIGHT = 800
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 const originalScrollTo = Element.prototype.scrollTo
 
 beforeEach(() => {
-  // jsdom implements neither layout nor `Element.prototype.scrollTo`, and the
-  // renderer calls the latter to commit a programmatic scroll — without this it
-  // throws mid-render rather than scrolling. Writing scrollTop is the whole of
-  // what a real one would do here, since jsdom stores it verbatim.
   Element.prototype.scrollTo = function scrollTo(
     this: Element,
     optionsOrX?: ScrollToOptions | number,
@@ -119,8 +99,6 @@ afterEach(() => {
   Element.prototype.scrollTo = originalScrollTo
 })
 
-// ── Fixtures ────────────────────────────────────────────────────────
-
 function makeThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
   return {
     id: 'thread-1',
@@ -144,7 +122,6 @@ function makeThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
 }
 
 const pathOf = (i: number) => `src/pkg/file${i}.ts`
-/** A marker that exists ONLY inside a patch body, never in a file header. */
 const markerOf = (i: number) => `crowbarMarker${i}`
 
 function patchFor(path: string): string {
@@ -183,8 +160,6 @@ function textOutline(i: number): FileOutline {
   }
 }
 
-// A file long enough that its 1,500th line is thousands of pixels below the
-// fold — the only way to prove a scroll actually happened.
 const DEEP_FILE = 'src/pkg/deep.ts'
 const DEEP_TAIL_LINES = 500
 const DEEP_THREAD_LINE = 1_500
@@ -234,8 +209,6 @@ function deepOutline(): FileOutline {
   }
 }
 
-// ── Harnesses ───────────────────────────────────────────────────────
-
 function seedStore(threads: readonly ReviewThread[]): WorkspaceStore {
   clearReviewThreads()
   for (const thread of threads) putReviewThread('ws-1', thread)
@@ -267,17 +240,14 @@ function renderSurface(
   return { store, ...view }
 }
 
-/** Text of every rendered diff's shadow root, joined. */
 function shadowText(container: HTMLElement): string {
   return [...container.querySelectorAll('diffs-container')]
     .map((host) => (host as HTMLElement).shadowRoot?.textContent ?? '')
     .join('\n')
 }
 
-// jsdom has no Worker, so the deep file's ~1.5s of tokenising is main-thread CPU.
 const DEEP_RENDER = { timeout: 20_000 }
 
-/** Block until a CODE marker reaches the DOM — never merely until text exists. */
 async function waitForCode(container: HTMLElement, marker: string, timeout = 5_000): Promise<void> {
   await waitFor(
     () => {
@@ -287,9 +257,6 @@ async function waitForCode(container: HTMLElement, marker: string, timeout = 5_0
   )
 }
 
-/** The annotation slots the renderer opened, read from the shadow root: it emits a
- *  `<slot name="annotation-…">` only beside a line it drew, while the light-DOM
- *  slotted div is portalled for every annotation whether or not its line exists. */
 function projectedAnnotationSlots(container: HTMLElement): string[] {
   return [...container.querySelectorAll('diffs-container')].flatMap((host) =>
     [
@@ -302,12 +269,7 @@ function fetchesOf(path: string): number {
   return mocks.getReviewPatch.mock.calls.filter((call) => call[1] === path).length
 }
 
-// ── The side map ────────────────────────────────────────────────────
-
 describe('review thread ↔ annotation side map', () => {
-  // Asserted literally. A symmetric inversion round-trips perfectly and still
-  // renders every comment against the wrong half of the diff, which reads as
-  // plausible right up until someone compares it with the source.
   it("maps a thread's old side to deletions and its new side to additions", () => {
     expect(toAnnotationSide('old')).toBe('deletions')
     expect(toAnnotationSide('new')).toBe('additions')
@@ -374,8 +336,6 @@ describe('grouping threads by file', () => {
   })
 })
 
-// ── The hook ────────────────────────────────────────────────────────
-
 describe('useReviewAnnotations', () => {
   it('exposes stored threads as per-file annotations', () => {
     const { result } = renderLayer([makeThread({ filePath: 'src/a.ts', lineNumber: 5 })])
@@ -396,7 +356,6 @@ describe('useReviewAnnotations', () => {
       })
     })
 
-    // The draft is an annotation of its own, anchored at the last selected line.
     const draft = result.current.annotationsByPath.get('src/a.ts')?.[0]
     expect(draft).toMatchObject({ side: 'additions', lineNumber: 7 })
     expect(result.current.draft).not.toBeNull()
@@ -539,12 +498,9 @@ describe('useReviewAnnotations', () => {
     })
 
     expect(result.current.error?.msg).toMatch(/failed/i)
-    // The draft survives, so the user's text is not thrown away.
     expect(result.current.draft).not.toBeNull()
   })
 })
-
-// ── On the review surface ───────────────────────────────────────────
 
 describe('ReviewCodeView thread annotations', () => {
   it('anchors a new-side thread to the additions half of its file', async () => {
@@ -557,8 +513,6 @@ describe('ReviewCodeView thread annotations', () => {
     await waitForCode(container, markerOf(0))
 
     expect(screen.getByText('crowbarThreadBody')).toBeInTheDocument()
-    // The slot name encodes the half AND the line, so this is what an inverted
-    // side map or a dropped line number actually breaks.
     expect(projectedAnnotationSlots(container)).toContain('annotation-additions-2')
   })
 
@@ -591,9 +545,6 @@ describe('ReviewCodeView thread annotations', () => {
   })
 
   it('advertises a thread count on the header of a file whose patch never loaded', async () => {
-    // The threads store is always loaded; the diff is not. A thread on a file
-    // still showing a placeholder has no line to attach to, so the header is
-    // the only place it can announce itself.
     mocks.getReviewPatch.mockImplementation(async (_wsId: string, path: string) => {
       if (path === pathOf(1)) throw new Error('boom')
       return { patch: patchFor(path), truncated: false }
@@ -611,14 +562,10 @@ describe('ReviewCodeView thread annotations', () => {
     await waitForCode(container, markerOf(0))
 
     expect(await screen.findByRole('button', { name: '2 comments' })).toBeInTheDocument()
-    // Nothing anchors either thread: the file holds no lines to anchor them to.
     expect(projectedAnnotationSlots(container)).toHaveLength(0)
   })
 
   it("materialises a thread's file BEFORE scrolling to its line", DEEP_RENDER, async () => {
-    // The whole point: `scrollTo({type:"line"})` against a placeholder resolves
-    // no line at all and quietly does nothing. Reaching the 1,500th line of a
-    // file whose patch had failed proves both halves happened, in order.
     mocks.getReviewPatch.mockImplementation(async (_wsId: string, path: string) => {
       if (path === DEEP_FILE && fetchesOf(DEEP_FILE) === 1) throw new Error('boom')
       return { patch: patchFor(path), truncated: false }

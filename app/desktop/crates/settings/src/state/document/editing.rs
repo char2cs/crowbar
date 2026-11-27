@@ -1,5 +1,3 @@
-//! Changing a setting: toggles, choices, typed text, steppers and reset.
-
 use crate::schema::Control;
 use crate::schema::Nudge;
 use crate::schema::Row;
@@ -9,7 +7,6 @@ use crate::values::Key;
 use crate::values::Value;
 
 impl State {
-    /// Flips the switch of `row`.
     pub fn toggle(
         &mut self,
         row: &Row,
@@ -21,7 +18,6 @@ impl State {
         Some(self.write(&row.key, Value::Bool(!stored)))
     }
 
-    /// Stores the option at `index` of the select `row`.
     pub fn choose(
         &mut self,
         row: &Row,
@@ -31,7 +27,6 @@ impl State {
         Some(self.write(&row.key, Value::Text(choice.value)))
     }
 
-    /// Records typing in the field of `row` without storing it.
     pub fn edit(
         &mut self,
         row: &Row,
@@ -42,7 +37,6 @@ impl State {
         }
     }
 
-    /// Stores what is typed in `row` (Enter, or the field losing focus); text that does not parse is dropped; text the validator refuses is stored and flagged.
     pub fn commit(
         &mut self,
         row: &Row,
@@ -60,7 +54,6 @@ impl State {
         Some(self.write(&row.key, value))
     }
 
-    /// Drops what is typed in `row` and shows the stored value again.
     pub fn revert(
         &mut self,
         row: &Row,
@@ -68,7 +61,6 @@ impl State {
         self.document.revert(&row.key);
     }
 
-    /// Moves the number of `row` one step.
     pub fn nudge(
         &mut self,
         row: &Row,
@@ -83,7 +75,6 @@ impl State {
         Some(self.write(&row.key, Value::Number(next)))
     }
 
-    /// Restores the default of `row`.
     pub fn reset(
         &mut self,
         row: &Row,

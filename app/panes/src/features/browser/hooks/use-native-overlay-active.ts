@@ -1,14 +1,11 @@
 import { useSyncExternalStore } from 'react'
 
-// The webview paints above all DOM, so a body-level popup must hide it. Default
-// is blocking; only wrappers made solely of tooltip/toast slots are exempt.
 const NON_BLOCKING = '[data-slot="tooltip-content"], [data-slot*="toast"]'
 const IGNORED_TAGS = new Set(['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT', 'INPUT', 'TEXTAREA', 'SELECT'])
 const INSET_CLIPS_ALL = /^inset\(100%|^inset\((?:100|[5-9]\d(?:\.\d+)?)%\)/
 const RECT =
   /^rect\(\s*(-?[\d.]+)(?:px)?,?\s+(-?[\d.]+)(?:px)?,?\s+(-?[\d.]+)(?:px)?,?\s+(-?[\d.]+)(?:px)?\s*\)/
 
-// A clip rect with no area (top >= bottom or left >= right) paints nothing.
 function clipsEverything(clip: string): boolean {
   const m = RECT.exec(clip)
   if (!m) return false
@@ -16,8 +13,6 @@ function clipsEverything(clip: string): boolean {
   return top >= bottom || left >= right
 }
 
-// Persistent helpers libraries park in the body (Slate's shadow input, dnd-kit's
-// live regions) are made unpaintable on purpose; that, not their tag, exempts them.
 function cannotPaint(el: Element): boolean {
   if (IGNORED_TAGS.has(el.tagName) || el.hasAttribute('hidden')) return true
   const style = getComputedStyle(el)
@@ -47,7 +42,6 @@ let observer: MutationObserver | null = null
 
 function subscribe(notify: () => void): () => void {
   listeners.add(notify)
-  // Observes direct children only; every callback re-reads the live DOM.
   if (!observer) {
     observer = new MutationObserver(() => listeners.forEach((l) => l()))
     observer.observe(document.body, { childList: true })
@@ -60,7 +54,6 @@ function subscribe(notify: () => void): () => void {
   }
 }
 
-/** True while a popup, dialog or drag preview sits in the body above the app. */
 export function useNativeOverlayActive(): boolean {
   return useSyncExternalStore(subscribe, snapshot)
 }

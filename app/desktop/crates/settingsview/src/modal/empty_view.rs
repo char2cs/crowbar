@@ -1,5 +1,3 @@
-//! The text shown when a search matches nothing.
-
 use gpui::{App, IntoElement, ParentElement, Styled, div};
 use ui::{ScaledText, Surface, Theme};
 

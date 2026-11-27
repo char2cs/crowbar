@@ -1,5 +1,3 @@
-//! One visible row of the tree.
-
 use store::BrowseEntry;
 use ui::Pose;
 

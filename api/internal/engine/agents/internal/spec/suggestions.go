@@ -2,11 +2,6 @@ package spec
 
 import "github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
 
-// EventSuggestions is what an ask offers beyond allow and deny: the payload's own
-// suggestions, or, when it lists none, those declared for the tool asking. The
-// options shown and the answer rendered both read it, so an index names one grant.
-// An answer is rendered knowing no channel, so each declared map is tried: only the
-// one of the payload's own shape resolves in it.
 func (d *Descriptor) EventSuggestions(canonical string, decoded map[string]any) []any {
 	e, ok := d.Events[canonical]
 	if !ok {
@@ -31,8 +26,6 @@ func (d *Descriptor) EventSuggestions(canonical string, decoded map[string]any) 
 	return out
 }
 
-// OfferName is what an offer is called when its event declares no suggestion_type:
-// a bare word is itself, an object of one key that key, anything else nothing.
 func OfferName(offer any) string {
 	switch o := offer.(type) {
 	case string:

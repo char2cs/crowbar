@@ -1,5 +1,3 @@
-//! How a control's value maps to the text in its field and back.
-
 use crate::schema::control::Control;
 use crate::schema::control::issue::Issue;
 use crate::values::Value;

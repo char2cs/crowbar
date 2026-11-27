@@ -1,5 +1,3 @@
-//! Equal-width tab list with a sliding selection pill.
-
 mod cell;
 mod indicator;
 mod slide_state;
@@ -29,7 +27,6 @@ use crate::foundation::opaque_debug;
 use crate::foundation::tokens::radius;
 use crate::foundation::tokens::timing;
 
-/// A list of equal-width tabs; the owner keeps the selected index.
 #[derive(IntoElement)]
 pub struct Tabs {
     id: ElementId,
@@ -41,7 +38,6 @@ pub struct Tabs {
 }
 
 impl Tabs {
-    /// A pill-style list showing `items` with `selected` active.
     pub fn new(
         id: impl Into<ElementId>,
         items: Vec<TabItem>,
@@ -57,7 +53,6 @@ impl Tabs {
         }
     }
 
-    /// Chooses the visual recipe.
     #[must_use]
     pub fn style(
         mut self,
@@ -67,7 +62,6 @@ impl Tabs {
         self
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,
@@ -77,7 +71,6 @@ impl Tabs {
         self
     }
 
-    /// Registers the handler receiving the index of the clicked tab.
     #[must_use]
     pub fn on_select(
         mut self,

@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// plainText concatenates each cell's content into a single string, mirroring
-// cellContent's blank-cell handling in vt_serializer_test.go.
 func plainText(cells []uv.Cell) string {
 	var b strings.Builder
 	for i := range cells {
@@ -24,7 +22,6 @@ func plainText(cells []uv.Cell) string {
 	return b.String()
 }
 
-// scrollbackStrings renders a model's scrollback lines as trimmed plain text.
 func scrollbackStrings(m TerminalModel) []string {
 	vm := m.(*vtModel)
 	n := vm.emu.ScrollbackLen()
@@ -38,7 +35,6 @@ func scrollbackStrings(m TerminalModel) []string {
 	return out
 }
 
-// newTestModel mirrors vt_model_test.go's construction.
 func newTestModel(t *testing.T, cols, rows int) (TerminalModel, Serializer) {
 	t.Helper()
 	m, s := New(cols, rows, 200)
@@ -70,14 +66,12 @@ func TestDiffEmitter_DirtyLineRewritten(t *testing.T) {
 	e := NewDiffEmitter()
 	e.Prime(m)
 
-	m.Write([]byte("X")) // row 0 changes
+	m.Write([]byte("X"))
 	data, needKeyframe := e.Emit(m)
 	require.False(t, needKeyframe)
 	s := string(data)
-	// Row 0 rewritten in place: absolute cursor position to row 1 col 1 + content.
 	assert.Contains(t, s, "\x1b[1;1H", "dirty row must be addressed absolutely")
 	assert.Contains(t, s, "helloX")
-	// Rows 1-4 untouched: no addressing of row 2..5.
 	assert.NotContains(t, s, "\x1b[2;1H")
 }
 
@@ -103,7 +97,7 @@ func TestDiffEmitter_AltScreenFlipNeedsKeyframe(t *testing.T) {
 	m, _ := newTestModel(t, 20, 5)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	m.Write([]byte("\x1b[?1049h")) // enter alt screen
+	m.Write([]byte("\x1b[?1049h"))
 	_, needKeyframe := e.Emit(m)
 	assert.True(t, needKeyframe, "alt-screen flip must invalidate the diff base")
 }
@@ -115,7 +109,7 @@ func TestDiffEmitter_PrimeAfterKeyframeResumesDiffing(t *testing.T) {
 	m.Resize(30, 5)
 	_, need := e.Emit(m)
 	require.True(t, need)
-	e.Prime(m) // caller emitted the keyframe; emitter re-bases
+	e.Prime(m)
 	data, need := e.Emit(m)
 	assert.False(t, need)
 	assert.Empty(t, data)
@@ -126,22 +120,13 @@ func TestDiffEmitter_ScrollbackDeltaEmittedBeforeScreenDiff(t *testing.T) {
 	e := NewDiffEmitter()
 	e.Prime(m)
 
-	// Write 5 numbered lines into a 3-row screen: 2+ lines commit to scrollback.
 	m.Write([]byte("one\r\ntwo\r\nthree\r\nfour\r\nfive"))
 	data, need := e.Emit(m)
 	require.False(t, need)
 	s := string(data)
 
-	// Committed scrollback lines are painted onto the top rows and then
-	// scrolled out (write-then-scroll) so the CLIENT gains them in its own
-	// history.
 	assert.Contains(t, s, "one")
 	assert.Contains(t, s, "two")
-	// The scrollback flow (which also uses "\x1b[1;1H" to paint its own top
-	// row) must precede the final screen-diff repaint. Since both phases can
-	// address row 1, detect the screen-diff repaint's CUP as the LAST
-	// occurrence of "\x1b[1;1H" and confirm the scrollback content ("one")
-	// appears before it.
 	sbIdx := strings.Index(s, "one")
 	screenIdx := strings.LastIndex(s, "\x1b[1;1H")
 	require.GreaterOrEqual(t, screenIdx, 0)
@@ -156,13 +141,12 @@ func TestDiffEmitter_NoScrollbackDeltaWhenNoneCommitted(t *testing.T) {
 	m.Write([]byte("!"))
 	data, need := e.Emit(m)
 	require.False(t, need)
-	// Exactly one dirty row, no scroll flow (no bare "\n" scroll writes).
 	assert.Equal(t, 1, strings.Count(string(data), "\x1b[1;1H"))
 }
 
 func TestDiffEmitter_ClientScrollbackReceivesCommittedContent(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
-	sim, _ := newTestModel(t, 10, 3) // client simulator
+	sim, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
 	e.Prime(m)
 
@@ -186,9 +170,9 @@ func TestDiffEmitter_ClientScrollbackReceivesCommittedContent(t *testing.T) {
 func TestDiffEmitter_AltScreenSkipsScrollback(t *testing.T) {
 	m, _ := newTestModel(t, 10, 3)
 	e := NewDiffEmitter()
-	m.Write([]byte("\x1b[?1049h")) // alt screen
+	m.Write([]byte("\x1b[?1049h"))
 	_, need := e.Emit(m)
-	require.True(t, need) // flip → keyframe
+	require.True(t, need)
 	e.Prime(m)
 	m.Write([]byte("APP"))
 	data, need := e.Emit(m)
@@ -196,29 +180,20 @@ func TestDiffEmitter_AltScreenSkipsScrollback(t *testing.T) {
 	assert.Contains(t, string(data), "APP")
 }
 
-// TestDiffEmitter_RotationAnchorLostForcesKeyframe pins M5(b): once the scrollback
-// ring is SATURATED, scrollbackNewStart anchors on the previously-emitted tail's
-// hash and scans back only rotationScanLimit lines. If a single emit gap commits
-// MORE than that many distinct lines, the anchor is evicted past the scan window,
-// scrollbackNewStart returns ok=false, and Emit must demand a keyframe rather than
-// silently misplacing the new-line boundary.
 func TestDiffEmitter_RotationAnchorLostForcesKeyframe(t *testing.T) {
 	const capLines = 300
 	m, _ := New(20, 5, capLines)
 	t.Cleanup(func() { m.Close() })
 	e := NewDiffEmitter()
 
-	// Saturate the ring with distinct lines so ScrollbackLen plateaus at the cap.
 	var fill []byte
 	for i := 0; i < capLines+50; i++ {
 		fill = append(fill, fmt.Sprintf("pre-%04d\r\n", i)...)
 	}
 	m.Write(fill)
 	require.Equal(t, capLines, m.(*vtModel).emu.ScrollbackLen(), "test setup: ring must be saturated")
-	e.Prime(m) // anchors on the current (pre-fill) tail
+	e.Prime(m)
 
-	// One gap commits > rotationScanLimit distinct lines, evicting the primed
-	// anchor beyond the backward scan window.
 	var gap []byte
 	for i := 0; i < rotationScanLimit+50; i++ {
 		gap = append(gap, fmt.Sprintf("post-%04d\r\n", i)...)
@@ -234,7 +209,7 @@ func TestDiffEmitter_ScrollRegionChangeNeedsKeyframe(t *testing.T) {
 	m, _ := newTestModel(t, 10, 5)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	m.Write([]byte("\x1b[2;5r")) // DECSTBM
+	m.Write([]byte("\x1b[2;5r"))
 	_, need := e.Emit(m)
 	assert.True(t, need, "a new scroll region invalidates the absolute-CUP diff base")
 }
@@ -243,12 +218,11 @@ func TestDiffEmitter_OriginModeChangeNeedsKeyframe(t *testing.T) {
 	m, _ := newTestModel(t, 10, 5)
 	e := NewDiffEmitter()
 	e.Prime(m)
-	m.Write([]byte("\x1b[?6h")) // DECOM origin mode
+	m.Write([]byte("\x1b[?6h"))
 	_, need := e.Emit(m)
 	assert.True(t, need, "origin mode invalidates the absolute-CUP diff base")
 }
 
-// A URL that filled a row and autowrapped must be written to the client as one flow.
 func TestDiffEmitter_SoftWrappedURLWrittenUnbroken(t *testing.T) {
 	m, _ := New(40, 6, 100)
 	t.Cleanup(m.Close)
@@ -261,7 +235,6 @@ func TestDiffEmitter_SoftWrappedURLWrittenUnbroken(t *testing.T) {
 	assert.Contains(t, string(data), wrapTestURL)
 }
 
-// A program that filled a row exactly and then broke the line must not be joined.
 func TestDiffEmitter_ProgramHardBreakNotJoined(t *testing.T) {
 	m, _ := New(40, 6, 100)
 	t.Cleanup(m.Close)
@@ -277,9 +250,6 @@ func TestDiffEmitter_ProgramHardBreakNotJoined(t *testing.T) {
 	assert.NotContains(t, frame, wrapTestURL)
 }
 
-// A dirty chain goes out as one flow: CUP, EL 0 on a head (clearing its wrap bit), each head padded
-// to the last column, the tail trimmed then EL 0. A continuation the client holds starts the flow
-// with no EL; a lone row keeps the plain form.
 func TestDiffEmitter_ChainWrittenAsOneFlow(t *testing.T) {
 	m, _ := newTestModel(t, 20, 6)
 	m.Write([]byte(strings.Repeat("x", 25)))
@@ -309,7 +279,6 @@ func TestDiffEmitter_ChainWrittenAsOneFlow(t *testing.T) {
 	}
 }
 
-// A wrap bit that changes under unchanged cells is written once; the client then holds it.
 func TestDiffEmitter_WrapFlagFlipEmitsOnce(t *testing.T) {
 	m, _ := newTestModel(t, 20, 6)
 	m.Write([]byte(strings.Repeat("x", 20) + "\r\nyyy"))
@@ -323,8 +292,6 @@ func TestDiffEmitter_WrapFlagFlipEmitsOnce(t *testing.T) {
 	require.Empty(t, data, "the client already holds the flag")
 }
 
-// A chain whose flow crosses the bottom of a primed scroll region lifts the region for the flow and
-// restores it, so the client's autowrap moves down a row instead of scrolling the region.
 func TestDiffEmitter_ChainLiftsTheScrollRegionItCrosses(t *testing.T) {
 	m, _ := newTestModel(t, 20, 6)
 	m.Write([]byte("\r\n\r\n\r\n" + strings.Repeat("x", 25) + "\x1b[1;4r"))
@@ -354,11 +321,9 @@ func TestDiffEmitter_ChainLiftsTheScrollRegionItCrosses(t *testing.T) {
 	}
 }
 
-// A chain is rewritten from its first changed row when the client already holds that row's wrap
-// bit: the unchanged rows above it cost no bytes, so a keystroke in a long line stays one row.
 func TestDiffEmitter_ChainRewrittenFromItsFirstChangedRow(t *testing.T) {
 	m, _ := newTestModel(t, 20, 6)
-	m.Write([]byte(strings.Repeat("x", 110))) // one chain over all six rows, ten cells on the last
+	m.Write([]byte(strings.Repeat("x", 110)))
 	e := NewDiffEmitter()
 	e.Prime(m)
 	x20 := strings.Repeat("x", 20)

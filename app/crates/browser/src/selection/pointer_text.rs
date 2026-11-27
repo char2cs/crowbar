@@ -6,8 +6,6 @@ const QUOTE_LABEL_CHARS: usize = 40;
 const ELEMENT: &str = "element";
 const DATA_VERSION: u8 = 1;
 
-/// The text a pick leaves on the clipboard: readable lines, then one `⌖data` JSON line an agent
-/// can parse. `tab` names the browser pane the pick came from.
 #[must_use]
 pub fn pointer_text(
     report: &PickReport,
@@ -27,7 +25,6 @@ pub fn pointer_text(
     lines.join("\n")
 }
 
-/// How many things a pick found, the shown ones plus the rest.
 #[must_use]
 pub fn pick_count(report: &PickReport) -> usize {
     report.items.len() + report.more

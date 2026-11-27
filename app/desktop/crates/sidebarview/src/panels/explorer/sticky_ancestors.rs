@@ -1,6 +1,3 @@
-//! The folders pinned above the Files rows while the tree scrolls inside them.
-
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/file-explorer/file-explorer/lib/visible-file-tree-rows.ts
 pub(crate) fn top_row(
     scrolled: f32,
     (row_height, count): (f32, usize),

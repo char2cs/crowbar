@@ -1,4 +1,3 @@
-/// The migration step the daemon reports: its name and where it sits in the plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationStep {
     name: String,
@@ -7,7 +6,6 @@ pub struct MigrationStep {
 }
 
 impl MigrationStep {
-    /// Step `index` of `total` (both from 1) called `name`.
     pub fn new(
         name: impl Into<String>,
         index: u32,
@@ -20,7 +18,6 @@ impl MigrationStep {
         }
     }
 
-    /// `Step 2 of 5: name`, the line under develop's upgrade toast.
     pub fn label(&self) -> String {
         format!("Step {} of {}: {}", self.index, self.total, self.name)
     }

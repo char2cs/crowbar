@@ -33,9 +33,6 @@ type getReviewScopeArgs struct {
 	Limit  int `json:"limit"`
 }
 
-// getReviewScope reports the base ref, one page of changed files and their changed ranges, so a model
-// has valid anchors before posting. The list is paginated, not just capped: a missing file reads as "not
-// in this branch". Only rendering is bounded; GetScope still resolves the whole diff.
 func getReviewScope(
 	ctx context.Context,
 	deps Deps,
@@ -46,7 +43,6 @@ func getReviewScope(
 	if err := decode(args, &in); err != nil {
 		return "", err
 	}
-	// One resolution of the whole branch yields ref, files and geometry, so the ranges match the base.
 	scope, err := deps.Review.GetScope(ctx, c.Workspace)
 	if err != nil {
 		return "", fmt.Errorf("agenttools: get_review_scope: %w", err)

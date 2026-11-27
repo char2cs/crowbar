@@ -15,18 +15,12 @@ export interface ReviewThreadError {
   msg: string
 }
 
-/** Where a new thread hangs; the author and the human flag are stamped here. */
 export type NewThreadInput = Omit<OpenThreadInput, 'author' | 'isAgent'>
 
-/** Every review-thread write, for the diff annotations and Conversation view. No optimistic
- *  state: the WS stream updates the threads store, so a failure only records `error`. */
 export function useReviewThreadActions(wsId: string) {
   const identity = useCurrentIdentity(wsId)
   const [error, setError] = useState<ReviewThreadError | null>(null)
 
-  // Always stamp the real provider login. The identity hook returns null until
-  // its fetch resolves, so eagerly await it here — posting before it loaded used
-  // to store an empty author (the "U / You" bug).
   const resolveAuthor = useCallback(async () => {
     const id = identity ?? (await resolveIdentity(wsId))
     return id?.login || id?.displayName || undefined
@@ -83,7 +77,6 @@ export function useReviewThreadActions(wsId: string) {
         await editMessage(wsId, threadId, messageId, body)
       } catch (err) {
         setError({ threadId, msg: 'Failed to edit comment' })
-        // Re-throw so the inline editor stays open and the user keeps their text.
         throw err
       }
     },

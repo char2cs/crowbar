@@ -274,7 +274,6 @@ mod tests {
 
     type Spoil = fn(&mut Dial<'_>);
 
-    /// Each way a dial can be wrong, the single field it breaks, and the status it earns.
     const CASES: [(&str, Spoil, StatusCode); 8] = [
         (
             "wrong host",

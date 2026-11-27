@@ -5,11 +5,7 @@ import { dropdownTriggerClassName } from '@/components/ui/dropdown-styles'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-providers-api'
 
-// The terminal strip's trigger and menu share this width; a pane header uses a compact
-// trigger. The menu takes it as an inline style because Dropdown's applyLockedWidth
-// overwrites a class-set width but leaves style alone.
 const SWITCHER_WIDTH_PX = 180
-// Must equal SWITCHER_WIDTH_PX; Tailwind only generates literal class names.
 const SWITCHER_WIDTH_CLASS = 'w-[180px]'
 
 export interface ProviderSwitchDropdownProps {
@@ -17,7 +13,6 @@ export interface ProviderSwitchDropdownProps {
   currentProviderId: string
   onSwitch: (providerId: string) => void
   disabled?: boolean
-  /** Use a content-sized trigger when the control sits in a pane header. */
   compact?: boolean
 }
 
@@ -31,15 +26,11 @@ export function ProviderSwitchDropdown({
   const [isOpen, setIsOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
 
-  // `current` includes disabled providers (disabling never touches running chats);
-  // targets exclude them, or switching would spawn the CLI the user turned off.
   const current = providers.find((p) => p.id === currentProviderId)
   const others = providers.filter((p) => p.id !== currentProviderId && p.enabled)
 
-  // Derived so the menu closes the same render the trigger goes disabled.
   const open = isOpen && !disabled
 
-  // A spread because Dropdown's `items` and `children` are mutually exclusive.
   const menuProps = {
     isOpen: open,
     onClose: () => setIsOpen(false),
@@ -52,9 +43,6 @@ export function ProviderSwitchDropdown({
 
   return (
     <>
-      {/* -mr-[9px] (8px padding + 1px border) puts the ghost trigger's caret on the
-          terminal's last column; justify-between because buttonVariants centres. A
-          pane header's compact trigger is content-sized instead. */}
       <button
         ref={anchorRef}
         type="button"
@@ -86,7 +74,6 @@ export function ProviderSwitchDropdown({
         />
       ) : !disabled ? (
         <Dropdown {...menuProps}>
-          {/* Not a menuitem: there is nothing here to select. */}
           <p className="ui-font ui-text-xs px-2 py-1.5 text-muted-foreground">
             No other provider is enabled. Turn one on in Settings to switch mid-chat — this
             conversation&apos;s context comes with you.

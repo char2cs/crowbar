@@ -1,7 +1,3 @@
-//! A workspace placement's answer, written into the rows the stream owns.
-//!
-//! Spec: develop `web/src/lib/store/applied-placement.ts` (`applyWorkspacePlacement`).
-
 mod placed_row;
 
 use serde::Deserialize;

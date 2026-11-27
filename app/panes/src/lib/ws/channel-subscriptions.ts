@@ -32,7 +32,6 @@ function unsubscribe(ctx: ChannelContext, ch: Channel, cb: StreamCallback): void
   if (replaced && ch.socket) closeSocketQuietly(ch.socket)
 }
 
-/** Joins `endpoint`'s channel, opening it for the first subscriber; the last to leave closes it. */
 export function subscribeTo(
   ctx: ChannelContext,
   endpoint: string,

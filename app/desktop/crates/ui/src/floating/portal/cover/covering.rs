@@ -1,7 +1,3 @@
-//! Wraps an overlay's content so the cards it paints reach the overlay's entry in its cover,
-//! even from deferred content: a card learns its overlay while it is laid out, which content
-//! built at prepaint does then.
-
 use gpui::{
     AnyElement, App, Bounds, Element, ElementId, Entity, EntityId, GlobalElementId,
     InspectorElementId, IntoElement, LayoutId, Pixels, WeakEntity, Window,

@@ -1,5 +1,3 @@
-//! One review thread of the daemon's list, as far as the sidebar needs it.
-
 use serde::Deserialize;
 
 use crate::live::held::OpenThreads;

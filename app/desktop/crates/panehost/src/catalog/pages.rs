@@ -1,5 +1,3 @@
-//! Where pane pages come from: bundle sources and assets, extension and built-in bundles, MIME types.
-
 mod adapters;
 mod bundle_asset;
 mod bundle_source;

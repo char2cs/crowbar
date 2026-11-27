@@ -14,13 +14,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
-// WorktreeResolver resolves a chat to the workspace behind its worktree.
 type WorktreeResolver interface {
 	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
 }
 
-// worktreeResolver adapts the worktree package's functions over the
-// container's own chat, workspace, folder and node reads (law 4).
 type worktreeResolver struct {
 	chats      worktree.ChatAncestryReader
 	chatRows   worktree.ChatLister
@@ -29,7 +26,6 @@ type worktreeResolver struct {
 	nodes      worktree.Nodes
 }
 
-// Resolve implements WorktreeResolver.
 func (r worktreeResolver) Resolve(
 	ctx context.Context,
 	chatID string,
@@ -37,7 +33,6 @@ func (r worktreeResolver) Resolve(
 	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
 }
 
-// ChatsForWorkspace answers the chat tree's delete census (WorkspaceHolders).
 func (r worktreeResolver) ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -45,8 +40,6 @@ func (r worktreeResolver) ChatsForWorkspace(
 	return worktree.ChatsForWorkspace(ctx, workspaceID, r.chatRows, r.folders, r.nodes)
 }
 
-// agentWiring is the agentic surface as one value: the chat and tree usecases, plus the
-// workspace reader the delete cascade reuses and the tool metrics nothing else can reach.
 type agentWiring struct {
 	chat     *agentusecase.Usecase
 	chatTree agentusecase.TreeUsecase
@@ -55,8 +48,6 @@ type agentWiring struct {
 	metrics  *agentusecase.ToolMetrics
 }
 
-// newAgentWiring assembles the agentic usecases in dependency order: the tree usecase
-// holds the chat usecase, which tears chats down; the tree only decides which go.
 func newAgentWiring(
 	repos *repositories.Container,
 	gormStores GORMStores,
@@ -77,9 +68,6 @@ func newAgentWiring(
 	if err != nil {
 		return agentWiring{}, fmt.Errorf("usecases: new container: %w", err)
 	}
-	// The Chats-panel lineage read, built first from the chat repository: taking it off
-	// the tree usecase would close a construction cycle. Wrapped, since a chat's ParentID
-	// is frozen at creation and this read decides what a spawned CLI is told to read.
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
 		repos.AgentChat, repos.Placement, repos.Placement,
 	))
@@ -104,21 +92,15 @@ func newAgentWiring(
 		DaemonAddress:           engines.DaemonAddress,
 		CrowbarBin:              engines.CrowbarBin,
 		NoAPITransport:          engines.NoAPITransport,
-		// Installed is left nil: the usecase defaults to Agent.Installed, the real
-		// install probe. Only tests inject a stub to isolate from the host PATH.
-		Minter:    minter,
-		Tools:     toolDeps,
-		Snapshots: chatSnapshots,
-		// Folders/Nodes let the ancestor walks see past a Folder-only ancestor.
-		Folders:      repos.Placement,
-		Nodes:        repos.Placement,
-		RepoRoots:    workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
-		AgentWorking: repos.SetAgentWorking,
-		AnswerClock:  time.After,
+		Minter:                  minter,
+		Tools:                   toolDeps,
+		Snapshots:               chatSnapshots,
+		Folders:                 repos.Placement,
+		Nodes:                   repos.Placement,
+		RepoRoots:               workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
+		AgentWorking:            repos.SetAgentWorking,
+		AnswerClock:             time.After,
 	})
-	// The chat→worktree resolver, built here because it reads the chat forest
-	// off the usecase above and because the tree below needs its inverse; the
-	// chat-scoped routes resolve through this same value.
 	worktreeUsecase := worktreeResolver{
 		chats:      worktree.NewChatTreeAncestryReader(chat, repos.Placement, repos.Placement),
 		chatRows:   chat,
@@ -131,18 +113,11 @@ func newAgentWiring(
 		chat,
 		chat,
 		workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
-		// The same adapter as the chat usecase's WorktreeCreator, so a cascading delete
-		// and a failed branch-out's cleanup tear a workspace down through one call.
 		worktreeChildCreator{worktree: workspaceUsecase},
-		// And the census that gates it: Chat.WorkspaceID names the worktree a
-		// chat is anchored to, never that it is anchored there alone, so the
-		// delete asks who else is currently resolving to it before cascading.
 		worktreeUsecase,
-		// Home-scoped folders and chat placement go through Folder/Node.
 		repos.Placement,
 		repos.Placement,
 	)
-	// Runs under the chat's ledger writer, so it only starts the move's own pass.
 	repos.ChatLedger.Subscribe(func(chatID string, _ []ledger.Row, st ledger.State) {
 		if _, ready := st.MoveReady(); ready {
 			chatTree.MoveWhenReady(context.Background(), chatID)
@@ -157,9 +132,6 @@ func newAgentWiring(
 	}, nil
 }
 
-// newAgentToolDeps refuses to return a partial tool surface: agenttools silently drops a
-// tool whose port is nil, so a missing port must fail startup instead. Idempotency is
-// built once to outlive per-request ToolSets; ChatLogs is bound later by agentusecase.New.
 func newAgentToolDeps(
 	minter *agentusecase.TokenMinter,
 	repos *repositories.Container,

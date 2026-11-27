@@ -23,7 +23,6 @@ import { ATTACHMENT_BOX_CLASS } from './attachment-box'
 
 const UNITS = ['KB', 'MB', 'GB', 'TB']
 
-/** Same units as the file explorer's Properties dialog, whose helper isn't exported. */
 export function formatAttachmentSize(bytes: number | null): string | null {
   if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null
   if (bytes < 1024) return `${bytes} bytes`
@@ -41,8 +40,6 @@ function useChatAttachmentCardMeta(
   attachmentRef: string,
 ): { href: string | null; sizeLabel: string | null } {
   const [size, setSize] = useState<number | null>(null)
-  // The URL names the workspace's host, unknown until its project row loads: no
-  // link and no request before then, and the hook re-renders the card when it is.
   const hostResolved = useHostResolved({ wsId })
 
   useEffect(() => {
@@ -68,7 +65,6 @@ type FileCardProps = PlateElementProps<TLinkElement> & {
   filename: string
 }
 
-/** The anchor a card draws; `editable` keeps the caret out of the filename. */
 function FileCardAnchor({
   wsId,
   attachmentRef,
@@ -102,8 +98,6 @@ function FileCardAnchor({
   )
 }
 
-/** The controls are siblings of the `<a>`, not children: a `<button>` inside an
- *  anchor is invalid HTML. `nodeRef` and Slate's ref still sit on the anchor itself. */
 function ChatAttachmentFileCard(props: FileCardProps) {
   const { isDragging, nodeRef, handleProps, dropLine, remove } = useAttachmentDraggable(
     props.element,
@@ -122,8 +116,6 @@ function ChatAttachmentFileCard(props: FileCardProps) {
   )
 }
 
-/** The card a link draws when its url is an attachment and a `MarkdownAssetContext`
- *  names the workspace; null falls through to `LinkElement`. */
 function useCardTarget(element: TLinkElement) {
   const asset = useMarkdownAsset()
   const parsed = parseChatAttachmentRef(element.url)
@@ -137,7 +129,6 @@ export function ChatLinkElement(props: PlateElementProps<TLinkElement>) {
   return <ChatAttachmentFileCard {...props} {...card} />
 }
 
-/** Never touches `useAttachmentDraggable`, so a settled message needs no `DndScope`. */
 export function ChatLinkElementStatic(props: PlateElementProps<TLinkElement>) {
   const card = useCardTarget(props.element)
   if (!card) return <LinkElement {...props} />

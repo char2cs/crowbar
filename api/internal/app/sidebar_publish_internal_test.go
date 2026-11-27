@@ -33,7 +33,6 @@ func (f fakeWalk) CwdWorkspaceID(_ context.Context, chatID string) (string, bool
 	return id, ok, nil
 }
 
-// holdProjects is a client holding the projects scope, past its snapshot.
 func holdProjects(t *testing.T) (*lateStream, chan domainstream.Frame) {
 	t.Helper()
 	encode := func(_ domainstream.EntityKind, v any) (json.RawMessage, error) { return json.Marshal(v) }
@@ -58,9 +57,6 @@ func chatFrame(id, workspaceID string, version int64) agentusecase.ChatSnapshotF
 	return f
 }
 
-// A chat reaches the sidebar filed under its workspace's project and repo, or
-// a bubble's under the workspace its cwd walk lands on; a snapshot older than
-// one already sent is dropped.
 func TestChatPublisher_FilesAChatUnderTheScopeItsRepoListReadsItFrom(t *testing.T) {
 	late, out := holdProjects(t)
 	workspaces := fakeWorkspaces{
@@ -100,8 +96,6 @@ func TestChatPublisher_FilesAChatUnderTheScopeItsRepoListReadsItFrom(t *testing.
 	assert.Equal(t, scoped{"p1", "r1"}, row, "the stale snapshot never reached the client")
 }
 
-// What no sidebar draws any more leaves it as gone: a deleted chat, a
-// tombstoned workspace, a deleted repo.
 func TestSidebarPublish_ADeletedRowIsGone(t *testing.T) {
 	late, out := holdProjects(t)
 	deleted := chatFrame("c1", "w1", 9)
@@ -123,8 +117,6 @@ func TestSidebarPublish_ADeletedRowIsGone(t *testing.T) {
 	}
 }
 
-// A workspace row read before one already sent is dropped, and no row read
-// before its tombstone brings it back.
 func TestSidebarPublish_AStaleWorkspaceRowNeverOverwrites(t *testing.T) {
 	late, out := holdProjects(t)
 

@@ -26,7 +26,7 @@ function check_tag(text, line,   tag, body, first, path, anchor, k) {
     anchor = ""
     if (index(first, "#")) { anchor = substr(first, index(first, "#") + 1); first = substr(first, 1, index(first, "#") - 1) }
     path = repo "/" first
-    if (first !~ /\// || !tag_file_exists(path)) { report(line, "spec-ref", "SPEC: must start with an existing repo path (docs/...#anchor) or a URL"); return }
+    if (first !~ /\// || !tag_file_exists(path)) { report(line, "spec-ref", "SPEC: must start with an existing repo path (path#anchor) or a URL"); return }
     if (anchor != "" && !tag_anchor_exists(path, anchor)) report(line, "spec-ref", "SPEC: anchor #" anchor " not found in " first)
     return
   }

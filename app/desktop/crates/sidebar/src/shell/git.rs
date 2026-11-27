@@ -1,5 +1,3 @@
-//! The Changes panel and the merge box: changed files, merge strategies, work and facts.
-
 mod after_merge;
 mod changed_file;
 mod changed_row;

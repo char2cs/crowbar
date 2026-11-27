@@ -1,5 +1,3 @@
-//! The Platform trait a backend implements, its capabilities and the host configuration it reads.
-
 mod desktop;
 mod host_config;
 #[cfg(feature = "mock")]

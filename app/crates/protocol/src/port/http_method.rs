@@ -5,11 +5,7 @@ fn validate(value: &str) -> Result<()> {
     check_text("http method", value, |c| c.is_ascii_uppercase())
 }
 
-string_id!(
-    /// An HTTP method in upper case letters, for example `GET`, at most 128 bytes.
-    HttpMethod,
-    validate
-);
+string_id!(HttpMethod, validate);
 
 #[cfg(test)]
 mod tests {

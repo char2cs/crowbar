@@ -12,11 +12,6 @@ import {
 import type { ThreadDTO } from '@/lib/types'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// §3: workspace-scoped URLs are hierarchical; register scopes for the test
-// wsIds. Review is addressed through the chat owning the worktree now
-// (reviewBaseForWorkspace), so each scope also carries an owningChatId — the
-// /threads routes exercised below stay workspace-scoped and don't need one,
-// but recording it unconditionally keeps every wsId usable by both.
 beforeEach(() => {
   for (const wsId of ['ws-1', 'ws-2', 'ws-3', 'ws-4', 'ws-5', 'ws-6']) {
     setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: `chat-of-${wsId}` })
@@ -37,7 +32,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-// Build a minimal real ThreadDTO (matches the live /threads backend shape).
 function wireThreadDTO(overrides: Partial<ThreadDTO> = {}): ThreadDTO {
   return {
     id: 't1',
@@ -142,11 +136,6 @@ describe('mapThread', () => {
     expect(mapThread(wireThreadDTO({ side: 'new' })).side).toBe('new')
   })
 
-  // ── Agent attribution ───────────────────────────────────────────────
-  // The ROOT's attribution rides on the thread itself (the root is flattened onto
-  // ThreadDTO, not carried in replies[]), so reading it only off replies would
-  // leave every agent-opened thread attributed on its replies and anonymous on
-  // the finding.
   it('carries providerId + chatId on the root and on each reply', () => {
     const result = mapThread(
       wireThreadDTO({
@@ -172,9 +161,6 @@ describe('mapThread', () => {
     expect(result.messages[1]).toMatchObject({ providerId: 'zeta-cli', chatId: 'chat-2' })
   })
 
-  // Absent is the NORMAL case: every human message, and every agent message
-  // written before attribution existed. `undefined`, never '' — an empty string
-  // would look like a real id to every lookup downstream.
   it('leaves attribution undefined when the wire omits it or sends it empty', () => {
     const omitted = mapThread(wireThreadDTO())
     expect(omitted.messages[0].providerId).toBeUndefined()
@@ -192,7 +178,6 @@ describe('review-api request shapes', () => {
       description: 'desc',
       mergeStrategy: 'squash',
       diff: { files: [] },
-      // threads arrive on the ws: scope; the composite's copy is ignored
       threads: [{ id: 't-old', lineNumber: 1, status: 'open', messages: [] }],
       conversations: null,
     })
@@ -230,7 +215,6 @@ describe('review-api request shapes', () => {
     })
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    // Must NOT have /review prefix — first-class endpoint
     expect(url).not.toContain('/review/threads')
     expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-3/threads')
     expect(init.method).toBe('POST')
@@ -256,7 +240,6 @@ describe('review-api request shapes', () => {
     await replyToThread('ws-4', 't 9', { author: 'me', isAgent: false, body: 'reply body' })
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    // Must use /replies (plural), not /reply
     expect(url).not.toContain('/reply')
     expect(url).toContain('/v0/projects/p1/repos/r1/workspaces/ws-4/threads/t%209/replies')
     expect(init.method).toBe('POST')

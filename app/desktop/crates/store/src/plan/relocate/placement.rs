@@ -1,7 +1,3 @@
-//! Where a dragged row lands: a container row and an insert index among its other children.
-//!
-//! Spec: develop `web/src/components/sidebar/lib/drop-plan.ts`.
-
 use sidebar::{DropMode, Row, RowTree};
 
 use crate::plan::relocate::slot::Slot;

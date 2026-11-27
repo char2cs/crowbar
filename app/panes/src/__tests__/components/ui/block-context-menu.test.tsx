@@ -13,9 +13,6 @@ type BlockNode = {
   children?: [{ text?: string }]
 }
 
-// Base UI's hover-opened submenus race their own auto-close under jsdom (0×0 anchor rects), so
-// submenu wiring is checked by capturing the `items` passed to `ContextMenu` and invoking a nested
-// item's `onClick` — still the real `BlockSelectionPlugin` transform.
 const { capturedItems } = vi.hoisted(() => ({
   capturedItems: { current: null as ContextMenuItem[] | null },
 }))
@@ -33,14 +30,6 @@ vi.mock('@/components/ui/context-menu', async (importOriginal) => {
 
 type TouchNavigator = Navigator & { maxTouchPoints: number }
 
-// jsdom defines its own `ontouchstart` handler property on `window`
-// unconditionally — unlike a real non-touch desktop browser, where
-// `'ontouchstart' in window` is false — so `useIsTouchDevice`'s touch check
-// (`'ontouchstart' in window || navigator.maxTouchPoints > 0`) would read
-// true in every test here regardless of `maxTouchPoints`. Deleting it before
-// each test (and restoring the original descriptor after) makes this suite
-// match a real desktop browser's shape, leaving `maxTouchPoints` as the one
-// lever the touch-device test below needs.
 const ontouchstartDescriptor = Object.getOwnPropertyDescriptor(window, 'ontouchstart')
 
 beforeEach(() => {
@@ -54,17 +43,6 @@ afterEach(() => {
   capturedItems.current = null
 })
 
-// `BlockContextMenu` is wired in via `BlockMenuPlugin`'s `render.aboveEditable`
-// (block-menu-kit.tsx), which `<PlateContent>` is what actually invokes
-// (`@platejs/core`'s `PlateContent.tsx` walks `render.aboveEditable` itself —
-// bare `<Plate>` never does). So the harness has to mount `<PlateContent>`,
-// not a stand-in `<div>`, or `BlockContextMenu` never renders at all and every
-// assertion below would pass vacuously.
-//
-// `editorRef` is populated during render (mirroring how `usePlateEditor`
-// returns a stable instance) so the transform tests below can read
-// `editor.children` straight from the document instead of only checking
-// which menu items are visible.
 function Harness({ editorRef }: { editorRef: { current: PlateEditor | null } }) {
   const editor = usePlateEditor({
     plugins: BlockMenuKit,
@@ -81,16 +59,9 @@ function Harness({ editorRef }: { editorRef: { current: PlateEditor | null } }) 
   )
 }
 
-// Right-clicks the DOM node for the first block (its `<p>`, tagged by Slate
-// with `data-slate-node="element"`) — a real block, distinct from the
-// editable root itself (`data-slate-editor="true"`, covered separately below).
 async function selectFirstBlock() {
   const block = screen.getByText('first').closest('[data-slate-node="element"]') as HTMLElement
   fireEvent.contextMenu(block)
-  // `BlockContextMenu` defers `api.blockMenu.show`/`openAt` by a
-  // `setTimeout(0)` (kept from the pre-migration Radix implementation, which
-  // deferred the same way) — flush that one pending macrotask before
-  // asserting on the now-open menu.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
@@ -105,9 +76,6 @@ function renderHarness() {
   return editorRef
 }
 
-// Finds a nested item (e.g. one of "Turn into"'s or "Align"'s `items`) in the
-// captured `items` array and invokes its `onClick` directly — see the
-// `vi.mock` comment above for why this bypasses the rendered submenu's DOM.
 function clickNestedItem(parentId: string, itemId: string) {
   const parent = capturedItems.current!.find((item) => item.id === parentId)!
   const nested = parent.items!.find((item) => item.id === itemId)!
@@ -156,11 +124,6 @@ describe('BlockContextMenu', () => {
   })
 })
 
-// The item-label test above only proves the menu renders the right names —
-// it says nothing about whether each item is wired to the right editor
-// transform. These exercise the real `BlockSelectionPlugin` transforms
-// `block-context-menu.tsx` calls, reading the result straight off
-// `editor.children` rather than off the (now-closed) menu's own DOM.
 describe('BlockContextMenu item transforms', () => {
   it('Delete removes the right-clicked block', async () => {
     const editorRef = renderHarness()

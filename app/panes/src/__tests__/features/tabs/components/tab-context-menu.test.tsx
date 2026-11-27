@@ -14,7 +14,6 @@ const terminal = {
   isPinned: false,
 } as PaneContent
 
-/** tab-bar.tsx's wiring: closing flips `isOpen` and keeps the tab it was opened on. */
 function TabWithMenu() {
   const [menu, setMenu] = useState<{ isOpen: boolean; buffer: PaneContent | null }>({
     isOpen: false,
@@ -79,7 +78,6 @@ describe('TabContextMenu', () => {
   it("Rename on a terminal tab leaves the name prompt's input focused once the menu has closed", async () => {
     render(<TabWithMenu />)
     const tab = screen.getByText('zsh')
-    // The tab holds focus when the menu opens: that is where the menu returns it.
     tab.focus()
     fireEvent.contextMenu(tab)
     fireEvent.click(await screen.findByText('Rename'))
@@ -95,8 +93,6 @@ describe('TabContextMenu', () => {
     expect(screen.getByText('Reveal in Finder')).toBeInTheDocument()
   })
 
-  // No handler means the tab's files are not on this machine: an item that does nothing
-  // would be a row that lies.
   it('omits it, rather than showing a dead row, when there is no way to', () => {
     renderMenu(undefined)
 

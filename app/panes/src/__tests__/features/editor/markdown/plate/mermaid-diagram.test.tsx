@@ -5,17 +5,12 @@ import {
   type MermaidRenderState,
 } from '@/features/editor/markdown/plate/mermaid-diagram'
 
-// Real mermaid on purpose: the leak is mermaid's own error rendering into
-// document.body, which a mock cannot reproduce.
 const INVALID_FLOWCHART = 'graph TD\n  A-->'
 const VALID_FLOWCHART = 'graph TD\n  A-->B'
 const SLOW = { timeout: 20_000 }
 
-// Collection has no test timeout: load mermaid here, so the component's own
-// import resolves from the module cache.
 await import('mermaid')
 
-// jsdom has no SVG layout; mermaid measures text through getBBox.
 function stubGetBBox(impl: () => unknown) {
   Object.defineProperty(SVGElement.prototype, 'getBBox', { value: impl, configurable: true })
 }
@@ -24,8 +19,6 @@ function newBodyChildren(before: Set<Element>) {
   return Array.from(document.body.children).filter((node) => !before.has(node))
 }
 
-// The render finishes on a timer outside React; awaiting its verdict inside act
-// commits the result with it, so no assertion polls for the DOM.
 function renderDiagram(code: string) {
   let settle: (state: MermaidRenderState) => void = () => {}
   const settled = new Promise<MermaidRenderState>((resolve) => (settle = resolve))

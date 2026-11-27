@@ -1,22 +1,14 @@
-//! Who gets the mouse wheel.
-
 use crate::input::modifiers::Modifiers;
 use crate::input::pointer::MouseTracking;
 use crate::input::screen_buffer::ScreenBuffer;
 
-/// Where a wheel turn goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WheelRoute {
-    /// The terminal scrolls its own history.
     Scrollback,
-    /// The program tracks the mouse and gets wheel reports.
     ReportToProgram,
-    /// The alternate screen has no history; the wheel becomes arrow keys.
     ArrowKeys,
 }
 
-/// Routes by what the program declared, not by which buffer it is on: a TUI may track the mouse on the
-/// primary buffer. Shift on the primary buffer takes the wheel back for the scrollback.
 pub fn route_wheel(
     tracking: MouseTracking,
     buffer: ScreenBuffer,

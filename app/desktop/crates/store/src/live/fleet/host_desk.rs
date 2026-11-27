@@ -1,5 +1,3 @@
-//! What the shell holds of its paired hosts besides their streams.
-
 mod book_error;
 mod host_book;
 mod host_notes;
@@ -16,12 +14,9 @@ pub(crate) use roster::Roster;
 
 use std::sync::Arc;
 
-/// The transport's host book and the shell's notes on each host.
 #[derive(Clone)]
 pub struct HostDesk {
-    /// Pairs and forgets hosts.
     pub book: Arc<dyn HostBook>,
-    /// Names, client ids and fingerprints of the paired hosts.
     pub notes: Arc<HostNotes>,
 }
 

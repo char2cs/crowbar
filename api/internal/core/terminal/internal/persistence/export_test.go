@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 )
 
-// ReadBuf returns the contents of <dir>/<sessionID>.buf, or nil when there is
-// none. Production restores scrollback through the session snapshot; only the
-// tests read the raw file back.
 func ReadBuf(dir, sessionID string) ([]byte, error) {
 	data, err := os.ReadFile(filepath.Join(dir, sessionID+".buf"))
 	if os.IsNotExist(err) {

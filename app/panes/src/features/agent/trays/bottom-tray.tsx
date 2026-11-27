@@ -5,8 +5,6 @@ import { TrayRowView } from '@/features/agent/trays/tray-row'
 import { useWorkRows } from '@/features/agent/trays/use-work-rows'
 import { IS_MOBILE } from '@/utils/platform'
 
-/** Subagents (and shells) behind the input box's bottom edge: at most four rows, the rest
- *  gathered into one row that opens. Absent while nothing runs. */
 export function BottomTray({
   chatId,
   onStopShell,
@@ -17,7 +15,6 @@ export function BottomTray({
   const rows = useWorkRows(chatId)
   const [expanded, setExpanded] = useState(false)
   if (rows.length === 0) return null
-  // A phone folds two or more items into one summary row that opens to the rows.
   const grouped = IS_MOBILE && rows.length > 1
   const view = windowRows(rows, expanded || grouped)
   const summary = summarizeRows(rows)

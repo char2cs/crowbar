@@ -1,6 +1,3 @@
-//! A row drag, of chats or of Files rows, ends without a drop when the pointer comes back with no button held (released
-//! outside the window) or the window loses focus, as develop's `use-sidebar-drag.ts` does.
-
 use gpui::{Context, MouseMoveEvent, Window};
 
 use crate::sidebar::Sidebar;
@@ -29,7 +26,6 @@ impl Sidebar {
         }
     }
 
-    /// Ends a row drag without a drop: the window lost focus mid-drag.
     pub fn cancel_drag(
         &mut self,
         window: &mut Window,

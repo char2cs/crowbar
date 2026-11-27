@@ -1,32 +1,20 @@
-//! Messages a terminal view sends to the daemon.
-
 use serde_json::json;
 
-/// One client-to-daemon text message of the PTY websocket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientMessage {
-    /// Keystrokes or pasted text for the program.
     Input(String),
-    /// The grid changed size.
     Resize {
-        /// Columns.
         columns: u16,
-        /// Rows.
         rows: u16,
     },
-    /// The host theme, so the daemon can answer colour queries and DEC 2031 reports.
     Theme {
-        /// Opaque background as `#rrggbb`.
         background: String,
-        /// Foreground as `#rrggbb`.
         foreground: String,
-        /// Whether the theme is dark.
         dark: bool,
     },
 }
 
 impl ClientMessage {
-    /// The JSON text frame for this message.
     pub fn to_json(&self) -> String {
         self.payload().to_string()
     }

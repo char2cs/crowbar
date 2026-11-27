@@ -10,7 +10,6 @@ interface EntryRowProps {
   onToggle: (id: number) => void
 }
 
-/** Any line of the console: a daemon log, text the daemon sent that did not decode, or a note. */
 export function EntryRow({ entry, expanded, onToggle }: EntryRowProps) {
   switch (entry.kind) {
     case 'log':

@@ -2,7 +2,6 @@ use gpui::{Bounds, Modifiers, Pixels, VisualTestContext, point, px};
 
 const STEP: f32 = 12.0;
 
-/// Clicks a grid of points over `area`, so every button inside it is hit at least once.
 pub(crate) fn click_across(
     cx: &mut VisualTestContext,
     area: Bounds<Pixels>,

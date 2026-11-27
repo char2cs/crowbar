@@ -16,9 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// WorktreePath returns the server's own persisted worktree path from the read model rather than
-// re-deriving the slug (worktreepath is unreachable from the kit). projectID/repoID are unused;
-// the path is keyed by wsID.
 func (e *Env) WorktreePath(
 	_ string,
 	_ string,
@@ -31,8 +28,6 @@ func (e *Env) WorktreePath(
 	return ws.WorktreePath
 }
 
-// ProviderState is a scripted provider poll result for PushProviderState, mirroring the
-// aggregate's inputs without depending on the repository's ProviderInput.
 type ProviderState struct {
 	Protected      bool
 	HasPR          bool
@@ -42,8 +37,6 @@ type ProviderState struct {
 	PRTargetBranch string
 }
 
-// WorktreeFrame flattens a REST chat row's `worktree` object, restoring `id`, `chatId` and
-// `repoId` from the row; a row with no worktree is returned unchanged.
 func WorktreeFrame(
 	m map[string]any,
 ) map[string]any {
@@ -67,8 +60,6 @@ func WorktreeFrame(
 	return out
 }
 
-// WaitForWorkspace reads the projects scope until the workspace entity wsID
-// satisfies pred, returning its row.
 func WaitForWorkspace(
 	t *testing.T,
 	w *EntityWatcher,
@@ -82,9 +73,6 @@ func WaitForWorkspace(
 	})
 }
 
-// WaitForWorkspaceState reads the projects scope until workspace wsID reaches
-// status. A blank status matches the omitempty "" state; "deleted" matches the
-// gone frame a tombstoned workspace is sent as.
 func WaitForWorkspaceState(
 	t *testing.T,
 	w *EntityWatcher,
@@ -102,9 +90,6 @@ func WaitForWorkspaceState(
 	})
 }
 
-// CreateWorkspace creates a worktree on a caller-named branch through the USECASE: naming the
-// branch is a fixture need no HTTP route offers. It makes the live import path's CreateChild
-// call, minting and attaching the owning chat itself (see createWorkspace).
 func (e *Env) CreateWorkspace(
 	t *testing.T,
 	projectID string,
@@ -116,8 +101,6 @@ func (e *Env) CreateWorkspace(
 	return wsID
 }
 
-// CreateChildWorkspace creates a child workspace under parentID (a WORKSPACE
-// id) and returns the UUID. See CreateWorkspace for why this is a usecase call.
 func (e *Env) CreateChildWorkspace(
 	t *testing.T,
 	projectID string,
@@ -130,8 +113,6 @@ func (e *Env) CreateChildWorkspace(
 	return wsID
 }
 
-// createWorkspace mints and attaches the owning chat via the import paths' three-verb
-// primitive: nothing would give an orphaned CreateChild call one afterwards.
 func (e *Env) createWorkspace(
 	t *testing.T,
 	projectID string,
@@ -141,15 +122,10 @@ func (e *Env) createWorkspace(
 ) (wsID, chatID string) {
 	t.Helper()
 	wsID, chatID = e.createWorkspaceWrites(t, projectID, repoID, branch, parentID)
-	// The create's own writes are asynx commands; drain them so a caller that
-	// reads the row (or dials its chat) next sees it rather than racing it.
 	e.Quiesce()
 	return wsID, chatID
 }
 
-// createWorkspaceWrites issues a create's commands inside the kit's write
-// window: a Quiesce from a sibling goroutine waits for them instead of making
-// the dispatcher refuse them (see Env.quiesceMu).
 func (e *Env) createWorkspaceWrites(
 	t *testing.T,
 	projectID string,
@@ -164,8 +140,6 @@ func (e *Env) createWorkspaceWrites(
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
 	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
 	require.NotNil(t, repo, "createWorkspace: repo %s must exist", repoID)
-	// ParentBranch must be supplied: resolveInherited only defaults it when neither RepoID nor
-	// RepoPath is named, and a blank one makes `git worktree add` die.
 	parentBranch := repo.DefaultBranch
 	if parentID != "" {
 		parent, perr := e.app.Repositories.Workspace.Get(ctx, parentID)
@@ -176,9 +150,6 @@ func (e *Env) createWorkspaceWrites(
 	mintedChatID, err := e.app.Usecases.AgentChatFolder.MintOwningChat(ctx, "", parentID)
 	require.NoError(t, err, "createWorkspace: mint the owning chat")
 
-	// Forced true for the same reason the live import path forces it: the
-	// taxonomy default is "inherit whether the parent owns a worktree", and a
-	// fixture asking for a branch is asking for a real worktree on it.
 	ownWorktree := true
 	ws, err := e.app.Usecases.Workspace.CreateChild(ctx, wsusecase.CreateChildInput{
 		RepoID:       repoID,
@@ -202,9 +173,6 @@ func (e *Env) createWorkspaceWrites(
 	return ws.ID, mintedChatID
 }
 
-// CreateWorkspaceWithChat is CreateWorkspace plus the id of the chat the new
-// worktree is born under — the pair almost every chat-scoped test needs, in one
-// call instead of a create followed by a resolve.
 func (e *Env) CreateWorkspaceWithChat(
 	t *testing.T,
 	projectID string,
@@ -216,8 +184,6 @@ func (e *Env) CreateWorkspaceWithChat(
 	return e.createWorkspace(t, projectID, repoID, branch, parentID)
 }
 
-// DeleteWorkspaceCascade tombstones a workspace and starts its purge cascade, for a test that
-// needs a tombstone as a PRECONDITION: DELETE .../chats/:id also purges the owning chat.
 func (e *Env) DeleteWorkspaceCascade(
 	t *testing.T,
 	wsID string,
@@ -231,9 +197,6 @@ func (e *Env) DeleteWorkspaceCascade(
 	)
 }
 
-// WorkspaceRow returns a workspace's status in the DURABLE read model and whether its row exists.
-// In-process because no wire read reaches a row whose owning chat was purged; it reads the same
-// store the boot orphan-sweep lists from.
 func (e *Env) WorkspaceRow(
 	t *testing.T,
 	projectID string,
@@ -251,9 +214,6 @@ func (e *Env) WorkspaceRow(
 	return "", false
 }
 
-// PushProviderState injects a scripted provider poll result into the workspace aggregate,
-// bypassing the provider engine; the transition is persisted (SendWait) and broadcast, so tests
-// drive PR-status deterministically.
 func (e *Env) PushProviderState(
 	t *testing.T,
 	wsID string,

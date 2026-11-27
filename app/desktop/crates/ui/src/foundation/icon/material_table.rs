@@ -7,7 +7,6 @@ use crate::foundation::opaque_debug;
 const TABLE: &str = include_str!("../../../assets/file-icons/material-icons.tsv");
 const NO_ICON: MaterialIcon = MaterialIcon { name: "", svg: "" };
 
-/// develop's file-name-to-icon table, parsed from the bundled material-file-icons list.
 pub struct MaterialTable {
     fallback: MaterialIcon,
     entries: Vec<MaterialEntry>,
@@ -27,8 +26,6 @@ impl Default for MaterialTable {
 }
 
 impl MaterialIcon {
-    /// The icon of `file_name`: an exact file-name match first, then the longest matching
-    /// extension, else the generic file.
     #[must_use]
     pub fn of(
         file_name: &str,
@@ -39,7 +36,6 @@ impl MaterialIcon {
 }
 
 impl MaterialTable {
-    /// The icon of `file_name`, as [`MaterialIcon::of`] finds it.
     #[must_use]
     pub fn icon_of(
         &self,

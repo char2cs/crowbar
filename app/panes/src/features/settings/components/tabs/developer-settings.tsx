@@ -28,7 +28,6 @@ function handleExport() {
 
 async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
   const file = event.target.files?.[0]
-  // Allow re-selecting the same file later.
   event.target.value = ''
   if (!file) return
 

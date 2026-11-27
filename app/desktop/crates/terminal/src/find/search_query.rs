@@ -1,16 +1,11 @@
-//! What to search for.
-
 use crate::find::search_options::SearchOptions;
 
 const REGEX_SPECIALS: &str = "\\.+*?()|[]{}^$#&-~";
 const ASCII_WORD_BOUNDARY: &str = "(?-u:\\b)";
 
-/// Search text and switches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchQuery {
-    /// The text, or a regular expression with [`SearchOptions::REGEX`].
     pub text: String,
-    /// How to read it.
     pub options: SearchOptions,
 }
 

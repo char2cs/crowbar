@@ -16,7 +16,6 @@ export interface TabMenuState {
 
 const writeText = (text: string) => navigator.clipboard.writeText(text)
 
-// Read live at call time, so a fast second action sees the latest editorTabIds.
 function paneBuffersInOrder(paneId: string | undefined): PaneContent[] {
   if (!paneId) return []
   const state = windowPaneStore.getState()
@@ -24,8 +23,6 @@ function paneBuffersInOrder(paneId: string | undefined): PaneContent[] {
   return (state.panes[paneId]?.editorTabIds ?? []).flatMap((id) => byId.get(id) ?? [])
 }
 
-/** One tab's menu in `paneId`'s strip. "Close Others/All/to the Right" touch only this pane's
- *  tabs, never a pinned one or the sole tab a pane holds (isUncloseable). */
 export function TabBarContextMenu({
   menu,
   paneId,
@@ -43,7 +40,6 @@ export function TabBarContextMenu({
 }) {
   const { removeEditorTabFromPane } = usePaneActions()
   const { closeBuffer } = useBufferActions()
-  // The file lives in the workspace its tab was opened in, which the pane need not be.
   const menuWorkspaceId = menu.buffer?.workspaceId
   const menuOnLocalHost = useWorkspaceIsLocal(menuWorkspaceId ?? '')
 

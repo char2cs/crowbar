@@ -1,5 +1,3 @@
-//! Wrapped lines of a text area with the geometry the caret, selection and mouse need.
-
 mod paint;
 mod row;
 mod rows;

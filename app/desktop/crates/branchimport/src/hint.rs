@@ -1,5 +1,3 @@
-//! The line under the list that says what the import will do.
-
 use store::ImportPlan;
 
 fn branches(count: usize) -> String {

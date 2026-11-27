@@ -1,8 +1,5 @@
-// Every bindable command with its default chord. `liveEditable` commands resolve their binding
-// from the registry; the rest are still hardcoded in a hook and shown read-only in settings.
 import type { Command, CommandCategory } from './types'
 
-/** Pane commands — these are resolved from the registry by use-pane-keyboard. */
 export const PANE_NAVIGATE_LEFT = 'panes.navigateLeft'
 export const PANE_NAVIGATE_RIGHT = 'panes.navigateRight'
 export const PANE_NAVIGATE_UP = 'panes.navigateUp'
@@ -30,12 +27,9 @@ export const SIDEBAR_TAB_FILES = 'navigation.sidebarFiles'
 export const SIDEBAR_TAB_GIT = 'navigation.sidebarGit'
 export const SIDEBAR_TAB_CHATS = 'navigation.sidebarChats'
 
-// Render order of the Keybindings tab, which shows ONLY these categories. Kept beside COMMANDS
-// so a registry test can assert every category in use is listed (none silently hidden).
 export const CATEGORY_ORDER: CommandCategory[] = ['Navigation', 'Panes', 'Tabs', 'Chats', 'Editor']
 
 export const COMMANDS: Command[] = [
-  // --- Panes (live-editable, resolved from registry) ---
   {
     id: PANE_NAVIGATE_LEFT,
     label: 'Focus pane left',
@@ -64,7 +58,6 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+alt+arrowdown',
     liveEditable: true,
   },
-  // --- Tabs (live-editable, resolved from registry) ---
   {
     id: TAB_NEW,
     label: 'New tab',
@@ -73,7 +66,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Moved off mod+t, which is now New Tab.
     id: TAB_NEW_TERMINAL,
     label: 'New terminal tab',
     category: 'Tabs',
@@ -81,9 +73,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // ⌘N is the chat, not the file: starting a conversation is the thing this
-    // app is opened to do, so it takes the unshifted chord and New File takes
-    // ⌘⇧N. (They were the other way round through the New Tab work.)
     id: AGENT_NEW_CHAT,
     label: 'New chat',
     category: 'Tabs',
@@ -91,8 +80,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Opens one new chat on Terminal without changing the sticky default
-    // (`chatIsDefaultPresentation`, Settings → Chat) for the chats after it.
     id: AGENT_NEW_CHAT_TERMINAL,
     label: 'New chat (Terminal)',
     category: 'Tabs',
@@ -114,9 +101,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Flips the focused chat between Chat and Terminal (agent-chat-pane gates it to chat panes,
-    // so mod+/ never shadows an editor's toggle-comment). Not mod+`: macOS consumes that in
-    // AppKit before WKWebView, so neither this command nor rebind capture would ever see it.
     id: AGENT_TOGGLE_VIEW_MODE,
     label: 'Toggle chat / terminal view',
     category: 'Chats',
@@ -124,8 +108,6 @@ export const COMMANDS: Command[] = [
     liveEditable: true,
   },
   {
-    // Cycles the open chat to the next enabled provider. Wired in agent-chat-pane but ships
-    // unbound: mod+/ belongs to AGENT_TOGGLE_VIEW_MODE.
     id: AGENT_CYCLE_PROVIDER,
     label: 'Cycle chat provider',
     category: 'Chats',
@@ -167,7 +149,6 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+0',
     liveEditable: true,
   },
-  // --- Editor (display-only: still hardcoded in use-save-keyboard.ts) ---
   {
     id: EDITOR_SAVE,
     label: 'Save',
@@ -189,9 +170,6 @@ export const COMMANDS: Command[] = [
     defaultChord: 'mod+shift+e',
     liveEditable: true,
   },
-  // --- Navigation (live-editable) ---
-  // The digit IS the mode's position in the sidebar mode bar (Chats, Files,
-  // Git).
   {
     id: SIDEBAR_TAB_CHATS,
     label: 'Sidebar: Chats',

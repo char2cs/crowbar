@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The legacy history's newest provider for a chat is restated onto the chat's
-// own field; a chat the history agrees with, or does not name, is untouched.
 func TestRestateProvidersFromHistory_TheHistorysNewestProviderWins(t *testing.T) {
 	t.Parallel()
 

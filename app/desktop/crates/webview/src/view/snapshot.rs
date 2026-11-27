@@ -1,18 +1,13 @@
-/// The pixels of a web view at one moment, as premultiplied BGRA rows without padding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
-    /// Width in device pixels.
     pub width: u32,
-    /// Height in device pixels.
     pub height: u32,
-    /// `width * height * 4` bytes, blue first.
     pub bgra: Vec<u8>,
 }
 
 const BYTES_PER_PIXEL: u64 = 4;
 
 impl Snapshot {
-    /// A snapshot of `bgra` rows; `None` when the byte count does not match the size.
     #[must_use]
     pub fn new(
         (width, height): (u32, u32),

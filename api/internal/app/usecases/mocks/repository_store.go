@@ -7,33 +7,19 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// RepositoryStore is a fake store.Store[domain.Repository, string].
 type RepositoryStore struct {
-	Saved   []domain.Repository
-	SaveErr error
-	// FindErr, when set, fails FindAll — the read failure that callers such as
-	// CheckRepoImportable deliberately degrade past rather than block on.
-	FindErr error
-	// FindByKeyErr, when set, fails FindByKey only — separate from FindErr so a
-	// test can fail the single-row lookup without also breaking FindAll/FindWhere.
+	Saved        []domain.Repository
+	SaveErr      error
+	FindErr      error
 	FindByKeyErr error
-	// FindByKeyFn, when set, overrides the lookup so a test can tell repeat FindByKey
-	// calls for the same id apart.
-	FindByKeyFn func(id string) (*domain.Repository, error)
-	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
-	// row importOneRepo mints alongside it in production, so a seeded repo is
-	// never Node-less (all placement lives on the Node model).
-	Nodes *NodePlacements
+	FindByKeyFn  func(id string) (*domain.Repository, error)
+	Nodes        *NodePlacements
 }
 
-// NewRepositoryStore returns an empty RepositoryStore.
 func NewRepositoryStore() *RepositoryStore {
 	return &RepositoryStore{}
 }
 
-// Save UPSERTS by id, mirroring the real GORM store: re-saving a row replaces
-// it rather than shadowing it with a duplicate the reads would then have to pick
-// between. Anything that renumbers a list writes the same row more than once.
 func (s *RepositoryStore) Save(
 	ctx context.Context,
 	item domain.Repository,
@@ -60,8 +46,6 @@ func (s *RepositoryStore) Delete(
 	ctx context.Context,
 	id string,
 ) error {
-	// Remove the row so Saved reflects the net persisted state (a rollback after a
-	// Save leaves no row), matching the real store.
 	s.Saved = without(s.Saved, id, func(r domain.Repository) string { return r.ID })
 	return nil
 }
@@ -93,9 +77,6 @@ func (s *RepositoryStore) FindAll(
 	return s.Saved, nil
 }
 
-// FindWhere mirrors the real store's prototype-scoped query: it matches on the
-// non-zero fields of match, which for the repository table is the ProjectID the
-// sidebar reorder narrows by.
 func (s *RepositoryStore) FindWhere(
 	ctx context.Context,
 	match domain.Repository,

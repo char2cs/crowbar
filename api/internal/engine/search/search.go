@@ -1,6 +1,3 @@
-// Package search is the global search/replace engine: it walks a repository
-// concurrently with gitignore filtering and returns per-line matches with UTF-16 column
-// offsets for Monaco/LSP clients.
 package search
 
 import (
@@ -24,15 +21,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/search/internal/walk"
 )
 
-// ErrLocked is returned by Replace when the workspace is locked.
 var ErrLocked = problem.New(problem.Locked, "workspace is locked")
 
-// ErrPathOutsideWorkspace is returned by Replace when the file scope resolves
-// to a path outside the repository root.
 var ErrPathOutsideWorkspace = problem.New(problem.InvalidArgument, "path is outside the workspace")
 
-// ErrBadPattern is returned by Replace (and Search) when the query cannot be
-// compiled into a valid regular expression.
 var ErrBadPattern = problem.New(problem.InvalidArgument, "invalid search pattern")
 
 const (
@@ -41,53 +33,44 @@ const (
 	scannerBufSize    = 512 * 1024
 )
 
-// SearchRequest holds all search parameters.
 type SearchRequest struct {
 	Query         string
 	CaseSensitive bool
 	WholeWord     bool
 	Regex         bool
-	Include       []string // doublestar globs (keep matches)
-	Exclude       []string // doublestar globs (drop matches)
+	Include       []string
+	Exclude       []string
 }
 
-// SearchResult is one match within a file.
 type SearchResult struct {
 	FilePath   string `json:"filePath"`
 	LineNumber int    `json:"lineNumber"`
 	LineText   string `json:"lineText"`
-	MatchStart int    `json:"matchStart"` // UTF-16 column offset
-	MatchEnd   int    `json:"matchEnd"`   // UTF-16 column offset
+	MatchStart int    `json:"matchStart"`
+	MatchEnd   int    `json:"matchEnd"`
 }
 
-// SearchResponse is the full response including truncation flag.
 type SearchResponse struct {
 	Results   []SearchResult `json:"results"`
 	Truncated bool           `json:"truncated"`
 }
 
-// ReplaceRequest holds replace parameters.
 type ReplaceRequest struct {
 	Query         string
 	Replacement   string
-	Scope         string // "file:<path>" or "all"
+	Scope         string
 	CaseSensitive bool
 	WholeWord     bool
 	Regex         bool
 }
 
-// SearchEngine is the global search/replace surface.
 type SearchEngine interface {
-	// Search searches repoPath for the query specified in req.
-	// Results are capped at 1000; Truncated is set when the cap is hit.
 	Search(
 		ctx context.Context,
 		repoPath string,
 		req SearchRequest,
 	) (SearchResponse, error)
 
-	// Replace rewrites matching occurrences on disk.
-	// Returns replace.ErrLocked if the workspace is provider-protected.
 	Replace(
 		ctx context.Context,
 		repoPath string,
@@ -98,7 +81,6 @@ type SearchEngine interface {
 
 type searchEngine struct{}
 
-// New returns a new SearchEngine.
 func New() SearchEngine {
 	return &searchEngine{}
 }
@@ -136,7 +118,7 @@ func (e *searchEngine) Search(
 
 		fileResults, err := searchFile(absPath, repoPath, re)
 		if err != nil {
-			continue // skip unreadable files
+			continue
 		}
 
 		remaining := defaultMaxResults - len(results)
@@ -184,9 +166,6 @@ func (e *searchEngine) Replace(
 	return nil
 }
 
-// buildIgnoreStack loads all .gitignore files found under repoPath into a
-// hierarchical Stack. Each directory is visited in order so parent rules are
-// appended before child rules, matching git's precedence semantics.
 func buildIgnoreStack(
 	repoPath string,
 ) *ignore.Stack {
@@ -202,24 +181,20 @@ func buildIgnoreStack(
 		if !d.IsDir() {
 			return nil
 		}
-		// Always skip .git/ so we don't parse its internal gitignore-like files.
 		if d.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		// Like git, an unreadable .gitignore is skipped, not fatal.
 		if err := s.Add(path, filepath.Join(path, ".gitignore")); err != nil {
 			slog.Warn("search: ignore file skipped", "dir", path, "err", err)
 		}
 		return nil
 	})
-	// The callback returns only nil or Skip*, so this guards a future callback error.
 	if err != nil {
 		slog.Warn("search: ignore files not all loaded", "repo", repoPath, "err", err)
 	}
 	return &s
 }
 
-// searchFile scans a single file for matches of re and returns SearchResult entries.
 func searchFile(
 	absPath string,
 	repoPath string,
@@ -231,7 +206,6 @@ func searchFile(
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
 
-	// Binary sniff on the first 8 KB.
 	sample := make([]byte, binarySampleSize)
 	n, err := f.Read(sample)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -242,7 +216,6 @@ func searchFile(
 		return nil, nil
 	}
 
-	// Seek back to the start for line-by-line scanning.
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, fmt.Errorf("search: seek %s: %w", absPath, err)
 	}
@@ -281,7 +254,6 @@ func searchFile(
 	return results, nil
 }
 
-// replaceTargets resolves the list of absolute file paths to rewrite.
 func replaceTargets(
 	ctx context.Context,
 	repoPath string,
@@ -292,7 +264,6 @@ func replaceTargets(
 	if strings.HasPrefix(req.Scope, filePrefix) {
 		rel := strings.TrimPrefix(req.Scope, filePrefix)
 		abs := filepath.Join(repoPath, rel)
-		// Guard against path traversal: ensure abs stays under repoPath.
 		if !strings.HasPrefix(abs, filepath.Clean(repoPath)+string(os.PathSeparator)) {
 			return nil, fmt.Errorf("%w: %s", ErrPathOutsideWorkspace, rel)
 		}
@@ -313,8 +284,6 @@ func replaceTargets(
 	return result, nil
 }
 
-// drainChannel consumes all remaining values from ch in a goroutine to unblock
-// the walker's send side.
 func drainChannel(
 	ch <-chan string,
 ) {

@@ -1,12 +1,9 @@
 package spec
 
 type Descriptor struct {
-	ID string `yaml:"id"`
-	// SchemaVersion is the descriptor schema the document was written for; any
-	// other than descriptorschema.Current is refused at load.
-	SchemaVersion int `yaml:"schema_version"`
+	ID            string `yaml:"id"`
+	SchemaVersion int    `yaml:"schema_version"`
 
-	// --- v3: the event is the unit ------------------------------------------
 	ProtocolVersion *VersionRange       `yaml:"protocol_version"`
 	Runtime         RuntimeSpec         `yaml:"runtime"`
 	Events          EventTable          `yaml:"events"`
@@ -15,23 +12,17 @@ type Descriptor struct {
 
 	DisplayName string `yaml:"display_name"`
 	Icon        string `yaml:"icon"`
-	// SignIn is the shell command that logs the CLI in, for a turn refused for want of one.
-	SignIn string `yaml:"sign_in"`
+	SignIn      string `yaml:"sign_in"`
 
 	Spawn   SpawnSpec   `yaml:"spawn"`
 	Session SessionSpec `yaml:"session"`
 
 	ConfigInjection InjectSteps `yaml:"config_injection"`
 
-	// HooksInjection points the provider's hooks at the daemon's hook server. It is
-	// applied ONLY to a hooks-channel PTY, never an api `serve` process: each process
-	// reports over exactly one channel, so an event never arrives twice.
 	HooksInjection InjectSteps `yaml:"hooks_injection"`
 
 	MCPInject InjectSteps `yaml:"mcp_injection"`
 
-	// AddDirs hands an interactive CLI the directories outside its workspace it may
-	// read without asking: the chat's attachment store ({attachments_dir}).
 	AddDirs InjectSteps `yaml:"add_dirs"`
 
 	ContextInject InjectSteps `yaml:"context_inject"`
@@ -43,9 +34,6 @@ type Descriptor struct {
 	Model  *ModelSpec  `yaml:"model"`
 	Effort *EffortSpec `yaml:"effort"`
 
-	// PermissionLevels is separate from the top-level "permission" event key
-	// (events.permission, the PermissionRequest hook mapping) — this one
-	// declares spawn-time behavior, that one declares an in-conversation ask.
 	PermissionLevels *PermissionSpec `yaml:"permission_levels"`
 
 	Telemetry *TelemetrySpec `yaml:"telemetry"`
@@ -56,14 +44,8 @@ type Descriptor struct {
 
 	InjectedPrompts []InjectedPromptSpec `yaml:"injected_prompts"`
 
-	// NotEmitted names canonical in/ask events this provider never fires (or that
-	// mapping would misread). rules.notEmitted requires every in/ask event be mapped
-	// or listed here, so "doesn't do this" is distinguishable from "forgot".
 	NotEmitted []string `yaml:"not_emitted"`
 
-	// Surfaces declares which views (chat, terminal) this provider offers and which a
-	// new chat may launch onto, keyed by surface name and validated by rules.surfaces
-	// against the runtime. Nil means every surface answers false to SurfaceStartHere.
 	Surfaces map[string]SurfaceSpec `yaml:"surfaces"`
 }
 
@@ -78,20 +60,12 @@ type SpawnSpec struct {
 }
 
 type SessionSpec struct {
-	Resume *ArgSpec `yaml:"resume"`
-	// Assign launches the CLI on a session id Crowbar minted.
-	Assign *ArgSpec `yaml:"assign"`
-	// Refused is how the CLI says it cannot resume a session: the only
-	// evidence that a chat's session is lost.
-	Refused *SessionRefusedSpec `yaml:"refused"`
-	// Persists is when the CLI has written a session it can resume:
-	// "turn_start" (the default) or "turn_end", once a turn on it completes.
-	Persists string `yaml:"persists"`
+	Resume   *ArgSpec            `yaml:"resume"`
+	Assign   *ArgSpec            `yaml:"assign"`
+	Refused  *SessionRefusedSpec `yaml:"refused"`
+	Persists string              `yaml:"persists"`
 }
 
-// SessionRefusedSpec is a refused resume, by one rule per channel: on the
-// terminal the CLI exits with ExitCode having printed a line containing one of
-// Needles; over the api a call fails with RPCCode and a message containing one.
 type SessionRefusedSpec struct {
 	ExitCode int      `yaml:"exit_code"`
 	RPCCode  int      `yaml:"rpc_code"`

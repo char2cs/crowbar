@@ -4,8 +4,6 @@ import { RadioGroupPrimitive, RadioPrimitive } from '@/components/ui/radio-group
 import { Switch } from '@/components/ui/switch'
 import { fieldError, type FormField, type FormValues } from '@/features/agent/composer/lib/ask-form'
 
-/** One field per property of the elicitation's schema. A field says what is wrong with it once it
- *  has been left or a submit was tried, never before the person has typed anything. */
 export function ChoiceForm({
   fields,
   values,
@@ -16,7 +14,6 @@ export function ChoiceForm({
 }: {
   fields: FormField[]
   values: FormValues
-  /** Keys whose errors may be drawn. */
   shown: ReadonlySet<string>
   busy: boolean
   onChange: (key: string, value: string | boolean) => void

@@ -83,7 +83,6 @@ mod tests {
     use crate::transport::remote::tls::fingerprint::{certificate_digest, fingerprint_of};
     use rustls::client::danger::ServerCertVerifier;
     use rustls::crypto::aws_lc_rs;
-    // SPEC: https://docs.rs/rustls/latest/rustls/struct.DigitallySignedStruct.html DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
     use rustls::internal::msgs::codec::Codec;
     use rustls::pki_types::{
         CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
@@ -96,8 +95,6 @@ mod tests {
 
     const TRANSCRIPT: &[u8] = b"handshake transcript the server proves key possession over";
 
-    /// A real self-signed certificate (what the pinned daemon presents) and
-    /// the private key it was issued for.
     fn generate_identity() -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
         let certified = rcgen::generate_simple_self_signed(["localhost".to_owned()])
             .expect("generate self-signed test cert");
@@ -105,7 +102,6 @@ mod tests {
         (certified.cert.der().clone(), key)
     }
 
-    /// A fresh P-256 key unrelated to any pinned certificate.
     fn attacker_key() -> PrivateKeyDer<'static> {
         let key_pair = rcgen::KeyPair::generate().expect("generate attacker key");
         PrivatePkcs8KeyDer::from(key_pair.serialize_der()).into()
@@ -119,7 +115,6 @@ mod tests {
         PinnedVerifier::new(pin, &aws_lc_rs::default_provider())
     }
 
-    /// Signs `message` with `key` the way a server's `CertificateVerify` does.
     fn sign(
         key: &PrivateKeyDer<'_>,
         message: &[u8],
@@ -136,9 +131,6 @@ mod tests {
         DigitallySignedStruct::read_bytes(&wire).expect("decode DigitallySignedStruct")
     }
 
-    /// Drives an in-memory handshake from `pinned_client_config` (pinned to
-    /// `cert`) to a server that speaks `versions`, presents `cert` but signs
-    /// with `key`.
     fn handshake(
         cert: &CertificateDer<'static>,
         key: PrivateKeyDer<'static>,
@@ -192,7 +184,6 @@ mod tests {
         TlsError::InvalidCertificate(CertificateError::BadSignature)
     }
 
-    /// (who signs, expected `verify_tls13_signature`/`verify_tls12_signature` result)
     const SIGNATURES: [(Signer, bool); 2] = [(Signer::Attacker, false), (Signer::Pinned, true)];
 
     #[test]
@@ -216,7 +207,6 @@ mod tests {
 
     const TLS12_ONLY: &[&SupportedProtocolVersion] = &[&rustls::version::TLS12];
 
-    /// (who signs the handshake, protocol versions the server speaks, expected outcome)
     type Handshake = (
         Signer,
         &'static [&'static SupportedProtocolVersion],
@@ -253,7 +243,6 @@ mod tests {
         }
     }
 
-    /// (does the verifier pin the presented certificate, expected `verify_server_cert` result)
     type Verdict = Result<(), TlsError>;
 
     const CERTIFICATES: [(bool, Verdict); 2] = [

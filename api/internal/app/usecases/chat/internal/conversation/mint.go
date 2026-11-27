@@ -12,9 +12,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// MintChat creates chatID ("" mints one). providerID is written at birth, not left to
-// the best-effort spawn, so even a chat whose spawn failed names its provider ("" for a
-// placeholder row); surface is the view it is born on ("" for the provider's default).
 func (c *Conversations) MintChat(
 	ctx context.Context,
 	chatID string,
@@ -40,9 +37,6 @@ func (c *Conversations) MintChat(
 	return chatID, nil
 }
 
-// seedPermissionLevel writes the current global default onto a new chat as a RAW,
-// NON-explicit display value: spawns keep re-resolving the live default until the user
-// picks a level. Best-effort — a failure must not stop the chat being created.
 func (c *Conversations) seedPermissionLevel(
 	ctx context.Context,
 	chatID string,

@@ -17,8 +17,6 @@ import (
 
 var providers = []string{"claude", "codex"}
 
-// A whole turn — prompt, tool call, subagent, compaction, reply — lands in the
-// ledger and closes, on both providers, over their shipped descriptors.
 func TestScripted_AFullTurnLandsAndCloses(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -51,8 +49,6 @@ turn:
 	}
 }
 
-// A second message continues the SAME vendor session: claude restarts per
-// prompt and resumes it; codex keeps its connection.
 func TestScripted_ASecondMessageContinuesTheSession(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -78,9 +74,6 @@ func TestScripted_ASecondMessageContinuesTheSession(t *testing.T) {
 	}
 }
 
-// A stopped chat's next message resumes the provider's OWN session by its id,
-// on both providers. For codex this needs the thread it announces
-// before its runner row commits to be kept, not dropped.
 func TestScripted_ADormantChatResumesItsOwnSession(t *testing.T) {
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {

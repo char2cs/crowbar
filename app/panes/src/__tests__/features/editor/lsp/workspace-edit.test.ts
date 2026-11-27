@@ -90,7 +90,6 @@ describe('workspace edit utilities', () => {
 })
 
 describe('applyWorkspaceEdit', () => {
-  // The documents live in Monaco models: the first load is the slow part, not the tests.
   beforeAll(() => loadEditorHost(), MONACO_LOAD_MS)
 
   const PATH = '/repo/src/a.ts'

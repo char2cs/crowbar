@@ -35,35 +35,23 @@ import { usePaneActivation } from '../hooks/use-pane-activation'
 interface PaneContainerProps {
   pane: PaneGroup
   position?: PanePosition
-  /** Whether this pane's view is on screen. A parked view's panes stay mounted but do no work:
-   *  every surface gets `isActive`/`isVisible` false, like a background tab. */
   showing?: boolean
 }
 
-/** One pane: identity row, chat view and editor view (spec §7.2), arranged by
- *  usePanePresentation. The chat reads its own workspace (usePaneWorkspace); tab surfaces come
- *  from the content registry. */
 export function PaneContainer({
   pane,
   position = ROOT_PANE_POSITION,
   showing = true,
 }: PaneContainerProps) {
-  // A boolean, not the id: subscribing to `activePaneId` re-rendered every
-  // pane whenever focus moved between any two.
   const isActiveInStore = useIsActivePane(pane.id)
   const { activateEditorTabInPane, setActivePane } = usePaneActions()
   const { wsId, chatWsId, chatStore } = usePaneWorkspace(pane)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
-  // A pane in a parked view is never the active one, whatever `activePaneId`
-  // says — folded in once so no surface is told it is live off screen.
   const isActivePane = showing && isActiveInStore
 
-  // The ring answers "which pane has focus" — meaningless with one pane.
   const visiblePaneCount = useVisiblePaneCount()
-  // A collapsed sidebar stops shielding the pane from the window frame.
   const sidebarOpen = useSidebarOptional()?.open ?? true
   const showActiveBorder = isActivePane && visiblePaneCount > 1
-  // The box's own border stays neutral; `PaneAccentRing` carries the accent.
   const paneContentStyle = useMemo(
     () => buildPaneContentStyle(position, sidebarPosition, false, sidebarOpen),
     [position, sidebarPosition, sidebarOpen],
@@ -108,8 +96,6 @@ export function PaneContainer({
     [pane.id, activateEditorTabInPane, setActivePane],
   )
 
-  // The chat view, sash and editor view each keep a stable key, so placing
-  // them in either order (chat beside the sidebar) is never a remount.
   const chatViewNode = pane.chatId && (
     <PaneChatView
       key="chat-view"
@@ -121,7 +107,6 @@ export function PaneContainer({
       chatWsId={chatWsId}
       chatStore={chatStore}
       hidden={chatViewHidden}
-      // splitSizes is always [chatPct, editorPct].
       basis={presentation === 'tabs' || chatFillsPane ? null : splitSizes[0]}
       alongsideEditor={chatVisibleAlongsideEditor}
       chatFillsPane={chatFillsPane}
@@ -144,8 +129,6 @@ export function PaneContainer({
     />
   )
 
-  // Always rendered under one key (only `hidden` and sizing change), so nothing inside — a live
-  // terminal included — remounts when the chat or presentation changes (spec §7.2).
   const editorViewNode = (
     <div
       key="editor-view"
@@ -163,7 +146,6 @@ export function PaneContainer({
         ...editorInnerViewStyle,
       }}
     >
-      {/* Beside the chat, the tab strip belongs to the editor's own box. */}
       {chatVisibleAlongsideEditor && (
         <TabBar paneId={pane.id} wsId={chatWsId} onTabClick={handleTabClick} />
       )}
@@ -189,26 +171,17 @@ export function PaneContainer({
           ref={containerRef}
           data-pane-container
           data-pane-id={pane.id}
-          // Which view this pane belongs to — otherwise invisible from outside.
           data-view-id={pane.viewId ?? undefined}
-          // The sidebar's drag arm hit-tests this to find the drop target (§8.1).
           {...{ [PANE_DROP_ATTR]: pane.id }}
-          // Layout chrome: clicking anywhere just focuses the pane; every real
-          // control inside keeps its own role.
           role="presentation"
           className={cn(
             'group/pane relative flex h-full w-full flex-col overflow-hidden',
-            // File drags only: tab drags get the SplitDropOverlay zone instead.
             drop.isDragOver &&
               !drop.isTabDragOver &&
               !drop.internalHoverZone &&
               'ring-2 ring-secondary',
-            // A sidebar-row drag hovering this pane (§8.2), unless the overlay
-            // is already drawing its zone.
             !drop.internalHoverZone && 'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
           )}
-          // Mousedown activation is a native listener (usePaneActivation); this
-          // catches a keyboard-triggered click, which has no mousedown.
           onClick={handlePaneClick}
           onDragOver={drop.handleDragOver}
           onDragLeave={drop.handleDragLeave}
@@ -223,16 +196,11 @@ export function PaneContainer({
             activeZoneOverride={drop.internalHoverZone}
           />
           <div
-            // One bordered box around identity row and content, painting the translucent chat
-            // fill (the editor paints opaque over it); `data-pane-content` also hooks index.css's
-            // drag-time flattening.
             data-pane-content=""
             className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-chrome-bg transition-colors duration-150"
             style={paneContentStyle}
           >
             <PaneHandle pane={pane} />
-            {/* A header spans the whole pane only when one surface fills it; it
-            reads the chat's own workspace (a no-op wrap for a chatless pane). */}
             {showTopLevelHeader && (
               <WorkspaceStoreContext.Provider value={chatStore}>
                 {chatFillsPane ? (
@@ -247,9 +215,6 @@ export function PaneContainer({
                 )}
               </WorkspaceStoreContext.Provider>
             )}
-            {/* One stable parent with keyed children, never a `chatId ? A : B`
-            branch: a ternary reindexed the editor view on a chat landing and
-            remounted it, live terminals included. */}
             <div
               ref={viewsContainerRef}
               className={cn(

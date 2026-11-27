@@ -13,9 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// StartHTTP drives d over c: a call's method is a request name and each stream
-// event is a frame named by its event. c reconnects its own stream, so a lost
-// stream ends the driver rather than redialing.
 func StartHTTP(ctx context.Context, d *spec.Descriptor, c *httpdriver.Client, origin SessionOrigin) (*Driver, error) {
 	return newDriver(ctx, d, newHTTPWire(c), nil, Reconnect{}, origin)
 }
@@ -61,7 +58,6 @@ func (*httpWire) Notify(string, any) error {
 	return errors.New("apidriver: http delivery has no notifications")
 }
 
-// Reply answers an ask whose id is httpAskID's: the request to run and the ask's own id.
 func (w *httpWire) Reply(id, result json.RawMessage) error {
 	var ask struct{ Request, ID string }
 	if err := json.Unmarshal(id, &ask); err != nil {
@@ -70,7 +66,6 @@ func (w *httpWire) Reply(id, result json.RawMessage) error {
 	return w.c.Reply(w.ctx, ask.Request, ask.ID, result)
 }
 
-// ReplyError is never reached: an http frame carries no id, so none is a request.
 func (*httpWire) ReplyError(json.RawMessage, int, string) error {
 	return errors.New("apidriver: http delivery has no server requests to refuse")
 }
@@ -84,8 +79,6 @@ func (w *httpWire) Close() error {
 	return w.c.Close()
 }
 
-// httpAskID is the ask id an http event carries: the request that answers it and
-// the id its ask_id mapping reads from the frame. nil for anything but an ask.
 func (drv *Driver) httpAskID(canonical string, params map[string]any) json.RawMessage {
 	ev := drv.d.Events[canonical]
 	if drv.d.Runtime.API.Delivery != spec.APIDeliveryHTTP || ev.ReplyRequest == "" {

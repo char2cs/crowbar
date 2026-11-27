@@ -12,7 +12,6 @@ use crate::view::Visibility;
 
 pub(crate) const RECEIVER: &str = "__crowbarReceive";
 
-/// A live web view. Dropping the handle destroys the view.
 pub struct Handle {
     pub(crate) platform: Rc<dyn Platform>,
     pub(crate) id: Id,
@@ -42,16 +41,11 @@ impl Handle {
         }
     }
 
-    /// The view's id, also carried by every [`ProtocolRequest`](crate::ProtocolRequest) it makes.
     #[must_use]
     pub fn id(&self) -> Id {
         self.id
     }
 
-    /// Moves and resizes the view.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn set_bounds(
         &self,
         bounds: Bounds,
@@ -59,11 +53,6 @@ impl Handle {
         self.platform.set_bounds(self.id, bounds)
     }
 
-    /// Cuts `hole`, in logical pixels from the view's top-left corner, out of the view so the
-    /// window under it shows there and takes the pointer; `None` makes the view whole again.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn set_cutout(
         &self,
         hole: Option<Bounds>,
@@ -71,10 +60,6 @@ impl Handle {
         self.platform.set_cutout(self.id, hole)
     }
 
-    /// Rounds the view's corners.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn set_corners(
         &self,
         corners: Corners,
@@ -82,11 +67,6 @@ impl Handle {
         self.platform.set_corners(self.id, corners)
     }
 
-    /// Draws the view, stops drawing it while the page stays loaded and is not told, or covers
-    /// it while the shell draws over it.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn set_visibility(
         &self,
         visibility: Visibility,
@@ -94,10 +74,6 @@ impl Handle {
         self.platform.set_visibility(self.id, visibility)
     }
 
-    /// Changes the colour shown where the page has not painted.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn set_background(
         &self,
         color: Color,
@@ -105,26 +81,14 @@ impl Handle {
         self.platform.set_background(self.id, color)
     }
 
-    /// Gives keyboard focus to the page, wherever the pointer is.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn focus(&self) -> Result<()> {
         self.platform.focus(self.id)
     }
 
-    /// Takes keyboard focus back to the parent window.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn focus_parent(&self) -> Result<()> {
         self.platform.focus_parent(self.id)
     }
 
-    /// Destroys the view now and reports failures, which dropping would only log.
-    ///
-    /// # Errors
-    /// An [`Error`](crate::Error) when the backend has stopped.
     pub fn destroy(mut self) -> Result<()> {
         self.destroyed = true;
         self.platform.destroy(self.id)

@@ -1,5 +1,3 @@
-//! The Active sessions page.
-
 use crate::schema::Heading;
 use crate::schema::ListBlock;
 use crate::schema::Page;

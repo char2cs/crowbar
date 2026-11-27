@@ -19,7 +19,6 @@ let package = Package(
             name: "ChromePluginTests",
             dependencies: ["tauri-plugin-crowbar-chrome"],
             path: "Tests/ChromePluginTests",
-            // AppScheme.swift declares Rust-provided externs; the host app links them.
             linkerSettings: [.unsafeFlags(["-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup"])]),
     ]
 )

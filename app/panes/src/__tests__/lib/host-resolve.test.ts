@@ -48,7 +48,6 @@ const project = (id: string, hostId: string): Project => ({
   hostId,
 })
 
-// As pairing does: an install that ever had a host remembers it.
 function configureHosts(...ids: string[]): void {
   useHostConfigStore.setState((s) => ({
     hosts: ids.map(host),
@@ -119,7 +118,6 @@ describe('hostIdForProject', () => {
     expect(unresolved(() => hostIdForProject('p1')).message).toMatch(/project list is not loaded/)
   })
 
-  // Settings -> Hosts -> Revoke removes the host, and its project rows with it.
   it('throws for a remote project once its host is no longer configured', () => {
     configureHosts('host-1')
     loadProjects(project('p-remote', 'host-1'))
@@ -289,9 +287,6 @@ describe('isHostResolved', () => {
   })
 })
 
-// Callers hand '' when they have no workspace yet. It must name nothing: falling back to
-// the workspace in view is how a request reaches the wrong host. The registry owns which
-// workspace is in view, so the test sets it there.
 describe('a workspace id of ""', () => {
   beforeEach(() => {
     configureHosts('host-1')
@@ -407,7 +402,6 @@ describe('useResolvedHost', () => {
 
 describe('the owner of a held row', () => {
   const hostUp = (hostId: string) => getOrCreateHostRuntime(hostId).getState().setStatus('up')
-  // `hostId`'s projects scope has synced, holding `projects`.
   const synced = (hostId: string, ...projects: Project[]) => {
     putEntities('project', projects, hostId)
     entityStore.setState((s) => ({

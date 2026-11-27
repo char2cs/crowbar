@@ -4,8 +4,6 @@ use crate::host::pane_content::PaneContent;
 use crate::host::pane_detach::PaneDetach;
 use ideshell::TabLooks;
 
-/// What the layout view asks of the shell about a pane; the shell implements it, the view never
-/// looks a pane up itself.
 pub trait PaneSource: PaneContent + PaneChrome + TabLooks + PaneDetach + BranchReview {}
 
 impl<T: PaneContent + PaneChrome + TabLooks + PaneDetach + BranchReview> PaneSource for T {}

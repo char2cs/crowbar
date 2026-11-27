@@ -1,5 +1,3 @@
-//! Added and deleted lines per file, summed over the staged and the unstaged diff.
-
 use std::collections::HashMap;
 
 use crate::live::panel_loader::git_status_body::git_diff_body::GitDiffBody;

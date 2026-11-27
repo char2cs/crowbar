@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// presenceHub serves projects as the daemon does, a Reader, and chats.
 func presenceHub() *appstream.Hub {
 	return newHub(map[stream.ScopeKind]appstream.Source{
 		stream.KindProjects: appstream.NewProjectsSource(fixedOperations{}, &sidebar{}, encodeOperation),
@@ -23,7 +22,6 @@ func presenceHub() *appstream.Hub {
 
 func isPresence(f stream.Frame) bool { return f.Kind == string(stream.KindPresence) }
 
-// viewersIn is a presence frame's count, -1 for gone.
 func viewersIn(t *testing.T, f stream.Frame) int {
 	t.Helper()
 	require.True(t, isPresence(f), "a presence frame, got %+v", f)
@@ -35,7 +33,6 @@ func viewersIn(t *testing.T, f stream.Frame) int {
 	return p.Viewers
 }
 
-// watching is a connection holding projects, past its snapshot.
 func watching(t *testing.T, hub *appstream.Hub) *fakeConn {
 	t.Helper()
 	conn := newFakeConn()
@@ -44,7 +41,6 @@ func watching(t *testing.T, hub *appstream.Hub) *fakeConn {
 	return conn
 }
 
-// viewer is a connection holding chat:id.
 func viewer(t *testing.T, hub *appstream.Hub, id string) *fakeConn {
 	t.Helper()
 	conn := newFakeConn()
@@ -129,8 +125,6 @@ func TestPresence_ResubscribingTheSameConnectionDoesNotCountTwice(t *testing.T) 
 	assert.Equal(t, 2, viewersIn(t, watcher.next(t)), "the resub sent nothing; the second viewer counts 2")
 }
 
-// Viewers come and go while a projects sub snapshots: per chat, v never falls
-// across snapshot and live, and the last frame says what holds now.
 func TestPresence_VersionsIncreaseAcrossSnapshotAndLive(t *testing.T) {
 	hub := presenceHub()
 	viewers := make([]*fakeConn, 5)
@@ -151,7 +145,6 @@ func TestPresence_VersionsIncreaseAcrossSnapshotAndLive(t *testing.T) {
 				conn.in <- stream.Request{Op: stream.OpSub, Scope: scope}
 				conn.in <- stream.Request{Op: stream.OpUnsub, Scope: scope}
 			}
-			// Requests run in order: once this is read, the last unsub has landed.
 			conn.in <- stream.Request{Op: stream.OpUnsub, Scope: "chat:barrier"}
 		}()
 	}

@@ -1,5 +1,3 @@
-//! The values on screen: stored values, in-flight writes and drafts being typed.
-
 mod editing;
 mod on_screen;
 mod outcome;

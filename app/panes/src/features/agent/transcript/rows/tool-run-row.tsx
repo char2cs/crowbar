@@ -13,8 +13,6 @@ const standsAlone = (item: ToolItem) =>
   item.askNote !== undefined ||
   (item.status !== 'running' && item.status !== 'ok')
 
-/** Consecutive read-only calls as one line: a ticker on the newest while any
- *  runs, a sentence once they are done; expanding lists each call's own row. */
 function FoldedRun({ chatId, id, tools }: { chatId: string; id: string; tools: ToolItem[] }) {
   const [open, setOpen] = useState(false)
   const running = tools.filter((item) => item.status === 'running')
@@ -61,7 +59,6 @@ function FoldedRun({ chatId, id, tools }: { chatId: string; id: string; tools: T
   )
 }
 
-/** A run cut around its calls that stand alone, in order; the rest stay folded. */
 function segments(tools: ToolItem[]): ToolItem[][] {
   const out: ToolItem[][] = []
   let folded: ToolItem[] = []
@@ -93,8 +90,6 @@ function ToolRunRowBody({
     ),
   )
   const tools = items.filter((item): item is ToolItem => item?.kind === 'tool')
-  // A call that was asked about or did not succeed is a fact of its own: it is
-  // drawn as its own row, and the calls around it fold on either side.
   return segments(tools).map((part, i) =>
     part.length === 1 ? (
       <ToolRow key={part[0].id} chatId={chatId} item={part[0]} />

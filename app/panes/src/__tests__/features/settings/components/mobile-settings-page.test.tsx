@@ -5,8 +5,6 @@ import type { NativeAgentsSettings } from '@/lib/native-chrome'
 import { MobileSettingsPage } from '@/features/settings/components/mobile-settings-page'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 
-// The page lazy-loads each tab; transform them at collection, where no test timeout runs,
-// rather than inside the first test that opens one.
 await Promise.all([
   import('@/features/settings/components/tabs/appearance-settings'),
   import('@/features/settings/components/tabs/git-settings'),
@@ -35,7 +33,6 @@ afterEach(() => {
 const showTab = (tab: string | null) => act(() => shell.__crowbarSettingsTab!(tab))
 
 describe('MobileSettingsPage', () => {
-  // The title, back button and list are native: the page is only the tab it is told to draw.
   it('draws nothing until the shell names a tab, then just that tab', async () => {
     render(<MobileSettingsPage />)
     await waitFor(() => expect(posted).toHaveBeenCalledWith({ type: 'settingsTabReady' }))
@@ -55,7 +52,6 @@ describe('MobileSettingsPage', () => {
     expect(useSettingsStore.getState().settings.compactGitStatusBadges).toBe(!before)
   })
 
-  // A closed select names its choice as the list does, not by its stored value.
   it('names each chosen option by its label', async () => {
     useSettingsStore.setState((s) => {
       s.settings.themeMode = 'system'
@@ -66,7 +62,6 @@ describe('MobileSettingsPage', () => {
     expect(screen.queryByText('system')).not.toBeInTheDocument()
   })
 
-  // No daemon here: Agents draws the main webview's snapshot and sends every edit back.
   it('draws the agents it is sent and sends edits back to the shell', async () => {
     render(<MobileSettingsPage />)
     showTab('providers')

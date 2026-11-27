@@ -19,7 +19,6 @@ vi.mock('@tanstack/react-router', async (importOriginal) => ({
   },
   Outlet: () => null,
 }))
-// The workspace content is the desktop's own; its suite owns what it does.
 vi.mock('@/components/layout/ide-shell-workspace-content', () => ({
   IdeShellWorkspaceContent: (props: { effectiveActiveWorkspaceId: string | null }) => (
     <div data-testid="workspace-content" data-ws={props.effectiveActiveWorkspaceId ?? ''} />
@@ -89,7 +88,6 @@ describe('MobileShell', () => {
     expect(screen.getByRole('button', { name: /open ide/i })).toBeDisabled()
   })
 
-  // Title only: the desktop's identity row, view switch and provider picker stay off the phone.
   it('titles the screen with the focused chat', () => {
     resetWindowPaneStoreForTests()
     writeChat({ id: 'c1', workspaceId: 'ws-1', title: 'Fix login' })
@@ -111,7 +109,6 @@ describe('MobileShell', () => {
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
 
-  // Leaving a chat that is being removed is not opening another: the list stays up.
   it('keeps the chat list up when the focused chat is held for removal', () => {
     resetWindowPaneStoreForTests()
     act(() =>
@@ -132,7 +129,6 @@ describe('MobileShell', () => {
     resetWindowPaneStoreForTests()
   })
 
-  // The phone app's settings are a native sheet; the web dialog is only the fallback.
   it('leaves Settings to the native sheet when native chrome is drawn', () => {
     useUIState.setState({ isSettingsOpen: true })
     chrome.native = true

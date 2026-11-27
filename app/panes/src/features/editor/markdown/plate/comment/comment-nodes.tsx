@@ -2,13 +2,6 @@
 
 import { PlateElement, type PlateElementProps } from 'platejs/react'
 
-// Minimal table and code-block nodes for the comment editor. The full-editor ones pull resizing,
-// block selection, combobox and a live highlighter, too heavy for the diff-review surface. The
-// plugins must still register: @platejs/markdown drops nodes without one, so edits lose tables.
-
-/** `table > tbody > tr > td` — the same DOM shape Plate's own TableElement
- *  builds, since Slate's children land directly under this element and a `<tr>`
- *  parented by `<table>` is invalid markup React will complain about. */
 export function CommentTableElement({ children, ...props }: PlateElementProps) {
   return (
     <PlateElement
@@ -45,8 +38,6 @@ export function CommentTableCellHeaderElement(props: PlateElementProps) {
   )
 }
 
-/** A fenced block, deliberately unhighlighted: the posted comment renders through
- *  `MarkdownPreview`, which highlights with shiki. */
 export function CommentCodeBlockElement({ children, ...props }: PlateElementProps) {
   return (
     <PlateElement {...props} className="my-2">

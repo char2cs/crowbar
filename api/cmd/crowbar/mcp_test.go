@@ -20,8 +20,6 @@ type postCall struct {
 	body map[string]any
 }
 
-// recorder canned-answers a sequence of 200 responses; a case that needs a
-// different status builds its own post func inline instead.
 func recorder(responses ...string) (*[]postCall, func(string, any) (int, []byte, error)) {
 	calls := &[]postCall{}
 	i := 0
@@ -41,8 +39,6 @@ func recorder(responses ...string) (*[]postCall, func(string, any) (int, []byte,
 
 func testToken() (string, error) { return "TOK", nil }
 
-// A relay's route names its session alone: a chat that moves between folders or repos
-// leaves the block its provider pinned unchanged.
 func TestRelay_APlacementFreeRouteForARelayID(t *testing.T) {
 	calls, post := recorder()
 	var out bytes.Buffer
@@ -52,8 +48,6 @@ func TestRelay_APlacementFreeRouteForARelayID(t *testing.T) {
 	require.Equal(t, "/v0/relays/RELAY/mcp", (*calls)[0].path)
 }
 
-// The daemon's secret changes at each boot, and each spawn rewrites the token file for the
-// relay the gateway keeps: the next message carries what the file holds now.
 func TestRelay_ReadsTheTokenFileForEveryMessage(t *testing.T) {
 	tokens := make(chan any, 2)
 	post := func(_ string, body any) (int, []byte, error) {
@@ -87,7 +81,6 @@ func TestRelay_ReadsTheTokenFileForEveryMessage(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-// A token file that cannot be read answers the request instead of ending the relay.
 func TestRelay_AnUnreadableTokenFileBecomesAnRPCError(t *testing.T) {
 	calls, post := recorder()
 	var out bytes.Buffer
@@ -114,16 +107,11 @@ func TestRelay_ForwardsEachLineAndWritesTheReply(t *testing.T) {
 	require.Equal(t, "/v0/projects/P/repos/R/chats/runners/SEG/mcp", (*calls)[0].path)
 	require.Equal(t, "TOK", (*calls)[0].body["token"])
 
-	// Exactly one line out, and it is the unwrapped rpc object.
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
 	require.Len(t, lines, 1)
 	require.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}`, lines[0])
 }
 
-// A 2xx with no rpc field is the daemon's 204: the relay must stay silent,
-// because replying to a notification confuses the client. recorder returns 200
-// for every call, so an empty body here is genuinely the no-rpc/notification
-// case, not the non-2xx case covered separately below.
 func TestRelay_WritesNothingForANotification(t *testing.T) {
 	_, post := recorder(``)
 	var out bytes.Buffer
@@ -142,8 +130,6 @@ func TestRelay_SkipsBlankLines(t *testing.T) {
 	require.Len(t, *calls, 1)
 }
 
-// A project-home workspace has no repo id; the path must fall to the home mount
-// or every call 404s.
 func TestRelay_UsesHomePathWhenRepoIsEmpty(t *testing.T) {
 	calls, post := recorder()
 	var out bytes.Buffer
@@ -153,8 +139,6 @@ func TestRelay_UsesHomePathWhenRepoIsEmpty(t *testing.T) {
 	require.Equal(t, "/v0/projects/P/home/chats/runners/SEG/mcp", (*calls)[0].path)
 }
 
-// A daemon that is down must not kill the CLI session: the relay reports the
-// failure as a JSON-RPC error and keeps going.
 func TestRelay_TransportFailureBecomesAnRPCError(t *testing.T) {
 	var out bytes.Buffer
 	post := func(string, any) (int, []byte, error) { return 0, nil, errBoom }
@@ -173,10 +157,6 @@ func TestRelay_TransportFailureBecomesAnRPCError(t *testing.T) {
 	require.Equal(t, -32603, resp.Error.Code)
 }
 
-// A daemon application error must not be answered with silence — that hangs the
-// client on a request it is entitled to a reply for. PostJSON returns err == nil
-// for a non-2xx, and that body carries no rpc field either, so the relay must
-// tell the two apart by status code rather than by shape alone.
 func TestRelay_NonSuccessStatusBecomesAnRPCError(t *testing.T) {
 	var out bytes.Buffer
 	post := func(string, any) (int, []byte, error) {
@@ -199,12 +179,6 @@ func TestRelay_NonSuccessStatusBecomesAnRPCError(t *testing.T) {
 	require.Contains(t, resp.Error.Message, "500")
 }
 
-// A notification whose POST FAILS must still be answered with silence.
-// TestRelay_WritesNothingForANotification above covers only the 200 path, so the
-// error path shipped untested — and it is the one that matters most, because
-// notifications/initialized is sent during the handshake, the likeliest moment
-// for a transient daemon failure. JSON-RPC 2.0 forbids any response to a
-// notification; an unsolicited {"id":null,"error":…} is not a courtesy.
 func TestRelay_WritesNothingWhenANotificationsPostFails(t *testing.T) {
 	var out bytes.Buffer
 	post := func(string, any) (int, []byte, error) { return 0, nil, errBoom }
@@ -214,8 +188,6 @@ func TestRelay_WritesNothingWhenANotificationsPostFails(t *testing.T) {
 	require.Empty(t, out.String(), "a notification gets no reply, not even an error")
 }
 
-// The same holds for the OTHER failure site: a non-2xx is an application error,
-// but a notification is still not entitled to hear about it.
 func TestRelay_WritesNothingWhenANotificationGetsANonSuccessStatus(t *testing.T) {
 	var out bytes.Buffer
 	post := func(string, any) (int, []byte, error) {
@@ -227,11 +199,6 @@ func TestRelay_WritesNothingWhenANotificationGetsANonSuccessStatus(t *testing.T)
 	require.Empty(t, out.String())
 }
 
-// The counterpart, and the reason the silence above is decided by PARSING rather
-// than by "no id field found": a line too malformed to parse is not a
-// notification — its id could not be DETERMINED, which is exactly the case
-// JSON-RPC 2.0 allows "id":null for. Swallowing it would hang a client that is
-// waiting for a reply it is entitled to.
 func TestRelay_MalformedLineStillGetsANullIDError(t *testing.T) {
 	var out bytes.Buffer
 	post := func(string, any) (int, []byte, error) { return 0, nil, errBoom }
@@ -245,8 +212,6 @@ func TestRelay_MalformedLineStillGetsANullIDError(t *testing.T) {
 
 var errBoom = errors.New("daemon down")
 
-// A daemon on TCP (a container's `serve --host tcp://...`) is reached at the
-// address the spawn hands the relay.
 func TestMCP_RelaysToADaemonOnTCP(t *testing.T) {
 	for name, tc := range map[string]struct {
 		flags []string

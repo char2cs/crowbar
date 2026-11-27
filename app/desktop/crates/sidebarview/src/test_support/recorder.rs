@@ -1,5 +1,3 @@
-//! A data source and command sink that remembers what it was sent.
-
 use std::cell::RefCell;
 
 use sidebar::{

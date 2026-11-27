@@ -2,20 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchFileTree } from '@/features/files/lib/file-tree-api'
 import type { AppFile } from '@/features/file-system/types/app'
 
-/** One workspace entry the @ picker offers; `insertText` replaces the @ path typed so far. */
 export interface MentionItem {
   id: string
   insertText: string
   description: string
   name: string
-  /** The folder it is in, with its trailing slash; empty at the root. */
   dir: string
   isDir: boolean
 }
 
 const MAX_ITEMS = 50
 
-/** The folder an @ path is in, and what is typed of the name after it. */
 function splitQuery(query: string): { dir: string; name: string } {
   const slash = query.lastIndexOf('/')
   return slash < 0
@@ -25,7 +22,6 @@ function splitQuery(query: string): { dir: string; name: string } {
 
 const itemOf = (file: AppFile): MentionItem => ({
   id: file.path,
-  // A folder stays a path to go on typing; a file ends the mention.
   insertText: file.isDir ? `@${file.path}/` : `@${file.path} `,
   description: file.isDir ? 'Folder' : '',
   name: file.name,
@@ -33,8 +29,6 @@ const itemOf = (file: AppFile): MentionItem => ({
   isDir: file.isDir === true,
 })
 
-/** The composer's @ file picker. The tree endpoint lists one folder per call, so it
- *  completes a path a folder at a time, as a shell does, rather than searching. */
 export function useFileMention(wsId: string) {
   const [query, setQuery] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -44,7 +38,6 @@ export function useFileMention(wsId: string) {
 
   const typingRef = useRef(false)
 
-  /** Told the @ path before the caret on every edit; a new @ opens the picker. */
   const noteQuery = useCallback((next: string | null) => {
     const was = typingRef.current
     typingRef.current = next !== null
@@ -87,7 +80,6 @@ export function useFileMention(wsId: string) {
     [items.length],
   )
   const close = useCallback(() => setOpen(false), [])
-  /** Accept an item: the caller puts `insertText` in place of the @ path. */
   const accept = useCallback((item: Pick<MentionItem, 'insertText'>) => {
     setOpen(item.insertText.endsWith('/'))
     setSelected(0)

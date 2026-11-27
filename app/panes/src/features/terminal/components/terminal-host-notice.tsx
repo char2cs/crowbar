@@ -33,17 +33,13 @@ function RemoteHostNotice({ hostId }: { hostId: string }) {
   if (hostIsUnreachable(state)) {
     return <Notice title={`${name} is not available right now`} detail={hostDotLabel(state)} />
   }
-  // It answers, but refuses its streams: this terminal's among them, or the xterm stays blank.
   if (state === 'no-live-stream') {
     return <Notice title={`${name}: no live stream — this terminal can’t attach`} />
   }
-  // Up: the terminal is attaching, which says nothing about the host.
   if (state !== 'unknown' && state !== 'probing') return null
   return <Notice title={`Waiting for ${name}…`} />
 }
 
-/** What a detached terminal says while its host is the reason: not known yet, or not
- *  answering. Static, over any stale output; a Local terminal never shows it. */
 export function TerminalHostNotice({ wsId }: { wsId: string }) {
   const hostId = useResolvedHost({ wsId })
   if (hostId === null) return <UnresolvedHostNotice wsId={wsId} />

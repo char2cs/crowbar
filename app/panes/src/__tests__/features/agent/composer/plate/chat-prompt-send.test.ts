@@ -11,7 +11,6 @@ const send = (value: Value) => chatPromptToSend(chatValueToMarkdown(value))
 afterEach(() => vi.restoreAllMocks())
 
 describe('chatPromptToSend', () => {
-  // The bubble, the queue row and history recall all re-parse what was sent.
   for (const [name, value] of promptCases) {
     it(`sends a prompt that reads back unchanged: ${name}`, () => {
       const sent = send(value)
@@ -69,7 +68,6 @@ describe('chatPromptToSend', () => {
     expect(parse.mock.calls.length).toBe(parses)
   })
 
-  // The draft is serialized on every keystroke; the re-parses are paid at send.
   it('leaves the draft escaped and parses nothing while typing', () => {
     const parse = vi.spyOn(serialization, 'chatMarkdownToValue')
     expect(chatValueToMarkdown([p('typing snake_case [x](y)')] as Value)).toBe(

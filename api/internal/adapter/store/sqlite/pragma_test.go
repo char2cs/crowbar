@@ -12,13 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 )
 
-// synchronousNormal is PRAGMA synchronous's numeric answer for NORMAL.
 const synchronousNormal = 1
 
-// AssertSynchronousNormal checks every one of n pooled connections, held at
-// once so the pool cannot hand the same connection back twice: synchronous is
-// per-connection state, so a setting that reached only one would pass a
-// single-query check and still fsync on every other connection.
 func assertSynchronousNormal(t *testing.T, db *gorm.DB, n int) {
 	t.Helper()
 	sqlDB, err := db.DB()

@@ -22,13 +22,11 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// recordedSubagentSession is the session id the subagent fixtures were recorded on.
 const (
 	subagentSessionDir      = "testdata/hooks/claude-subagent-session"
 	recordedSubagentSession = "68a2773c-78c5-4edd-b4fe-bf5bd1309895"
 )
 
-// replayRange replays the recorded hooks numbered [from, to) on c's session.
 func (c turnChat) replayRange(t *testing.T, from, to int) {
 	t.Helper()
 	entries, err := os.ReadDir(subagentSessionDir)
@@ -69,7 +67,6 @@ func (c turnChat) messages(t *testing.T) []recordedMessage {
 	return readRecordedMessages(t, c.h, c.imported, c.chatID)
 }
 
-// scopedToolIDs are the tool calls the feed records under scope, by their first row.
 func (c turnChat) scopedToolIDs(t *testing.T, scope string) []string {
 	t.Helper()
 	var out []string
@@ -106,8 +103,6 @@ func TestRegression_Symptom3_ASubagentsToolCallsAreRecorded(t *testing.T) {
 		"the subagent's own tool call is recorded under it")
 }
 
-// backgroundActivity is each subagent's state and each tool call's status
-// ("running" until a row closes it), by the fixture file that opened it.
 func (c turnChat) backgroundActivity(t *testing.T, files ...string) map[string]string {
 	t.Helper()
 	rows := ledgerRows(t, c.h, c.chatID)
@@ -138,8 +133,6 @@ func (c turnChat) backgroundActivity(t *testing.T, files ...string) map[string]s
 	return out
 }
 
-// Both subagents run past the turn end at 11, with the tools they open after
-// it, until each is over: a3edc… at its hand-back (23).
 func TestRegression_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 
@@ -157,8 +150,6 @@ func TestRegression_ABackgroundSubagentRunsPastItsTurnsEnd(t *testing.T) {
 		"13-PreToolUse.json", "14-PreToolUse.json", "21-PreToolUse.json"))
 }
 
-// 11-Stop ends the parent turn while a3edc… and a6fec… run; 23 hands a3edc…'s
-// result back and opens the turn 28-Stop closes; a6fec… stops at 26.
 func TestRegression_ABackgroundSubagentKeepsTheChatWorkingUntilItStops(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 
@@ -173,7 +164,6 @@ func TestRegression_ABackgroundSubagentKeepsTheChatWorkingUntilItStops(t *testin
 		"the hand-back's reply is recorded")
 }
 
-// A todo list's steps arrive one by one, each a plan row; the plan is the whole list.
 func TestRegression_ATodoListBecomesPlanRows(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
@@ -197,8 +187,6 @@ func TestRegression_ATodoListBecomesPlanRows(t *testing.T) {
 	assert.Equal(t, map[string]string{"Read a.txt": "active", "Run echo": "pending"}, steps)
 }
 
-// A child conversation's frame that precedes its bind is held through a late
-// end of another turn, and recorded under its scope once the spawn binds.
 func TestRegression_AChildsEarlyFrameSurvivesALateTurnEnd(t *testing.T) {
 	c := newTurnChat(t, newHarness(t))
 	c.startTurn(t, c.launch, "A")
@@ -297,8 +285,6 @@ func TestRegression_ATurnFailureCarriesTheKindItsDescriptorClassified(t *testing
 	assert.Equal(t, "limit", failures[0].Kind)
 }
 
-// A turn_stop that beat its own final delta: whichever lands first, the reply
-// is one message.
 func TestRegression_Symptom3_AReplyIsOneMessageWhicheverOfItsHooksLandsFirst(t *testing.T) {
 	for _, stopFirst := range []bool{true, false} {
 		t.Run(fmt.Sprintf("stop first %v", stopFirst), func(t *testing.T) {

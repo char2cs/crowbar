@@ -8,10 +8,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resetWindowPaneStoreForTests } from '@/__tests__/__fixtures__/window-pane-store'
 import { workspaceRef } from '@/lib/api/documents'
 
-// Real Monaco, no mocks: the production open sequence at store level (open the
-// document and its tab, mount the pane, apply the active buffer) must leave the
-// pane showing the document's model.
-
 const CONTENT = 'const hello = 42\nexport default hello\n'
 
 describe('open file → real monaco model content', () => {
@@ -35,7 +31,6 @@ describe('open file → real monaco model content', () => {
         const activeBufferId = state.panes[paneId]?.activeEditorTabId
         expect(activeBufferId).toBe(bufferId)
         const buffer = state.buffers.find((b) => b.id === activeBufferId)!
-        // Set explicitly by openContent's `doc` above.
         const filePath = buffer.path!
         const ctx = applyActiveBuffer({ manager, registry: activeEditors }, paneId, {
           doc: workspaceRef(buffer.workspaceId, filePath),
@@ -43,18 +38,13 @@ describe('open file → real monaco model content', () => {
 
         const model = manager.getEditor(paneId)?.getModel()
         expect(model?.getValue()).toBe(CONTENT)
-        // It is the document's own model, not a copy.
         const own = host.documents.get(documentUri(workspaceRef('repro-ws', filePath)))
         expect(model?.uri).toBe(own?.uri)
-        // And the context published to satellites carries the model.
         expect(ctx?.model).toBeTruthy()
       } finally {
         manager.unmountPane(paneId)
         container.remove()
       }
-      // A ceiling, not a wait: the test blocks on real promises, but the first
-      // load pulls the multi-MB monaco chunk, which takes seconds under a
-      // parallel suite with coverage instrumentation on a two-core CI box.
     },
     MONACO_LOAD_MS,
   )

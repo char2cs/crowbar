@@ -21,7 +21,6 @@ interface MenuItemsListProps {
   focusIndex?: number
 }
 
-/** A dropdown's buttons; `focusIndex` counts selectable items only and is kept in view. */
 export function MenuItemsList({
   items,
   onItemSelect,

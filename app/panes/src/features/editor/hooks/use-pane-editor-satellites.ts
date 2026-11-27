@@ -1,6 +1,3 @@
-// Everything bound to a pane's retained widget besides the model swap (usePaneEditorController):
-// appearance, the model's language/indentation, inline blame, focus on swap. The editor and model
-// come from the active-editor registry, which the controller publishes on every swap.
 import { useEffect, useState } from 'react'
 import { KeyCode, KeyMod } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
@@ -49,13 +46,9 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   const [bound, setBound] = useState<BoundEditor>(() => toBound(registry.get(paneId)))
   useEffect(() => registry.subscribe(paneId, (ctx) => setBound(toBound(ctx))), [paneId, registry])
   const { editor, model, uri, filePath } = bound
-  // The model uri names the buffer's own document, whatever pane shows it; a
-  // host document belongs to no workspace's git.
   const doc = refFromUri(uri)
   const workspaceId = doc?.authority === 'workspace' ? doc.workspaceId : null
 
-  // The bound model's own buffer, untitled ones included, never the active tab:
-  // the two differ while a swap is in flight.
   const languageOverride = useStore(windowPaneStore, (state) => {
     const own = state.buffers.find(
       (b) => isEditorContent(b) && documentUri(documentRefOf(b)) === uri,
@@ -68,8 +61,6 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   useModelOptions(model, filePath, languageOverride)
   useInlineBlame(editor, model, workspaceId, filePath)
 
-  // Cmd/Ctrl+A selects the whole model even when an app-level shortcut would
-  // otherwise claim the keystroke first.
   useEffect(() => {
     if (!editor) return
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, () => {
@@ -78,7 +69,6 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     })
   }, [editor])
 
-  // ── Focus the editor when it shows a new model on the active surface ──────
   useEffect(() => {
     if (!editor || !model || !isActiveSurface || readOnly) return
     editor.focus()

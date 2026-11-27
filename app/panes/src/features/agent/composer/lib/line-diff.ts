@@ -1,12 +1,10 @@
 import { parseDiffFromFile } from '@pierre/diffs'
 import type { CodeLine } from '@/features/agent/composer/lib/ask-request'
 
-/** Past this many characters a diff costs more than it tells: the sides are listed whole. */
 const DIFF_BUDGET = 200_000
 
 const bare = (line: string) => line.replace(/\r?\n$/, '')
 
-/** The part of `line` that differs from `other`: what is left between their shared head and tail. */
 function changed(line: string, other: string): [number, number] | undefined {
   let head = 0
   while (head < line.length && head < other.length && line[head] === other[head]) head++
@@ -22,8 +20,6 @@ function changed(line: string, other: string): [number, number] | undefined {
   return end > head ? [head, end] : undefined
 }
 
-/** One edit as a line diff: context, removed and added lines, numbered within the edit, a removed
- *  line and the added one that replaces it marked where they differ. */
 export function diffLines(before: string, after: string): CodeLine[] {
   if (before.length + after.length > DIFF_BUDGET) return []
   const file = (contents: string) => ({ name: 'edit', contents: contents ? `${contents}\n` : '' })
@@ -43,7 +39,6 @@ export function diffLines(before: string, after: string): CodeLine[] {
       }
       const removed = diff.deletionLines.slice(del, del + part.deletions).map(bare)
       const added = diff.additionLines.slice(add, add + part.additions).map(bare)
-      // Lines pair up by position when the block swaps as many as it removes.
       const paired = removed.length === added.length
       removed.forEach((text, i) =>
         rows.push({

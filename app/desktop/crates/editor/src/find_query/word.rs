@@ -1,14 +1,11 @@
 use std::ops::Range;
 
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/core/wordHelper.ts (USUAL_WORD_SEPARATORS)
 const SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
 pub(crate) fn is_separator(character: char) -> bool {
     character.is_whitespace() || SEPARATORS.contains(character)
 }
 
-/// The word that `offset` is in or just after, as Monaco's `getWordAtPosition` finds it; `None`
-/// when separators are on both sides.
 #[must_use]
 pub fn word_at(
     text: &str,

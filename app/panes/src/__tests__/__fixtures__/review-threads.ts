@@ -2,7 +2,6 @@ import { entityStore } from '@/core/entities/entity-store'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import type { ThreadDTO } from '@/lib/types'
 
-/** `thread` as `wsId`'s ws: scope streams it, the root message flattened onto the thread. */
 export function putReviewThread(wsId: string, thread: ReviewThread): void {
   const [root, ...replies] = thread.messages
   const dto: ThreadDTO = {
@@ -32,7 +31,6 @@ export function putReviewThread(wsId: string, thread: ReviewThread): void {
   })
 }
 
-/** No review threads, in any workspace. */
 export function clearReviewThreads(): void {
   const { byKind } = entityStore.getState()
   entityStore.setState({ byKind: { ...byKind, review_thread: {} } })

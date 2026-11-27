@@ -13,10 +13,6 @@ use crate::space_id::SpaceId;
 use crate::tab_id::TabId;
 
 impl Layout {
-    /// Checks every invariant.
-    ///
-    /// # Errors
-    /// [`Error::Invalid`] naming the first broken invariant.
     pub fn validate(&self) -> Result<()> {
         if self.tabs.len() > MAX_TABS {
             return Err(Error::Invalid("too many tabs"));

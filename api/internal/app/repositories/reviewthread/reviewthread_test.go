@@ -21,9 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// captureBroadcast records every frame the hub projection fans out so tests can
-// assert the WS frame shape (spec §3.5 delivery — the reviewthread hub frame is
-// the bare evt.Aggregate, no enrichment).
 type captureBroadcast struct {
 	mu   sync.Mutex
 	rows []domain.ReviewThread
@@ -47,9 +44,6 @@ func (c *captureBroadcast) last() domain.ReviewThread {
 	return c.rows[len(c.rows)-1]
 }
 
-// newRepoWithDeps builds a reviewthread repo over throwaway in-memory event +
-// read-model DBs (the central per-type stores' shape) and returns the read-model
-// DB and the captured hub broadcast so tests can inspect persistence + fan-out.
 func newRepoWithDeps(
 	t *testing.T,
 ) (context.Context, reviewthread.ReviewThread, *gormdb.DB, *captureBroadcast) {
@@ -102,7 +96,6 @@ func TestReviewThread_Open_ErrorOnDuplicate(t *testing.T) {
 	require.NoError(t, err)
 	_, err = repo.Open(ctx, reviewthread.OpenInput{ID: "t2", WsID: "w1", MessageID: "m2"}, time.Unix(1, 0))
 	assert.Error(t, err)
-	// A duplicate Open is a state-guard rejection (ErrValidation), never retried.
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
 
@@ -157,11 +150,6 @@ func TestReviewThread_OpenReplyList(t *testing.T) {
 	assert.Equal(t, "t1", byWs[0].ID)
 }
 
-// TestReviewThread_AttributionSurvivesTheEventLog drives the real aggregate:
-// attribution written on an open and on a reply must come back off the event log
-// (Get folds from the log) and off the read model (List reads the JSON blob), on
-// the right message each time. Two providers and two chats, because one of each
-// would pass even if the fields were stored per THREAD instead of per message.
 func TestReviewThread_AttributionSurvivesTheEventLog(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0)
@@ -175,8 +163,6 @@ func TestReviewThread_AttributionSurvivesTheEventLog(t *testing.T) {
 		Author: "codex", IsAgent: true, ProviderID: "codex", ChatID: "chat-2",
 	}, now)
 	require.NoError(t, err)
-	// A human reply on the same thread: the read path must distinguish it from the
-	// two agent messages by the absence of attribution, not by position.
 	_, err = repo.Reply(ctx, reviewthread.ReplyInput{ID: "t1", MessageID: "m3", Body: "thanks"}, now)
 	require.NoError(t, err)
 
@@ -190,9 +176,6 @@ func TestReviewThread_AttributionSurvivesTheEventLog(t *testing.T) {
 	assert.Empty(t, got.Messages[2].ProviderID)
 	assert.Empty(t, got.Messages[2].ChatID)
 
-	// List reads the read model, which the store projection fills ASYNCHRONOUSLY —
-	// Send returns before it runs (decision 4). Drain the dispatch queue first;
-	// this is the deterministic read-your-writes barrier, not a wait.
 	reviewthread.WaitQuiescentForTest(repo)
 	list, err := repo.List(ctx)
 	require.NoError(t, err)
@@ -221,8 +204,6 @@ func TestReviewThread_ListByWorkspace_FiltersWsID(t *testing.T) {
 	assert.Empty(t, none)
 }
 
-// Every verb on a thread that does not exist answers not found in the user's
-// words, as a GET of it does.
 func TestReviewThread_AnUnknownThreadIsNotFound(t *testing.T) {
 	ctx, repo := newRepo(t)
 	verbs := map[string]func() error{
@@ -249,8 +230,6 @@ func TestReviewThread_DeleteThread_Forgets(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, repo.DeleteThread(ctx, "t1"))
 
-	// Forget runs the store projection's synchronous OnForget row-delete, so the
-	// read-model row is gone the instant Forget returns (spec §3.6).
 	var n int64
 	require.NoError(t, db.WithContext(ctx).Table("read_review_threads").Count(&n).Error)
 	assert.Zero(t, n)
@@ -267,8 +246,6 @@ func TestReviewThread_DeleteThread_ErrorOnMissing(t *testing.T) {
 	assert.Error(t, err, "forgetting an aggregate that was never opened is a caller bug, not a no-op")
 }
 
-// Many replies to one thread at once all commit with no retry: asynx serializes
-// an aggregate's commands, so each one simply waits its turn.
 func TestReviewThread_ConcurrentRepliesAllCommitInTurn(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
@@ -299,14 +276,11 @@ func TestReviewThread_ConcurrentRepliesAllCommitInTurn(t *testing.T) {
 	}
 	require.Zero(t, failed, "%d/%d concurrent same-aggregate replies failed", failed, n)
 
-	// The aggregate folds cleanly from the log after the storm.
 	got, err := repo.Get(ctx, "t1")
 	require.NoError(t, err)
 	require.Len(t, got.Messages, n+1)
 }
 
-// TestReviewThread_StoreProjectionPersists proves the save-only store projection
-// folds evt.Aggregate into the durable read model (state/store/review_thread.db).
 func TestReviewThread_StoreProjectionPersists(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	_, err := repo.Open(ctx, reviewthread.OpenInput{
@@ -314,18 +288,12 @@ func TestReviewThread_StoreProjectionPersists(t *testing.T) {
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
 
-	// The store projection runs async after the event is durable; drain it, then
-	// assert synchronously that it persisted the row to the read-model DB.
 	reviewthread.WaitQuiescentForTest(repo)
 	var n int64
 	require.NoError(t, db.WithContext(ctx).Table("read_review_threads").Count(&n).Error)
 	require.Equal(t, int64(1), n, "store projection must persist the row to state/store/review_thread.db")
 }
 
-// TestReviewThread_ListLazyRebuild proves the lazy Replay repair (spec §3.7): when
-// the durable read model is lost but the event log survives, the per-request List
-// enumerates every id via the event store's AggregateLister and Replays each back
-// into the read model.
 func TestReviewThread_ListLazyRebuild(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	now := time.Unix(1, 0)
@@ -334,17 +302,13 @@ func TestReviewThread_ListLazyRebuild(t *testing.T) {
 	_, err = repo.Open(ctx, reviewthread.OpenInput{ID: "t2", WsID: "w2", MessageID: "m2"}, now)
 	require.NoError(t, err)
 
-	// The store projection runs async; drain it so both rows are durable before
-	// simulating a loss, then read synchronously so the assertion is deterministic.
 	reviewthread.WaitQuiescentForTest(repo)
 	list, err := repo.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 
-	// Simulate read-model loss with the event log intact.
 	require.NoError(t, db.WithContext(ctx).Exec("DELETE FROM read_review_threads").Error)
 
-	// The per-request List heals the model via whole-model lazy Replay.
 	rebuilt, err := repo.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, rebuilt, 2, "List must Replay every id from the event log after a read-model loss")
@@ -352,9 +316,6 @@ func TestReviewThread_ListLazyRebuild(t *testing.T) {
 	require.ElementsMatch(t, []string{"t1", "t2"}, got)
 }
 
-// TestReviewThread_HubBroadcastsBareAggregate proves the split hub projection fans
-// out the unchanged frame shape — the bare evt.Aggregate (no enrichment) — so the
-// FE review-thread stream sees no regression (spec §3.5 delivery, Step 1 case d).
 func TestReviewThread_HubBroadcastsBareAggregate(t *testing.T) {
 	ctx, repo, _, cap := newRepoWithDeps(t)
 	opened, err := repo.Open(ctx, reviewthread.OpenInput{
@@ -362,8 +323,6 @@ func TestReviewThread_HubBroadcastsBareAggregate(t *testing.T) {
 	}, time.Unix(1, 0))
 	require.NoError(t, err)
 
-	// The hub projection runs async; drain it, then assert the broadcast count
-	// synchronously — no polling, no timeout.
 	reviewthread.WaitQuiescentForTest(repo)
 	require.GreaterOrEqual(t, cap.count(), 1, "hub projection must broadcast the review-thread frame")
 	frame := cap.last()
@@ -395,8 +354,6 @@ func TestReviewThread_ListByWorkspace_StorageError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestReviewThread_EditMessage_UpdatesBody pins EditMessage's happy path: it
-// rewrites the target message's body in place without touching the others.
 func TestReviewThread_EditMessage_UpdatesBody(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0)
@@ -431,8 +388,6 @@ func TestReviewThread_EditMessage_ErrorOnUnknownMessageID(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestReviewThread_DeleteMessage_RemovesAReply pins DeleteMessage's happy path:
-// a non-root reply is removed and the root comment (Messages[0]) survives.
 func TestReviewThread_DeleteMessage_RemovesAReply(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1, 0)
@@ -456,9 +411,6 @@ func TestReviewThread_DeleteMessage_ErrorOnMissingThread(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestReviewThread_DeleteMessage_ErrorOnRootComment pins the domain rule (09
-// §3): the root comment cannot be deleted this way, only by forgetting the
-// whole thread — deleting it would leave a review thread with no anchor.
 func TestReviewThread_DeleteMessage_ErrorOnRootComment(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Open(ctx, reviewthread.OpenInput{ID: "t1", WsID: "w1", MessageID: "m1", Body: "first"}, time.Unix(1, 0))

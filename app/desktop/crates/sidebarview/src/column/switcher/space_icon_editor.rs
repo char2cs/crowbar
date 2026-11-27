@@ -1,5 +1,3 @@
-//! The icon popover of the active space in the switcher.
-
 use std::rc::Rc;
 
 use gpui::{App, AppContext as _, Context, Entity};

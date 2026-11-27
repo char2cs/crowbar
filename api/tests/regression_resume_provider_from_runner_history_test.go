@@ -17,12 +17,6 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 )
 
-// A chat with no conversation, no switch and no stored provider resumed as
-// "agentrunner not found": only the old daemon's runner history still named its
-// vendor. The upgrade boot restates the chat's provider from it, once.
-
-// chatCount counts the conversations a repo scope lists — the guard every test
-// below takes before and after a resume.
 func chatCount(
 	t *testing.T,
 	h *harness,
@@ -34,15 +28,11 @@ func chatCount(
 	return len(conversationsOnly(rows))
 }
 
-// legacyPlacement is one row of the old daemon's runner history: providerID was
-// placed on chatID at at.
 type legacyPlacement struct {
 	chatID, providerID string
 	at                 time.Time
 }
 
-// upgradeWithRunnerHistory crashes h, writes placements into the legacy runner
-// history as the old daemon left it, and boots an upgrading daemon over home.
 func upgradeWithRunnerHistory(
 	t *testing.T,
 	h *harness,
@@ -70,8 +60,6 @@ func upgradeWithRunnerHistory(
 	return upgraded
 }
 
-// providerlessChat mints a chat with no stored provider, as every chat minted
-// before the vendor field existed carries.
 func providerlessChat(t *testing.T, h *harness, imported importedRepo) string {
 	t.Helper()
 	chatID, err := h.app.Usecases.AgentChat.MintChat(t.Context(), "", imported.workspaceID, "", "")
@@ -79,10 +67,6 @@ func providerlessChat(t *testing.T, h *harness, imported importedRepo) string {
 	return chatID
 }
 
-// TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory is the
-// reported bug, end to end. The chat has nothing the resolver used to read, and
-// resuming it answered "agentrunner not found"; it must instead come back on the
-// vendor the runner history names.
 func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -94,8 +78,6 @@ func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *tes
 	h = upgradeWithRunnerHistory(t, h, home, legacyPlacement{chatID, "quietstub", time.Now()})
 	before := chatCount(t, h, imported)
 
-	// Every precondition of the bug, asserted rather than assumed: take any one of
-	// them away and this test proves something easier than the reported failure.
 	detail := getAgentChat(t, h, repoBase(imported), chatID)
 	require.Empty(t, detail.LiveRunnerID, "the chat must be dormant")
 	require.Empty(t, detail.sessionIDs(), "no conversation was ever announced on it")
@@ -119,10 +101,6 @@ func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *tes
 		"a resume RESOLVES a provider for a chat that exists; it must never create one")
 }
 
-// TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement holds the
-// recovered answer to the same ordering rule the other sources obey. A chat
-// handed from one vendor to another and then stopped must come back as the one
-// that was actually running, never whichever row happened to be read first.
 func TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)
@@ -150,15 +128,6 @@ func TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement(t *testing.T)
 	assert.Equal(t, before, chatCount(t, h, imported))
 }
 
-// TestRegression_FreshlyCreatedChatCarriesItsProviderFromBirth is the other half
-// of the fix: a chat created from now on records its vendor when the ROW is
-// minted, not only if and when a CLI successfully spawns on it. The spawn-time
-// write is best-effort and runs after a fork that may never happen, so it could
-// leave a chat that could never say what it ran.
-//
-// It is proved where nothing else can answer: the runner is stopped and announced
-// no conversation, so the chat's own stored provider is the only source. That is
-// the field Part A writes at birth.
 func TestRegression_FreshlyCreatedChatCarriesItsProviderFromBirth(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)
@@ -190,16 +159,6 @@ func TestRegression_FreshlyCreatedChatCarriesItsProviderFromBirth(t *testing.T) 
 	assert.Equal(t, before, chatCount(t, h, imported))
 }
 
-// TestRegression_ResumeWithNoEvidenceAnywhereFailsHonestlyAndCreatesNoChat is the
-// floor under the other three. A chat no CLI has ever been placed on genuinely
-// cannot be resolved, and that answer must stay reachable — a resolver that
-// guessed instead is what silently converted a dormant chat to another vendor.
-//
-// Two things are asserted about the refusal. It is HONEST: the message names the
-// provider as the thing that could not be resolved, never a missing runner, which
-// is expected here and was never what failed. And it is still a 404, not a 500 —
-// the request is well-formed and the chat exists; what is missing is the record
-// being resolved.
 func TestRegression_ResumeWithNoEvidenceAnywhereFailsHonestlyAndCreatesNoChat(t *testing.T) {
 	h := newHarness(t)
 	writeProviderDescriptor(t, h, "quietstub", quietStubProviderDescriptorYAML)

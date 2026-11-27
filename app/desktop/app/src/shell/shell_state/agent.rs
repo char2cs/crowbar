@@ -1,5 +1,3 @@
-//! Browser automation calls from agents.
-
 mod agent_call;
 mod agent_ops;
 mod agent_page;

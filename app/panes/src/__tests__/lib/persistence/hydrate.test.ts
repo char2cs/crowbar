@@ -1,6 +1,5 @@
 import { vi } from 'vitest'
 
-// Restoring documents loads Monaco and reads disk; restore-documents.test owns that.
 const restoreDocumentsMock = vi.fn(async () => {})
 vi.mock('@/features/editor/documents/restore-documents', () => ({
   restoreDocuments: () => restoreDocumentsMock(),
@@ -35,10 +34,8 @@ import {
   seedRepos,
 } from '@/__tests__/__fixtures__/sidebar-entities'
 
-// The fixed key of the one persisted window layout row.
 const WINDOW_SESSION_ID = 'window'
 
-/** The projects scope's snapshot landing with `chats`. */
 function syncChats(chats: Array<{ id: string; workspaceId: string }>): void {
   putEntities(
     'chat',
@@ -135,8 +132,6 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.buffers[0]).not.toHaveProperty('content')
   })
 
-  // A v1 member carried only its chat; it is restored unplaced, and the projects scope
-  // places it, or drops it once a snapshot that read every repo leaves its chat out.
   it('upgrades a v1 layout: members gain their workspace once the projects scope answers', async () => {
     resetEntities()
     const db = await getDB()
@@ -171,7 +166,6 @@ describe('hydrateWindowPaneLayout', () => {
     const views = () => windowPaneStore.getState().viewOrder
     expect(views()).toEqual(['view-a', 'view-x'])
     expect([placed()['pane-a'].workspaceId, placed()['pane-x'].workspaceId]).toEqual([null, null])
-    // One that could not read some repo places, but says no chat is gone.
     entityStore.setState({ unread: { projects: ['r-unread'] } })
     syncChats([{ id: 'chat-a', workspaceId: 'ws-a' }])
     expect(placed()['pane-a'].workspaceId).toBe('ws-a')
@@ -198,7 +192,6 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.viewOrder).toEqual([])
     expect(state.views).toEqual({})
     expect(state.activeViewId).toBeNull()
-    // As the base build did: the buffers come back, held by the stage.
     expect(state.buffers.map((b) => b.id)).toEqual(['buf-1'])
     expect(state.panes[getAllLeafIds(state.stage)[0]].editorTabIds).toEqual(['buf-1'])
   })
@@ -223,7 +216,6 @@ describe('hydrateWindowPaneLayout', () => {
     expect(windowPaneStore.getState().activeViewId).toBeNull()
   })
 
-  // One broken record must not discard the whole band.
   it('repairs a payload with one broken record, keeping every valid one in order', async () => {
     const db = await getDB()
     await db.put('workspace-layout', {
@@ -259,12 +251,6 @@ describe('hydrateWindowPaneLayout', () => {
   })
 })
 
-/**
- * First load after upgrading an install from the base build (70ec430). The
- * seeds are exactly what that build wrote: a layout row with no `version`,
- * chat panes with no `workspaceId`, the retired `sidebarWidth` fields, and
- * whatever buffers it held (it kept buffers no pane listed).
- */
 describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
   const P = 'p1'
 
@@ -334,7 +320,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       activeViewByProject: { [P]: 'view-home' },
       activePaneId: 'pane-home',
       mostRecentActivePaneIds: ['pane-home'],
-      // `buf-orphan` is listed by no pane — the base build leaked it, unsaved.
       buffers: [dirty('buf-dirty', 'ws-home'), dirty('buf-orphan', 'ws-repo')],
     })
 
@@ -349,7 +334,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
       editorTabIds: ['buf-dirty'],
     })
     expect(state.panes['pane-repo'].workspaceId).toBeNull()
-    // No unsaved edit is lost: the orphan is re-homed to a surviving pane.
     expect(state.buffers.map((b) => b.id).sort()).toEqual(['buf-dirty', 'buf-orphan'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-orphan'))
     expect(holders).toHaveLength(1)
@@ -360,7 +344,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     ])
     expect(viewIntegrityViolations(state)).toEqual([])
 
-    // The projects scope then places both members.
     placeRestoredPanesOnceSynced()
     syncChats([
       { id: 'chat-home', workspaceId: 'ws-home' },
@@ -406,7 +389,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     expect(state.viewOrder).toEqual(['view-kept'])
     expect(state.panes['pane-gone']).toBeUndefined()
     expect(state.panes['pane-kept'].workspaceId).toBe('ws-k')
-    // The unsaved buffer outlives its chat; the clean one is released.
     expect(state.buffers.map((b) => b.id)).toEqual(['buf-dirty'])
     const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-dirty'))
     expect(holders).toHaveLength(1)
@@ -450,7 +432,6 @@ describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
     const stamped = await loadWindowPaneLayout()
     expect(stamped?.version).toBe(WINDOW_LAYOUT_VERSION)
     expect(stamped?.panes['pane-a']).toMatchObject({ chatId: 'chat-a', workspaceId: null })
-    // Idempotent: hydrating an upgraded layout changes nothing.
     resetWindowPaneStoreForTests()
     await hydrateWindowPaneLayout()
     expect(await loadWindowPaneLayout()).toEqual(stamped)
@@ -488,14 +469,12 @@ function pane(
     editorTabIds: [],
     activeEditorTabId: over.editorTabIds?.[0] ?? null,
     editorOpen: false,
-    // A current-shape member records its workspace.
     workspaceId: over.chatId ? `ws-of-${over.chatId}` : null,
     ...over,
     viewId,
   }
 }
 
-/** A buffer as layouts before v4 saved it, text and all. */
 function buffer(id: string): EditorContent {
   return {
     id,
@@ -520,7 +499,6 @@ describe('hydrateSidebar', () => {
     treeUiStore.setState(treeUiStore.getInitialState(), true)
   })
 
-  // A mode an older build wrote ('workspaces'), or none, must not name a missing panel.
   it.each([
     ['files', 'files'],
     ['workspaces', 'chats'],
@@ -537,8 +515,6 @@ describe('hydrateSidebar', () => {
     expect(treeUiStore.getState().collapsed.size).toBe(0)
   })
 
-  // Retired keys a previous build persisted replay as "everything open", the product
-  // default: gating on them left repos that never loaded a thread and projects blank.
   it('ignores the retired collapsedRepos, -Workspaces and -Projects keys', async () => {
     await saveSidebarUI({
       collapsedRepos: ['crowbar', 'quiver-core'],

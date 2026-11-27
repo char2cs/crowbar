@@ -1,5 +1,3 @@
-//! Takes the layout a text area computed while painting.
-
 use gpui::{Bounds, Pixels};
 
 use crate::control::editor::text_area::layout::Layout;

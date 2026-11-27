@@ -1,5 +1,3 @@
-//! The GitHub button of a repository's icon popover.
-
 use std::rc::Rc;
 
 use gpui::Context;

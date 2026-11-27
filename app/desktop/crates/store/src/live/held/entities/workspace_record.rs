@@ -1,5 +1,3 @@
-//! A workspace (a checkout of a branch) as the projects scope carries it.
-
 use serde::Deserialize;
 
 use daemonapi::Switch;

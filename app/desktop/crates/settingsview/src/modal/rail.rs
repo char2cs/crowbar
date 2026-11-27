@@ -1,5 +1,3 @@
-//! The page list on the left.
-
 mod item;
 
 use gpui::prelude::FluentBuilder as _;

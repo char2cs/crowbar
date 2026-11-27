@@ -27,8 +27,6 @@ const repo = {
   ],
 } as unknown as Repo
 
-// A terminal's file links open and resolve in the workspace the terminal belongs to,
-// which is not necessarily the one in view (hidden workspaces keep their terminals).
 describe('useXtermInstance file links', () => {
   beforeEach(() => {
     vi.clearAllMocks()

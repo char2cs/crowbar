@@ -6,18 +6,6 @@ import { treeUiStore, type RemovalDraft } from '@/features/workspace/tree/tree-u
 import { seedRepos } from '@/__tests__/__fixtures__/sidebar-entities'
 import { readSelect, selectRepos } from '@/core/entities/select'
 
-/**
- * A folder held for removal transforms IN PLACE (sidebar-row.tsx's
- * `RemovingSidebarRow`) and keeps its children nested under it for the whole
- * eight-second hold — `renderedHiddenIds` deliberately holds the entry's own
- * primary row back so there is a row left to transform.
- *
- * `visibleRepos` read the tray store's RAW `hiddenIds` instead, which does
- * include the folder itself, so `applyPendingRemovals` re-homed the folder's
- * children to the folder's parent. Every sibling index a drop computed during
- * a hold was then counted over a list that did not match the one on screen.
- */
-
 const repo: Repo = {
   id: 'r1',
   projectId: 'p1',
@@ -62,8 +50,6 @@ describe('the drop planner while a folder is held for removal', () => {
     expect(visible.workspaces.find((w) => w.id === 'ws-inside')?.folderId).toBe('folder-1')
   })
 
-  // The cascade half is untouched: a held CHAT's own threads still disappear
-  // outright, so this is not "stop filtering anything".
   it('still hides a held row’s cascade descendants', () => {
     seedRepos([
       {

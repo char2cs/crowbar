@@ -1,5 +1,3 @@
-//! How a plan's failure is told: under a title, with a set reason, or in a dialog.
-
 use crate::plan::Plan;
 
 impl Plan {

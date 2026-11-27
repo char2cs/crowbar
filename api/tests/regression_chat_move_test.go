@@ -18,8 +18,6 @@ import (
 	"github.com/char2cs/crowbar/api/tests/kit"
 )
 
-// moveWorld is one chat on the fake claude, bound to session after a whole turn, in the
-// writable workspace, and a second branch (wsB, owned by chatB) to move it into.
 type moveWorld struct {
 	h                  *harness
 	imported           importedRepo
@@ -44,7 +42,6 @@ func newMoveWorld(t *testing.T, h *harness) moveWorld {
 	return w
 }
 
-// moveInto drops chatID under parentID in workspaceID, as the sidebar's drag does.
 func (w moveWorld) moveInto(t *testing.T, chatID, parentID, workspaceID string) {
 	t.Helper()
 	w.h.patch(repoBase(w.imported)+"/chats/"+chatID+"/placement",
@@ -52,7 +49,6 @@ func (w moveWorld) moveInto(t *testing.T, chatID, parentID, workspaceID string) 
 	w.h.QuiesceReactors()
 }
 
-// openTurn launches the chat on a prompt and opens its turn, as the CLI reports it.
 func (w moveWorld) openTurn(t *testing.T) kit.Launch {
 	t.Helper()
 	l := promptLaunch(t, w.h, w.imported, w.fake, w.chatID, "work", "")
@@ -86,8 +82,6 @@ func moveRows(t *testing.T, h *harness, chatID string) []ledger.Move {
 	return kit.Bodies[ledger.Move](ledgerRows(t, h, chatID), ledger.KindMove)
 }
 
-// untilMoved waits for chatID's newest move row to be done: its row is written after the
-// chat runs in its new place.
 func untilMoved(t *testing.T, h *harness, chatID string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -96,8 +90,6 @@ func untilMoved(t *testing.T, h *harness, chatID string) {
 	}, 10*time.Second, 10*time.Millisecond, "chat %s's move was never done: %+v", chatID, moveRows(t, h, chatID))
 }
 
-// A dormant thread dropped into another branch moves at once with the thread under it, and its
-// next prompt resumes the same session in the new worktree.
 func TestRegression_Move_ADroppedThreadContinuesItsSessionInTheNewWorktree(t *testing.T) {
 	w := newMoveWorld(t, newHarness(t))
 	child := createChatWithProvider(t, w.h, repoBase(w.imported), w.fake.ID, w.imported.workspaceID, w.chatID)
@@ -113,7 +105,6 @@ func TestRegression_Move_ADroppedThreadContinuesItsSessionInTheNewWorktree(t *te
 	assert.Equal(t, w.session, argAfter(l.Argv, "--resume"), "the same conversation, resumed by its id: %v", l.Argv)
 }
 
-// A working chat keeps running where it is; its move waits for the turn to end.
 func TestRegression_Move_AWorkingChatMovesAtItsTurnBoundary(t *testing.T) {
 	w := newMoveWorld(t, newHarness(t))
 	l := w.openTurn(t)
@@ -129,7 +120,6 @@ func TestRegression_Move_AWorkingChatMovesAtItsTurnBoundary(t *testing.T) {
 	assert.Equal(t, w.wsB, w.workspaceOf(t, w.chatID))
 }
 
-// Cancel move keeps the chat where it runs.
 func TestRegression_Move_ACancelledMoveLeavesTheChatWhereItRuns(t *testing.T) {
 	w := newMoveWorld(t, newHarness(t))
 	l := w.openTurn(t)
@@ -145,7 +135,6 @@ func TestRegression_Move_ACancelledMoveLeavesTheChatWhereItRuns(t *testing.T) {
 	assert.Equal(t, ledger.MoveCancelled, moves[len(moves)-1].Phase)
 }
 
-// A move asked for before the daemon died is made by the next boot, not lost or failed.
 func TestRegression_Move_APendingMoveSurvivesARestart(t *testing.T) {
 	for _, stop := range []string{"shutdown", "crash"} {
 		t.Run(stop, func(t *testing.T) {
@@ -167,8 +156,6 @@ func TestRegression_Move_APendingMoveSurvivesARestart(t *testing.T) {
 	}
 }
 
-// Make a branch cuts from the folder's own last commit, not origin's: a local commit comes
-// along, an untracked file does not, and the thread then owns the new branch.
 func TestRegression_BranchOut_CutsFromTheLocalHeadAndTheThreadOwnsIt(t *testing.T) {
 	w := newMoveWorld(t, newHarness(t))
 	here := w.worktree(t, w.imported.workspaceID)
@@ -193,8 +180,6 @@ func TestRegression_BranchOut_CutsFromTheLocalHeadAndTheThreadOwnsIt(t *testing.
 	assert.Equal(t, w.chatID, worktreeOf(t, w.h, w.imported, w.workspaceOf(t, w.chatID)).OwningChatID)
 }
 
-// A drop naming a workspace other than the one its container runs in is refused, and nothing
-// is asked for: the thread would run somewhere its row does not say.
 func TestRegression_Move_AContainerOfAnotherWorkspaceIsRefused(t *testing.T) {
 	w := newMoveWorld(t, newHarness(t))
 	wsC, _ := createWorktree(t, w.h, w.imported, "feature/c", w.imported.workspaceID)

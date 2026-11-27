@@ -1,5 +1,3 @@
-//! What the handle logs while it stops the supervision task.
-
 use std::fmt;
 
 use journal::{Event, Level};

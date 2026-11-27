@@ -1,6 +1,3 @@
-//! Opens a sidebar over a recording data source in a 1200x800 window, with or without the
-//! window's pop-up window.
-
 use std::rc::Rc;
 
 use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, VisualTestContext, px, size};
@@ -31,7 +28,6 @@ pub(crate) fn open(
     (recorder, sidebar, cx)
 }
 
-/// The sidebar and its window, whose tooltips and toasts float in its pop-up window.
 pub(crate) struct Floating {
     pub(crate) recorder: Rc<Recorder>,
     pub(crate) sidebar: Entity<Sidebar>,
@@ -39,7 +35,6 @@ pub(crate) struct Floating {
 }
 
 impl Floating {
-    /// The pop-up window, once the owner opened it; the owner's own window until then.
     pub(crate) fn top(&mut self) -> VisualTestContext {
         ui::testing::newest_window(&mut self.window)
     }

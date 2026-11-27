@@ -1,6 +1,3 @@
-//! One shortcut: label with its tags, the chord button and a Reset for a custom chord.
-//! Spec: web/src/features/settings/components/tabs/keybindings-settings.tsx.
-
 use gpui::{
     AnyElement, App, Div, FocusHandle, InteractiveElement, IntoElement, ParentElement,
     SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,

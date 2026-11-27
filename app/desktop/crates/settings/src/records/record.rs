@@ -1,5 +1,3 @@
-//! One entry of a [`crate::ListBlock`].
-
 use crate::records::line::Line;
 use crate::records::record_action::RecordAction;
 use crate::records::record_flag::RecordFlag;
@@ -8,7 +6,6 @@ use crate::records::tone::Tone;
 mod controls;
 mod glyph;
 
-/// A record the backend lists: a title, lines of detail, optional status, badge, switches and one action.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Record {
     pub(crate) id: String,
@@ -25,7 +22,6 @@ pub struct Record {
 }
 
 impl Record {
-    /// A record `id` titled `title`.
     pub fn new(
         id: impl Into<String>,
         title: impl Into<String>,
@@ -45,7 +41,6 @@ impl Record {
         }
     }
 
-    /// Appends a detail line.
     #[must_use]
     pub fn line(
         mut self,
@@ -55,7 +50,6 @@ impl Record {
         self
     }
 
-    /// Shows a short muted text on the title's line, after the title.
     #[must_use]
     pub fn aside(
         mut self,
@@ -65,13 +59,11 @@ impl Record {
         self
     }
 
-    /// The text on the title's line after the title, if any.
     #[must_use]
     pub fn aside_line(&self) -> Option<&Line> {
         self.aside.as_ref()
     }
 
-    /// Shows a badge after the title.
     #[must_use]
     pub fn badge(
         mut self,
@@ -81,25 +73,21 @@ impl Record {
         self
     }
 
-    /// The record id.
     #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// The title text.
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
-    /// Detail lines under the title, in order.
     #[must_use]
     pub fn lines(&self) -> &[Line] {
         &self.lines
     }
 
-    /// A badge shown after the title, if any.
     #[must_use]
     pub fn badge_line(&self) -> Option<&Line> {
         self.badge.as_ref()

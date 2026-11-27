@@ -7,17 +7,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// owningChatMinter is the chat-first saga's own verbs (the Chats-panel tree
-// usecase): mint and place a chat, point it at its workspace, take it back.
 type owningChatMinter interface {
 	MintOwningChat(ctx context.Context, chatID, parentWorkspaceID string) (string, error)
 	AttachOwningWorkspace(ctx context.Context, chatID string, ws domain.Workspace) error
 	DiscardOwningChat(ctx context.Context, chatID string) error
 }
 
-// reconcileOwningChats enforces at boot that every live workspace has exactly one
-// owning chat, closing the gap a crash between creating and attaching leaves. A legacy
-// workspace's heuristic owner (legacyOwner) is recorded rather than replaced.
 func reconcileOwningChats(
 	ctx context.Context,
 	workspaces []domain.Workspace,
@@ -86,16 +81,10 @@ func mintOwningChat(
 		"workspace_id", ws.ID, "chat_id", chatID)
 }
 
-// sharedGround reports whether many conversations legitimately run in ws
-// without any owning it — the default checkout, a locked branch, the project
-// home — exactly as the pre-audit daemon's Workspace.SharedGround did.
 func sharedGround(ws domain.Workspace) bool {
 	return ws.IsDefault || ws.RepoID == "" || ws.Status == domain.WorkspaceStatusLocked
 }
 
-// legacyOwner is the pre-audit daemon's owner heuristic for a workspace with no
-// recorded owner: a legacy branch-typed row first, else the earliest row not provably
-// a thread; on shared ground a titled row is a user's conversation, never the owner.
 func legacyOwner(
 	rows []domain.Chat,
 	shared bool,
@@ -136,8 +125,6 @@ func legacyCandidate(
 	}
 }
 
-// preferredLegacyOwner reports whether held keeps the workspace against
-// challenger: a branch-typed row first, then the earliest, then the lower id.
 func preferredLegacyOwner(
 	held domain.Chat,
 	challenger domain.Chat,

@@ -15,7 +15,6 @@ import {
   repoRows,
 } from '@/__tests__/__fixtures__/tree-rows'
 
-// deriveRows over a hand-built index and views: no stores, no placement fallbacks.
 type ChatView = NonNullable<ReturnType<RowViews['chat']>>
 type WorkspaceView = NonNullable<ReturnType<RowViews['workspace']>>
 type RepoView = NonNullable<ReturnType<RowViews['repo']>>
@@ -169,7 +168,6 @@ describe('deriveRows', () => {
     const views = { repos: { r1: repoView('home-owner') } }
     const creating = pure(nodes, views, { operations: [op] })
     expect(creating.at(-1)).toMatchObject({ id: 'c-new', parentId: 'home-owner', working: true })
-    // The daemon appends a create at the end of its level.
     expect(creating.at(-1)?.order).toBe(Number.MAX_SAFE_INTEGER)
     const arrived = pure(nodes, views, { operations: [op], isPresent: (ref) => ref.id === 'c-new' })
     expect(arrived.map((r) => r.id)).toEqual(['home-owner'])
@@ -189,8 +187,6 @@ describe('deriveRows', () => {
   })
 })
 
-// Design spec §3.1-3.2: a worktree chat and a bubble chat are first-class rows beside branches and
-// folders, placed by one `parentId` walk that folders are transparent to.
 describe('chat rows', () => {
   it('a chat becomes a chat-kind row that owns no worktree', () => {
     const repo = makeRepo({
@@ -204,7 +200,6 @@ describe('chat rows', () => {
     expect(row?.workspaceId).toBe('ws-home')
   })
 
-  // A bubble's row falls back to its nearest ancestor workspace, or a click has nothing to open.
   it('a bubble with no workspace of its own falls back to its nearest ancestor workspace', () => {
     const repo = makeRepo({
       defaultWorkspaceId: 'ws-home',
@@ -299,7 +294,6 @@ describe('chat rows', () => {
     expect(parentOf.get('c-2')).toBe('c-1')
     expect(parentOf.get('c-3')).toBe('c-2')
     expect(parentOf.get('c-4')).toBe('c-3')
-    // …and the chain is genuinely anchored to the repo, not floating.
     expect(parentOf.get('f-1')).toBe('ws-1')
     expect(parentOf.get('ws-1')).toBe(HOME_ROW_ID)
   })
@@ -362,7 +356,6 @@ describe('chat rows', () => {
     expect(repoRows(makeRepo({ ...over, chats: [] }))).toEqual(repoRows(makeRepo(over)))
   })
 
-  // The bug class tasks 21/22/26/34 each found a version of, in this same area.
   describe('cross-repo / cross-workspace isolation', () => {
     it('never renders a chat that belongs to another repo', () => {
       const repo = makeRepo({
@@ -379,8 +372,6 @@ describe('chat rows', () => {
     })
 
     it('never nests one repo’s chat under another repo’s row', () => {
-      // `theirs` names r1's own folder as its parent — the shape a mis-scoped
-      // list would produce. It must not be drawn under it; it must not be drawn.
       const repo = makeRepo({
         id: 'r1',
         defaultWorkspaceId: 'ws-home',
@@ -391,8 +382,6 @@ describe('chat rows', () => {
     })
 
     it('a chat naming a workspace of another repo root-anchors in its own', () => {
-      // Spec §9.2: a bubble moved across repos keeps reading ancestors that live in the repo it
-      // left, so a repo's chats are not a closed set.
       const repo = makeRepo({
         id: 'r1',
         defaultWorkspaceId: 'ws-home',
@@ -405,7 +394,6 @@ describe('chat rows', () => {
   })
 })
 
-// A branch row is id'd by its owning chat: the daemon resolves a create's parent as a chat row.
 describe('a branch row is identified by its owning chat', () => {
   it('a locked branch row carries its owning branch-chat id, not the workspace id', () => {
     const { workspace, chat } = makeOwnedWorkspace(
@@ -461,7 +449,6 @@ describe('a branch row is identified by its owning chat', () => {
   })
 })
 
-// The protected branches (develop, main, project home) never take the create-workspace path.
 describe('protected branches stay chat-less branch rows', () => {
   it('the project-home row stays chat-less and branch-kind', () => {
     const repo = makeRepo({
@@ -488,7 +475,6 @@ describe('protected branches stay chat-less branch rows', () => {
     const develop = rows.find((r) => r.workspaceId === 'develop')
     expect(develop?.kind).toBe('branch')
     expect(develop?.ownsWorktree).toBe(true)
-    // A locked branch keeps its branch-labelled row while folded like any owned workspace.
     expect(develop?.label).toBe('develop')
     expect(rows.some((r) => r.kind === 'chat' && r.workspaceId === 'develop')).toBe(false)
   })

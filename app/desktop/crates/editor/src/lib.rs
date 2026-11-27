@@ -1,9 +1,3 @@
-//! The Crowbar editor's documents without GPUI: the language a path is written in, as develop's
-//! `language-id.ts` resolves it, why a document could not be opened, and the drafts that keep a
-//! dirty document's text across restarts, and the text commands the editor runs over a
-//! document: occurrences of a word, word lookup and whole-line edits, and how its text is
-//! marked: whitespace and highlight query rewrites.
-
 mod drafts;
 mod editor;
 mod error;

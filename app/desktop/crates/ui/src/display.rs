@@ -1,6 +1,3 @@
-//! Components that show state: scroll areas, badges, skeletons, toasts, keys, spinners and
-//! tracked text.
-
 mod badge;
 mod flicker_spinner;
 mod kbd;

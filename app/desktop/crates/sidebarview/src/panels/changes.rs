@@ -1,5 +1,3 @@
-//! The Changes panel: branch pill, file count and the changed files.
-
 mod changed_tree_row;
 mod merge_card;
 mod merge_draft;

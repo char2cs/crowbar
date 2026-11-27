@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 
-/** Case-insensitive, over label and string description; a blank query matches everything. */
 export function settingRowMatchesQuery(
   query: string,
   label: string,

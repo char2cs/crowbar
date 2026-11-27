@@ -54,22 +54,16 @@ const homeFolder = (over: Partial<FolderDTO> & Pick<FolderDTO, 'id' | 'name' | '
   ...over,
 })
 
-/** One project `p1` holding every kind of placement the sidebar draws today, as wire DTOs. */
 export const PIN = {
-  // The project's home workspace, as GET /home answers it; its owning chat is never a row.
   home: workspace({ id: 'home-p1', repoId: '', kind: 'home', owningChatId: 'oc-home' }),
   repos: [
-    // Root order 1: between the home chat and the home folder.
     repo('r-alpha', 'alpha', { order: 1, folderId: '' }),
-    // Filed into the home folder "Ideas", after the chat filed there.
     repo('r-beta', 'beta', { order: 1, folderId: 'f-ideas' }),
   ],
   workspaces: [
     workspace({ id: 'home-alpha', isDefault: true, branch: 'main', owningChatId: 'oc-alpha' }),
-    // Locked and owned by no chat: drawn as its branch name under its workspace id.
     workspace({ id: 'ws-release', branch: 'release/1.0', status: 'locked', order: 1 }),
     workspace({ id: 'ws-feat', branch: 'feature-a', owningChatId: 'oc-feat', order: 2 }),
-    // Forked from ws-feat and filed in no folder: nests under its fork parent.
     workspace({
       id: 'ws-fork',
       branch: 'fork-a',
@@ -87,9 +81,7 @@ export const PIN = {
   ],
   chats: [
     chat({ id: 'oc-alpha', title: '', order: 0, workspaceId: 'home-alpha', ownsWorktree: true }),
-    // A conversation in alpha's own checkout: under the repo row, first.
     chat({ id: 'c-alpha-q', title: 'Repo question', order: 0, workspaceId: 'home-alpha' }),
-    // Owns ws-feat, so the branch row takes this chat's title and id.
     chat({
       id: 'oc-feat',
       title: 'Feature A',
@@ -97,7 +89,6 @@ export const PIN = {
       workspaceId: 'ws-feat',
       ownsWorktree: true,
     }),
-    // A thread of the branch's owning chat, before the fork.
     chat({
       id: 'c-follow',
       title: 'Follow-up',
@@ -122,7 +113,6 @@ export const PIN = {
       ownsWorktree: true,
     }),
   ],
-  // A repo-scoped folder, last among alpha's root children.
   folders: [{ id: 'f-alpha', repoId: 'r-alpha', projectId: 'p1', name: 'Experiments', order: 3 }],
   homeChats: [
     chat({
@@ -133,7 +123,6 @@ export const PIN = {
       workspaceId: 'home-p1',
       ownsWorktree: true,
     }),
-    // Root order 0: the project's first row.
     chat({ id: 'c-notes', repoId: '', title: 'Notes', order: 0, workspaceId: 'home-p1' }),
     chat({
       id: 'c-draft',
@@ -144,11 +133,9 @@ export const PIN = {
       parentId: 'f-ideas',
     }),
   ],
-  // Root order 2: after the repo.
   homeFolders: [homeFolder({ id: 'f-ideas', name: 'Ideas', order: 2 })],
 }
 
-/** The hierarchy `PIN` must render, one `outline` line per row. */
 export const PIN_OUTLINE = [
   'Notes [c-notes]',
   'alpha [oc-alpha]',
@@ -164,7 +151,6 @@ export const PIN_OUTLINE = [
   '  beta [oc-beta]',
 ]
 
-/** Writes `PIN` into the entity store as the projects scope carries it. */
 export function loadPinFixture(): void {
   const entity = (c: ChatDTO) =>
     chatEntity({
@@ -185,11 +171,9 @@ export function loadPinFixture(): void {
   markProjectsSynced()
 }
 
-/** The sidebar tree's own rows: a project panel's scroll content, minus its Recents band. */
 export const SIDEBAR_TREE_ROWS =
   '[data-testid="space-scroll-content"] > :not([data-testid="recents-band"]) [role="treeitem"]'
 
-/** One line per tree row in DOM order: indent by `aria-level`, then label and row id. */
 export function outline(root: HTMLElement): string[] {
   return [...root.querySelectorAll<HTMLElement>(SIDEBAR_TREE_ROWS)].map(
     (e) =>

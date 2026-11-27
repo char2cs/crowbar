@@ -1,11 +1,3 @@
-//! A stand-in for `crowbar-api serve` used by the supervisor's tests. Its behaviour is chosen by
-//! `FAKE_DAEMON_MODE`: `ok`, `migrating`, `steps` (reports no step, step 1 of 2, step 2 of 2,
-//! then serves), `halted`, `crash` (exits at once), `die` (serves one health answer, then
-//! exits), `noisy` (writes a megabyte that is not UTF-8 to stderr before serving), `wedge`
-//! (accepts and never answers), `stall` (answers the first request, then never answers),
-//! `deaf` (serves, and ignores SIGTERM) or `late` (answers health with 503 until `<socket>.serve`
-//! exists, dialling `<socket>.up` once it listens so a test hears it).
-
 mod answer_event;
 mod journal_sink;
 mod late;

@@ -19,8 +19,6 @@ export const useMarkdownViewStore = create<MarkdownViewState>((set) => ({
         [bufferId]: (s.views[bufferId] ?? 'rich') === 'rich' ? 'source' : 'rich',
       },
     })),
-  // Called on buffer close so `views` doesn't grow per markdown file ever opened. Returns the same
-  // state when nothing drops, so closing a non-markdown buffer doesn't notify every subscriber.
   clearView: (bufferId) =>
     set((s) => {
       if (!(bufferId in s.views)) return s
@@ -30,7 +28,6 @@ export const useMarkdownViewStore = create<MarkdownViewState>((set) => ({
     }),
 }))
 
-/** Selector: the view mode for a buffer, defaulting to `rich`. */
 export const selectMarkdownView =
   (bufferId: string) =>
   (state: MarkdownViewState): MarkdownView =>

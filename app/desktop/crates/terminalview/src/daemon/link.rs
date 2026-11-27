@@ -1,5 +1,3 @@
-//! The view's side of the daemon connection.
-
 use async_channel::{Receiver, Sender, bounded};
 use terminal::{ClientMessage, DaemonFrame};
 
@@ -8,9 +6,6 @@ use crate::daemon::peer::Peer;
 const FRAME_BACKLOG: usize = 64;
 const MESSAGE_BACKLOG: usize = 1024;
 
-/// What a [`crate::TerminalView`] reads frames from and writes messages to. The host connects the other
-/// end ([`Peer`]) to the PTY websocket; input typed before the socket opens waits in the channel. Both channels are bounded: a host
-/// that awaits `deliver` stalls its socket read while the view catches up, which backpressures the PTY.
 #[derive(Debug)]
 pub struct Link {
     pub(crate) frames: Receiver<DaemonFrame>,
@@ -18,7 +13,6 @@ pub struct Link {
 }
 
 impl Link {
-    /// A connected pair: the link for the view and the peer for the host.
     pub fn open() -> (Self, Peer) {
         let (frame_sender, frames) = bounded(FRAME_BACKLOG);
         let (outbound, message_receiver) = bounded(MESSAGE_BACKLOG);

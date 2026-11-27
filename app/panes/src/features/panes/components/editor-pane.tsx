@@ -19,16 +19,12 @@ import { useDocumentOpen } from '@/features/editor/documents/use-document-open'
 import { isMarkdownPath } from '@/features/editor/markdown/plate/is-markdown-path'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
-// Lazy so Monaco (3.5 MB, half of all boot JS) loads when an editor pane first
-// renders, not at app boot.
 const EditorSurface = lazy(() =>
   loadEditorSurface().then((m) => ({
     default: m.EditorSurface,
   })),
 )
 
-// Lazy so Plate (and its dependency graph) stays out of the base pane chunk —
-// only buffers that actually route to the rich surface pull it in.
 const MarkdownEditorPane = lazy(() =>
   loadMarkdownEditorPane().then((m) => ({
     default: m.MarkdownEditorPane,
@@ -52,9 +48,6 @@ export function EditorPane({
 }: EditorPaneProps) {
   const buffer = useBufferById(bufferId)
 
-  // Declared up with the other hooks (before any early return) — zustand
-  // compares the selected *result*, so this inline selector is stable even
-  // though it's a fresh arrow each render.
   const markdownView = useMarkdownViewStore((s) =>
     buffer ? (s.views[buffer.id] ?? 'rich') : 'rich',
   )
@@ -64,13 +57,10 @@ export function EditorPane({
     buffer && isEditorContent(buffer) && buffer.path ? documentUri(documentRefOf(buffer)) : null
   const documentOpen = useDocumentOpen(uri)
 
-  // The document could not be loaded: an empty editor would read as an empty file.
   if (buffer && isEditorContent(buffer) && buffer.unavailable) {
     return <UnavailableDocument buffer={buffer} reason={buffer.unavailable} />
   }
 
-  // Markdown buffers in rich view route to Plate instead of Monaco's editor.
-  // Plate parses its document once, so it waits for the document's text.
   if (
     buffer &&
     isEditorContent(buffer) &&
@@ -80,8 +70,6 @@ export function EditorPane({
   ) {
     if (!documentOpen) return null
     return (
-      // A lazy chunk can fail to load (offline, stale asset hash) and throw during render;
-      // Suspense handles only pending, so without this boundary it takes the workspace down.
       <ErrorBoundary
         fallback={
           <div className="flex h-full flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
@@ -90,16 +78,12 @@ export function EditorPane({
         }
       >
         <Suspense fallback={null}>
-          {/* Keyed by buffer: the rich editor parses once per mount, so a `.md` -> `.md` switch
-              would otherwise write A's text into B. */}
           <MarkdownEditorPane key={bufferId} paneId={paneId} bufferId={bufferId} />
         </Suspense>
       </ErrorBoundary>
     )
   }
 
-  // Nothing (not a spinner) until Monaco has loaded: it loads alongside the
-  // surface's own lazy chunk, so a spinner would only flash.
   if (!host || !buffer) return null
 
   return (
@@ -111,8 +95,6 @@ export function EditorPane({
       }
     >
       <Suspense fallback={null}>
-        {/* Keyed by paneId so a buffer/tab switch swaps the model imperatively
-            (via usePaneEditorController) instead of remounting the shell. */}
         <EditorSurface
           key={paneId}
           paneId={paneId}
@@ -127,7 +109,6 @@ export function EditorPane({
   )
 }
 
-/** Why a tab's document could not be loaded, with a retry that runs one at a time. */
 function UnavailableDocument({
   buffer,
   reason,

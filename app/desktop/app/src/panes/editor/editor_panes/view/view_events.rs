@@ -1,5 +1,3 @@
-//! What a pane's view tells the shell: each view event as the request the shell acts on.
-
 use editorview::{EditorEvent, EditorView};
 use gpui::{App, Entity, Subscription};
 use protocol::PaneId;

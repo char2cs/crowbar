@@ -1,5 +1,3 @@
-//! New threads that open as drafts, as develop's draft pane: no chat exists until the first send.
-
 use sidebar::ProjectId;
 
 use crate::live::DraftThread;

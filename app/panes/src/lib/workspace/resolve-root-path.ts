@@ -8,8 +8,6 @@ function projectPath(projectId: string): string | undefined {
   return hostId ? entityOf(entityStore.getState(), 'project', hostId, projectId)?.path : undefined
 }
 
-/** `wsId`'s on-disk root: its worktree, the repo root for a default (main-worktree) workspace, or
- *  the project's own path for its home workspace. */
 export function workspaceRootPath(wsId: string): string | undefined {
   for (const repo of readSelect(selectRepos)) {
     const ws = repo.workspaces?.find((w) => w.id === wsId)

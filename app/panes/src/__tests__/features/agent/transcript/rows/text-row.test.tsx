@@ -10,7 +10,6 @@ import { noRowActions } from '@/__tests__/__fixtures__/row-actions'
 
 const actions = noRowActions
 
-// One message whose text the renderer cannot take, standing in for any renderer crash.
 vi.mock('@/features/agent/transcript/plate/markdown-message-static', async (importOriginal) => {
   const real =
     await importOriginal<
@@ -292,7 +291,6 @@ describe('UserRow', () => {
     expect(document.querySelector('.bubble')).toBeNull()
   })
 
-  // A long payload would push the rest of the turn down.
   it.each([
     ['a long', 'x'.repeat(161)],
     ['a several-line', 'one\ntwo\nthree\nfour'],

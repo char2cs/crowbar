@@ -1,6 +1,3 @@
-//! The Files panel's delete confirmation, asked as the desktop's message dialog, and its
-//! Properties dialog.
-
 use gpui::{AnyElement, Context, Div, IntoElement, ParentElement, Styled, Window, div, px};
 use sidebar::{Command, FileDialog, FileProperties};
 use ui::{

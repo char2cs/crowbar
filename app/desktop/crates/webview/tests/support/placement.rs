@@ -1,6 +1,3 @@
-//! A page kept hidden, as the shell keeps its spare pages, paints over the page it replaces once
-//! it is shown.
-
 use std::time::Instant;
 
 use webview::Visibility;

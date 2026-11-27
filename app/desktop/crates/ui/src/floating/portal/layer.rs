@@ -1,5 +1,3 @@
-//! One floating element, painted above the rest of its window.
-
 use std::rc::Rc;
 
 use gpui::{

@@ -14,8 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// The golden file is the wire contract the web decoder's test copies, so a
-// field renamed here fails both sides.
 func TestFrame_EveryTypeMarshalsAsTheGoldenFile(t *testing.T) {
 	refused := problem.Problem{Code: problem.InvalidArgument, Message: "stream: unknown scope kind \"nope\""}
 	frames := []stream.Frame{

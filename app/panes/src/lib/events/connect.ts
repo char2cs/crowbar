@@ -20,7 +20,5 @@ export function connectDaemonEvents(): () => void {
     }),
   )
 
-  // chat:message — live chat updates arrive via the chat WebSocket stream; no refetch needed.
-
   return () => unlisteners.forEach((u) => u())
 }

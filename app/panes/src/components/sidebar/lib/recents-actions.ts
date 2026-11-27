@@ -8,8 +8,6 @@ import type { Repo } from '@/core/entities/repo-types'
 
 type NavigateFn = ReturnType<typeof useNavigate>
 
-// A Recents row's body: switch to its view, then route to the focused chat's workspace through
-// the tree click's own home-or-repo resolve, so a project-home chat routes too.
 export function focusRecent(viewId: string, repos: readonly Repo[], navigate: NavigateFn): void {
   const { views, panes, mostRecentActivePaneIds, paneActions } = windowPaneStore.getState()
   const view = views[viewId]
@@ -23,12 +21,10 @@ export function focusRecent(viewId: string, repos: readonly Repo[], navigate: Na
   openChatRoute(repos, pane.chatId, paneChatWorkspaceId(pane) ?? '', navigate)
 }
 
-/** The row's × — ends the whole view. Its agents keep running; only Kill ends one. */
 export function closeRecent(viewId: string): void {
   windowPaneStore.getState().paneActions.closeView(viewId)
 }
 
-/** One chat's ×: closes just that chat; the rest of its group stays. */
 export function closeRecentChat(chatId: string): void {
   const paneId = chatPaneIndex(windowPaneStore.getState().panes).get(chatId)
   if (paneId) windowPaneStore.getState().paneActions.closePane(paneId)

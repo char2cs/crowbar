@@ -1,5 +1,3 @@
-//! A document's text from the body the daemon answers.
-
 use base64::Engine as _;
 
 use crate::live::DocumentBody;

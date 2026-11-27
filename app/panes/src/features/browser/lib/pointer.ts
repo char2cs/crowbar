@@ -12,7 +12,6 @@ interface PointerItem {
   i: number
 }
 
-/** What the page returns for a finished pick; the tab id is added when it is written out. */
 export interface PickResult {
   kind: 'element' | 'region' | 'text' | 'multi'
   title: string
@@ -23,11 +22,9 @@ export interface PickResult {
   quote?: string
 }
 
-// The native eval caps a script at 60s; a pick that outlasts it ends as a failure.
 const PICK_TIMEOUT_MS = 60_000
 const CANCEL_TIMEOUT_MS = 5_000
 
-/** Resolves when the user finishes the pick, or null when it is cancelled. */
 export async function pickPointer(tabId: string): Promise<PickResult | null> {
   const raw = await browserApi.evaluate(tabId, domAgentBody('pick', {}), PICK_TIMEOUT_MS)
   return JSON.parse(raw) as PickResult | null
@@ -51,7 +48,6 @@ function headline(result: PickResult, tab: string): string {
   return `⌖ ${kind} ${JSON.stringify(label(result))} · ${result.url} · tab ${tab}${tail}`
 }
 
-/** The pointer text: readable lines, then one `⌖data` JSON line an agent can parse. */
 export function formatPointer(result: PickResult, tab: string): string {
   const lines = [headline(result, tab)]
   if (result.kind !== 'element') {

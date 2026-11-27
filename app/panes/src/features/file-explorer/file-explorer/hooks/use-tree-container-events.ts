@@ -36,7 +36,6 @@ interface TreeContainerEventsOptions {
   startDrag: (e: React.MouseEvent, file: FileEntry) => void
 }
 
-/** Paste really moves/copies, so it can fail (occupied destination is a 409); say so. */
 function pasteInto(targetDir: string, workspaceId: string | null, onRefresh?: (p: string) => void) {
   useFileClipboardStore
     .getState()
@@ -53,8 +52,6 @@ function pasteInto(targetDir: string, workspaceId: string | null, onRefresh?: (p
     })
 }
 
-/** Delegated pointer and keyboard handlers for the tree container: rows carry
- *  `data-file-path`/`data-is-dir`, so one set of handlers serves every virtualized row. */
 export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
   const {
     workspaceId,
@@ -76,8 +73,6 @@ export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
     startDrag,
   } = o
 
-  // Drag-threshold bookkeeping only — never rendered, so a ref avoids a
-  // redraw on every mousedown/mousemove/mouseup during drag detection.
   const mouseDownInfoRef = useRef<{ x: number; y: number; file: FileEntry } | null>(null)
 
   const pathToFile = useMemo(() => {
@@ -136,8 +131,6 @@ export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
     [getTargetItem, onFileSelect, setFocusedPath, toggleDirectory, updateActivePath],
   )
 
-  // Double-click begins an inline rename (onRenamePath with no new name marks
-  // the node editable); the context-menu "Rename" uses the same path.
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const t = getTargetItem(e.target)
@@ -197,7 +190,6 @@ export function useTreeContainerEvents(o: TreeContainerEventsOptions) {
         return
       }
 
-      // Let inputs handle their own keys
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return

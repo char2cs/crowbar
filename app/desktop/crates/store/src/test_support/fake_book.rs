@@ -4,7 +4,6 @@ use crate::live::BookError;
 use crate::live::PairingRequest;
 use crate::live::{BookFuture, HostBook};
 
-/// A [`HostBook`] with a fixed fingerprint and client id that records what it was asked.
 #[derive(Default)]
 pub(crate) struct FakeBook {
     probe_error: Mutex<Option<String>>,
@@ -78,7 +77,6 @@ impl HostBook for FakeBook {
     }
 }
 
-/// A desk over a fake book and in-memory notes.
 pub(crate) fn desk() -> crate::live::HostDesk {
     crate::live::HostDesk {
         book: std::sync::Arc::new(FakeBook::default()),
@@ -86,7 +84,6 @@ pub(crate) fn desk() -> crate::live::HostDesk {
     }
 }
 
-/// A fleet over `hub` and a desk, for tests that open a settings core.
 pub(crate) fn fleet_and_desk(
     hub: &std::sync::Arc<crate::live::Hub>
 ) -> (std::sync::Arc<crate::live::Fleet>, crate::live::HostDesk) {

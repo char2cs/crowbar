@@ -10,9 +10,6 @@ interface TerminalPaneProps {
   sessionId: string | undefined
   bufferId: string
   paneId: string
-  /** The workspace THIS BUFFER belongs to (TerminalContent.workspaceId) —
-   *  threaded straight through to TerminalTab so it never has to fall back to
-   *  ambient context. See terminal-tab.tsx's own doc comment for why. */
   workspaceId: string
   initialCommand?: string
   workingDirectory?: string

@@ -1,16 +1,11 @@
 import { create } from 'zustand'
 
-// The focused pane's workspace: the single authority scoping the sidebar panel's tabs and bodies.
-// Never read the route to scope panel content.
 export interface FocusedWorkspaceContext {
   projectId: string | null
   workspaceId: string | null
   isProjectHome: boolean
-  /** Null for project home, or while the workspace's repo is unknown. */
   repoId: string | null
-  /** The workspace's git working tree; null whenever `repoId` is. */
   repoPath: string | null
-  /** Directory the Files tab roots at ('' while unresolved). */
   rootPath: string
 }
 
@@ -29,7 +24,6 @@ export const useFocusedWorkspaceContextStore = create<FocusedWorkspaceContext>((
   ...EMPTY_FOCUSED_WORKSPACE_CONTEXT,
 }))
 
-/** Writes only when a field actually changed, so narrow selectors stay quiet. */
 export function publishFocusedWorkspaceContext(next: FocusedWorkspaceContext): void {
   const prev = useFocusedWorkspaceContextStore.getState()
   if (KEYS.every((k) => prev[k] === next[k])) return
@@ -48,7 +42,6 @@ export function getFocusedWorkspaceContext(): FocusedWorkspaceContext {
   }
 }
 
-/** Git (and any repo-scoped tab) needs a real repo workspace. */
 export function hasRepoWorkspace(ctx: Pick<FocusedWorkspaceContext, 'repoId' | 'workspaceId'>) {
   return ctx.workspaceId != null && ctx.repoId != null
 }

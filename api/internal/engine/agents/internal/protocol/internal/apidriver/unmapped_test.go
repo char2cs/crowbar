@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// A server request the descriptor does not map gets a method-not-found error at
-// once, so the remote side fails fast; an unmapped notification is simply dropped.
 func TestStart_AnUnmappedServerRequestIsRefusedAsMethodNotFound(t *testing.T) {
 	d, err := descriptor.ParseV0([]byte(`
 id: neutral

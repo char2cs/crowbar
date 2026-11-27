@@ -23,8 +23,6 @@ function draw(overrides: Partial<Parameters<typeof ComposerHandle>[0]> = {}) {
 }
 
 describe('ComposerHandle', () => {
-  // While a turn runs, typed text turns Stop into a Queue button on every platform: the same
-  // circle as send, and Stop returns the moment the box is empty again.
   it('queues typed text while a turn runs, and stops once the box is empty', () => {
     const typed = draw({ hasText: true, working: true, canStop: true })
     const queue = screen.getByRole('button', { name: 'Queue this message' })
@@ -84,9 +82,6 @@ describe('ComposerHandle', () => {
     expect(screen.getByRole('button', { name: 'Send prompt' })).toBeDisabled()
   })
 
-  // The draft clears the instant a prompt queues, well before the server has
-  // proven delivery — without this state the circle goes straight to its inert
-  // "nothing to send" look for however long that proof takes.
   it('shows a sending spinner once a prompt is dispatched but not yet proven delivered', () => {
     const { container, onSend, onStop } = draw({ sending: true })
 
@@ -99,7 +94,6 @@ describe('ComposerHandle', () => {
     expect(onStop).not.toHaveBeenCalled()
   })
 
-  // A prompt still being taken up can be taken back, so it is stopped like a turn.
   it('becomes the stop control while a prompt it can take back is on its way', () => {
     const { onStop } = draw({ sending: true, canStop: true })
 
@@ -107,8 +101,6 @@ describe('ComposerHandle', () => {
     expect(onStop).toHaveBeenCalled()
   })
 
-  // A real interrupt is worth more than a spinner that only says something is
-  // in flight — stopping wins whenever both apply.
   it('prefers the stop control over the sending spinner when both apply', () => {
     draw({ working: true, canStop: true, sending: true })
 
@@ -116,8 +108,6 @@ describe('ComposerHandle', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  // The plus button rides alongside send, never in place of it — DOM order
-  // matters because it sits to the LEFT of send (attach, then send).
   it('renders send and plus as siblings, plus first in DOM order', () => {
     draw()
 

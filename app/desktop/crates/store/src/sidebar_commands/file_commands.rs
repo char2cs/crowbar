@@ -1,5 +1,3 @@
-//! The Files panel's menu commands, each checked against the listing and run as a file change.
-
 use std::path::Path;
 use std::sync::Arc;
 

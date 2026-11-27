@@ -1,12 +1,3 @@
-/**
- * Where the reorder hairline sits.
- *
- * The line is one viewport-positioned element for the whole drag, so its whole
- * relationship to the tree is this arithmetic — it has no parent row to inherit
- * an indent from. That is also what makes it say something a full-width line
- * could not: rows carry their indent on the row element, so the target's own
- * left edge already encodes the depth the dropped row will land at.
- */
 import { describe, expect, it } from 'vitest'
 import { dropLineBox } from '@/components/layout/drop-indicator'
 
@@ -26,7 +17,6 @@ describe('the line', () => {
   })
 
   it('inherits the depth from the row it marks', () => {
-    // Two indent steps in: the line starts two steps in with it.
     expect(dropLineBox(row(100, 28), 'before').left).toBe(36)
   })
 

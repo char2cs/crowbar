@@ -130,7 +130,6 @@ describe('usePaneAttachment', () => {
     })
   })
 
-  // Every way onto the terminal may call it: only a known chat that is dormant now is started.
   it('starts a session from the chat as it is when called, never a live or unknown one', () => {
     const resume = vi.spyOn(commandsApi, 'resumeChat').mockResolvedValue('r1')
     seedChats([{ id: 'c1' }])

@@ -58,7 +58,6 @@ describe('useNativeTabs', () => {
     expect(last()).toEqual({ tabs: [], newTabActions: [] })
   })
 
-  // The desktop's gate: a home chat owns no branch, so + offers no review for it.
   it('offers the branch review only for a chat on a branch', () => {
     seedHomeTree('p1', { chats: [{ id: 'c1', repoId: '', title: '', order: 0 }] })
     mount()

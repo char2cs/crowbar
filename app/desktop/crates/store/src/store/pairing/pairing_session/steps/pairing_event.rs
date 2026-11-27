@@ -1,5 +1,3 @@
-//! What pairing logs when a redeemed host cannot be kept or its pairing undone.
-
 use std::fmt;
 
 use journal::Level;

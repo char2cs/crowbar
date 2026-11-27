@@ -40,8 +40,6 @@ export function EmojiPopover({
 }) {
   return (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
-      {/* `render`: the control is a <Button> (a real <button>); the trigger
-          merges onto it rather than wrapping it in a second <button>. */}
       <Popover.Trigger render={control as React.ReactElement} />
 
       <Popover.Portal>
@@ -277,7 +275,6 @@ function EmojiPickerNavigation({
   )
 }
 
-// The picker draws `outline` only; the type asks for a `solid` too.
 const categoryIcon = (CategoryIcon: Icon) => {
   const icon = <CategoryIcon className="size-full" />
   return { outline: icon, solid: icon }

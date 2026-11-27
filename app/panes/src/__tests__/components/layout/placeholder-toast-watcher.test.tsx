@@ -55,7 +55,6 @@ describe('PlaceholderToastWatcher', () => {
     expect(toast.show).toHaveBeenCalledTimes(1)
   })
 
-  // The operations watcher already toasted the failure; the placeholder must not say it again.
   it('a placeholder whose operation already failed is not toasted twice', () => {
     streamOperation({
       id: 'op-1',

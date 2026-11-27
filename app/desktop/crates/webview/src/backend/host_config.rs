@@ -3,14 +3,10 @@ use std::sync::Arc;
 
 use crate::scheme::ProtocolHandler;
 
-/// Settings shared by every web view of a host.
 #[derive(Clone)]
 pub struct HostConfig {
-    /// The custom scheme served by `protocol`, without `://`, for example `crowbar`.
     pub scheme: String,
-    /// Serves requests to the scheme.
     pub protocol: Arc<dyn ProtocolHandler>,
-    /// Where web contexts keep cookies and storage; `None` keeps the engine default.
     pub data_dir: Option<PathBuf>,
 }
 

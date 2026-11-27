@@ -46,7 +46,6 @@ impl ServerCertVerifier for UnpinnedProbeVerifier {
 #[cfg(test)]
 mod tests {
     use rustls::crypto::aws_lc_rs;
-    // SPEC: https://docs.rs/rustls/latest/rustls/struct.DigitallySignedStruct.html DigitallySignedStruct's constructor is pub(crate); decoding its wire form is the only way in.
     use rustls::internal::msgs::codec::Codec;
 
     use super::*;
@@ -81,8 +80,6 @@ mod tests {
 
     type Check = fn(&UnpinnedProbeVerifier) -> bool;
 
-    /// (what is presented, whether the probe verifier lets it through): the probe sends nothing,
-    /// so any certificate passes, but the host must still hold the key it signs with.
     const CASES: [(&str, Check, bool); 2] = [
         ("an arbitrary certificate", accepts_any_certificate, true),
         (

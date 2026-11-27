@@ -1,5 +1,3 @@
-// Package provision checks an existing branch (protected at import, or a placeholder's on Retry/Detach)
-// out into a fresh managed worktree: the one copy of that rule, shared by import and hierarchy.
 package provision
 
 import (
@@ -11,7 +9,6 @@ import (
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
-// Git is the git surface a provision needs.
 type Git interface {
 	RemoteTrackingBranchExists(ctx context.Context, repoPath, branch string) (bool, error)
 	FetchRef(ctx context.Context, repoPath, branch string) error
@@ -22,9 +19,6 @@ type Git interface {
 	MergeBase(ctx context.Context, repoPath, a, b string) (string, error)
 }
 
-// ExistingBranch checks branch out at path and returns its commit (the fork point). A branch origin has
-// is checked out at origin's ref with -B, so a diverged local ref is not imported as origin's, with the
-// upstream set explicitly; the fetch is best-effort. A branch origin lacks checks out from the local ref.
 func ExistingBranch(
 	ctx context.Context,
 	git Git,
@@ -38,12 +32,8 @@ func ExistingBranch(
 	if err := git.WorktreeAdd(ctx, repoPath, path, branch); err != nil {
 		return "", fmt.Errorf("worktree add %q: %w", branch, err)
 	}
-	// The BRANCH head, explicitly: `git rev-parse <name>` prefers a tag of the
-	// same name, which would record a wrong fork point.
 	sha, err := git.RevParse(ctx, repoPath, "refs/heads/"+branch)
 	if err != nil {
-		// The worktree is valid; only the recorded fork point is missing, which
-		// merge and diff math then cannot use. Said out loud, not swallowed.
 		slog.WarnContext(ctx, "provision: could not resolve the branch tip; the fork point stays empty",
 			"branch", branch, "err", err)
 		return "", nil
@@ -62,7 +52,6 @@ func fromOrigin(
 		slog.WarnContext(ctx, "provision: could not refresh origin branch; using the local remote-tracking ref",
 			"branch", branch, "err", err)
 	}
-	// Read BEFORE the -B reset moves it, to report a local tip it leaves behind.
 	localTip, err := LocalTip(ctx, git, repoPath, branch)
 	if err != nil {
 		return "", err
@@ -79,8 +68,6 @@ func fromOrigin(
 	return sha, nil
 }
 
-// LocalTip is branch's local head, or "" when there is no local branch. Any
-// other failure is returned: a tip that cannot be read is not an absent one.
 func LocalTip(
 	ctx context.Context,
 	git Git,
@@ -97,8 +84,6 @@ func LocalTip(
 	return tip, nil
 }
 
-// WarnOnDiscardedLocalTip logs the local tip a -B reset moved off when origin did not contain it, so a
-// user with unpushed work has the SHA to recover from the reflog. Diagnostic only; failures are ignored.
 func WarnOnDiscardedLocalTip(
 	ctx context.Context,
 	git Git,
@@ -111,7 +96,7 @@ func WarnOnDiscardedLocalTip(
 		return
 	}
 	if base, err := git.MergeBase(ctx, repoPath, localTip, originTip); err == nil && base == localTip {
-		return // a plain fast-forward; nothing was left behind
+		return
 	}
 	slog.WarnContext(ctx, "provision: local branch had diverged from origin and was reset to origin's tip (old tip recoverable via reflog)",
 		"branch", branch, "old_local_tip", localTip, "origin_tip", originTip)

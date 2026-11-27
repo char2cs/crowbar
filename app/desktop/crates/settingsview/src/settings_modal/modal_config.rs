@@ -1,5 +1,3 @@
-//! Everything a [`crate::SettingsModal`] is built from.
-
 use std::rc::Rc;
 
 use gpui::{App, Window};
@@ -7,7 +5,6 @@ use settings::{PageId, RecordBackend, Schema};
 
 use crate::settings_modal::close_handler::CloseHandler;
 
-/// The schema, the two backends and the optional deep link and close callback of a modal.
 pub struct ModalConfig {
     pub(crate) schema: Schema,
     pub(crate) settings: Rc<dyn settings::Backend>,
@@ -17,7 +14,6 @@ pub struct ModalConfig {
 }
 
 impl ModalConfig {
-    /// A configuration that shows `schema` over `settings` and `records`.
     pub fn new(
         schema: Schema,
         settings: Rc<dyn settings::Backend>,
@@ -32,7 +28,6 @@ impl ModalConfig {
         }
     }
 
-    /// Opens on `page` instead of the first page.
     #[must_use]
     pub fn page(
         mut self,
@@ -42,7 +37,6 @@ impl ModalConfig {
         self
     }
 
-    /// Calls `handler` when the user closes the modal (close button, scrim, Escape).
     #[must_use]
     pub fn on_close(
         mut self,

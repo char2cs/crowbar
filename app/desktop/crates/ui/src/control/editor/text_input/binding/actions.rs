@@ -1,5 +1,3 @@
-//! Keyboard actions of a text input.
-
 use gpui::{KeyBinding, actions};
 
 use crate::control::editor::secondary::secondary;

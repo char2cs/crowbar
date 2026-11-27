@@ -11,10 +11,6 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// An UNLOCKED chatless workspace's own Node row is never merged into the
-// placement snapshot (mergeHomeNode keeps only RendersAsBranch anchors) and so
-// is never queued as a container: the threads already filed under it are
-// invisible to the densify, and every new thread lands at order 0 beside them.
 func TestRegression_CreateChat_SecondThreadUnderAnUnlockedChatlessWorkspace_GetsTheNextSlot(t *testing.T) {
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	nodes.Rows = append(nodes.Rows, dtree.Node{ID: workspaceID, Kind: dtree.KindWorkspace})

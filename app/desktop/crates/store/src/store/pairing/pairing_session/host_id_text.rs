@@ -1,5 +1,3 @@
-//! The id a paired host is registered under.
-
 const SUFFIX_LEN: usize = 8;
 const FALLBACK: &str = "host";
 

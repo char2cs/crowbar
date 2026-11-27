@@ -1,5 +1,3 @@
-//! What a row's button cluster needs to draw and report.
-
 use gpui::SharedString;
 use sidebar::{Expansion, Row};
 use ui::Palette;

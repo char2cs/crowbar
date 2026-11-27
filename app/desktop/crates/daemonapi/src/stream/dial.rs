@@ -1,17 +1,12 @@
-//! How a stream is opened.
-
 use std::future::Future;
 use std::pin::Pin;
 
 use crate::error::Result;
 use crate::stream::connection::Connection;
 
-/// The pending open of a stream: it resolves to the [`Connection`] or why it failed.
 pub type Opening<'a> = Pin<Box<dyn Future<Output = Result<Connection>> + Send + 'a>>;
 
-/// A way to open the daemon's `/v0/stream` as a [`Connection`].
 pub trait Dial: Send + Sync {
-    /// Connects, or says why it could not.
     fn open(&self) -> Opening<'_>;
 }
 

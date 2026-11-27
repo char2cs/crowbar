@@ -3,7 +3,6 @@ use crate::records::record_action::RecordAction;
 use crate::records::record_flag::RecordFlag;
 
 impl Record {
-    /// Appends a switch.
     #[must_use]
     pub fn flag(
         mut self,
@@ -13,7 +12,6 @@ impl Record {
         self
     }
 
-    /// Offers `action` on the record.
     #[must_use]
     pub fn action(
         mut self,
@@ -23,26 +21,22 @@ impl Record {
         self
     }
 
-    /// Lets the user drag the record to reorder the list.
     #[must_use]
     pub fn movable(mut self) -> Self {
         self.movable = true;
         self
     }
 
-    /// Switches, each shown in the column of the same position.
     #[must_use]
     pub fn flags(&self) -> &[RecordFlag] {
         &self.flags
     }
 
-    /// The one action the record offers, if any.
     #[must_use]
     pub fn offered_action(&self) -> Option<&RecordAction> {
         self.action.as_ref()
     }
 
-    /// Whether the user can drag the record to reorder the list.
     #[must_use]
     pub fn is_movable(&self) -> bool {
         self.movable

@@ -4,32 +4,20 @@ import type { Problem } from '@/lib/errors/problem'
 import { LOCAL_HOST } from '@/features/hosts/types'
 import { useDaemonHaltStore } from '@/features/window/stores/daemon-halt-store'
 
-// Backend connection state from the wsManager's channels: 'idle' (none reported), 'connected'
-// (a socket is open), 'migrating' (none open; the daemon is preparing its home), 'disconnected'
-// (all closed/retrying). A halted daemon is the daemon-halt store's, not a status.
 export type ConnectionStatus = 'idle' | 'connected' | 'disconnected' | 'migrating'
 
-/** What a daemon that is not serving yet says it is doing. */
 export interface Migrating {
   message: string
   step?: { index: number; total: number; name: string }
 }
 
 interface ConnectionState {
-  /** The local daemon's channels only. */
   status: ConnectionStatus
   migrating: Migrating | null
-  /** Connected, but some local channel is closed and retrying. */
   degraded: boolean
-  /** Times every local channel was lost and the daemon came back; the first connect is not one. */
   reconnects: number
-  /** The same derivation per remote host, from that host's own channels: whether what the
-   *  app shows of it is kept live — not whether it is up, which its status says. */
   hostStreams: Record<string, ConnectionStatus>
-  /** Why a remote host's stream last failed to open, by endpoint. Cleared when
-   *  that stream opens or is torn down. */
   failures: Record<string, ApiError>
-  /** Per-endpoint open/closed flags the derived fields above are computed from. */
   channels: Record<string, ChannelState>
 }
 
@@ -70,7 +58,6 @@ function publish(migrating: Migrating | null): void {
   const prev = useConnectionStore.getState()
   const { channels } = prev
   const local = deriveStatus(channels, LOCAL_HOST.id)
-  // A migrating report stands only while no local socket is open.
   const nextMigrating = local === 'connected' ? null : migrating
   const status: ConnectionStatus = nextMigrating ? 'migrating' : local
   const degraded = deriveDegraded(channels, status)
@@ -108,9 +95,6 @@ function setFailure(endpoint: string, failure: ApiError | undefined): void {
   useConnectionStore.setState({ failures: next })
 }
 
-/** Called by the wsManager when a channel's socket opens or closes. Only the
- *  local daemon's channels speak for `status`: a remote host going up or down
- *  must neither hide nor cause a local outage, so its own lands in `hostStreams`. */
 export function reportChannelState(endpoint: string, open: boolean, hostId: string): void {
   if (open) setFailure(endpoint, undefined)
   const { channels } = useConnectionStore.getState()
@@ -118,12 +102,10 @@ export function reportChannelState(endpoint: string, open: boolean, hostId: stri
   publish(useConnectionStore.getState().migrating)
 }
 
-/** Called by the wsManager when a remote host refused a channel's open. */
 export function reportChannelFailure(endpoint: string, failure: ApiError): void {
   setFailure(endpoint, failure)
 }
 
-/** Called by the wsManager when a channel is torn down (last subscriber left). */
 export function reportChannelGone(endpoint: string): void {
   setFailure(endpoint, undefined)
   const channels = { ...useConnectionStore.getState().channels }
@@ -132,13 +114,10 @@ export function reportChannelGone(endpoint: string): void {
   publish(useConnectionStore.getState().migrating)
 }
 
-/** The daemon is preparing its home. An open socket outranks it: that report is stale. */
 export function reportMigrating(migrating: Migrating): void {
   publish(migrating)
 }
 
-/** Routes a refusal that names the daemon's own state to that state's owner;
- *  true when it did, so the caller shows nothing of its own. */
 export function reportDaemonRefusal(problem: Problem): boolean {
   if (problem.code === 'daemon_migrating') reportMigrating({ message: problem.message })
   else if (problem.code === 'daemon_halted') useDaemonHaltStore.getState().halt(problem.message)

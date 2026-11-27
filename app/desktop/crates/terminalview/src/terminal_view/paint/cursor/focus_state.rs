@@ -1,5 +1,3 @@
-//! Whether the view holds keyboard focus.
-
 const FOCUS_IN: &str = "\x1b[I";
 const FOCUS_OUT: &str = "\x1b[O";
 

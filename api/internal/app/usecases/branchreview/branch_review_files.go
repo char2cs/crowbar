@@ -11,9 +11,6 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
 
-// GetFiles returns the files-only review summary (name-status + numstat folded with git status), O(file
-// count) so the sidebar never fetches line diffs. Calls are single-flighted per (workspace, commit) to
-// dedupe bursts — never cached. commit scopes the read to one commit; empty means the branch diff.
 func (u *branchReviewUsecase) GetFiles(
 	ctx context.Context,
 	wsID string,
@@ -26,9 +23,6 @@ func (u *branchReviewUsecase) GetFiles(
 	return read.scope.Files, nil
 }
 
-// GetScope returns the review ref, its changed files and their hunk geometry from one ref resolution,
-// sharing GetFiles' flight. Geometry loads outside the flight off the resolved ref so it describes the
-// same diff and GetFiles stays cheap; ws saves a second fold of the aggregate.
 func (u *branchReviewUsecase) GetScope(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -45,8 +39,6 @@ func (u *branchReviewUsecase) GetScope(
 	return read.scope, nil
 }
 
-// outlineForScope loads the geometry of an already-resolved scope, reusing its ref and working-tree
-// state instead of going back to git.
 func (u *branchReviewUsecase) outlineForScope(
 	ctx context.Context,
 	ws domain.Workspace,
@@ -56,16 +48,11 @@ func (u *branchReviewUsecase) outlineForScope(
 	return u.outlineWithKey(ctx, ws, read.scope.Base, key, cacheable)
 }
 
-// scopeRead is one flight's answer plus whether the tree was clean, which the outline cache key needs
-// and the status call already learned. A commit-scoped read takes no status and reports false: no
-// proof of clean means no cache key.
 type scopeRead struct {
 	scope     gitdomain.ReviewScope
 	treeClean bool
 }
 
-// scopeOf is the single-flighted read behind GetFiles and GetScope. known is the caller's resolved
-// workspace or zero; resolution happens inside the flight so concurrent readers share one read.
 func (u *branchReviewUsecase) scopeOf(
 	ctx context.Context,
 	wsID string,
@@ -83,8 +70,6 @@ func (u *branchReviewUsecase) scopeOf(
 	}
 }
 
-// sharedScope unwraps a flight result for one waiter, cloning the file slice because every waiter
-// gets the same backing array (ReviewFileSummary is flat, so a shallow clone isolates).
 func sharedScope(
 	res singleflight.Result,
 ) (scopeRead, error) {
@@ -96,8 +81,6 @@ func sharedScope(
 	return read, nil
 }
 
-// readScope runs under a context detached from cancellation so the flight's starter disconnecting
-// cannot fail its waiters; every git call stays bounded by exec.GitOpTimeout.
 func (u *branchReviewUsecase) readScope(
 	ctx context.Context,
 	wsID string,
@@ -119,8 +102,6 @@ func (u *branchReviewUsecase) readScope(
 	return scopeRead{scope: gitdomain.ReviewScope{Base: ref, Files: files}, treeClean: clean}, nil
 }
 
-// workspaceFor returns the workspace to read, folding it from the event log unless known is that
-// very workspace — the id guard stops a wrong or zero aggregate producing another workspace's review.
 func (u *branchReviewUsecase) workspaceFor(
 	ctx context.Context,
 	wsID string,
@@ -136,17 +117,12 @@ func (u *branchReviewUsecase) workspaceFor(
 	return ws, nil
 }
 
-// filesForRef reads the changed-file summary of an ALREADY-resolved ref, so the
-// resolution can be reused by whoever also wants the ref itself. It also reports
-// whether the status it took proves the working tree clean — see scopeRead.
 func (u *branchReviewUsecase) filesForRef(
 	ctx context.Context,
 	ws domain.Workspace,
 	ref string,
 	commit string,
 ) ([]gitdomain.ReviewFileSummary, bool, error) {
-	// A commit-scoped read names both ends, so merging status would wrongly flag files dirty because
-	// the tree is dirty now.
 	if isCommitScoped(commit) {
 		files, err := u.git.ReviewFiles(ctx, ws.WorktreePath, ref, nil)
 		if err != nil {
@@ -154,16 +130,11 @@ func (u *branchReviewUsecase) filesForRef(
 		}
 		return files, false, nil
 	}
-	// Status is fetched before the summary so ReviewFiles recomputes counts only for paths the working
-	// tree moved; the same status serves mergeWorkingTree's flags.
 	status, statusErr := u.git.Status(ctx, ws.WorktreePath)
 	files, err := u.git.ReviewFiles(ctx, ws.WorktreePath, ref, dirtyPaths(status, statusErr))
 	if err != nil {
 		return nil, false, fmt.Errorf("branch review: review files: %w", err)
 	}
-	// A status that FAILED proves nothing about the tree, so it reports not-clean
-	// for the same reason cacheableOutlineKey refuses a key on one: a cache entry
-	// may only be written on proof.
 	clean := statusErr == nil && !hasTrackedChanges(status)
 	if statusErr != nil {
 		return files, clean, nil
@@ -171,9 +142,6 @@ func (u *branchReviewUsecase) filesForRef(
 	return mergeWorkingTree(status, files), clean, nil
 }
 
-// dirtyPaths lists every path the working-tree status reports. A status failure
-// yields nil, which tells ReviewFiles the dirty set is unknown so it recomputes
-// every count against the working tree instead of trusting a committed one.
 func dirtyPaths(
 	status gitdomain.GitStatus,
 	err error,
@@ -188,8 +156,6 @@ func dirtyPaths(
 	return out
 }
 
-// mergeWorkingTree annotates summary entries with working-tree state and appends untracked files. A
-// status failure is non-fatal: the committed picture is returned without flags.
 func mergeWorkingTree(
 	status gitdomain.GitStatus,
 	files []gitdomain.ReviewFileSummary,

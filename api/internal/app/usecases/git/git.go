@@ -10,15 +10,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// WorkspaceSyncer is the workspace surface the git usecase resolves worktree paths and
-// triggers resyncs through, kept narrow here so git never imports the workspace usecase.
 type WorkspaceSyncer interface {
 	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Workspace, error)
-	// List returns every workspace row, so a pull/fetch can resync the pulled workspace's
-	// direct children: a child diffs against its parent's live merge-base.
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)
@@ -34,7 +30,6 @@ type WorkspaceSyncer interface {
 	) (domain.Workspace, error)
 }
 
-// ReadEngine is the read surface the git usecase passes through to.
 type ReadEngine interface {
 	Status(
 		ctx context.Context,
@@ -75,9 +70,6 @@ type ReadEngine interface {
 	) ([]gitdomain.ConflictHunk, error)
 }
 
-// Usecase is the lifecycle/read git surface over a workspace's worktree.
-// Read methods pass through; mutating methods additionally trigger a working-tree
-// resync.
 type Usecase interface {
 	Status(
 		ctx context.Context,
@@ -120,7 +112,6 @@ type Usecase interface {
 	WriteUsecase
 }
 
-// WriteUsecase is the mutating git surface; every method resyncs after the op.
 type WriteUsecase interface {
 	StageFile(
 		ctx context.Context,
@@ -273,7 +264,6 @@ type gitUsecase struct {
 	syncer WorkspaceSyncer
 }
 
-// New builds a Usecase from the git engine and the workspace syncer.
 func New(
 	git OpsEngine,
 	syncer WorkspaceSyncer,
@@ -309,7 +299,6 @@ func (u *gitUsecase) writePath(
 	return ws.WorktreePath, nil
 }
 
-// Status returns the working-tree status of a workspace.
 func (u *gitUsecase) Status(
 	ctx context.Context,
 	wsID string,
@@ -325,7 +314,6 @@ func (u *gitUsecase) Status(
 	return st, nil
 }
 
-// Diff returns the working-tree (or staged) diff of a workspace.
 func (u *gitUsecase) Diff(
 	ctx context.Context,
 	wsID string,
@@ -342,9 +330,6 @@ func (u *gitUsecase) Diff(
 	return diff, nil
 }
 
-// CommitDiff returns the diff for a single commit. sha is validated as a safe operand
-// because `git show` cannot hide a revision behind `--`, so a leading-dash value could
-// inject an option such as --output=<path>.
 func (u *gitUsecase) CommitDiff(
 	ctx context.Context,
 	wsID string,
@@ -364,7 +349,6 @@ func (u *gitUsecase) CommitDiff(
 	return diff, nil
 }
 
-// Log returns paginated git log from HEAD.
 func (u *gitUsecase) Log(
 	ctx context.Context,
 	wsID string,
@@ -382,7 +366,6 @@ func (u *gitUsecase) Log(
 	return commits, nil
 }
 
-// Branches returns all branches.
 func (u *gitUsecase) Branches(
 	ctx context.Context,
 	wsID string,
@@ -398,7 +381,6 @@ func (u *gitUsecase) Branches(
 	return branches, nil
 }
 
-// Stashes returns all stash entries.
 func (u *gitUsecase) Stashes(
 	ctx context.Context,
 	wsID string,
@@ -414,7 +396,6 @@ func (u *gitUsecase) Stashes(
 	return stashes, nil
 }
 
-// ConflictedFiles returns paths with merge conflicts.
 func (u *gitUsecase) ConflictedFiles(
 	ctx context.Context,
 	wsID string,
@@ -430,7 +411,6 @@ func (u *gitUsecase) ConflictedFiles(
 	return files, nil
 }
 
-// ConflictHunks parses the three-way conflict view for a file.
 func (u *gitUsecase) ConflictHunks(
 	ctx context.Context,
 	wsID string,

@@ -1,5 +1,3 @@
-//! The daemon's validation of one agent descriptor.
-
 use daemonapi::Switch;
 use serde::Deserialize;
 

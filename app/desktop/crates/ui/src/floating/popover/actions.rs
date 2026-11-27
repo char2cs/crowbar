@@ -1,5 +1,3 @@
-//! The keyboard action that closes a popover.
-
 use gpui::{KeyBinding, actions};
 
 actions!(ui_popover, [ClosePopover]);

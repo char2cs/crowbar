@@ -1,6 +1,3 @@
-//! The `file_change` signal of a `files:` scope: one path of the workspace created, deleted,
-//! renamed or modified.
-
 use serde::Deserialize;
 
 const STRUCTURAL: [&str; 3] = ["created", "deleted", "renamed"];

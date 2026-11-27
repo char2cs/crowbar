@@ -8,9 +8,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// GetFileSides handles GET /v0/chats/:chatId/review/contents?path=&oldPath=, serving one file's
-// full old and new text only when the reader expands unchanged lines, so a branch pays per file.
-// oldPath is the optional rename source.
 func (h *Handlers) GetFileSides(
 	ctx *gin.Context,
 ) {

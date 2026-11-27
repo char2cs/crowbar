@@ -1,5 +1,3 @@
-//! A trigger that opens a menu below it.
-
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -15,7 +13,6 @@ use crate::foundation::opaque_debug;
 
 const OFFSET: f32 = 4.0;
 
-/// Wraps a trigger; clicking it opens `items` as the desktop's menu.
 #[derive(IntoElement)]
 pub struct DropdownMenu {
     id: ElementId,
@@ -26,7 +23,6 @@ pub struct DropdownMenu {
 }
 
 impl DropdownMenu {
-    /// A dropdown for `trigger` listing `items`.
     pub fn new(
         id: impl Into<ElementId>,
         trigger: impl IntoElement,
@@ -41,7 +37,6 @@ impl DropdownMenu {
         }
     }
 
-    /// Sets where the menu opens relative to the trigger; under it, left edges aligned, by default.
     #[must_use]
     pub fn placement(
         mut self,

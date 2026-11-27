@@ -27,10 +27,7 @@ import { performRecentsDrop } from '@/components/sidebar/lib/pane-drop-actions'
 async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
   switch (call.kind) {
     case 'reparent': {
-      // A fork whose owner is not recorded is still loading: refused before any operation.
       if (!getOwningChatId(call.wsId)) throw new OwningChatNotRecordedError(call.wsId)
-      // The daemon publishes the terminal frame after the move is written, so
-      // the placement below follows a landed reparent; a refusal rejects here.
       const op = runOperation(
         {
           kind: 'workspace.reparent',
@@ -44,9 +41,6 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       return
     }
     case 'workspace': {
-      // A branch row's order is read off its WorkspaceDTO, which no placement
-      // frame refreshes — the answer (the moved row and every shifted
-      // folder/branch sibling) is applied directly.
       const { workspace, shifted } = await placeWorkspace(call.wsId, {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
         order: call.order,
@@ -86,16 +80,11 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       return
     }
     case 'repoHome':
-      // No optimistic write: the order shown is the daemon's, as the repo frames carry it,
-      // so a refused move never paints and sibling shifts land with it.
       await placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })
       return
   }
 }
 
-// Commit a row-to-row drop the policy allowed: a tree placement, or for a Recents target, open
-// into or reorder the band. Calls run in sequence: each `order` indexes the destination as the
-// previous call left it, so concurrent calls could land any arrangement.
 export async function performSidebarDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
@@ -113,8 +102,6 @@ export async function performSidebarDrop(
       await fireRowPlacementCall(call)
     }
   } catch (err) {
-    // A reparent is chat-addressed; a fork whose owner is not recorded yet
-    // is "still loading", the same copy every other verb uses (row-actions.ts).
     if (err instanceof OwningChatNotRecordedError) {
       const row = subjects.find((s) => s.workspaceId === err.wsId)
       toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
@@ -124,7 +111,6 @@ export async function performSidebarDrop(
   }
 }
 
-/** Withdraws the move a chat dropped into another workspace is waiting to make. */
 export async function performCancelMove(row: SidebarRow): Promise<void> {
   if (!row.workspaceId) return
   try {

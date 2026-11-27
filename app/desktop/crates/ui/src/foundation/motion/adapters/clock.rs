@@ -1,5 +1,3 @@
-//! The wall of the monotonic clock: every animation reads the time through here.
-
 use std::time::Instant;
 
 pub(crate) fn now() -> Instant {

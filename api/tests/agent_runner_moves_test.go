@@ -16,12 +16,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/stream"
 )
 
-// The lifecycle frame recorder the agent black-box tests share, and the two
-// contracts a chat keeps over its provider's sessions: deleting a chat leaves the
-// provider's own session alone, and an agent's rename lands on the chat its runner is on.
-
-// announce fires a session_start hook: the vendor CLI telling Crowbar which
-// conversation it is now in, as a /clear or a /resume inside it does.
 func announce(
 	t *testing.T,
 	h *harness,
@@ -33,9 +27,6 @@ func announce(
 	postHook(t, h, repoBase(imported), "livestub", runnerID, "session_start", `{"session_id":"`+sessionID+`"}`)
 }
 
-// chatHandoff reads a chat's assembled ledger (GET .../chats/:id/handoff): the
-// DURABLE record of what was actually said in it. It is the on-disk oracle for "did
-// this turn land in this chat", answerable long after any in-memory state is gone.
 func chatHandoff(
 	t *testing.T,
 	h *harness,
@@ -50,29 +41,6 @@ func chatHandoff(
 	return out.Handoff
 }
 
-// TestRegression_DeleteChat_LeavesProviderSessionIntact pins a standing project rule:
-// CROWBAR NEVER DELETES A PROVIDER'S OWN SESSION FILE.
-//
-// A provider owns its conversations. claude keeps them under its own home, codex keeps
-// its rollouts under CODEX_HOME — and Crowbar owns NEITHER, deliberately. It once did:
-// pointing CODEX_HOME at a directory Crowbar created and reaped made Crowbar the
-// custodian of codex's sessions, so leaving codex DESTROYED codex's own history and
-// switching back resumed a thread that no longer existed. Every unit test passed; only
-// a real CLI could show it.
-//
-// So a chat delete reaps CROWBAR's footprint — the chat aggregate, its conversation
-// history, its plaintext handoff ledger — and STOPS THERE. What the vendor wrote is
-// the vendor's.
-//
-// The consequence is asserted too: the deleted chat's conversation is still in the
-// CLI's own /resume picker, and resuming it binds the chat the CLI is on — it never
-// resurrects the purged chat.
-// requireChatHoldsText asserts that Crowbar's OWN record of a chat carries text.
-//
-// It reads the conversation record directly rather than through the chat's REST
-// surface, because the record outlives the chat that indexes it: only a direct read
-// distinguishes "the conversation was dropped" from "the chat that pointed at it was
-// dropped, and the plaintext is still sitting there".
 func requireChatHoldsText(
 	t *testing.T,
 	h *harness,
@@ -108,22 +76,13 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	announce(t, h, ws, otherRunner, "sess-other")
 	frames.awaitConversation(other, "sess-other")
 
-	// Give the doomed chat a real conversation — Crowbar's own plaintext copy of what
-	// was said, the thing the purge MUST reap (leaving it behind is a privacy bug).
 	const privateText = "something private"
 	postHook(t, h, repoBase(ws), "livestub", doomedRunner, "user_prompt", `{"prompt":"`+privateText+`"}`)
 	frames.awaitTurnStart(doomed)
-	// Close the turn first: invariant 9 refuses to delete a WORKING row, and this
-	// test is about what survives a delete, not about that refusal.
 	postHook(t, h, repoBase(ws), "livestub", doomedRunner, "turn_stop", `{"last_assistant_message":"noted"}`)
 	frames.awaitTurnEnd(doomed)
 	h.Quiesce()
 
-	// The PROVIDER's own session store, where a vendor CLI actually keeps its
-	// conversations: OUTSIDE crowbar home entirely. Crowbar's only filesystem removals
-	// are routed through a guard that refuses any target not strictly under crowbar
-	// home (fail-closed), and that guard is what makes this file structurally safe —
-	// but the rule is the point, so it is asserted, not assumed.
 	vendorStore := t.TempDir()
 	vendorSession := filepath.Join(vendorStore, "sessions", "sess-doomed.jsonl")
 	require.NoError(t, os.MkdirAll(filepath.Dir(vendorSession), 0o750))
@@ -132,26 +91,15 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	require.False(t, strings.HasPrefix(vendorSession, h.home+string(os.PathSeparator)),
 		"precondition: a provider's session store lies outside crowbar home — Crowbar does not own it")
 
-	// Crowbar's own copy of that conversation, read from the record itself rather
-	// than through the chat — after the delete the chat is gone, so a read routed
-	// through it could only ever answer "not found" and would prove nothing about
-	// whether the text was actually dropped.
-	//
-	// The record IS the footprint now: the per-chat plaintext ledger directory this
-	// once asserted on is gone, and the conversation lives in the activity record
-	// PurgeChat forgets (agent.ChatUsecase.PurgeChat — "the conversation itself no longer
-	// lives here, it is in the record dropped above").
 	requireChatHoldsText(t, h, doomed, privateText,
 		"precondition: Crowbar keeps its own plaintext copy of what was said")
 
-	// --- hard delete ---
 	resp := h.raw(http.MethodDelete, base+"/chats/"+doomed, nil, http.StatusOK)
 	_ = resp.Body.Close()
 	frames.awaitGone(stream.KindChatEntity, doomed)
-	h.QuiesceReactors() // its CLI ends with the chat
+	h.QuiesceReactors()
 	h.Quiesce()
 
-	// THE RULE: the vendor's session file is untouched, byte for byte.
 	assert.FileExists(t, vendorSession,
 		"Crowbar must NEVER delete a provider's own session file. Deleting a CROWBAR chat is not a "+
 			"licence to destroy the VENDOR's conversation — that is the user's data, held by a tool "+
@@ -160,8 +108,6 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, vendorContent, string(got), "and it must not have been rewritten or truncated either")
 
-	// Crowbar's OWN footprint IS reaped — so the assertion above is a real confinement
-	// claim (the purge ran, removed what is Crowbar's, and stopped), not a vacuous one.
 	rows, err := h.app.Repositories.ChatLedger.Read(ctx, doomed, 0, 0)
 	require.NoError(t, err)
 	assert.Empty(t, rows,
@@ -170,8 +116,6 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 	gone := h.raw(http.MethodGet, base+"/chats/"+doomed, nil, http.StatusNotFound)
 	_ = gone.Body.Close()
 
-	// That conversation is still in the CLI's /resume picker. Picked from another
-	// chat's CLI, it is no chat's any more, so it binds the chat that CLI is on.
 	announce(t, h, ws, otherRunner, "sess-doomed")
 	frames.awaitConversation(other, "sess-doomed")
 	h.Quiesce()
@@ -182,9 +126,6 @@ func TestRegression_DeleteChat_LeavesProviderSessionIntact(t *testing.T) {
 		"the CLI stays on its own chat: a purged chat is never resurrected")
 }
 
-// TestRegression_RenameResolvesChatAtCallTime: an agent titles its chat by its
-// RUNNER id, resolved to the runner's placement at call time — so a /clear inside
-// the CLI, which keeps it on its chat, titles that chat and mints no other.
 func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
@@ -215,10 +156,6 @@ func TestRegression_RenameResolvesChatAtCallTime(t *testing.T) {
 	assert.Len(t, conversationsOnly(chats), 1, "a /clear mints no chat")
 }
 
-// TestRegression_ResumeInAChatThatNeverTurned_MovesTheConversationThere: a /resume
-// typed in a chat whose own session never turned picks another chat's session.
-// The conversation lands where it was typed, the chat that held it loses it, its
-// CLI is ended, and what the resumed CLI says next is recorded.
 func TestRegression_ResumeInAChatThatNeverTurned_MovesTheConversationThere(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)

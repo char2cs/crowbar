@@ -7,10 +7,7 @@ import { documentRefOf, documentUri } from '@/features/editor/documents/document
 import { getEditorHost } from '@/features/editor/host/editor-host'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 
-/** Resets data fields only: copying a fresh store's whole state would bind `target`'s actions
- *  to that throwaway store's set/get, so later calls would mutate it instead. */
 export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPaneStore): void {
-  // The buffers go as closing them would, documents included.
   for (const b of target.getState().buffers) {
     if (isEditorContent(b) && b.path)
       getEditorHost()?.documents.release(documentUri(documentRefOf(b)))

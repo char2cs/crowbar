@@ -19,15 +19,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil/accessfake"
 )
 
-// workspaceGetter is the read the real workspace repository (and this stub)
-// both satisfy: Get(ctx, id) (domain.Workspace, error).
 type workspaceGetter interface {
 	Get(ctx context.Context, id string) (domain.Workspace, error)
 }
 
-// stubChatWorktreeResolver is the minimal usecases.WorktreeResolver the chat
-// routes and the bound worktree streams need: each chat resolves to a fixed
-// workspace id, read through the workspace reader the test seeded its row in.
 type stubChatWorktreeResolver struct {
 	chatToWs   map[string]string
 	workspaces workspaceGetter
@@ -44,13 +39,6 @@ func (s stubChatWorktreeResolver) Resolve(
 	return s.workspaces.Get(ctx, wsID)
 }
 
-// expectedRoutes is the canonical method+path set the v0 surface must register,
-// audited against docs/specs/v0/02-api-surface.md §2 (REST) + §3 (WS). It is the
-// regression guard for T18: dropping or renaming any route breaks this test.
-//
-// Spec param names (:id, :childId) are normalised to the registered names
-// (:wsId, :sessionId, :branch); the routes resolve identically. Documented
-// supersets beyond the spec are listed in extraRoutes.
 func expectedRoutes() map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, r := range append(append([]string{}, specRoutes()...), extraRoutes()...) {
@@ -59,44 +47,21 @@ func expectedRoutes() map[string]struct{} {
 	return out
 }
 
-// specRoutes is every route in 02 §2 + §3, one per spec line. Health, system,
-// and the terminal profiles CRUD remain top-level (outside /projects).
-// git, files, review, search, identity, editor/LSP, and provider's State
-// route all live on the flat /v0/chats/:chatId prefix (chat-scoped API spec
-// §7.1) — their old .../workspaces/:wsId/... twins are gone (spec §8 step 6),
-// asserted directly by TestRouteAudit_NoWorkspaceScopedGroupRoutes. threads
-// keeps its own /workspaces/:wsId/threads prefix permanently (spec §4.4) —
-// it is repo-level review commentary, never a worktree read, and never moved.
-// Live changes ride GET /v0/stream; the raw PTY stream stays co-located at
-// /v0/chats/:chatId/terminals/:sessionId/ws.
 func specRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
-	// chat is the flat chat-scoped prefix (spec §7.1): chat ids are globally
-	// unique, so nothing below it re-nests under a project/repo pair.
 	const chat = "/v0/chats/:chatId"
 	return []string{
-		// §2.1 Projects & Repositories
 		"GET /v0/projects",
 		"POST /v0/projects",
 		"GET /v0/projects/:projectId",
 		"GET /v0/projects/:projectId/repos",
 		"POST /v0/projects/:projectId/repos",
 		"GET " + repo,
-		// §2.2 Workspaces: gone, moved onto .../chats (spec §8 step 6); their
-		// absence is TestRouteAudit_NoWorkspaceGroupRoutes'.
-		// §2.3 Chats — chat WebSocket surface removed per D11; chat domain, repo
-		// CRUD, and usecase remain dormant TODO (routes not remounted in this PR).
-		// §2.4 Files (chat-scoped API spec §4.2's SHARED bucket, §8 step 4/6):
-		// the flat chat prefix is the only surface left; the old
-		// .../workspaces/:wsId/files/... twin is gone.
 		"GET " + chat + "/files/tree",
 		"POST " + chat + "/files",
 		"PATCH " + chat + "/files",
 		"DELETE " + chat + "/files",
-		// §2.5 Editor / LSP (+blame), chat-scoped (chat-scoped API spec §4.2's
-		// OWNED bucket, §8 step 5/6): the flat chat prefix is the only surface
-		// left; the old .../workspaces/:wsId/{blame,lsp/*} twin is gone.
 		"GET " + chat + "/blame",
 		"POST " + chat + "/lsp/completion",
 		"POST " + chat + "/lsp/hover",
@@ -115,10 +80,6 @@ func specRoutes() []string {
 		"GET " + chat + "/lsp/status",
 		"POST " + chat + "/lsp/restart",
 		"GET " + chat + "/lsp/diagnostics",
-		// §2.6-2.8 Git (read, write, conflicts/operation), chat-scoped
-		// (chat-scoped API spec §4.2's SHARED bucket, §8 step 4/6): the flat
-		// chat prefix is the only surface left; the old
-		// .../workspaces/:wsId/git/... 32-route twin is gone.
 		"GET " + chat + "/git/status",
 		"GET " + chat + "/git/log",
 		"GET " + chat + "/git/diff",
@@ -150,39 +111,20 @@ func specRoutes() []string {
 		"POST " + chat + "/git/resolve-hunk",
 		"POST " + chat + "/git/operation/continue",
 		"POST " + chat + "/git/operation/abort",
-		// §2.9 Review, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
-		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
-		// .../workspaces/:wsId/review twin is gone.
 		"GET " + chat + "/review",
 		"PATCH " + chat + "/review",
-		// §2.9a Threads (promoted out of /review into a first-class endpoint,
-		// W9). This is the one workspace-scoped prefix that survives spec §8
-		// step 6 permanently (spec §4.4): review comments are repo-level
-		// commentary, not a worktree read, and were never re-keyed to chat.
 		"GET " + ws + "/threads",
 		"POST " + ws + "/threads",
 		"GET " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId",
 		"POST " + ws + "/threads/:threadId/replies",
-		// §2.9b Provider (read-only). State is chat-scoped (chat-scoped API
-		// spec §4.2's OWNED bucket, §8 step 5/6): the old
-		// .../workspaces/:wsId/provider twin is gone. /protected-branches does
-		// NOT move — spec §4.2 is explicit that it is repo-level, not
-		// worktree-owned — and stays on repo.
 		"GET " + chat + "/provider",
 		"GET " + repo + "/protected-branches",
 		"GET " + chat + "/blobs/:ref",
 		"GET " + chat + "/rows",
 		"GET " + chat + "/rows/:seq",
-		// §2.10 Search, chat-scoped (chat-scoped API spec §4.2's SHARED bucket,
-		// §8 step 4c/6): the flat chat prefix is the only surface left; the old
-		// .../workspaces/:wsId/search twin is gone.
 		"POST " + chat + "/search",
 		"POST " + chat + "/search/replace",
-		// §2.11 Terminal (+profiles). The profile CRUD is a global user setting
-		// and stays top-level. The session routes moved onto the flat
-		// /v0/chats/:chatId prefix (chat-scoped API spec §8 step 3): a terminal
-		// is owned by ONE chat, so the chat is the only id in the path.
 		"GET /v0/settings/terminal/profiles",
 		"GET /v0/settings/terminal/profiles/:id",
 		"POST /v0/settings/terminal/profiles",
@@ -191,126 +133,52 @@ func specRoutes() []string {
 		"GET " + chat + "/terminals",
 		"POST " + chat + "/terminals",
 		"DELETE " + chat + "/terminals/:sessionId",
-		// §2.12 System
 		"GET /v0/system/prerequisites/:tool",
 		"GET /v0/system/browse",
-		// §2.13 Health
 		"GET /v0/health",
-		// §3 the raw PTY stream, co-located on the flat chat prefix.
 		"GET " + chat + "/terminals/:sessionId/ws",
 	}
 }
 
-// extraRoutes is the documented superset registered beyond the core spec:
-// repo icon management, repo branch listing, project deletion (record-only
-// cascade), and LSP document-sync notifications (04 §3, 10).
 func extraRoutes() []string {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
 	const home = "/v0/projects/:projectId/home"
-	// chat is the flat chat-scoped prefix (spec §7.1), same as specRoutes'.
 	const chat = "/v0/chats/:chatId"
 	return []string{
-		// A relay-keyed session (Hermes) keeps one MCP identity for its life, so
-		// its tool surface hangs off the relay id rather than a runner or a path.
 		"POST /v0/relays/:relay/mcp",
 		"DELETE /v0/projects/:projectId",
-		// Project reorder: the sidebar's manual project order, a single store
-		// write that densifies the list and broadcasts every row it shifted.
 		"PATCH /v0/projects/:projectId",
 		"DELETE " + repo,
-		// Repo patch: the sidebar's inline repo rename, its manual order within a
-		// project, and its move BETWEEN projects — one partial-update endpoint,
-		// because a drag can do more than one of them at once. It rewrites the
-		// display name + its derived avatar and broadcasts the updated RepoDTO.
 		"PATCH " + repo,
-		// The repo's open-PR head->base graph, the import dialog's parent hint.
 		"GET " + repo + "/pull-requests",
 		"GET " + repo + "/icon",
 		"PUT " + repo + "/icon",
 		"DELETE " + repo + "/icon",
 		"PUT " + repo + "/icon/emoji",
 		"PUT " + repo + "/icon/github",
-		// Project icon: the same three states a repo's has (uploaded image,
-		// emoji, or the client's default mark) on the same routes one level up.
-		// No /icon/github counterpart — that one reads the repo's `origin`
-		// remote for an owner avatar, and a project has no remote of its own.
 		"GET /v0/projects/:projectId/icon",
 		"PUT /v0/projects/:projectId/icon",
 		"DELETE /v0/projects/:projectId/icon",
 		"PUT /v0/projects/:projectId/icon/emoji",
 		"GET " + repo + "/branches",
-		// Every workspace row in the repo, chat or no chat — restored after
-		// live-reproduced evidence that the chat-scoped API redesign's own
-		// assumption (§8 step 6, "list and detail became the chat DTO's own
-		// worktree field") does not hold for a workspace with NO chat at
-		// all: a repo's own default checkout, or any locked tracking branch
-		// nobody has chatted in, had no chat to derive a DTO from and so
-		// never appeared in the sidebar — not just missing content, but a
-		// missing REPO HEADER, since that row is minted from the default
-		// workspace. See handlers.Workspaces (worktree.go) and
-		// TestRouteAudit_NoWorkspaceGroupRoutes's own note on why this is
-		// the one route of the original thirteen NOT staying deleted.
 		"GET " + repo + "/workspaces",
-		// A route that shipped without ever being declared here — the exact drift
-		// this audit exists to catch, caught late because the audit is behind the
-		// `integration` build tag and so does not run in the default
-		// `go test ./...` sweep: the repo's open PR list, read by the sidebar
-		// beside the branch list above.
 		"GET " + repo + "/pull-requests",
-		// File copy: the duplicate op the file tree's context menu drives,
-		// sibling of the create/rename/delete file routes the §2.4 list
-		// carries. Chat-scoped only (spec §4.2's SHARED bucket, §8 step 6) —
-		// the old .../workspaces/:wsId/files/copy twin is gone.
 		"POST " + chat + "/files/copy",
-		// Branch Review's file list: the full changed-file set of the review,
-		// read alongside the GET/PATCH .../review pair in §2.9. Branch
-		// Review's WINDOWED diff API (diff perf phase 2) follows it: /review
-		// carries the whole diff as JSON and is O(lines); these three replace
-		// it with reads no single one of which is: the outline is the hunk
-		// geometry of every file and nothing else (O(hunks)), patch streams
-		// ONE file's unified patch as text/plain, and search is the
-		// server-side find-in-diff the client can no longer do locally once it
-		// only holds a window. All four resolve the diff ref the same way, and
-		// all four are chat-scoped only (spec §4.2's SHARED bucket, §8 step
-		// 6) — their .../workspaces/:wsId/review/... twins are gone.
 		"GET " + chat + "/review/files",
 		"GET " + chat + "/review/outline",
 		"GET " + chat + "/review/patch",
 		"GET " + chat + "/review/search",
-		// One file's full old and new text, fetched only when a reader expands
-		// the unchanged lines a patch leaves out.
 		"GET " + chat + "/review/contents",
-		// The three document-sync notifications, chat-scoped only (spec §4.2's
-		// OWNED bucket, §8 step 6) — their .../workspaces/:wsId/lsp/... twins
-		// are gone.
 		"POST " + chat + "/lsp/didOpen",
 		"POST " + chat + "/lsp/didChange",
 		"POST " + chat + "/lsp/didClose",
 		"POST " + chat + "/lsp/didSave",
-		// Registered feature routes the §2 spec list did not yet enumerate: the
-		// git-identity read (chat-scoped only, spec §4.2's SHARED bucket, §8
-		// step 6 — its .../workspaces/:wsId/identity twin is gone) and the
-		// review-thread message CRUD. (The hierarchy ops that used to sit here
-		// — rebase-onto-parent, detach-holder, retry-provision and the
-		// branch-renaming PATCH — are chat-keyed now and are listed with the
-		// rest of the lifecycle verbs below.)
 		"GET " + chat + "/identity",
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
 		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
-		// Workspace placement: a LOCKED branch's own sidebar position, moved
-		// by the workspace's own id rather than a chat id — locked
-		// workspaces are not chats, so the chat-keyed placement route above
-		// cannot reach them. The second genuinely workspace-native route on
-		// this mount, alongside threads above (2026-09-09
-		// sidebar-placement-unification, workspace-placement fix).
 		"PATCH " + ws + "/placement",
-		// Agentic-chat surface (00 agentic-engine spec §7, rescoped off the
-		// workspace group onto the repo group by Task 17 of the 2026-08-28
-		// sidebar backend plan: a chat's workspace is optional and mutable, so
-		// no chat route names one any more): the REST + lifecycle WS the FE
-		// Chats tab drives, nested under the repo group (chat.Register).
 		"POST " + repo + "/chats",
 		"GET " + repo + "/chats",
 		"GET " + repo + "/chats/:id",
@@ -318,20 +186,9 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/rename",
 		"GET " + repo + "/chats/:id/handoff",
 		"DELETE " + repo + "/chats/:id",
-		// Chat placement: where a chat hangs in the Chats tree and where it sits
-		// among its siblings. A route of its own rather than a field on the chat
-		// PATCH-equivalents, because it writes something different in kind — a
-		// chat's parent IS its context lineage, so this is what turns a standalone
-		// chat into a THREAD of another and back.
 		"PATCH " + repo + "/chats/:id/placement",
-		// A move recorded for the turn boundary, and its undo: Make a branch
-		// cuts a worktree for the thread, cancel keeps it where it runs.
 		"POST " + repo + "/chats/:id/branch-out",
 		"POST " + repo + "/chats/:id/move/cancel",
-		// The worktree LIFECYCLE verbs, on the thing actually being held
-		// (chat-scoped API spec §4.3). Each resolves :id to the workspace behind
-		// that chat's worktree. Their .../workspaces/:wsId twins are gone as of
-		// §8 step 6, so these are now the only way to reach these bodies.
 		"POST " + repo + "/chats/:id/lock",
 		"POST " + repo + "/chats/:id/sync",
 		"POST " + repo + "/chats/:id/merge-into-parent",
@@ -339,69 +196,23 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/rebase-onto-parent",
 		"POST " + repo + "/chats/:id/retry-provision",
 		"POST " + repo + "/chats/:id/detach-holder",
-		// The chat-keyed BRANCH rename: what became of the rename half of the
-		// deleted PATCH .../workspaces/:wsId. It enforces the same guards (locked
-		// branch, unprovisioned placeholder, repo-wide name collision, adopted
-		// checkout) because it routes through the same
-		// applyRename/hierarchy.RenameBranch body.
-		//
-		// Deliberately NOT folded into POST .../chats/:id/rename, which stays
-		// title-only — see ChatRenameBranch for why that half of spec §7.5 was
-		// declined.
 		"PATCH " + repo + "/chats/:id/branch",
-		// Batch branch import, on the surface that survives (spec §8 step 6). It
-		// is a route of its own beside POST .../chats — that one adopts ONE named
-		// branch, this one takes a set and resolves the repo's open-PR graph
-		// across it, creating missing ancestors and falling back to a placeholder
-		// for a branch held elsewhere. Its …/workspaces/import mount is gone.
 		"POST " + repo + "/chats/import-batch",
-		// Chat folder CRUD: the Chats panel's organisation layer. Repo-scoped,
-		// and sharing ONE dense sibling space with the chats above — a folder and a
-		// chat interleave at every level, which is why the placement route above and
-		// these four are the two halves of the same gesture.
 		"GET " + repo + "/chats/folders",
 		"POST " + repo + "/chats/folders",
 		"PATCH " + repo + "/chats/folders/:folderId",
 		"DELETE " + repo + "/chats/folders/:folderId",
 		"GET " + repo + "/chats/providers",
-		// The runner model added resume and never declared it here, which is exactly
-		// the drift this audit exists to catch — it caught it. A chat whose CLI is gone
-		// is not gone: its ledger and its provider conversation both outlive the
-		// process, so a dormant chat can be handed a NEW runner that picks the
-		// conversation back up.
 		"POST " + repo + "/chats/:id/resume",
-		//   runners/:segid/mcp: the agent's own tool surface, spoken as MCP. Keyed by
-		//   RUNNER because the CLI knows which process it is and never which chat it
-		//   currently sits on — the runner is what maps one to the other, and it keeps
-		//   answering across a /clear that moves the CLI mid-turn. Plus one reason that
-		//   applies only here: this is the route the agent's process itself calls, so
-		//   its authority has to come from the per-boot token bound to that runner and
-		//   never from a URL the agent is free to compose.
-		//
-		//   Its runner-keyed sibling, .../runners/:segid/rename, is deliberately GONE.
-		//   It existed for a shell command the agent was asked to retype; titling is a
-		//   tool on this MCP surface now, and a second path competed with it.
 		"POST " + repo + "/chats/runners/:segid/mcp",
 		"POST " + repo + "/chats/runners/:segid/hooks/:provider/:event",
-		//   stop: closing a chat TAB is not deleting the chat. The CLI is quit and
-		//   the chat left DORMANT with its bound vendor conversation intact, which
-		//   is exactly the state resume above exists to pick back up.
 		"POST " + repo + "/chats/:id/stop",
-		//   kill: the explicit force-end, on the flat chat prefix alone. Unlike
-		//   stop it never interrupts in place; the CLI is retired and the chat
-		//   stays dormant.
 		"POST " + chat + "/kill",
-		//   terminal-wait/answer: answers the provider's own prompt (trust, login,
-		//   permission) from the chat instead of the terminal.
 		"POST " + repo + "/chats/:id/terminal-wait/answer",
 		"POST " + repo + "/chats/:id/compact",
-		// Asks the agent to end one of its background shells (no outside handle).
 		"POST " + repo + "/chats/:id/shells/:shellId/stop",
-		// Force the CLI into (or back out of) the host terminal instead of the chat's pane.
 		"POST " + repo + "/chats/:id/switch-to-terminal",
 		"POST " + repo + "/chats/:id/switch-to-native",
-		// Chat attachments: GET serves the bytes, HEAD the headers alone (one handler,
-		// both methods registered); the uploads routes are the chunked, resumable path.
 		"POST " + repo + "/chats/:id/attachments",
 		"GET " + repo + "/chats/:id/attachments/:file",
 		"HEAD " + repo + "/chats/:id/attachments/:file",
@@ -410,52 +221,22 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/attachments/uploads/:uploadId/complete",
 		"DELETE " + repo + "/chats/:id/attachments/uploads/:uploadId",
 		"GET " + repo + "/chats/:id/telemetry",
-		// The provider's own slash-command list, so the composer can autocomplete
-		// commands the CLI itself defines.
 		"GET " + repo + "/chats/:id/slash-catalog",
-		// The chat's sticky model/reasoning-effort choice, and its sticky
-		// permission-level dial (each provider's own native mode).
 		"PATCH " + repo + "/chats/:id/selection",
 		"PUT " + repo + "/chats/:id/permission-level",
-		// A human deciding a question the agent put to them mid-turn.
 		"POST " + repo + "/chats/:id/choices/:choiceId/answer",
-		// Sending the user's text, and withdrawing it (Esc after send).
 		"POST " + repo + "/chats/:id/prompts",
 		"POST " + repo + "/chats/:id/prompts/:requestId/retract",
-		// Provider PRIORITY + enable/disable is a GLOBAL user setting (the CLIs are
-		// machine-level, not per workspace), so its write route mounts outside the
-		// entity hierarchy beside /settings/terminal/profiles. It is the write
-		// counterpart of the repo-scoped enriched GET .../chats/providers.
 		"PUT /v0/settings/chat/providers",
 		"GET /v0/settings/chat/providers",
-		// The permission-level dial's own default, read and written the same way:
-		// a machine-level setting, not a per-chat one, so a chat with no sticky
-		// choice of its own falls back to this.
 		"GET /v0/settings/chat/permission-level",
 		"PUT /v0/settings/chat/permission-level",
-		// Whether a model.manifest: source's background refresh may hit the
-		// network. Machine-level for the same reason: the fetch is the daemon's,
-		// not any one chat's.
 		"GET /v0/settings/chat/model-manifest-fetch",
 		"PUT /v0/settings/chat/model-manifest-fetch",
-		// Every provider descriptor's static findings: machine-level, since the
-		// descriptors are the daemon's, not any one chat's.
 		"GET /v0/settings/chat/descriptors",
 		"POST /v0/settings/chat/descriptors",
-		// The host terminal's light/dark colours, and a GLOBAL setting for the same
-		// reason: one Crowbar window renders every session, so there is one theme, and
-		// it must be known BEFORE any session exists. The daemon seeds it into each PTY
-		// at birth so a CLI that detects its theme by querying the background (OSC 10/11)
-		// reads the truth on its first frame — the per-session push cannot cover that,
-		// since the process is already running by the time a client can attach.
 		"GET /v0/settings/terminal/theme", "PUT /v0/settings/terminal/theme",
-		// Documents by ref (a workspace's file or a host file), and a host file's watch.
 		"GET /v0/documents/content", "PUT /v0/documents/content",
-		// Repo-home-as-workspace surface: the special non-git default workspace is
-		// navigable like a workspace but git-less, exposing its own files,
-		// terminals, and review-thread subtrees under /projects/:projectId/home
-		// (Crowbar workspace model — the repo home hosts chats/threads + a file
-		// tree + terminals, but no git operations).
 		"GET " + home,
 		"GET " + home + "/files/tree",
 		"POST " + home + "/files",
@@ -473,9 +254,6 @@ func extraRoutes() []string {
 		"POST " + home + "/threads/:threadId/replies",
 		"PATCH " + home + "/threads/:threadId/messages/:messageId",
 		"DELETE " + home + "/threads/:threadId/messages/:messageId",
-		// Agentic chats re-mounted under the home group so project-home
-		// workspaces get chats too (Task 6). Same handler set as the
-		// workspace-scoped agent surface, each RequireHomeWorkspace-scoped.
 		"POST " + home + "/chats",
 		"GET " + home + "/chats",
 		"GET " + home + "/chats/:id",
@@ -484,46 +262,25 @@ func extraRoutes() []string {
 		"GET " + home + "/chats/:id/handoff",
 		"DELETE " + home + "/chats/:id",
 		"GET " + home + "/chats/providers",
-		// The same two forced-terminal/native session moves, mounted here for
-		// the same reason as the rest of this block: a home chat's session
-		// behaves like any other chat's.
 		"POST " + home + "/chats/:id/switch-to-terminal",
 		"POST " + home + "/chats/:id/switch-to-native",
-		// The repo home hosts chats like any workspace, so it gets the runner model's
-		// resume too — same reason as the ws block above. A chat in the home is still a
-		// chat: its CLI can die and be resumed.
 		"POST " + home + "/chats/:id/resume",
-		// Same native-TUI/React-terminal split and permission-level write, mounted
-		// on the home group for the same reason as the rest of this block.
 		"POST " + home + "/chats/:id/switch-to-terminal",
 		"POST " + home + "/chats/:id/switch-to-native",
 		"PUT " + home + "/chats/:id/permission-level",
-		// An agent in a home chat has the same tools as one anywhere else, so the
-		// MCP seam is mounted here too — and, like the ws block, WITHOUT the retired
-		// runner-keyed rename route beside it.
 		"POST " + home + "/chats/runners/:segid/mcp",
 		"POST " + home + "/chats/runners/:segid/hooks/:provider/:event",
-		// And the same close-is-not-delete stop, for the same reason: a home chat's
-		// tab closes exactly like any other chat's.
 		"POST " + home + "/chats/:id/stop",
 		"POST " + home + "/chats/:id/terminal-wait/answer",
 		"POST " + home + "/chats/:id/compact",
 		"POST " + home + "/chats/:id/shells/:shellId/stop",
-		// Placement and chat FOLDERS re-mounted on the home group. This is the
-		// mount that matters most: the project home accumulates more chats than any
-		// worktree workspace, so the surface that most needs somewhere to put them
-		// is exactly the one a single mount would have left without folders.
 		"PATCH " + home + "/chats/:id/placement",
-		// The pending-move verbs re-mounted on the home group: a home chat is a
-		// chat, and TestHomeMountsEveryAgentRoute holds the two tables in step.
 		"POST " + home + "/chats/:id/branch-out",
 		"POST " + home + "/chats/:id/move/cancel",
 		"GET " + home + "/chats/folders",
 		"POST " + home + "/chats/folders",
 		"PATCH " + home + "/chats/folders/:folderId",
 		"DELETE " + home + "/chats/folders/:folderId",
-		// The same read, slash-catalog, selection, answer and prompt routes: a
-		// chat in the project home behaves like a chat anywhere else.
 		"GET " + home + "/chats/:id/telemetry",
 		"POST " + home + "/chats/:id/attachments",
 		"GET " + home + "/chats/:id/attachments/:file",
@@ -538,26 +295,17 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
 		"POST " + home + "/chats/:id/prompts/:requestId/retract",
-		// The home hosts a file tree, so it hosts the file tree's duplicate op too.
 		"POST " + home + "/files/copy",
-		// The daemon's timing-ring read/arm seam. Process-wide, not scoped to a
-		// project/repo/workspace, so it mounts top-level beside
-		// /system/prerequisites rather than inside the entity hierarchy.
 		"GET /v0/system/perf",
 		"POST /v0/system/perf",
-		// The one stream and operations are process-wide, so they mount top-level too.
 		"GET /v0/stream",
 		"DELETE /v0/operations/:id",
-		// Pairing + client registry: redeem stays open so an unpaired client can
-		// bootstrap trust; minting, the registry and device access are guarded.
 		"POST /v0/pair/code",
 		"POST /v0/pair",
 		"GET /v0/access",
 		"PUT /v0/access",
 		"GET /v0/clients",
 		"DELETE /v0/clients/:id",
-		// The desktop app's browser-peer socket: process-wide like /system,
-		// it carries tab inventories up and agent browser_* requests down.
 		"GET /v0/browser/peer",
 	}
 }
@@ -577,10 +325,6 @@ func registeredRoutes(
 	return out
 }
 
-// TestRouteAudit_AllSpecRoutesRegistered asserts every 02 §2/§3 route resolves
-// to a registered method+path, and that the registered surface contains no
-// route outside the spec∪documented-superset set. It is the regression guard:
-// dropping, renaming, or adding an undocumented route fails here.
 func TestRouteAudit_AllSpecRoutesRegistered(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	got := registeredRoutes(t)
@@ -597,10 +341,6 @@ func TestRouteAudit_AllSpecRoutesRegistered(t *testing.T) {
 	assert.Len(t, got, len(want), "registered route count drifted from expected set")
 }
 
-// TestRouteAudit_NoLegacyWsRoutes asserts the five dedicated /ws/* routes are
-// GONE from the registered surface (W7-2): /ws/workspaces, /ws/git, /ws/files,
-// /ws/lsp, and /ws/terminals/:sessionId were folded into the dual-served entity
-// GET routes and the co-located .../files/ws, .../lsp/ws, .../terminals/:id/ws.
 func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	got := registeredRoutes(t)
@@ -612,7 +352,6 @@ func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 		"GET " + repo + "/ws/files",
 		"GET " + repo + "/ws/lsp",
 		"GET " + repo + "/ws/terminals/:sessionId",
-		// The chat lifecycle sockets the projects stream scope replaced.
 		"GET " + repo + "/chats/ws",
 		"GET /v0/chats/:chatId/ws",
 		"GET /v0/projects/:projectId/home/chats/ws",
@@ -621,7 +360,6 @@ func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 		_, ok := got[r]
 		assert.Falsef(t, ok, "legacy /ws/* route must be removed: %s", r)
 	}
-	// Any residual /ws/ segment anywhere in the surface is a regression.
 	for r := range got {
 		assert.NotContainsf(t, r, "/ws/workspaces", "legacy ws route present: %s", r)
 		assert.NotContainsf(t, r, "/ws/git", "legacy ws route present: %s", r)
@@ -629,31 +367,6 @@ func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 	}
 }
 
-// TestRouteAudit_NoWorkspaceGroupRoutes is the proof the chat-scoped API spec's
-// §8 step 6 deletion is real for TWELVE of the thirteen routes the original
-// `workspaces` endpoint group mounted. Every one of those twelve had a
-// chat-keyed replacement live and in use before it went (the .../chats/:id
-// verbs and the chat DTO's own worktree field), so a re-mount of any of them
-// here is a regression, not a fallback.
-//
-// The thirteenth, GET .../repos/:repoId/workspaces (the LIST), is deliberately
-// back (extraRoutes(), handlers.Workspaces in worktree.go): live evidence
-// against real production data showed the chat-derived replacement's own
-// assumption does not hold when a workspace has NO chat at all — a repo's own
-// default checkout, or any locked tracking branch nobody has chatted in, had
-// nothing to derive a DTO from and simply never existed on the frontend,
-// taking the repo's own header row with it (rows-from-repo.ts mints that from
-// the default workspace). The chat-keyed detail route (GET .../chats/:id,
-// whose DTO carries the worktree) still covers everything this list's OWN
-// twin, GET .../workspaces/:wsId, used to answer alone, so only the LIST half
-// needed reviving.
-//
-// It also pins what deliberately SURVIVES a deletion the original spec text
-// expected to take with it. GET /home serves a genuinely distinct concept — a
-// bare PROJECT-level home workspace with no repo, so no chat can ever address
-// it — and the /home/* group is untouched. The threads group's own
-// /workspaces/:wsId prefix stays too: review comments are §4.4's
-// untouched-on-purpose surface and are not worktree-keyed at all.
 func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	got := registeredRoutes(t)
@@ -680,12 +393,9 @@ func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 		assert.Falsef(t, ok, "deleted workspaces-group route is still registered: %s", r)
 	}
 
-	// The one route of the original thirteen that came back, deliberately.
 	_, listRestored := got["GET "+repo+"/workspaces"]
 	assert.True(t, listRestored, "the workspace LIST route must be registered — see this test's own doc")
 
-	// The chat-keyed replacements every one of the twelve still-deleted routes
-	// was retired in favour of.
 	for _, r := range []string{
 		"POST " + repo + "/chats",
 		"GET " + repo + "/chats",
@@ -706,7 +416,6 @@ func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 		assert.Truef(t, ok, "chat-keyed replacement missing: %s", r)
 	}
 
-	// The home group is NOT part of this deletion.
 	const home = "/v0/projects/:projectId/home"
 	for _, r := range []string{
 		"GET " + home,
@@ -718,24 +427,10 @@ func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 		assert.Truef(t, ok, "home route must be untouched by this step: %s", r)
 	}
 
-	// Review comments keep their own /workspaces/:wsId prefix (spec §4.4).
 	_, ok := got["GET "+ws+"/threads"]
 	assert.True(t, ok, "the threads group's workspace-scoped mount must survive")
 }
 
-// TestRouteAudit_NoWorkspaceScopedGroupRoutes is the proof this step's own
-// deletion is real: not one of the seven re-keyed groups' old
-// .../workspaces/:wsId/... mounts (git, files, review, search, identity,
-// editor/LSP, provider's State) is registered any more. Every one had a
-// chat-keyed replacement live and in use before it went (asserted as part of
-// specRoutes()/expectedRoutes() above), so a re-mount here is a regression,
-// not a fallback.
-//
-// It also pins what deliberately SURVIVES this deletion: threads' own
-// /workspaces/:wsId/threads prefix (spec §4.4 — repo-level review commentary,
-// never re-keyed), the home group's own /home/files/... surface (a
-// project-level row no chat resolves to), and provider's repo-level
-// /protected-branches (spec §4.2 — never worktree-owned, never moved).
 func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	got := registeredRoutes(t)
@@ -812,10 +507,6 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 		assert.Falsef(t, ok, "deleted workspace-scoped group route is still registered: %s", r)
 	}
 
-	// Each one's replacement (chat-keyed, or /v0/documents/content for file
-	// content) is asserted live by TestRouteAudit_AllSpecRoutesRegistered.
-
-	// Threads' own workspace-scoped prefix survives permanently (spec §4.4).
 	for _, r := range []string{
 		"GET " + ws + "/threads",
 		"POST " + ws + "/threads",
@@ -830,20 +521,14 @@ func TestRouteAudit_NoWorkspaceScopedGroupRoutes(t *testing.T) {
 		assert.Truef(t, ok, "threads' workspace-scoped route must survive: %s", r)
 	}
 
-	// Provider's repo-level /protected-branches survives, untouched (spec §4.2).
 	_, ok := got["GET "+repo+"/protected-branches"]
 	assert.True(t, ok, "protected-branches must remain repo-scoped")
 
-	// The home group's own file surface is a different mount entirely (a
-	// project-level row no chat resolves to) and is untouched by this step.
 	const home = "/v0/projects/:projectId/home"
 	_, ok = got["GET "+home+"/files/tree"]
 	assert.True(t, ok, "home's own files surface must be untouched by this step")
 }
 
-// TestRouteAudit_LiveReadRoutesAnswerREST proves the entity reads answer a
-// plain GET, and that an upgrade there opens no lifecycle socket: the stream
-// route is the one live read left.
 func TestRouteAudit_LiveReadRoutesAnswerREST(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tc := newApp(t)

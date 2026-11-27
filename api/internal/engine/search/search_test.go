@@ -99,7 +99,6 @@ func TestSearch_BinarySkipped(t *testing.T) {
 	dir := buildRepo(t, map[string]string{
 		"text.go": "hello world\n",
 	})
-	// Write a binary file.
 	binPath := filepath.Join(dir, "binary.bin")
 	require.NoError(t, os.WriteFile(binPath, []byte{0x00, 0x01, 0x02}, 0o600))
 
@@ -206,7 +205,6 @@ func TestReplace_FileScope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "goodbye world\ngoodbye again\n", string(data))
 
-	// other.go must be untouched.
 	data, err = os.ReadFile(filepath.Join(dir, "other.go"))
 	require.NoError(t, err)
 	assert.Equal(t, "hello other\n", string(data))
@@ -264,7 +262,6 @@ func TestReplace_InvalidPattern(t *testing.T) {
 }
 
 func TestSearch_TruncationAtExactBoundary(t *testing.T) {
-	// Create 1001 files each containing one "needle" match to force truncation.
 	dir := t.TempDir()
 	for i := 0; i < 1001; i++ {
 		name := filepath.Join(dir, fmt.Sprintf("file%04d.txt", i))
@@ -282,7 +279,6 @@ func TestSearch_TruncationAtExactBoundary(t *testing.T) {
 }
 
 func TestSearch_TruncationMidFile(t *testing.T) {
-	// One file with 1001 matches triggers mid-file truncation.
 	dir := t.TempDir()
 	var lines []string
 	for i := 0; i < 1001; i++ {
@@ -316,7 +312,6 @@ func TestSearch_MultipleMatchesPerLine(t *testing.T) {
 }
 
 func TestReplace_FileNotFound(t *testing.T) {
-	// Scope points to a non-existent file — replace.ApplyToFile returns a non-locked error.
 	dir := t.TempDir()
 
 	eng := newEngine()
@@ -373,12 +368,10 @@ func TestSearch_ContextCancelled(t *testing.T) {
 	cancel()
 
 	eng := newEngine()
-	// Should return without hanging.
 	_, err := eng.Search(ctx, dir, search.SearchRequest{
 		Query:         "hello",
 		CaseSensitive: true,
 	})
-	// May or may not error; just must not hang.
 	_ = err
 }
 
@@ -406,7 +399,6 @@ func TestSearch_GitDirIgnored(t *testing.T) {
 	dir := buildRepo(t, map[string]string{
 		"src/main.go": "hello world\n",
 	})
-	// Create a .git directory with a file containing the search term.
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("hello in git\n"), 0o600))
 
@@ -417,11 +409,9 @@ func TestSearch_GitDirIgnored(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// .git dir must be excluded.
 	for _, r := range resp.Results {
 		assert.NotContains(t, r.FilePath, ".git")
 	}
-	// src/main.go must appear.
 	require.Len(t, resp.Results, 1)
 	assert.Equal(t, "src/main.go", resp.Results[0].FilePath)
 }
@@ -466,13 +456,10 @@ func TestSearch_UnreadableDirSkipped(t *testing.T) {
 		CaseSensitive: true,
 	})
 	require.NoError(t, err)
-	// Only the readable file should appear.
 	require.Len(t, resp.Results, 1)
 	assert.Contains(t, resp.Results[0].FilePath, "readable")
 }
 
-// A malformed include or exclude glob is the caller's mistake to see, not a
-// filter that silently matches nothing.
 func TestSearch_ABadGlobIsAnError(t *testing.T) {
 	dir := buildRepo(t, map[string]string{"a.go": "hello\n"})
 

@@ -6,7 +6,6 @@ interface ActiveProjectState {
   setActiveProject: (id: string) => void
 }
 
-/** The project the app last opened onto, kept across launches. */
 export const useProjectStore = create<ActiveProjectState>()(
   persist(
     (set) => ({

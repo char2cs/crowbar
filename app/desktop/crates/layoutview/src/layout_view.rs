@@ -28,9 +28,6 @@ use crate::layout_view::pane::pane_cell::handle_rect;
 use crate::layout_view::pane::pane_fades::PaneFades;
 use crate::layout_view::pane::pane_hover::PaneHover;
 
-/// The active tab's panes: their frames, the sashes between them, the accent ring, the pane
-/// handle and the drop preview. It owns no layout state: it renders the [`Tab`] it was last
-/// given and answers pointer input with [`LayoutEvent::Apply`] commands.
 pub struct LayoutView {
     pub(crate) tab: Option<Tab>,
     pub(crate) chrome: ChromeContext,
@@ -60,12 +57,10 @@ impl std::fmt::Debug for LayoutView {
 impl EventEmitter<LayoutEvent> for LayoutView {}
 
 impl LayoutView {
-    /// A view of no tab yet; `source` supplies pane content, labels and new tab ids.
     pub fn new(source: Rc<dyn PaneSource>) -> Self {
         Self::with_clock(source, Rc::new(Instant::now))
     }
 
-    /// Like [`LayoutView::new`], but animations read the time from `clock`.
     pub fn with_clock(
         source: Rc<dyn PaneSource>,
         clock: Rc<dyn Clock>,
@@ -84,7 +79,6 @@ impl LayoutView {
         }
     }
 
-    /// Shows `tab`, the tab the active space shows, or the stage when it is `None`.
     pub fn set_tab(
         &mut self,
         tab: Option<Tab>,
@@ -98,13 +92,11 @@ impl LayoutView {
         cx.notify();
     }
 
-    /// The id of the tab it shows, or `None` while it shows the stage.
     #[must_use]
     pub fn shown_tab(&self) -> Option<TabId> {
         self.tab.as_ref().map(Tab::id)
     }
 
-    /// Tells the view what surrounds it so the outer panes get the right borders.
     pub fn set_chrome(
         &mut self,
         chrome: ChromeContext,
@@ -114,7 +106,6 @@ impl LayoutView {
         cx.notify();
     }
 
-    /// The pointer entered `pane`'s web view, which the shell learns from the page.
     pub fn page_entered(
         &mut self,
         pane: &PaneId,
@@ -123,9 +114,6 @@ impl LayoutView {
         self.pointer_entered((HoverSource::Page, pane), cx);
     }
 
-    /// Where the handle of the hovered pane hangs, relative to the view, while a split tab
-    /// shows one. The shell cuts it out of the web views under it, so the handle is seen and
-    /// pressed there.
     #[must_use]
     pub fn handle_hole(&self) -> Option<Rect> {
         let tab = self.tab.as_ref().filter(|tab| tab.group_count() > 1)?;
@@ -141,7 +129,6 @@ impl LayoutView {
         )))
     }
 
-    /// The pointer left `pane`'s web view.
     pub fn page_left(
         &mut self,
         pane: &PaneId,

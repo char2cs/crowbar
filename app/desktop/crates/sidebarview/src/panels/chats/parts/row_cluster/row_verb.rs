@@ -1,5 +1,3 @@
-//! The hover buttons at the end of a tree row.
-
 use ui::{IconName, IconWeight};
 
 use sidebar::{Command, Intent, Lock, Question, Row, RowKind, WorkspaceStatus, Worktree};

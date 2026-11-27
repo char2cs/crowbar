@@ -50,22 +50,18 @@ function parseKeyCombination(combo: string): ParsedKey {
     }
   }
 
-  // Normalize special keys
   if (SPECIAL_KEYS[key]) {
     key = SPECIAL_KEYS[key]
   }
 
-  // Sort modifiers for consistent comparison
   modifiers.sort()
 
   return { modifiers, key }
 }
 
 function parseKeybinding(binding: string): ParsedKeybinding {
-  // Normalize for platform (cmd -> ctrl on Windows/Linux)
   const normalized = normalizeKey(binding)
 
-  // Split by space to detect chords
   const parts = normalized
     .split(/\s+/)
     .filter((p) => p.length > 0)

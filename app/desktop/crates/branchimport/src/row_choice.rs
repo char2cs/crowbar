@@ -1,5 +1,3 @@
-//! What a row shows and does for the user's choices so far.
-
 use gpui::{App, Window};
 use ui::Pose;
 

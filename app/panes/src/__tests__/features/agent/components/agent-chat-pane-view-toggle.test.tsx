@@ -31,7 +31,6 @@ vi.mock(
 )
 
 describe('AgentChatPane view toggle', () => {
-  // ── ⌘/ toggles the chat/terminal view, like the view switch tabs ─────
   describe('toggle chat/terminal view chord', () => {
     const pressToggle = async () => {
       await act(async () => {
@@ -70,10 +69,6 @@ describe('AgentChatPane view toggle', () => {
       const paneId = openChatPane(store, 'c1', 'r1')
       await renderPane(store, paneId)
 
-      // With a chat open the focus sits in its xterm, which stopPropagations the
-      // keys it handles. A bubble-phase listener never sees the chord in the one
-      // place the command exists to work — this stands that swallower in, so the
-      // test fails if the listener ever goes back to the bubble phase.
       const swallow = (e: Event) => e.stopPropagation()
       document.body.addEventListener('keydown', swallow)
       try {
@@ -97,8 +92,6 @@ describe('AgentChatPane view toggle', () => {
       )
     })
 
-    // A retained workspace stays mounted with its window keydown listener, so only the active one
-    // may act on the chord. Provider B (non-hotswap) makes the switch a call naming the chat that asked.
     it('a HIDDEN WORKSPACE ignores the chord — only the ACTIVE workspace may switch', async () => {
       switchToTerminalFn.mockResolvedValue('pty-attached')
       const hidden = seedWorkspace(
@@ -114,8 +107,6 @@ describe('AgentChatPane view toggle', () => {
       setProviders([providers[0], { ...providers[1], hotswap: false }])
       const shownPaneId = openChatPane(shown, 'c2', 'r2', 'Chat', 'w-shown')
 
-      // Both panes are the active, visible tab of their own workspace — exactly
-      // what a retained workspace looks like the instant it goes hidden.
       await renderPane(hidden, hiddenPaneId)
       await renderPane(shown, shownPaneId)
       setActiveWorkspaceId('w-shown')
@@ -126,13 +117,6 @@ describe('AgentChatPane view toggle', () => {
       expect(switchToTerminalFn).toHaveBeenCalledWith('w-shown', 'c2')
     })
 
-    // THE BUG, as the user reported it: "Can't start a chat with providerB TUI
-    // alone. It's only allowing me to start a thread on the native chat
-    // interface, and then go TUI."
-    //
-    // A chat BORN on the terminal surface has no api connection behind it —
-    // the daemon never opened one (spawnRunner's surfaceForSpawn) — so its own
-    // PTY IS the conversation, with nothing to ask the daemon for.
     it('a terminal-BORN chat shows its own PTY without asking for an attach', async () => {
       const store = seedWorkspace([
         liveChat({
@@ -165,8 +149,6 @@ describe('AgentChatPane view toggle', () => {
       ])
       setProviders([providers[0], { ...providers[1], hotswap: false }])
       const paneId = openChatPane(store, 'c1', 'r1')
-      // Every chat stays mounted for keep-alive, so without the isVisible gate a
-      // hidden tab would swallow the chord and flip the view on a chat nobody can see.
       await act(async () => {
         render(
           createElement(
@@ -237,9 +219,6 @@ describe('AgentChatPane view toggle', () => {
       expect(switchToNativeFn).toHaveBeenCalledWith('w1', 'c1')
     })
 
-    // The dropdown lives on the terminal's status strip, and it must keep
-    // refusing a switch across both the submission window and the hook
-    // confirmation that follows it — the window a handover would lose the turn in.
     it('blocks dropdown provider switches through submission and hook confirmation', async () => {
       const submitted = deferred<{ runnerId: string; terminalSessionId: string }>()
       submitPromptFn.mockReturnValue(submitted.promise)
@@ -251,8 +230,6 @@ describe('AgentChatPane view toggle', () => {
       typeAndSend('deliver exactly once')
       await vi.waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
 
-      // Chat has no dropdown to press yet — cross to the provider's own view,
-      // where the dropdown is, and find it refusing.
       expect(screen.queryByTestId('provider-switch')).toBeNull()
       await act(async () => {
         fireEvent.click(screen.getByLabelText('Terminal'))
@@ -264,15 +241,11 @@ describe('AgentChatPane view toggle', () => {
       await act(async () => {
         submitted.resolve({ runnerId: 'r-prompt', terminalSessionId: 'pty-prompt' })
       })
-      // Still refusing after the submission resolves: the prompt is delivered but
-      // the hook has not confirmed it, and that window is exactly the one a
-      // handover would lose the turn in.
       expect(screen.getByTestId('provider-switch')).toBeDisabled()
       fireEvent.click(screen.getByTestId('provider-switch'))
       expect(switchProviderFn).not.toHaveBeenCalled()
     })
 
-    // The daemon refuses a switch while a turn runs; the pane offers none.
     it('offers no provider switch while the chat is working', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       setChatWorking('c1', true)
@@ -292,7 +265,6 @@ describe('AgentChatPane view toggle', () => {
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       typeAndSend('trigger replacement')
-      // The daemon's lifecycle frame says the runner is gone.
       await act(async () => writeChat(dormantChat({ id: 'c1' })))
 
       await vi.waitFor(() => expect(chatStore.getState().outbox.c1?.[0]?.state).toBe('failed'))

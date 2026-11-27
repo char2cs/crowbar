@@ -7,17 +7,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), show: vi.fn() },
 }))
 
-/**
- * A row held in the removal tray stays on screen, transformed in place, with
- * whatever is nested under it still drawn beneath it — so it has to keep
- * publishing the id every DOM-keyed consumer resolves a row by
- * (`row-context-menu.tsx`, `sidebar-tree-chrome.tsx`). Dropping the attribute
- * made a held FOLDER read as a row that is not there at all: its children were
- * still drawn, one indent deeper, parented by `data-sidebar-drop-parent` to an
- * id no rendered row published, and a right-click on the held row opened no
- * menu.
- */
-
 const heldFolder: SidebarRowType = {
   id: 'folder-1',
   kind: 'folder',
@@ -46,8 +35,6 @@ describe('a row held for removal', () => {
     expect(indentOf(held)).toBe(indentOf(rest))
   })
 
-  // It is on its way out: it must not accept a drop. The identity attribute is
-  // not a drag attribute, and restoring one must not restore the other.
   it('is still not a drop target', () => {
     const { container } = render(<SidebarRow row={heldFolder} depth={0} onOpen={vi.fn()} />)
     expect(container.querySelector('[data-sidebar-folder-drop]')).toBeNull()

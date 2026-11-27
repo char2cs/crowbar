@@ -45,7 +45,6 @@ func TestPattern_ReadsWithoutCompiling(t *testing.T) {
 
 	allocs := testing.AllocsPerRun(100, func() { mapping.String(doc, paths) })
 
-	// Compiling per read costs ~57 allocations; the bound leaves room for pool misses under -race.
 	if allocs > 20 {
 		t.Fatalf("a pattern read made %.0f allocations; the regexp must be compiled once, at build", allocs)
 	}

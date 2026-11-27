@@ -1,5 +1,3 @@
-//! The cover of each open window, dropped with the window.
-
 use std::collections::HashMap;
 
 use gpui::{App, AppContext as _, Entity, Global, Subscription, Window, WindowId};

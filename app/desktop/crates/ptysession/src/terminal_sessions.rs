@@ -1,5 +1,3 @@
-//! One terminal session from creation to the end of its stream.
-
 mod staying_attached;
 mod terminal_session_event;
 
@@ -24,7 +22,6 @@ use crate::stream::End;
 use crate::stream::{Dial, tcp_dial};
 use crate::terminal_sessions::terminal_session_event::TerminalSessionEvent;
 
-/// Starts terminal sessions on one daemon host.
 #[derive(Clone)]
 pub struct TerminalSessions {
     rest: Rest,
@@ -46,7 +43,6 @@ impl std::fmt::Debug for TerminalSessions {
 }
 
 impl TerminalSessions {
-    /// Sessions on `host` through `transport`, run on `runtime`, speaking as `origin`.
     #[must_use]
     pub fn new(
         transport: Arc<dyn DaemonTransport>,
@@ -62,7 +58,6 @@ impl TerminalSessions {
         )
     }
 
-    /// The same sessions, asked of `host` instead.
     #[must_use]
     pub fn on(
         &self,
@@ -74,7 +69,6 @@ impl TerminalSessions {
         sessions
     }
 
-    /// The same sessions, binding only once `ready` says the daemon serves.
     #[must_use]
     pub fn once(
         self,
@@ -98,9 +92,6 @@ impl TerminalSessions {
         }
     }
 
-    /// Binds `connection`'s pane to a session of `base` as `binding` says, reports how it went
-    /// and streams it; a dropped connection reattaches to the same PTY, and dropping the view ends
-    /// the stream and kills the session unless it was only watched.
     pub fn open(
         &self,
         base: SessionPaths,

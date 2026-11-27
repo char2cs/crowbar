@@ -1,5 +1,3 @@
-//! The list of live toasts: expiry, dismissal, pinning, swipe and placement.
-
 use gpui::{Context, EventEmitter, SharedString};
 
 use crate::display::toast::toast_queue::entry::Entry;
@@ -10,10 +8,6 @@ use crate::foundation::tokens::timing;
 
 const MAX_TOASTS: usize = 8;
 
-/// A queue entity that owns the toasts of one column; render it inside a relatively positioned container.
-///
-/// Newest toasts come first. Automatic toasts expire after five seconds, pinned ones stay until
-/// [`ToastQueue::dismiss`], the close button or a swipe removes them.
 pub struct ToastQueue {
     pub(crate) entries: Vec<Entry>,
     pub(crate) placement: ToastPlacement,
@@ -42,7 +36,6 @@ pub use toast_queue_event::ToastQueueEvent;
 impl EventEmitter<ToastQueueEvent> for ToastQueue {}
 
 impl ToastQueue {
-    /// An empty queue shown at `placement`.
     pub fn new(placement: ToastPlacement) -> Self {
         Self {
             entries: Vec::new(),
@@ -53,7 +46,6 @@ impl ToastQueue {
         }
     }
 
-    /// Adds a toast on top of the others.
     pub fn push(
         &mut self,
         content: ToastContent,
@@ -63,8 +55,6 @@ impl ToastQueue {
         self.insert(None, (content, lifetime), cx)
     }
 
-    /// Shows a toast under `key`: a live toast with the same key is rewritten in place (replaying its
-    /// shake or pulse), otherwise a new one is added.
     pub fn show(
         &mut self,
         key: impl Into<SharedString>,
@@ -84,7 +74,6 @@ impl ToastQueue {
         id
     }
 
-    /// Dismisses the live toast shown under `key`, if any.
     pub fn clear(
         &mut self,
         key: &str,
@@ -93,7 +82,6 @@ impl ToastQueue {
         self.clear_matching(|held| held == key, cx);
     }
 
-    /// Dismisses every live toast whose key `matches`, such as all the toasts of a closed pane.
     pub fn clear_matching(
         &mut self,
         matches: impl Fn(&str) -> bool,
@@ -182,7 +170,6 @@ impl ToastQueue {
         cx.notify();
     }
 
-    /// Rewrites a toast in place, replays its error shake or success pulse and restarts its expiry.
     pub fn replace(
         &mut self,
         id: ToastId,
@@ -200,7 +187,6 @@ impl ToastQueue {
         self.restyle(id, (content, lifetime), cx);
     }
 
-    /// Fades a toast out and removes it.
     pub fn dismiss(
         &mut self,
         id: ToastId,

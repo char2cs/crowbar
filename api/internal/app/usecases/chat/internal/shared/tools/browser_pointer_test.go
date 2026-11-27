@@ -72,7 +72,7 @@ func TestBrowserResolve_MultiplePointersEachResolve(t *testing.T) {
 
 func TestBrowserResolve_NoteWhenThePageNavigated(t *testing.T) {
 	w := newBrowserWorld(t)
-	w.peer.reportTabs([2]string{"b-1", "chat-a"}) // reports https://x.test
+	w.peer.reportTabs([2]string{"b-1", "chat-a"})
 	w.peer.reply = `{"items":[{"found":false}]}`
 	args, _ := json.Marshal(map[string]string{"pointer": pointerLine("b-1", "https://stripe.com/checkout", "element", headingItem)})
 
@@ -125,7 +125,7 @@ func TestBrowserResolve_ForeignAndUnknownTabsAreIndistinguishable(t *testing.T) 
 	require.Contains(t, foreign, `h2`, "the pointer's own gist is still echoed")
 	require.Empty(t, w.peer.ran(), "nothing reaches the desktop")
 
-	w.peer.reportTabs([2]string{"theirs", "chat-b"}) // "mine" closed
+	w.peer.reportTabs([2]string{"theirs", "chat-b"})
 	require.Contains(t, resolve("mine"), browserbridge.ErrUnknownTab.Error())
 }
 

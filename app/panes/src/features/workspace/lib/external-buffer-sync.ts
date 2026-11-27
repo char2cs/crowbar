@@ -43,7 +43,6 @@ type HostRef = Extract<DocumentRef, { authority: 'host' }>
 const holding = (ref: DocumentRef) => (b: PaneContent) =>
   isEditorContent(b) && !b.isVirtual && sameDocument(documentRefOf(b), ref)
 
-/** A dirty buffer whose file changed on disk keeps its edits; it is flagged and the user told once. */
 export function flagExternalChange(ref: DocumentRef): void {
   const holder = windowPaneStore.getState().buffers.find(holding(ref))
   if (!holder || !isEditorContent(holder) || !holder.isDirty || holder.hasExternalChange) return
@@ -58,9 +57,6 @@ export function flagExternalChange(ref: DocumentRef): void {
   )
 }
 
-/** Disk text read at save mark `since`: a clean document takes it as saved; a dirty one keeps its
- *  edits, flagged only when disk holds neither its saved text nor its own. A read older than the
- *  document's latest save or open never lands. */
 export function takeDiskText(ref: DocumentRef, disk: string, since: number): void {
   const text = documentText(ref)
   if (text === null || documentSaveMark(ref) !== since) return
@@ -68,19 +64,15 @@ export function takeDiskText(ref: DocumentRef, disk: string, since: number): voi
   if (disk !== savedDocumentText(ref) && disk !== text) flagExternalChange(ref)
 }
 
-/** Reconcile an open buffer with an external disk change: own-save echoes (markPendingSave) are
- *  consumed; whatever disk now holds goes through `takeDiskText`. */
 export async function syncBufferWithDisk(ref: DocumentRef): Promise<void> {
   const { pendingSaves, clearPendingSave } = useFileWatcherStore.getState()
   if (pendingSaves.has(ref.path)) {
     clearPendingSave(ref.path)
     return
   }
-  // Buffers are one window-level list: a sibling worktree can hold another
-  // file at the same relative path, so every lookup matches the whole document.
   const buffer = windowPaneStore.getState().buffers.find(holding(ref))
   if (!buffer || !isEditorContent(buffer)) return
-  if (buffer.isDirty && buffer.hasExternalChange) return // already flagged, don't re-toast
+  if (buffer.isDirty && buffer.hasExternalChange) return
   const since = documentSaveMark(ref)
   const disk = await readDocumentFromDisk(ref)
   if (disk !== null) takeDiskText(ref, disk, since)
@@ -91,11 +83,8 @@ const changesText = (frame: unknown) => {
   return type === 'modified' || type === 'created'
 }
 
-// A host document is the local daemon's alone: no remote serves its doc: scope.
 const docScope = (ref: HostRef) => `doc:${ref.path}`
 
-/** Follows a host document through its `doc:` scope. Resolves with `stop` once the watch is armed,
- *  so a read made after misses no change; rejects, holding nothing, if the daemon refuses. */
 export function followHostDocument(ref: HostRef): Promise<() => void> {
   const scope = docScope(ref)
   return new Promise((resolve, reject) => {
@@ -105,7 +94,6 @@ export function followHostDocument(ref: HostRef): Promise<() => void> {
     })
     const stopWatch = watchScope(LOCAL_HOST.id, scope, {
       synced: () => {
-        // A later synced is a re-armed watch: what changed while it was down is read once.
         if (armed) return void syncBufferWithDisk(ref)
         armed = true
         resolve(stop)
@@ -135,19 +123,17 @@ function refusedWhy(problem: Problem | undefined): string {
     : "Crowbar can't watch this file right now."
 }
 
-/** A host document open without its watch follows again, then reads what it missed. */
 async function followAgain(ref: HostRef): Promise<void> {
   let unwatch: () => void
   try {
     unwatch = await followHostDocument(ref)
   } catch {
-    return // Still refused: the tab already said so.
+    return
   }
   releaseWithDocument(documentUri(ref), unwatch)
   await syncBufferWithDisk(ref)
 }
 
-/** A host document open while no watch holds it: it opened when its follow was refused. */
 function heldUnwatched(buffer: EditorContent): boolean {
   const ref = documentRefOf(buffer)
   return (
@@ -157,18 +143,13 @@ function heldUnwatched(buffer: EditorContent): boolean {
   )
 }
 
-/** Reopening a host document left unwatched follows it again; any other is left alone. */
 export async function refollowHostDocument(buffer: EditorContent): Promise<void> {
   const ref = documentRefOf(buffer)
   if (ref.authority === 'host' && heldUnwatched(buffer)) await followAgain(ref)
 }
 
-/** Reconcile a workspace's documents with disk after it sat hidden (its watcher is active-only).
- *  Only disk diverging from saved text counts, or every dirty buffer would warn on activation; a
- *  returned file reopens. A host document is its watch's alone, unless unwatched: then refollow. */
 export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<void> {
   const refusals = new Map<string, string>()
-  // An untitled tab has no file to sync, but one that failed to load retries too.
   const buffers = windowPaneStore
     .getState()
     .buffers.filter(
@@ -184,15 +165,12 @@ export async function reconcileWorkspaceDocuments(workspaceId: string): Promise<
 
 async function reconcileDocument(buffer: EditorContent, refusals: Map<string, string>) {
   const ref = documentRefOf(buffer)
-  // A tab that failed to load reads again, silently: it already says why.
   if (awaitsRetry(buffer)) {
-    // Lazy: the restore builds on this module.
     const { retryDocument } = await import('@/features/editor/documents/restore-documents')
     await retryDocument(buffer)
     return
   }
   if (ref.authority === 'host') return followAgain(ref)
-  // Not open yet: the restore has not reached it.
   if (savedDocumentText(ref) === null) return
   let disk: string
   try {

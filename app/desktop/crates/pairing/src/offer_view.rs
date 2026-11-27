@@ -1,5 +1,3 @@
-//! The Add a device dialog: a one-time code with the address and fingerprint a device confirms.
-
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -16,7 +14,6 @@ use crate::offer_view::offer_source::OfferSource;
 
 const TITLE: &str = "Add a device";
 
-/// The Add a device dialog; it emits [`Event::Close`] when it is dismissed or done.
 pub struct OfferView {
     source: Rc<dyn OfferSource>,
 }
@@ -33,7 +30,6 @@ impl std::fmt::Debug for OfferView {
 impl EventEmitter<Event> for OfferView {}
 
 impl OfferView {
-    /// A dialog showing the code `offer` mints.
     pub fn new(offer: Arc<DeviceOffer>) -> Self {
         Self::over(Rc::new(offer))
     }

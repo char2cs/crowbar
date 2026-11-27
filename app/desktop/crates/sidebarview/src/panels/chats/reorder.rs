@@ -1,5 +1,3 @@
-//! The sidebar's side of a row drag: arming, hovering, dropping.
-
 mod drag_end;
 mod drag_line;
 mod drag_state;
@@ -33,8 +31,6 @@ impl Sidebar {
         self.drag.press = Some(press);
     }
 
-    /// Shows the indicators of `subject` being dragged over `target`, as the gallery's drag
-    /// state; the pointer is not involved.
     pub fn preview_drag(
         &mut self,
         (subject, target, mode): (RowId, RowId, DropMode),

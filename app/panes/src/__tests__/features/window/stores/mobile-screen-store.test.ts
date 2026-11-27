@@ -19,13 +19,11 @@ describe('useMobileScreenStore', () => {
     expect(useMobileScreenStore.getState().screen).toBe('chat')
   })
 
-  // The IDE covers the chat, so the chat list it was opened from is put away.
   it('closes the chat list when the IDE is pushed', () => {
     useMobileScreenStore.getState().setChatListOpen(true)
     useMobileScreenStore.getState().open('ide')
     expect(useMobileScreenStore.getState().chatListOpen).toBe(false)
   })
-  // The file explorer is a layer of the IDE: back puts it away before leaving the IDE.
   it('opens the IDE’s files over it, and back closes them first', () => {
     const screens = useMobileScreenStore.getState()
     screens.open('ide')

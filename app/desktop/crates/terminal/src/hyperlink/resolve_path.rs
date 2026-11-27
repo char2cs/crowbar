@@ -1,8 +1,3 @@
-//! Resolves file paths printed in terminal output.
-
-/// `path` as an absolute path: absolute ones as they are, relative ones against `root`, with `.` and
-/// `..` folded. `~` paths and relative paths without an absolute `root` give `None`: the home
-/// directory is not known here.
 pub fn resolve_file_path(
     path: &str,
     root: Option<&str>,

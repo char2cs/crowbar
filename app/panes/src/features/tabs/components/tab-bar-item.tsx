@@ -19,8 +19,6 @@ interface TabBarItemProps {
   isDraggedTab: boolean
   showDropIndicatorBefore?: boolean
   tabRef?: RefCallback<HTMLDivElement>
-  // Delegated handlers: one stable reference shared by every item, which passes its own buffer /
-  // index when it fires, so the memo comparator below can skip unchanged tabs.
   onSelect?: (buffer: PaneContent) => void
   onMouseDown?: (e: React.MouseEvent) => void
   onDoubleClick: (e: React.MouseEvent, buffer: PaneContent) => void
@@ -46,9 +44,6 @@ const TabBarItem = memo(function TabBarItem({
   handleTabClose,
   handleTabPin,
 }: TabBarItemProps) {
-  // Re-bind the delegated handlers to THIS item's buffer/index. These closures
-  // live inside the memoized item, so they are only rebuilt when the item
-  // actually re-renders — they never reach the parent and so never defeat memo.
   const handleClick = useCallback(() => onSelect?.(buffer), [onSelect, buffer])
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => onDoubleClick(e, buffer),
@@ -65,7 +60,6 @@ const TabBarItem = memo(function TabBarItem({
 
   const handleAuxClick = useCallback(
     (e: React.MouseEvent) => {
-      // Only handle middle click here
       if (e.button !== 1) return
 
       handleTabClose(buffer.id)
@@ -73,15 +67,10 @@ const TabBarItem = memo(function TabBarItem({
     [handleTabClose, buffer.id],
   )
 
-  // Unsaved editor tab: when active, a blue border over the normal active fill; when inactive,
-  // a bright dot.
   const isDirtyEditor = buffer.type === 'editor' && buffer.isDirty
   const readOnly = useWorkspaceReadOnly(buffer.type === 'editor' ? buffer.workspaceId : null)
 
   return (
-    /* `group/tab` drives the close button's hover reveal. The close/pin Button is a SIBLING of the
-       Tab <button>: nested buttons are invalid HTML, and dnd-kit's PointerSensor took the close
-       button's pointerdown as a drag start (selecting the tab) before its onClick ran. */
     <div
       ref={tabRef}
       data-sidebar-surface={sidebarSurfaceOf(buffer.type)}
@@ -113,8 +102,6 @@ const TabBarItem = memo(function TabBarItem({
             className={cn(
               'h-8 max-w-full',
               'gap-1.5 pl-2.5 pr-8',
-              // Unsaved+active signals with the border only; the fill stays the ghost
-              // variant's muted active one. Shadows: TAB_ACTIVE's (view-row.tsx).
               isActive &&
                 isDirtyEditor &&
                 'rounded-sm border-primary shadow-xs shadow-black/10 ' +
@@ -153,8 +140,6 @@ const TabBarItem = memo(function TabBarItem({
         }
       />
 
-      {/* Close / pin button — rendered OUTSIDE the Tab <button> to avoid
-          invalid nested-button HTML that breaks event propagation. */}
       {!buffer.isUncloseable && (
         <Button
           variant="ghost"
@@ -187,9 +172,6 @@ const TabBarItem = memo(function TabBarItem({
     </div>
   )
 }, arePropsEqual)
-
-// Memo comparator. Buffer identity changes on every content flush (immer), so buffer fields go
-// through sameRenderedBuffer, which TabBar's useRenderedPaneBuffers also uses.
 
 function arePropsEqual(prev: TabBarItemProps, next: TabBarItemProps): boolean {
   return (

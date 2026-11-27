@@ -17,7 +17,6 @@ import {
 
 const READOUT_INK = '#E0E0D0'
 const SEP = '  '
-// A segment never breaks inside; the first line wraps only between segments.
 const SEGMENT = 'whitespace-nowrap'
 
 const NET_INK: Record<HostNetState, string | undefined> = {
@@ -40,7 +39,6 @@ function HostEntry({ hostId, name }: { hostId: string; name: string }) {
   return <HostEntryText name={name} net={hostNetStateOf(useHostDotState(hostId))} />
 }
 
-/** Each paired remote host's state, after Local's own net reading; a local-only install has none. */
 function HostEntries() {
   const hosts = useHostConfigStore((s) => s.hosts)
   return (
@@ -55,7 +53,6 @@ function HostEntries() {
   )
 }
 
-/** The two readout lines, the hosts' entries after Local's own net reading. */
 function ReadoutText({
   lines,
   net,
@@ -81,7 +78,6 @@ function ReadoutText({
   )
 }
 
-/** The readout's ink and type, unpositioned: the phone's sidebar page places it itself. */
 function ReadoutFace({ className, children }: { className?: string; children: ReactNode }) {
   return (
     <div
@@ -97,7 +93,6 @@ function ReadoutFace({ className, children }: { className?: string; children: Re
   )
 }
 
-/** The readout the phone's shell sent over, drawn by the sidebar page where it places it. */
 export function NativeReadoutView({
   readout,
   className,
@@ -124,9 +119,6 @@ function Lines({ info, frame }: { info: BuildInfo; frame: FrameStats }) {
   return <ReadoutText lines={parts.lines} net={parts.net} hosts={<HostEntries />} />
 }
 
-// Build, connection and frame stats drawn like a net-graph, taking no layout or pointer events so
-// tabs under it stay clickable; wraps between segments past 42ch. The phone draws it natively;
-// the frame loop and watchers run only while the setting shows it.
 export function BuildReadout({ className }: { className?: string }) {
   const info = useResolvedBuildInfo()
   const visible = useSettingsStore((s) => s.settings.buildReadout)

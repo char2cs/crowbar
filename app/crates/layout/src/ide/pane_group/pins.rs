@@ -7,13 +7,11 @@ use crate::ide::pane_group::close_scope::CloseScope;
 use crate::ide::pane_group::strip_step::StripStep;
 
 impl PaneGroup {
-    /// How many tabs, from the front, are pinned.
     #[must_use]
     pub fn pinned_count(&self) -> usize {
         self.pinned
     }
 
-    /// Whether `pane` is a pinned tab.
     #[must_use]
     pub fn is_pinned(
         &self,
@@ -25,8 +23,6 @@ impl PaneGroup {
             .any(|member| member == pane)
     }
 
-    /// The tab a keyboard `step` from `from` lands on; `None` at either end of the tab bar, when
-    /// already there, or when `from` is not a tab.
     #[must_use]
     pub fn step(
         &self,
@@ -43,8 +39,6 @@ impl PaneGroup {
         self.tabs.get(target).filter(|found| *found != from)
     }
 
-    /// The tabs a bulk close started on `anchor` reaches. Pinned tabs are never in it,
-    /// and neither is `anchor` itself unless the scope is [`CloseScope::All`].
     #[must_use]
     pub fn closable(
         &self,

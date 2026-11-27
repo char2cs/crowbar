@@ -5,26 +5,15 @@ import { percentsToPx, pxToPercents } from '../lib/split-sizing'
 
 interface PaneSashProps {
   direction: 'horizontal' | 'vertical'
-  /** Current authoritative split ratio `[firstPct, secondPct]`. */
   sizes: [number, number]
-  /** Element whose size defines 100% (the split container). */
   containerRef: React.RefObject<HTMLDivElement | null>
-  /** Sibling pane elements to mutate imperatively during the drag. */
   firstPaneRef: React.RefObject<HTMLDivElement | null>
   secondPaneRef: React.RefObject<HTMLDivElement | null>
-  /** Commit final percentages on pointer-up. */
   onResizeCommit: (sizes: [number, number]) => void
-  /** Smallest pixel size either side may be dragged to; defaults to the pane grid's minimum.
-   *  Raised by content that is useless below a width (a fixed-column TUI). */
   minPx?: number
-  /** Extra sash classes, e.g. the chat/editor sash's `bg-chrome-bg` so it matches the chat's
-   *  translucent fill (the pane box paints none, to keep the chat's vibrancy). */
   className?: string
 }
 
-// Imperative pixel sash: a drag sets the siblings' flex-basis directly (no React state) and
-// commits percentages on pointer-up. Monaco's perf path relies on `data-pane-resizing` and
-// `pane-resize-end`, raised from the first move, so a bare click toggles neither.
 export function PaneSash({
   direction,
   sizes,
@@ -37,33 +26,21 @@ export function PaneSash({
 }: PaneSashProps) {
   const isHorizontal = direction === 'horizontal'
   const sashRef = useRef<HTMLDivElement>(null)
-  // The latest pixel size of the first pane during a drag, committed on pointer-up.
   const liveFirstPx = useRef<number>(0)
   const containerPxRef = useRef<number>(0)
 
-  // Track whether a drag is currently active (for unmount cleanup).
   const isDraggingRef = useRef<boolean>(false)
-  // Whether the pointer moved since pointerdown. `data-pane-resizing` GPU-promotes every mounted
-  // `.monaco-editor`; flipping it on a bare click visibly glitches WKWebView's compositor.
   const hasMovedRef = useRef<boolean>(false)
-  // React's own inline flex-basis, captured at pointerdown. A drag overwrites it
-  // imperatively; React will not rewrite it if the committed sizes are unchanged.
   const renderedBasisRef = useRef<[string, string]>(['', ''])
 
-  // Stable refs for listener functions so the same instance is always used for
-  // both addEventListener and removeEventListener (including unmount cleanup).
   const onPointerMoveRef = useRef<((e: globalThis.PointerEvent) => void) | null>(null)
   const onPointerUpRef = useRef<((e: globalThis.PointerEvent) => void) | null>(null)
 
-  // Capture the sizes and callbacks in refs so the stable listener callbacks
-  // always see the latest values without needing to be recreated.
   const sizesRef = useRef(sizes)
   const onResizeCommitRef = useRef(onResizeCommit)
   sizesRef.current = sizes
   onResizeCommitRef.current = onResizeCommit
 
-  // Available space for the two panes = container minus the sash's own size,
-  // so the panes plus the sash fit exactly without overflow.
   const measureContainerPx = useCallback((): number => {
     const container = containerRef.current
     if (!container) return 0
@@ -74,7 +51,6 @@ export function PaneSash({
     return Math.max(0, total - sashPx)
   }, [containerRef, isHorizontal])
 
-  // Removes the window listeners and clears the resizing attribute; idempotent via isDraggingRef.
   const teardownDrag = useCallback(() => {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
@@ -87,8 +63,6 @@ export function PaneSash({
       window.removeEventListener('pointercancel', onUp)
     }
 
-    // Only touch the shared attribute/event if this drag ever actually
-    // entered the resizing state (i.e. the pointer moved at least once).
     if (hasMovedRef.current) {
       document.documentElement.removeAttribute('data-pane-resizing')
       window.dispatchEvent(new CustomEvent('pane-resize-end'))
@@ -101,7 +75,6 @@ export function PaneSash({
     hasMovedRef.current = false
   }, [firstPaneRef, secondPaneRef])
 
-  // Unmounting mid-drag must not leave window listeners or the resizing attribute behind.
   useEffect(() => {
     return () => {
       if (isDraggingRef.current) {
@@ -127,12 +100,9 @@ export function PaneSash({
         secondPaneRef.current?.style.flexBasis ?? '',
       ]
 
-      // Build stable listener instances and store in refs before attaching.
       const onMove = (ev: globalThis.PointerEvent) => {
         const c = containerRef.current
         if (!c) return
-        // Enter the resizing state lazily, on the first real move, rather
-        // than on pointerdown. A bare click never reaches this line.
         if (!hasMovedRef.current) {
           hasMovedRef.current = true
           document.documentElement.setAttribute('data-pane-resizing', '1')
@@ -151,8 +121,6 @@ export function PaneSash({
       }
 
       const onUp = (ev: globalThis.PointerEvent) => {
-        // A plain click (no pointermove ever fired) must be a total no-op:
-        // no attribute toggle, no pane-resize-end, no size commit.
         if (!hasMovedRef.current) {
           teardownDrag()
           ev.preventDefault()

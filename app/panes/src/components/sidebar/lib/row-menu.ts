@@ -31,7 +31,6 @@ import { useDetachModalStore } from '@/features/window/stores/detach-modal-store
 import { retryProvision } from '@/lib/api/workspace'
 import { toast } from '@/features/window/stores/toast-store'
 
-/** The verbs the desktop puts on a row's hover buttons rather than in its menu. */
 export type RowButtonVerb = 'detach' | 'retry' | 'remove' | 'new-thread' | 'fork' | 'branch-out'
 
 export type RowMenuActionId =
@@ -44,26 +43,20 @@ export type RowMenuActionId =
   | 'delete-repo'
   | RowButtonVerb
 
-/** One verb of a sidebar row's menu: the desktop draws `icon`, the phone's native menu `nativeIcon`. */
 export interface RowMenuAction {
   id: RowMenuActionId
   label: string
   icon: Icon
-  /** The Phosphor name of `icon`, for the phone's native menu. */
   nativeIcon: string
   destructive: boolean
 }
 
-/** What a row's verbs do that differs between the desktop tree and the phone. */
 export interface RowMenuHandlers {
   navigate: ReturnType<typeof useNavigate>
   rename: (row: SidebarRow) => void
   importBranches: (row: SidebarRow) => void
-  /** Starts a fork of `row`; the desktop names it inline, the phone asks first. */
   fork: (row: SidebarRow) => void
-  /** Makes the thread `row` a branch; the desktop names it in place, the phone asks first. */
   branchOut: (row: SidebarRow) => void
-  /** The phone confirms natively first, so a removal there commits at once instead of draining. */
   removeAtOnce?: boolean
 }
 
@@ -123,15 +116,10 @@ const ACTIONS: Record<RowMenuActionId, Omit<RowMenuAction, 'id'>> = {
   remove: { label: 'Remove', icon: X, nativeIcon: 'Trash', destructive: true },
 }
 
-/** A repo thread owning no worktree, not already moving, can be made a branch of its own. */
 function canBranchOut(row: SidebarRow, movePending: boolean): boolean {
   return row.kind === 'chat' && row.canBranchOut === true && !movePending
 }
 
-// The hover buttons a row earns, in the desktop's left-to-right order. A holder leaves Detach as
-// the only remedy, a failed provision Retry; no worktree, nothing that needs one; a chat never
-// forks but a repo thread can become a branch; the project home is removed via Delete Repo, and
-// a locked branch not at all.
 export function rowButtonVerbs(
   row: SidebarRow,
   isProjectHome: boolean,
@@ -152,17 +140,12 @@ export function rowButtonVerbs(
   return verbs
 }
 
-/** Whether the branch row `rowId` names a locked workspace. A locked branch is id'd by the chat
- *  that owns its workspace, so the id is translated into the workspace id space first. */
 export function rowIsLocked(rowId: string): boolean {
   const repos = readSelect(selectRepos)
   const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   return repos.some((repo) => repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'))
 }
 
-// A row's menu, in order. A locked branch keeps its name (no Rename); Lock/Unlock only for a real
-// workspace branch with a worktree (the daemon refuses a placeholder's), never the project-home
-// checkout; "New thread in Terminal" is left out when the provider a new chat would start under has no terminal.
 function rowMenuActions(
   row: SidebarRow,
   { locked, canStartOnTerminal }: { locked: boolean; canStartOnTerminal: boolean },
@@ -181,8 +164,6 @@ function rowMenuActions(
   return ids.map((id) => ({ id, ...ACTIONS[id] }))
 }
 
-// Every desktop verb, menu and hover buttons together: the phone's one long-press menu. The
-// destructive verb goes last, as iOS menus put it.
 export function rowVerbs(
   row: SidebarRow,
   ctx: { locked: boolean; canStartOnTerminal: boolean; movePending: boolean },
@@ -201,7 +182,6 @@ export function rowVerbs(
 function retry(row: SidebarRow) {
   const wsId = row.workspaceId
   if (!wsId) return
-  // A failure is the operations watcher's to toast and the row's to explain.
   runOperation(
     {
       kind: 'workspace.retry_provision',
@@ -213,8 +193,6 @@ function retry(row: SidebarRow) {
   )
 }
 
-// A home row rides no repo, so it needs the home-scoped create; a chat carries no folder anchor
-// of its own, so its New folder roots at '' rather than nesting under the chat.
 function createFolderFor(row: SidebarRow): Promise<void> {
   const homeScope = resolveHomeRowScope(row.id)
   const isChat = row.kind === 'chat'
@@ -222,7 +200,6 @@ function createFolderFor(row: SidebarRow): Promise<void> {
   return isChat ? performCreateFolderFromChat(row.id) : performCreateFolder(row.id)
 }
 
-/** Carries out `id` on `row`. */
 export function runRowMenuAction(
   id: RowMenuActionId,
   row: SidebarRow,
@@ -244,7 +221,6 @@ export function runRowMenuAction(
       void handleCreate(row.id, 'thread', handlers.navigate, 'terminal')
       return
     case 'delete-repo':
-      // handleTrash refuses this row: it resolves to the repo's own default-branch workspace only.
       if (row.repoIcon && !handleTrashRepo(row.repoIcon.repoId)) {
         toast.error(`Can't delete ${row.label} yet`)
       }

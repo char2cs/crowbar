@@ -1,5 +1,3 @@
-//! The Keybindings page.
-
 use std::collections::BTreeMap;
 
 use crate::keys::Shortcut;

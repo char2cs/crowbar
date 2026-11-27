@@ -21,7 +21,6 @@ use self::parts::stage;
 
 const DRAG_STRIP_HEIGHT: f32 = 32.0;
 
-/// The first-run screens over the brand gradient.
 pub struct View {
     screen: Screen,
     source: Option<Rc<dyn CheckSource>>,
@@ -42,13 +41,11 @@ impl std::fmt::Debug for View {
 impl EventEmitter<Event> for View {}
 
 impl View {
-    /// The first run of a computer with a daemon of its own, starting on the brand.
     #[must_use]
     pub fn first_run(check: Arc<SystemCheck>) -> Self {
         Self::over(Screen::Welcome, Some(Rc::new(check)))
     }
 
-    /// The way in for an install with no daemon of its own: connect to a host.
     #[must_use]
     pub fn add_host() -> Self {
         Self::over(Screen::AddHost, None)
@@ -61,7 +58,6 @@ impl View {
         Self { screen, source }
     }
 
-    /// Tells the view the system check answered, so it redraws.
     pub fn changed(
         &mut self,
         cx: &mut Context<'_, Self>,

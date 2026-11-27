@@ -13,7 +13,6 @@ mod preview;
 const PREFIX: &str = ":";
 
 type ViewBefore = (Range<usize>, Point<Pixels>);
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/platform/quickinput/browser/media/quickInput.css
 const MAX_WIDTH: f32 = 600.0;
 const WIDTH_SHARE: f32 = 0.62;
 const PADDING: f32 = 6.0;

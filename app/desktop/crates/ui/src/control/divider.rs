@@ -1,5 +1,3 @@
-//! Sashes and separators between regions.
-
 mod axis;
 mod sash;
 mod sash_drag;

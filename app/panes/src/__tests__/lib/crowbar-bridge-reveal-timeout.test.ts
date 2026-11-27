@@ -7,7 +7,6 @@ describe('crowbar-bridge revealItemInFinder timeout guard', () => {
 
   beforeEach(() => {
     invoke = vi.fn()
-    // isTauri() checks '__TAURI_INTERNALS__' in window; tauriInvoke calls its invoke.
     ;(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = { invoke }
   })
 
@@ -30,10 +29,9 @@ describe('crowbar-bridge revealItemInFinder timeout guard', () => {
     await expect(revealItemInFinder('/tmp')).rejects.toThrow('reveal_in_finder failed')
   })
 
-  // An invoke that never settles must still reject, so the caller's `.catch` toast fires.
   it('rejects with a timeout error when the invoke never settles', async () => {
     vi.useFakeTimers()
-    invoke.mockReturnValueOnce(new Promise(() => {})) // never resolves or rejects
+    invoke.mockReturnValueOnce(new Promise(() => {}))
 
     const assertion = expect(revealItemInFinder('/tmp')).rejects.toThrow(
       'reveal_in_finder timed out',

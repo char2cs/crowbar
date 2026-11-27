@@ -64,10 +64,6 @@ func TestSearchHandlers_ReplaceErrors(
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestSearchHandlers_UnresolvedWorkspace_Returns404 proves Search 404s when no
-// workspace was resolved onto the request, BEFORE the search engine is ever
-// consulted — an unresolved chat must not reach the engine with an empty
-// WorktreePath, which would search the daemon's own working directory.
 func TestSearchHandlers_UnresolvedWorkspace_Returns404(
 	t *testing.T,
 ) {
@@ -82,8 +78,6 @@ func TestSearchHandlers_UnresolvedWorkspace_Returns404(
 	assert.Empty(t, eng.seenPaths, "the engine must not be consulted without a workspace")
 }
 
-// TestReplaceHandlers_UnresolvedWorkspace_Returns404 is Search's proof mirrored
-// onto Replace: an unresolved workspace must 404 before Replace is ever called.
 func TestReplaceHandlers_UnresolvedWorkspace_Returns404(
 	t *testing.T,
 ) {
@@ -98,10 +92,6 @@ func TestReplaceHandlers_UnresolvedWorkspace_Returns404(
 	assert.Empty(t, eng.seenPaths, "the engine must not be consulted without a workspace")
 }
 
-// TestSearchHandlers_EngineUnavailable_Returns503 proves Search refuses with
-// 503, not a panic or a 500, when the daemon was wired up with no search
-// engine at all — h.searchEng == nil is a real deployment state (the engine
-// failed to construct), not a test-only impossibility.
 func TestSearchHandlers_EngineUnavailable_Returns503(
 	t *testing.T,
 ) {
@@ -113,8 +103,6 @@ func TestSearchHandlers_EngineUnavailable_Returns503(
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// TestReplaceHandlers_EngineUnavailable_Returns503 is the Replace-side
-// counterpart of TestSearchHandlers_EngineUnavailable_Returns503.
 func TestReplaceHandlers_EngineUnavailable_Returns503(
 	t *testing.T,
 ) {
@@ -126,8 +114,6 @@ func TestReplaceHandlers_EngineUnavailable_Returns503(
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// A search the engine failed answers a fixed 500: ripgrep's own output (its
-// stderr, the paths it read) is not the client's to see. The log keeps the chain.
 func TestSearch_AnEngineFailureIsAFixedMessageAndItsChainIsLogged(t *testing.T) {
 	engineErr := fmt.Errorf("search: rg: %w", errors.New("ripgrep: /repo/secret.env: permission denied"))
 	var noted []string
@@ -149,7 +135,6 @@ func TestSearch_AnEngineFailureIsAFixedMessageAndItsChainIsLogged(t *testing.T) 
 	assert.Equal(t, []string{engineErr.Error()}, noted)
 }
 
-// A replace the engine failed says what failed, as any uncoded 5xx does.
 func TestReplace_AnEngineFailureKeepsItsWords(t *testing.T) {
 	r := newRouterWith(errSearchEngine{err: fmt.Errorf("search: rg: %w", errors.New("disk full mid-write"))})
 

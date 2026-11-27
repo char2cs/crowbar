@@ -14,14 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// TestStartTerminalWaitSweep_DrivesTheDetector is white-box because the thing
-// under test is the one call nothing outside can observe: a sweep that wired its
-// callbacks and then never started would look identical from the API, and every
-// chat would silently stop reporting a CLI parked on a modal.
-//
-// The detector is substituted directly rather than through a constructor door: a
-// production path that could take a detector from a caller would be a path where
-// SetTurns is not the single place one is built.
 func TestStartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	t.Parallel()
 
@@ -35,8 +27,6 @@ func TestStartTerminalWaitSweep_DrivesTheDetector(t *testing.T) {
 	<-swept
 }
 
-// A dialog a command opens is that command running in the CLI: the prompt is
-// taken, so the chat waits on the dialog, never on the prompt.
 func TestStartTerminalWaitSweep_ACommandsDialogIsTheCommandRunning(t *testing.T) {
 	claude, err := agents.New().Get(t.Context(), "", "claude")
 	require.NoError(t, err)
@@ -76,8 +66,6 @@ func (w waitPublisher) Run(ctx context.Context, publish termwait.Publish) {
 	close(w.done)
 }
 
-// TestSetTurns_BuildsADetectorOnlyForAScreenReadingTerminal pins the branch every
-// reader of termWait guards for.
 func TestSetTurns_BuildsADetectorOnlyForAScreenReadingTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -123,8 +111,6 @@ type seeingTerminal struct{ blindTerminal }
 
 func (seeingTerminal) Screen(string, uint64) (string, uint64, bool) { return "", 0, false }
 
-// noTurns is the hook-ingress port with nothing behind it. SetTurns only has to
-// be able to bind it.
 type noTurns struct{ Turns }
 
 func (noTurns) FailTurnOnNotice(context.Context, agents.Runner, agents.TerminalNotice) {}

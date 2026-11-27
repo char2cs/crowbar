@@ -1,5 +1,3 @@
-//! What a connection's line to the daemon logs.
-
 use std::fmt;
 
 use journal::Level;

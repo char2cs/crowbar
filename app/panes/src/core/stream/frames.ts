@@ -1,6 +1,5 @@
 import type { Problem } from '@/lib/errors/problem'
 
-/** Mirrors `api/internal/domain/stream` by hand; its golden file is the contract. */
 type EntityKind =
   | 'project'
   | 'repo'
@@ -24,28 +23,19 @@ export type Frame =
       data?: unknown
       gone?: true
     }
-  /** `seq`: a chat scope's ledger head. `unread`: repos whose rows this snapshot could not
-   *  read, so it says nothing of them. */
   | { t: 'synced'; scope: string; seq?: number; unread?: string[] }
-  /** A chat's ledger row; its shape is the chat feature's (`LedgerRow`). `from`: on a
-   *  window's first row, the seq it follows. */
   | { t: 'row'; scope: string; row: Record<string, unknown>; from?: number }
-  /** Streamed text no row holds yet; its shape is the chat feature's (`FeedDelta`). */
   | { t: 'delta'; scope: string; delta: Record<string, unknown> }
-  /** An unversioned fact about a scope (git status, a file change, diagnostics). */
   | { t: 'signal'; scope: string; kind: string; data?: unknown }
   | {
       t: 'closed'
       scope: string
       reason: 'resync' | 'deleted' | 'refused'
-      /** A chat scope's resync: the last row it was sent. */
       seq?: number
       problem?: Problem
     }
-  /** A refused request that names no scope to drop. */
   | { t: 'error'; problem: Problem }
 
-/** A frame this client cannot read; `scope` names what it was about, when it said. */
 export class FrameError extends Error {
   constructor(
     message: string,
@@ -79,7 +69,6 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 const problem: Check = (v) => isRecord(v) && str(v.code) && str(v.message)
 
-/** Each type's fields; a field marked optional may be absent. */
 const SHAPES: Record<Frame['t'], Record<string, { check: Check; optional?: true }>> = {
   ready: { epoch: { check: str } },
   entity: {
@@ -107,7 +96,6 @@ const SHAPES: Record<Frame['t'], Record<string, { check: Check; optional?: true 
   error: { problem: { check: problem } },
 }
 
-/** Reads one message; an unknown type or field, or a field of the wrong shape, throws. */
 export function decodeFrame(raw: unknown): Frame {
   if (!isRecord(raw) || !str(raw.t) || !Object.hasOwn(SHAPES, raw.t as string))
     throw new FrameError(`stream: unknown frame ${JSON.stringify(raw)}`)

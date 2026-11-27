@@ -28,7 +28,6 @@ beforeEach(async () => {
 afterEach(() => stop())
 
 const stored = async () => (await (await getDB()).getAll('host-placements')).length
-/** A fresh app start: nothing held in memory, the store read back. */
 async function restart() {
   stop()
   resetEntities()

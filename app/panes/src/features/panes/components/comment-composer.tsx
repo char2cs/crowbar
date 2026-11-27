@@ -4,12 +4,10 @@ import { Button } from '@/components/ui/button'
 import { MarkdownCommentEditor } from '@/features/editor/markdown/plate/comment/markdown-comment-editor'
 
 interface CommentComposerProps {
-  /** Optional header, e.g. "Add a comment on line R7". */
   title?: string
   placeholder?: string
   submitLabel?: string
   autoFocus?: boolean
-  /** Seed the editor with existing text — used when editing a comment. */
   initialValue?: string
   onSubmit: (body: string) => void
   onCancel: () => void
@@ -24,23 +22,15 @@ export function CommentComposer({
   onSubmit,
   onCancel,
 }: CommentComposerProps) {
-  // Mirrors the editor's document as markdown. Its only job is to answer "is
-  // there anything to post" — the text that actually gets posted is serialized
-  // from the editor at submit time, so this can never be the stale copy.
   const [value, setValue] = useState(initialValue)
   const canSubmit = value.trim().length > 0
 
   function submit(markdown: string) {
     const body = markdown.trim()
-    // Deliberately no clear-on-submit: every call site unmounts this component
-    // when the submit succeeds, and on the paths where one doesn't, wiping the
-    // box would destroy a comment whose POST had just failed.
     if (body) onSubmit(body)
   }
 
   return (
-    // Set here, not per caller: the annotation variant sits inside the diff's <pre> and would
-    // inherit the code font and `white-space: pre`. Review prose is prose wherever it's anchored.
     <div className="ui-font whitespace-normal rounded-lg border border-border bg-background">
       {title && (
         <div className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-foreground">

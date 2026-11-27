@@ -1,5 +1,3 @@
-//! The installed float host, and the cards each pop-up window painted in its last frame.
-
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -17,7 +15,6 @@ pub(crate) struct Registry {
 
 impl Global for Registry {}
 
-/// Installs `host`, so passive portals paint in pop-up windows from now on.
 pub fn install_float_host(
     host: impl FloatHost + 'static,
     cx: &mut App,

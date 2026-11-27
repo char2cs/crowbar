@@ -2,10 +2,8 @@ const ALL: &str = "all";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum TabScope {
-    /// The tabs of the active project.
     #[default]
     Project,
-    /// Every tab of the window.
     All,
 }
 

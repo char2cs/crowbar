@@ -6,7 +6,6 @@ function removeListener(ctx: ChannelContext, endpoint: string, listener: VoidFun
   if (listeners?.size === 0) ctx.dropListeners.delete(endpoint)
 }
 
-/** Hears each drop of `endpoint`'s open socket; returns the unsubscribe. */
 export function onDrop(
   ctx: ChannelContext,
   endpoint: string,
@@ -17,7 +16,6 @@ export function onDrop(
   return () => removeListener(ctx, endpoint, listener)
 }
 
-/** Tells every drop listener of `endpoint`. */
 export function notifyDrop(ctx: ChannelContext, endpoint: string): void {
   for (const listener of [...(ctx.dropListeners.get(endpoint) ?? [])]) listener()
 }

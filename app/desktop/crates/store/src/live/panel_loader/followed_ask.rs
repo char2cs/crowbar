@@ -1,5 +1,3 @@
-//! Asking the followed chat's daemon for its panels, once its host knows the chat.
-
 use std::sync::Arc;
 
 use tokio::runtime::Handle;

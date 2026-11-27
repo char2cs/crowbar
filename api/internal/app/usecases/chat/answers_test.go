@@ -20,8 +20,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// ─── from answer_test.go ──────────────────────────────────────────────
-
 func deliver(
 	t *testing.T,
 	f testFixture,
@@ -137,8 +135,6 @@ func TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 
-// A person's answer closes the permission's interruption with its choice, so
-// it stops counting against MaxOpenPerTurn.
 func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -163,8 +159,6 @@ func TestAnswer_AHumanAnswerAlsoResolvesThePermissionsOwnInterruption(t *testing
 			"against MaxOpenPerTurn for the rest of the turn")
 }
 
-// A question arrives on the permission hook, so its answer closes its
-// interruption the same way, whatever the choice's kind.
 func TestAnswer_AnAnsweredQuestionAlsoResolvesItsOwnInterruption(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -240,13 +234,6 @@ func TestAnswer_AQuestionIsAnsweredByEchoingTheToolInputWithThePick(t *testing.T
 	assert.Equal(t, "Option B", updated.Answers["Which option do you prefer?"])
 }
 
-// TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay used to spawn codex
-// as its example of an unanswerable provider — true before a9ebb6f1 ("merge
-// codex into one mixed-transport descriptor"), which gave codex.yaml real
-// allow/deny reply templates for permission specifically so it could stop
-// being observed-only. Codex's hooks-only tool_pre is untouched by that merge
-// (codex.yaml declares no answer channel for it, same as every provider) and
-// is still the right example of the invariant this test names.
 func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
 	f := newFixture(t)
 	_, runnerID := f.spawn(t, "codex")
@@ -260,14 +247,6 @@ func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
 	assert.Empty(t, ask, "a provider with no answer channel for this event must never block its relay")
 }
 
-// TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI is the
-// positive half of a9ebb6f1's promise ("permission and elicitation are now
-// answerable" — see the commit's own message): codex's hooks-delivered
-// PermissionRequest and its api-transport item/commandExecution/requestApproval
-// share one canonical "permission" event and one reply: block, so a human's
-// Allow must reach a hooks-delivered relay exactly as it already does for
-// claude (TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI) — just
-// rendered through codex's own reply templates, not claude's.
 func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -361,7 +340,6 @@ func TestAnswer_RefusesPicksOfDifferentKinds(t *testing.T) {
 	require.ErrorIs(t, err, problem.ErrInvalidArgument)
 }
 
-// A suggestion picked from Crowbar reaches the CLI as the grant it offered.
 func TestAnswer_ASuggestionReachesTheCLIAsTheGrantOffered(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -529,7 +507,6 @@ func TestAnswer_AnUnreadableWorkspaceFailsTheAnswerRatherThanGuessing(t *testing
 	require.Error(t, err)
 }
 
-// A pending read that fails is an error, never "no longer pending".
 func TestAnswer_AFailedPendingReadIsAnError(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -677,7 +654,6 @@ func TestAnswer_AQuestionWithNoTextOfItsOwnIsNotGivenAnInventedKey(t *testing.T)
 	assert.NotContains(t, out, `"":"A"`, "an unnamed question gets no key rather than an empty one")
 }
 
-// An allow hands the call's own input back unchanged.
 const allowedStdout = `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
 	`"decision":{"behavior":"allow","updatedInput":{"command":"touch PROOF","description":"Create proof control file"}}}}`
 

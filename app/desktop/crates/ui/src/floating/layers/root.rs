@@ -1,6 +1,3 @@
-//! The view of the pop-up window: its owner's passive layers, laid out as in the owner, and the
-//! window shaped to the cards they painted.
-
 use gpui::{
     AnyElement, App, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription,
     WeakEntity, Window, canvas, div,

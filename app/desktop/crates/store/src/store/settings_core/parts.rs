@@ -1,5 +1,3 @@
-//! What a settings core is built from.
-
 use std::sync::Arc;
 
 use tokio::runtime::Handle;

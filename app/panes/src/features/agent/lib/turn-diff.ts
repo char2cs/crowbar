@@ -1,12 +1,8 @@
 import { parsePatchFiles } from '@pierre/diffs'
 import type { CodeViewItem, FileDiffMetadata } from '@pierre/diffs'
 
-/** Keep parser and syntax-highlighting work bounded for a live preview. */
 export const MAX_TURN_DIFF_PREVIEW_CHARS = 250_000
 
-/** The fingerprint changes with content while item IDs stay stable within a turn,
- *  so CodeView updates the same file as the snapshot advances. `target` is the
- *  tool call's own name for its file, absolute when it lies outside the workspace. */
 export function parseTurnDiff(
   diff: string,
   turnId: string,
@@ -31,14 +27,10 @@ export function parseTurnDiff(
       }),
     )
   } catch {
-    // The component falls back to the raw diff; a parse failure must not hide it.
     return []
   }
 }
 
-/** A tool's edit arrives as a bare unified diff, whose `a/`/`b/` names the parser
- *  keeps, so every edit would read as a rename from a/ to b/. Git names a file
- *  outside the workspace from the root, without the slash its call keeps. */
 function unprefixed(file: FileDiffMetadata, target: string): FileDiffMetadata {
   const bare = file.name.replace(/^b\//, '')
   const name = target === `/${bare}` ? target : bare

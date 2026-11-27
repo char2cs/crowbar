@@ -1,6 +1,3 @@
-//! Where a node sits among its siblings, as the daemon's `compareNodes` sorts them: order, then
-//! kind (folder, branch, chat, repo), then creation time, then id.
-
 use crate::rows::forest::created_key::created_key;
 use crate::rows::forest::{Item, ItemKind};
 

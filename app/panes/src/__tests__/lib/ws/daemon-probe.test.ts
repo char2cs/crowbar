@@ -45,7 +45,6 @@ const halted = health({
 beforeEach(() => {
   useConnectionStore.setState(useConnectionStore.getInitialState())
   useDaemonHaltStore.getState().clear()
-  // A closed channel, so a migrating report is not ignored as stale.
   reportChannelState('/v0/ws/test', false, 'local')
 })
 
@@ -170,7 +169,7 @@ describe('probeDaemon', () => {
     const mgr = createWSManager(hostPorts)
     const leaveGit = mgr.subscribe('/v0/ws/git', vi.fn())
     MockWebSocket.last!.drop()
-    const inFlight = probeDaemon() // the one the refused socket sent
+    const inFlight = probeDaemon()
     const leaveFiles = mgr.subscribe('/v0/ws/files', vi.fn())
     const files = MockWebSocket.last!
 

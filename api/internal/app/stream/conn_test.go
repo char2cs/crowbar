@@ -18,10 +18,9 @@ func TestHub_AFullQueueClosesTheConnectionWithResync(t *testing.T) {
 	conn := newFakeConn()
 	conn.throttle = true
 	done := served(t, hub, conn)
-	conn.allow <- struct{}{} // the synced frame, then the writer holds still
+	conn.allow <- struct{}{}
 	conn.sub(t, "projects")
 
-	// The writer may hold one popped frame, so the bound is passed at QueueSize+2.
 	for i := range stream.QueueSize + 2 {
 		hub.Entity(stream.Projects, stream.KindOperation, fmt.Sprint(i), i, 0)
 	}
@@ -30,7 +29,6 @@ func TestHub_AFullQueueClosesTheConnectionWithResync(t *testing.T) {
 	assert.Equal(t, stream.CloseResync, conn.closeCode())
 }
 
-// rowsOf is a source of n rows.
 func rowsOf(n int) *entities {
 	rows := map[string]string{}
 	for i := range n {
@@ -39,11 +37,10 @@ func rowsOf(n int) *entities {
 	return newEntities(rows)
 }
 
-// held subs scope while the writer holds still, so every frame waits in the queue.
 func heldSub(t *testing.T, conn *fakeConn, scope string) {
 	t.Helper()
 	conn.send(t, stream.OpSub, scope)
-	conn.send(t, stream.OpUnsub, "chat:barrier") // requests run in order: the sub is queued
+	conn.send(t, stream.OpUnsub, "chat:barrier")
 }
 
 func TestHub_ASnapshotLargerThanTheQueueIsDeliveredWhole(t *testing.T) {
@@ -51,7 +48,7 @@ func TestHub_ASnapshotLargerThanTheQueueIsDeliveredWhole(t *testing.T) {
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindProjects: rowsOf(rows)}, nil)
 	conn := newFakeConn()
 	conn.throttle = true
-	conn.allow = make(chan struct{}, rows+2) // the tokens never wait on the writer
+	conn.allow = make(chan struct{}, rows+2)
 	served(t, hub, conn)
 
 	heldSub(t, conn, "projects")
@@ -64,7 +61,6 @@ func TestHub_ASnapshotLargerThanTheQueueIsDeliveredWhole(t *testing.T) {
 	assert.Equal(t, 0, conn.closeCode(), "a snapshot never counts toward the live bound")
 }
 
-// A client that stops reading is closed at the hard bound instead of growing forever.
 func TestHub_AStuckClientIsClosedAtTheHardBound(t *testing.T) {
 	src := rowsOf(stream.HardQueueSize / 3)
 	hub := newHub(map[stream.ScopeKind]appstream.Source{stream.KindChat: src}, nil)
@@ -72,7 +68,7 @@ func TestHub_AStuckClientIsClosedAtTheHardBound(t *testing.T) {
 	conn.throttle = true
 	done := served(t, hub, conn)
 
-	for i := range 4 { // the bound may close it before the last sub is read
+	for i := range 4 {
 		select {
 		case conn.in <- stream.Request{Op: stream.OpSub, Scope: fmt.Sprintf("chat:c%d", i)}:
 		case <-conn.closed:
@@ -100,8 +96,6 @@ func TestHub_AResubWhileItsSnapshotIsPendingIsCoalesced(t *testing.T) {
 	assert.Len(t, seen, 3+1+1, "one snapshot, its synced, the marker")
 }
 
-// Every scope a client subs, lets go of and subs again before its first
-// snapshot is written stays held: its resources keep running and live frames reach it.
 func TestHub_ASubUnsubSubBeforeTheWriterDrainsKeepsTheScope(t *testing.T) {
 	for _, name := range []string{"projects", "chat:c1", "ws:w1", "git:w1", "files:w1", "lsp:c1", "doc:/tmp/a.txt"} {
 		t.Run(name, func(t *testing.T) {
@@ -136,7 +130,6 @@ func TestHub_ASubUnsubSubBeforeTheWriterDrainsKeepsTheScope(t *testing.T) {
 	}
 }
 
-// Holding and letting go of scopes leaks no goroutine per cycle.
 func TestHub_SubUnsubCyclesLeaveNoGoroutineBehind(t *testing.T) {
 	res := newRecorder()
 	hub := newHub(
@@ -156,7 +149,6 @@ func TestHub_SubUnsubCyclesLeaveNoGoroutineBehind(t *testing.T) {
 	}
 	conn.sub(t, "git:w0")
 
-	// Eventually checks from a goroutine of its own.
 	require.Eventually(t, func() bool { return runtime.NumGoroutine() <= before+1 },
 		waitBound, time.Millisecond, "goroutines grew from %d", before)
 }

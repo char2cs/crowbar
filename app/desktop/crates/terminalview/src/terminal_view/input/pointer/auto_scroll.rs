@@ -1,5 +1,3 @@
-//! Scrolling while a selection drag is held outside the grid.
-
 use gpui::Task;
 use terminal::DragEdge;
 

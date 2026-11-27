@@ -14,30 +14,17 @@ const ZERO: Keycode = 19;
 const MINUS: Keycode = 20;
 const EQUALS: Keycode = 21;
 
-/// The X server's keyboard mapping, asked again on each lookup so a layout switch counts at once.
-///
-/// GPUI names a shifted key by the character it types (`@`, not `shift-2`); a shortcut that
-/// means a key's place, as develop's `KeyboardEvent.code` does, finds that place here.
 #[derive(Debug)]
 pub struct KeyMap {
     connection: RustConnection,
 }
 
 impl KeyMap {
-    /// Connects to the X server named by `DISPLAY`.
-    ///
-    /// # Errors
-    /// [`Error::X11Connect`] when no X server answers.
     pub fn connect() -> Result<Self, Error> {
         let (connection, _screen) = RustConnection::connect(None)?;
         Ok(Self { connection })
     }
 
-    /// The key that types `typed`, a single character, on the active layout: the first one
-    /// that types it unshifted, else the first that types it with shift.
-    ///
-    /// # Errors
-    /// [`Error::KeyMap`] when the server does not answer.
     pub fn us_key_of(
         &self,
         typed: char,

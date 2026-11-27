@@ -45,8 +45,6 @@ export function destroyHostRuntime(hostId: string): void {
   if (registry.delete(hostId)) notify()
 }
 
-/** Calls `onChange` when `hostId`'s status changes, following its runtime as it is
- *  minted or destroyed. */
 export function subscribeHostStatus(hostId: string, onChange: () => void): () => void {
   let watched = getHostRuntime(hostId)
   let unsubscribe = watched?.subscribe(onChange)
@@ -63,7 +61,6 @@ export function subscribeHostStatus(hostId: string, onChange: () => void): () =>
   }
 }
 
-/** Calls `onChange` when any host's status changes, or a runtime is minted or destroyed. */
 export function subscribeHostStatuses(onChange: () => void): () => void {
   const watched = new Map<HostRuntimeStore, () => void>()
   const follow = () => {

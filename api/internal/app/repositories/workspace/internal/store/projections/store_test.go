@@ -19,8 +19,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// newRegistered builds a real asynx over a temp event store with the store
-// projection as its durable subscriber, the production shape.
 func newRegistered(
 	t *testing.T,
 ) (context.Context, asynx.Asynx[domain.Workspace], *Store) {
@@ -62,8 +60,6 @@ func TestWorkspaceProjection_CreatePersistsRowInReadModel(t *testing.T) {
 	require.Len(t, all, 1)
 	assert.Equal(t, "w1", all[0].ID)
 	assert.Equal(t, "main", all[0].Branch)
-	// The read model carries project_id/repo_id off evt.Aggregate — it doubles as
-	// the location index (spec §3.7).
 	assert.Equal(t, "p1", all[0].ProjectID)
 	assert.Equal(t, "r1", all[0].RepoID)
 
@@ -81,9 +77,6 @@ func TestWorkspaceProjection_ForgetDeletesTheRow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// The Delete command folds Status=deleted; the store projection PERSISTS that
-	// tombstone row (it does NOT Forget synchronously), so the boot orphan-sweep
-	// still has a row to find (spec §3.8 delete lifecycle).
 	_, err = ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
 	require.NoError(t, err)
 	got, err := st.Get(ctx, "w1")
@@ -91,7 +84,6 @@ func TestWorkspaceProjection_ForgetDeletesTheRow(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, domain.WorkspaceStatusDeleted, got.Status)
 
-	// Forget delivers its marker to the durable subscriber, which drops the row.
 	require.NoError(t, ax.Forget(ctx, "w1"))
 	got, err = st.Get(ctx, "w1")
 	require.NoError(t, err)
@@ -101,7 +93,6 @@ func TestWorkspaceProjection_ForgetDeletesTheRow(t *testing.T) {
 	assert.Empty(t, all)
 }
 
-// failFirstSave fails the first Save, then signals every Save that succeeds.
 type failFirstSave struct {
 	inner
 	failed atomic.Bool
@@ -149,7 +140,6 @@ func TestWorkspaceProjection_ASaveFailureIsRetriedNotDropped(t *testing.T) {
 	assert.Equal(t, "main", got.Branch)
 }
 
-// Upstream can redeliver a Forget marker at startup; the second one finds no row.
 func TestWorkspaceProjection_AForgetDeliveredTwiceIsANoOp(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
@@ -175,7 +165,6 @@ func newTestStore(
 	return st
 }
 
-// errInner fails every storage call.
 type errInner struct{ err error }
 
 func (e *errInner) Save(context.Context, workspaceRow) error { return e.err }
@@ -222,8 +211,6 @@ func TestStore_Get_ErrorOnStorageFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "find")
 }
 
-// corruptInner returns rows whose Data is not valid JSON, simulating a
-// read-model row written by an incompatible/older version of the schema.
 type corruptInner struct{}
 
 func (corruptInner) Save(context.Context, workspaceRow) error { return nil }

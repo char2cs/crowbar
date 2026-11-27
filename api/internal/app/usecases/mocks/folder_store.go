@@ -6,8 +6,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// FolderStore is a fake store.Store[tree.Folder, string], where a
-// home-scoped folder's name lives.
 type FolderStore struct {
 	Saved        []tree.Folder
 	SaveErr      error
@@ -17,7 +15,6 @@ type FolderStore struct {
 	Deleted      []string
 }
 
-// NewFolderStore returns an empty FolderStore.
 func NewFolderStore() *FolderStore {
 	return &FolderStore{}
 }
@@ -45,8 +42,6 @@ func (s *FolderStore) Delete(
 	return nil
 }
 
-// FindByKey returns a pointer to a COPY: Delete compacts s.Saved in place, which would
-// overwrite a pointer into the array with another row's data.
 func (s *FolderStore) FindByKey(
 	ctx context.Context,
 	id string,

@@ -1,5 +1,3 @@
-//! Keyboard actions of a text area; editing and caret actions are shared with the text input.
-
 use gpui::{KeyBinding, actions};
 
 use crate::control::editor::secondary::secondary;

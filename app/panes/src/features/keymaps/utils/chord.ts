@@ -1,5 +1,3 @@
-// Normalized chord grammar: lowercase, `+`-separated, modifiers in canonical order
-// `[mod+][shift+][alt+]<key>` (e.g. `mod+shift+t`). `mod` is Cmd on macOS, Ctrl elsewhere.
 import { APPLE_KEYBOARD } from '@/utils/platform'
 
 interface ParsedChord {
@@ -9,7 +7,6 @@ interface ParsedChord {
   key: string
 }
 
-/** Parse a normalized chord string into structured form. Returns null if empty. */
 function parseChord(chord: string): ParsedChord | null {
   const parts = chord
     .trim()
@@ -41,7 +38,6 @@ function parseChord(chord: string): ParsedChord | null {
   return result
 }
 
-/** Produce the canonical normalized chord string from structured form. */
 function stringifyChord(parsed: ParsedChord): string {
   const out: string[] = []
   if (parsed.mod) out.push('mod')
@@ -51,13 +47,11 @@ function stringifyChord(parsed: ParsedChord): string {
   return out.join('+')
 }
 
-/** Normalize an arbitrary chord string to canonical form (stable modifier order). */
 export function normalizeChord(chord: string): string {
   const parsed = parseChord(chord)
   return parsed ? stringifyChord(parsed) : ''
 }
 
-/** Normalized chord for a KeyboardEvent; null for a bare modifier press (no real key yet). */
 export function chordFromEvent(e: KeyboardEvent): string | null {
   const key = e.key
   if (key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') {
@@ -73,7 +67,6 @@ export function chordFromEvent(e: KeyboardEvent): string | null {
   return stringifyChord(parsed)
 }
 
-/** True when a KeyboardEvent matches the given normalized chord. */
 export function eventMatchesChord(e: KeyboardEvent, chord: string): boolean {
   const parsed = parseChord(chord)
   if (!parsed) return false
@@ -92,7 +85,6 @@ const KEY_LABELS: Record<string, string> = {
   '\\': '\\',
 }
 
-/** Human-readable label for a chord, platform-aware (⌘/Ctrl, ⇧, ⌥). */
 export function formatChord(chord: string): string {
   const parsed = parseChord(chord)
   if (!parsed) return ''

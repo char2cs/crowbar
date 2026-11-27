@@ -1,5 +1,3 @@
-//! Work that outlives its request, as the daemon records it.
-
 mod entity_ref;
 mod item;
 

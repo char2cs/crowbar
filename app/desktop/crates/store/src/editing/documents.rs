@@ -1,5 +1,3 @@
-//! The documents editor panes show, read from the daemon that holds them.
-
 mod decode;
 
 const CONTENT: &str = "/v0/documents/content";
@@ -17,7 +15,6 @@ use crate::live::Hub;
 use crate::live::State;
 use crate::sidebar_commands::{FileDone, FileError};
 
-/// Reads the documents of chats' workspaces and of the host, for the editor panes.
 #[derive(Clone)]
 pub struct Documents {
     hub: Arc<Hub>,
@@ -34,11 +31,6 @@ impl std::fmt::Debug for Documents {
 }
 
 impl Documents {
-    /// Reads `file`, a file of `chat`'s workspace or an absolute file of this computer, and
-    /// hands its text to `done`; a binary file reads as Latin-1 text, as develop decodes it.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] while `chat` is not loaded yet; a read that fails reaches `done`.
     pub fn read(
         &self,
         chat: &str,
@@ -61,11 +53,6 @@ impl Documents {
 }
 
 impl Documents {
-    /// Writes `text` as the whole content of `file`, as develop's `writeDocument` does, and
-    /// tells `done` once the daemon holds it.
-    ///
-    /// # Errors
-    /// [`Error::Stream`] while `chat` is not loaded; a write that fails reaches `done`.
     pub fn write(
         &self,
         (chat, file): (&str, &DocumentPath),
@@ -89,7 +76,6 @@ impl Documents {
 }
 
 impl Store {
-    /// The editor panes' documents.
     pub fn documents(&self) -> Documents {
         Documents {
             hub: Arc::clone(&self.hub),

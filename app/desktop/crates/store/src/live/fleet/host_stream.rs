@@ -1,5 +1,3 @@
-//! Following one host's `/v0/stream`: connect, subscribe, apply frames, reconnect.
-
 mod backoff;
 mod ended;
 mod file_change;
@@ -249,7 +247,6 @@ mod tests {
         next.ok_or_else(|| daemonapi::Error::Stream("no more connections".into()))
     }
 
-    /// Hands out the scripted connections one per dial, then fails.
     struct Script(Mutex<VecDeque<Connection>>);
 
     impl Dial for Script {
@@ -454,7 +451,6 @@ mod tests {
         each_holds(cases).await;
     }
 
-    /// Refuses every dial, noting the host's link as each one starts.
     #[derive(Default)]
     struct Unreachable {
         hub: std::sync::OnceLock<Arc<Hub>>,

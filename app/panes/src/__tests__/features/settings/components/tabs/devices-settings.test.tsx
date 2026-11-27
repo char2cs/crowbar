@@ -22,7 +22,6 @@ interface Instance {
   clients: { id: string; name: string; pairedAt: string; lastSeen: string; revokedAt?: string }[]
 }
 
-/** One instance as its daemon would answer: what the page shows is only what it was told. */
 function answerAs(instances: Record<string, Instance>) {
   vi.mocked(apiFetch).mockImplementation(async (path, init, _retry, hostId = 'local') => {
     const inst = instances[hostId]

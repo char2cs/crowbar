@@ -9,23 +9,17 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// WaitingForPendingPromptLog is logged the instant a provider switch parks on a
-// prompt the provider has not acknowledged, so a test can block on it.
 const WaitingForPendingPromptLog = runner.WaitingForPendingPromptLog
 
-// HasPendingPrompt reports whether chatID holds a prompt the provider has not
-// acknowledged yet, read straight off the ledger.
 func HasPendingPrompt(u RunnerUsecase, ctx context.Context, chatID string) bool {
 	st, err := concrete(u).ledger.State(ctx, chatID)
 	return err == nil && len(st.PendingPrompts()) > 0
 }
 
-// ChatTurns is every message chatID said, as get_chat_log and the handoff read it.
 func ChatTurns(u RunnerUsecase, ctx context.Context, chatID string) ([]domain.LedgerTurn, error) {
 	return concrete(u).conversations.ChatTurns(ctx, chatID)
 }
 
-// ChatExitReason is how chatID's last runner ended, as its snapshot reports it.
 func ChatExitReason(u RunnerUsecase, chatID string) string {
 	snap, err := concrete(u).ChatSnapshot(context.Background(), chatID)
 	if err != nil {
@@ -37,7 +31,6 @@ func ChatExitReason(u RunnerUsecase, chatID string) string {
 	return snap.Ledger.LastExit.Reason
 }
 
-// concrete is u at the type every test builds; any other is a test bug.
 func concrete(u RunnerUsecase) *Usecase {
 	uc, ok := u.(*Usecase)
 	if !ok {
@@ -46,7 +39,6 @@ func concrete(u RunnerUsecase) *Usecase {
 	return uc
 }
 
-// AllLiveRunners is every started runner the supervisor holds.
 func AllLiveRunners(u *Usecase) []engineagents.Runner {
 	all, err := u.runners.AllLive(context.Background())
 	if err != nil {
@@ -55,9 +47,6 @@ func AllLiveRunners(u *Usecase) []engineagents.Runner {
 	return all
 }
 
-// RequirePromptRestart exposes the delivery guard SubmitPrompt runs before it
-// touches anything: no loadable descriptor reaches its refusal branch, so only a
-// descriptor built in Go can exercise it.
 func RequirePromptRestart(
 	ctx context.Context,
 	u RunnerUsecase,

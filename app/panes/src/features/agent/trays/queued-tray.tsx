@@ -3,7 +3,6 @@ import { PencilIcon } from '@/features/agent/shared/agent-icons'
 import { discardPrompt } from '@/features/agent/stores/chat-outbox'
 import type { OutboxItem } from '@/features/agent/stores/lib/outbox'
 
-/** Messages typed while the agent works, waiting for their turn: each can be edited or removed. */
 export function QueuedTray({
   chatId,
   items,
@@ -11,7 +10,6 @@ export function QueuedTray({
 }: {
   chatId: string
   items: OutboxItem[]
-  /** Puts a taken-back message's text in the composer. */
   onEdit: (text: string) => void
 }) {
   if (items.length === 0) return null

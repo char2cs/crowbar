@@ -1,13 +1,6 @@
-// Bakes a flip-dot spinner's discrete SMIL timeline into a sprite strip. WebKit's main-thread SMIL
-// rebuilds the WHOLE layer tree per step, so one spinner slows the window; a stepped transform is
-// composited. EXACT or null: every dot in every frame (layering double-composites edges).
-
 export interface FlickerStrip {
-  /** Static `<svg>`: `frames` copies of the source laid out left to right. */
   markup: string
-  /** Frames in one loop — the strip is this many source-widths wide. */
   frames: number
-  /** Loop duration, verbatim from the source (e.g. `0.72s`). */
   duration: string
 }
 
@@ -26,7 +19,6 @@ const attrsOf = (source: string): Attrs => {
 
 const get = (attrs: Attrs, name: string) => attrs.find(([n]) => n === name)?.[1]
 
-/** Plain integers stay plain; anything else is rounded off float noise. */
 const num = (n: number) => String(Number(n.toFixed(4)))
 
 const escapeAttr = (value: string) =>
@@ -35,7 +27,6 @@ const escapeAttr = (value: string) =>
 const serialize = (attrs: Attrs) =>
   attrs.map(([name, value]) => ` ${name}="${escapeAttr(value)}"`).join('')
 
-/** Replace an attribute in place, preserving source order; append if absent. */
 const withAttr = (attrs: Attrs, name: string, value: string): Attrs => {
   const index = attrs.findIndex(([n]) => n === name)
   if (index === -1) return [...attrs, [name, value]]
@@ -47,7 +38,6 @@ const withAttr = (attrs: Attrs, name: string, value: string): Attrs => {
 interface Dot {
   attrs: Attrs
   cx: number
-  /** One opacity per frame, or null for a dot that never changes. */
   values: string[] | null
 }
 
@@ -79,9 +69,6 @@ export function buildFlickerStrip(source: string): FlickerStrip | null {
       continue
     }
 
-    // Only a discrete, indefinitely repeating fill-opacity timeline can be
-    // flattened into frames. Interpolated or finite animation, or any other
-    // animated attribute, is not something this builder can reproduce.
     const a = attrsOf(animate[1])
     if (get(a, 'attributeName') !== 'fill-opacity') return null
     if (get(a, 'calcMode') !== 'discrete') return null
@@ -91,8 +78,6 @@ export function buildFlickerStrip(source: string): FlickerStrip | null {
     const values = get(a, 'values')?.split(';')
     if (!dur || !values || values.length === 0) return null
 
-    // A strip has ONE length and ONE period; mixed timelines would need a
-    // least-common-multiple strip, which no asset calls for.
     if (frames === 0) {
       frames = values.length
       duration = dur
@@ -115,8 +100,6 @@ export function buildFlickerStrip(source: string): FlickerStrip | null {
   }
 
   const stripViewBox = `${num(minX)} ${num(minY)} ${num(width * frames)} ${num(height)}`
-  // width/height would fight the CSS box. `class="size-full"` opts out of the hosts'
-  // `[&_svg:not([class*='size-'])]:size-4` rule, which would crush the N-frame strip to 16px.
   const stripAttrs = withAttr(
     withAttr(rootAttrs, 'viewBox', stripViewBox),
     'class',

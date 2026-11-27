@@ -17,8 +17,6 @@ import (
 
 const servePIDFileEnv = "CROWBAR_TEST_SERVE_PID_FILE"
 
-// A daemon that dies without its shutdown (a crash, a second Ctrl-C) must
-// not leave its serve processes running: nothing would ever reap them.
 func TestForkServeProcess_DiesWithTheDaemon(t *testing.T) {
 	if pidFile := os.Getenv(servePIDFileEnv); pidFile != "" {
 		serve, _, err := forkServeProcess([]string{"sleep", "60"})
@@ -26,7 +24,7 @@ func TestForkServeProcess_DiesWithTheDaemon(t *testing.T) {
 			os.Exit(2)
 		}
 		_ = os.WriteFile(pidFile, []byte(strconv.Itoa(serve.cmd.Process.Pid)), 0o600)
-		os.Exit(0) // the "daemon" dies without killing what it started
+		os.Exit(0)
 	}
 	pidFile := filepath.Join(t.TempDir(), "serve.pid")
 	daemon := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestForkServeProcess_DiesWithTheDaemon$")
@@ -38,7 +36,7 @@ func TestForkServeProcess_DiesWithTheDaemon(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		if t.Failed() {
-			_ = syscall.Kill(pid, syscall.SIGKILL) // still ours: it is what failed the test
+			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	})
 

@@ -14,15 +14,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/ledger"
 )
 
-// No recording of a legacy home exists in the repository, so these chats are
-// written by hand in the shape the old daemon's tables and journal held.
 func at(h, m, s int) time.Time { return time.Date(2026, 9, 1, h, m, s, 0, time.UTC) }
 
 func ptr(t time.Time) *time.Time { return &t }
 
-// chatA: two conversations, the older with turns; three exchanges, a harness
-// row, a notice; a tool and one nested under a subagent; an ended and an
-// unended subagent; a compaction, a resolved permission, an uncertain prompt.
 func chatA() LegacyChat {
 	const p, run, chat = "claude", "run-1", "chat-a"
 	turn := func(id, role string, seq, order int64, start time.Time, end *time.Time, text string) LegacyTurn {
@@ -89,8 +84,6 @@ func chatA() LegacyChat {
 	}
 }
 
-// chatB: another provider; turns that name no session; an inferred
-// interruption on a turn with no reply; its only session owned by another chat.
 func chatB() LegacyChat {
 	const p, chat = "codex", "chat-b"
 	return LegacyChat{
@@ -159,11 +152,6 @@ func TestConvertChat_IsDeterministic(t *testing.T) {
 		"a turn's id derives from its chat and legacy id alone")
 }
 
-// convertedByVersion pins what each converterVersion makes of the fixture
-// chats and of records it cannot read. When this test fails, the converter
-// changed: raise converterVersion and add its line here; never edit a line.
-// A raise retries the chats an older converter skipped; chats it converted,
-// in part or in full, are never converted again.
 var convertedByVersion = map[int]string{
 	2: "b0f1aac332a62331031fb2d760353eea45ed5714e5a88de5c5b85243727f0bb7",
 	3: "4c6559e36a2f6ddbdf4fc0cd4fb90348b489f74879731102cc5ef474e5113a29",
@@ -228,8 +216,6 @@ func TestConvertChat_TurnsBecomePromptTextAndAnEnd(t *testing.T) {
 	assert.Equal(t, []ledger.PlanItem{{Text: "look", Status: "completed"}}, fold(res).Plan(), "the plan is the turn's own")
 }
 
-// A reply the old daemon stopped short of recording ends interrupted: a resting
-// chat has no running turn.
 func TestConvertChat_AReplyWithNoEndIsInterrupted(t *testing.T) {
 	in := chatA()
 	in.Turns[3].EndedAt = nil

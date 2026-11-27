@@ -1,5 +1,3 @@
-//! The pill that slides behind the selected tab.
-
 use gpui::{Div, InteractiveElement as _, ParentElement, Styled, div, px, relative};
 
 use crate::control::tabs::tabs_style::TabsStyle;

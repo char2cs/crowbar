@@ -16,18 +16,12 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 		return
 	}
 	var body struct {
-		Text            string `json:"text"`
-		ClientRequestID string `json:"clientRequestId"`
-		// RetryOf is the refused prompt this send retries; the ledger links the two.
-		RetryOf string `json:"retryOf"`
-		// Provider is the composer's staged provider — omitted or empty
-		// means "nothing staged, use the chat's current one as-is." It has no
-		// "clear it" reading at all: a chat always runs SOME provider.
-		Provider string `json:"provider"`
-		// Model/Effort are pointers because "" is a real pick (the provider default): nil leaves the sticky
-		// selection alone. They bind as one pair, since valid efforts depend on the model.
-		Model  *string `json:"model"`
-		Effort *string `json:"effort"`
+		Text            string  `json:"text"`
+		ClientRequestID string  `json:"clientRequestId"`
+		RetryOf         string  `json:"retryOf"`
+		Provider        string  `json:"provider"`
+		Model           *string `json:"model"`
+		Effort          *string `json:"effort"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
@@ -85,7 +79,6 @@ func (h *Handlers) SlashCatalog(ctx *gin.Context) {
 	})
 }
 
-// derefOr reads an optional wire string, treating absence as "".
 func derefOr(value *string) string {
 	if value == nil {
 		return ""

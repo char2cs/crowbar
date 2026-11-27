@@ -18,7 +18,6 @@ function onHostReady(hostId: string, listener: () => void): () => void {
   })
 }
 
-/** The host layer as the socket manager asks for it; the local daemon is never probed, always dialled. */
 export const hostPorts: WsHostPorts = {
   isLocalHost: (hostId) => hostId === LOCAL_HOST.id,
   mayDial,

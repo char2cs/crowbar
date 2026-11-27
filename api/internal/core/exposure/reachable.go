@@ -12,9 +12,6 @@ func isExposed(host string) bool {
 	return transports.IsNetworkExposed("tcp://" + net.JoinHostPort(host, "1"))
 }
 
-// reachable lists where another device can dial a listener bound at bound: for
-// a wildcard bind, each of this machine's global unicast IPv4 addresses at the
-// bound port; otherwise the bind itself.
 func reachable(bound string, interfaces func() ([]net.Addr, error)) []string {
 	host, port, err := net.SplitHostPort(bound)
 	if err != nil {

@@ -65,8 +65,6 @@ describe('idb schema v10', () => {
     for (const name of RETIRED) expect(Array.from(db.objectStoreNames)).not.toContain(name)
     expect(await db.get('sidebar-ui', 'global')).toMatchObject({ collapsedChatRows: ['c1'] })
   })
-  // The v9 database exactly as the base build (70ec430) left it, one record in
-  // every store: the upgrades may drop the retired stores and nothing else.
   it('upgrades a base-build v9 database with data in every store, losing only the retired', async () => {
     const byKey = (key: string) => ({ keyPath: key })
     const stores: Array<[string, IDBObjectStoreParameters | undefined, unknown, IDBValidKey?]> = [
@@ -131,7 +129,6 @@ describe('idb schema v14', () => {
     expect(Array.from(db.objectStoreNames)).not.toContain('editor-state')
   })
 
-  // v11-v13 meant other things on another line of builds: a database one left has no drafts store.
   it('gives a database a v13 build left the drafts store, and drops its editor-state', async () => {
     const v13 = await openDB('crowbar', 13, {
       upgrade(db) {
@@ -218,10 +215,6 @@ describe('idb schema v7 entity stores', () => {
   })
 
   it('creates the v8 folder store keyed by id', async () => {
-    // A new object store only comes into existence inside an upgrade callback,
-    // so shipping one without bumping the version leaves an existing install
-    // with no store at all — and every entity-cache write swallows that, so it
-    // fails silently at runtime instead of loudly at build time.
     const db = await getDB()
     expect(Array.from(db.objectStoreNames)).toContain('crowbar_folders')
     await db.put('crowbar_folders', { id: 'f1', name: 'spikes' } as never)

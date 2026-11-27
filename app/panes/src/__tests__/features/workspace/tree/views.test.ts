@@ -22,14 +22,9 @@ describe('a repo', () => {
     expect(row?.kind).toBe('branch')
     expect(row?.ownsWorktree).toBe(true)
     expect(row?.locked).toBe(true)
-    // Exactly one row — this is the fold this whole file pins, not a
-    // coincidence of the fixture.
     expect(rows).toHaveLength(1)
   })
 
-  // `RowGlyph` (sidebar-row.tsx) delegates to `WorkspaceBranchIcon` off exactly these two fields —
-  // a row that dropped either would silently fall back to the plain GitBranch/Lock guess, which is
-  // the bug this pins: a workspace stuck as a placeholder (no on-disk worktree) or carrying a PR
   it('carries the workspace status and placeholder fact onto the row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts', provisioning: 'placeholder' },
@@ -38,8 +33,6 @@ describe('a repo', () => {
     const repo = makeRepo({ workspaces: [workspace], chats: [chat] })
     const row = repoRows(repo).find((r) => r.workspaceId === 'ws-1')
     expect(row?.status).toBe('pr-conflicts')
-    // A placeholder by the daemon's own record, same as a workspace whose
-    // worktree is held elsewhere.
     expect(row?.isPlaceholder).toBe(true)
   })
 
@@ -61,8 +54,6 @@ describe('a repo', () => {
     expect(rows.find((r) => r.id === 'f-1')?.kind).toBe('folder')
   })
 
-  // A repo folder always sits under a real worktree, unlike a project-home
-  // one (deriveRows) — its own "+" always forks a branch.
   it('a repo folder owns a worktree, so its own "+" can fork a branch', () => {
     const repo = makeRepo({
       folders: [makeFolder({ id: 'f-1', name: 'Bugs' })],
@@ -114,8 +105,6 @@ describe('a repo', () => {
     expect(repoRows(makeRepo())).toEqual([])
   })
 
-  // The home row's icon (EditableRepoIcon) needs the repo's ids and avatar fields to reach the
-  // right REST base; see SidebarRow's `repoIcon` doc.
   describe('the home row’s repoIcon', () => {
     it('carries the repo’s own identity once its owning project has seeded', () => {
       const repo = makeRepo({
@@ -156,13 +145,7 @@ describe('a repo', () => {
   })
 })
 
-// Spec §3.4: a freshly-minted workspace's branch is provisional (italic) until it is renamed — the
-// same idea `labelProvisional` already carries for an untitled chat's title, applied to the branch
-// half.
 describe('provisional branch naming', () => {
-  // These two model a workspace with NO resolvable owner — the "genuinely chat-less" fallback (see
-  // the describe block above) — where the row's label IS still its branch, so the branch-
-  // placeholder pattern is still the right provisional signal.
   it('a genuinely chat-less workspace whose branch is still the generated placeholder renders provisional', () => {
     const repo = makeRepo({
       defaultWorkspaceId: 'ws-home',
@@ -193,9 +176,6 @@ describe('provisional branch naming', () => {
     expect(home?.labelProvisional).toBeFalsy()
   })
 
-  // A FOLDED (owned, unlocked) fork's label is now its chat's title, not its branch (rule 6) — so
-  // its provisional-ness now tracks the same thing a bubble chat's already does (an empty title),
-  // regardless of whether the branch itself is still the generated placeholder.
   it('a folded fork with no chat title yet renders provisional, even with a real branch name', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-1', branch: 'feature/real-name' },
@@ -225,8 +205,6 @@ describe('provisional branch naming', () => {
   })
 })
 
-// The repo's own default branch, held by the repo's own checkout: the resting state of every
-// imported repo, not a failed provision.
 const REPO_ROOT = '/Users/me/repro-data/repo-beta'
 
 function heldWorkspace(
@@ -240,14 +218,10 @@ function heldWorkspace(
 }
 
 function repoWithOwnCheckoutRow(branch: string): Repo {
-  // The repo's own default branch, with no worktree of its own and the repo
-  // root as its holder — c32b82d8 in the live repro.
   const held = heldWorkspace(
     { id: 'ws-held', branch, status: 'locked', heldByPath: REPO_ROOT, provisioning: 'placeholder' },
     'chat-held',
   )
-  // An unrelated branch some OTHER worktree holds: a real failure, and the
-  // control this fixture needs so a blanket "never warn" would not pass.
   const foreign = heldWorkspace(
     {
       id: 'ws-foreign',
@@ -289,17 +263,12 @@ describe("the repo's own default branch, held by the repo's own checkout", () =>
     expect(row?.needsProvisioning).toBe(false)
   })
 
-  // A branch some OTHER worktree holds is a real failure and must still warn —
-  // without this the fix reads as "stop warning", which is a different bug.
   it('still warns for a branch held by a worktree that is not the repo home', () => {
     const rows = repoRows(repoWithOwnCheckoutRow('main'))
     const row = rows.find((r) => r.workspaceId === 'ws-foreign')
     expect(row?.needsProvisioning).toBe(true)
   })
 
-  // Matched by BRANCH, never by comparing `heldByPath` to `Repo.localPath`: git worktree list emits
-  // fully symlink-resolved paths while the repo's own path is the folder the user handed the
-  // importer, so the same directory routinely has two spellings (/var vs /private/var on macOS).
   it('raises no warning even when the holder path spells the repo root differently', () => {
     const repo = repoWithOwnCheckoutRow('main')
     const workspaces = repo.workspaces.map((w) =>
@@ -309,8 +278,6 @@ describe("the repo's own default branch, held by the repo's own checkout", () =>
     expect(row?.needsProvisioning).toBe(false)
   })
 
-  // It still has no worktree, so the verbs that need one stay off it and the
-  // remedy it DOES have (Detach, spec §3.5) keeps the holder to act on.
   it('is still a worktree-less row carrying its holder and its reason', () => {
     const rows = repoRows(repoWithOwnCheckoutRow('main'))
     const row = rows.find((r) => r.workspaceId === 'ws-held')
@@ -320,8 +287,6 @@ describe("the repo's own default branch, held by the repo's own checkout", () =>
     expect(row?.placeholderReason?.toLowerCase()).not.toContain('retry')
   })
 
-  // Recents draws the same glyph off the same fields, through its own index —
-  // a row that stopped warning in the tree must not still warn there.
   it('agrees with Recents’ own icon index', () => {
     const index = chatIconIndex([repoWithOwnCheckoutRow('main')])
     expect(index.get('chat-held')?.needsProvisioning).toBe(false)
@@ -380,8 +345,6 @@ describe('chatless workspaces', () => {
     ])
   })
 
-  // The only chat of a chatless workspace is not its owner: the thread keeps its own row instead of
-  // folding into the branch row.
   it('a thread inside a locked branch stays its own row under the recorded owner', () => {
     const owner: Chat = {
       id: 'o1',

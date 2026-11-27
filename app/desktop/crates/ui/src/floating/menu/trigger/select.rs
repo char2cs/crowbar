@@ -1,5 +1,3 @@
-//! A dropdown that picks one value from a list.
-
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -32,7 +30,6 @@ const COMPACT_HEIGHT: f32 = 28.0;
 const CARET_OPACITY: f32 = 0.8;
 const PLACEHOLDER_OPACITY: f32 = 0.72;
 
-/// A select box: the trigger shows the chosen option, its menu lists all of them with a check on the current one.
 #[derive(IntoElement)]
 pub struct Select {
     id: ElementId,
@@ -50,7 +47,6 @@ mod ring;
 mod style;
 
 impl Select {
-    /// A select over `options` with `selected` chosen.
     pub fn new(
         id: impl Into<ElementId>,
         options: Vec<SharedString>,
@@ -69,7 +65,6 @@ impl Select {
         }
     }
 
-    /// Paints with the palette of `surface`.
     #[must_use]
     pub fn on(
         mut self,
@@ -79,7 +74,6 @@ impl Select {
         self
     }
 
-    /// Registers the handler receiving the index of the chosen option.
     #[must_use]
     pub fn on_change(
         mut self,

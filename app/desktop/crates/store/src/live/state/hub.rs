@@ -1,5 +1,3 @@
-//! The lock around the shared state, and the signal that follows every change.
-
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::watch;

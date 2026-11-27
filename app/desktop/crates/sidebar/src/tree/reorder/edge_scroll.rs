@@ -1,5 +1,3 @@
-//! Auto-scroll of the tree while a row is dragged near its top or bottom edge.
-
 const EDGE_BAND: f32 = 36.0;
 const EDGE_SPEED_MAX: f32 = 14.0;
 
@@ -11,7 +9,6 @@ fn edge_speed(distance: f32) -> f32 {
     (depth * EDGE_SPEED_MAX).round().max(1.0)
 }
 
-/// Auto-scroll of a tree spanning `top` to `bottom` while a row is dragged near its edges.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EdgeScroll {
     top: f32,
@@ -19,13 +16,10 @@ pub struct EdgeScroll {
 }
 
 impl EdgeScroll {
-    /// The auto-scroll of a tree spanning `top` to `bottom`.
     pub fn between((top, bottom): (f32, f32)) -> Self {
         Self { top, bottom }
     }
 
-    /// The scroll speed, in pixels per frame, for a drag at height `y`: negative near or above the
-    /// top, positive near or below the bottom and zero in the middle.
     pub fn pull(
         self,
         y: f32,

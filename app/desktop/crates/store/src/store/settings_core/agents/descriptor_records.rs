@@ -1,5 +1,3 @@
-//! The Descriptor checks list: one record per descriptor, its findings as lines.
-
 use settings::{Line, Record, Tone};
 
 use crate::store::settings_core::agents::descriptor_finding::DescriptorFinding;

@@ -12,8 +12,6 @@ const COPY: Record<HostUnavailable | 'waiting', { title: string; body?: string }
   },
 }
 
-/** What a chat pane says in place of the chat while its host is not known: still
- *  waiting (`reason` null), or why the wait is over. Static: nothing here animates. */
 export function AgentChatUnavailable({ reason }: { reason: HostUnavailable | null }) {
   const { title, body } = COPY[reason ?? 'waiting']
   return (

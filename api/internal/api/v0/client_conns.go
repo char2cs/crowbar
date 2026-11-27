@@ -14,9 +14,6 @@ import (
 
 var errClientRevoked = errors.New("v0: client was revoked during the upgrade")
 
-// clientConns holds every connection (a WebSocket) a paired client's request
-// hijacked: the bearer guard only sees the upgrade, so revoking the client is
-// what has to end the streams its token opened.
 type clientConns struct {
 	mu    sync.Mutex
 	conns map[string]map[*trackedConn]struct{}
@@ -26,7 +23,6 @@ func newClientConns() *clientConns {
 	return &clientConns{conns: map[string]map[*trackedConn]struct{}{}}
 }
 
-// Disconnect closes every connection clientID's requests hijacked.
 func (r *clientConns) Disconnect(
 	clientID string,
 ) {
@@ -67,7 +63,6 @@ func (r *clientConns) untrack(
 	}
 }
 
-// trackedConn leaves the registry when it closes, whoever closes it.
 type trackedConn struct {
 	net.Conn
 	owner     *clientConns
@@ -83,9 +78,6 @@ func (c *trackedConn) Close() error {
 	return nil
 }
 
-// revocableWriter registers a hijacked connection under its client, then
-// re-reads the client: a revoke before the registration is caught here, one
-// after finds it registered. ctx is the request's own; Hijack takes none.
 type revocableWriter struct {
 	gin.ResponseWriter
 	ctx       context.Context

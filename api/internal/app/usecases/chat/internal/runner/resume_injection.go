@@ -6,9 +6,6 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// resumeInjectionSteps turns a native session id into the argv/inject steps
-// that ask a freshly-spawned CLI to resume it — used by both a prompt's
-// restart-to-deliver path (prompts.go) and a provider switch (switch.go).
 func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents.InjectStep {
 	arg, ok := d.ResumeArg()
 	if sessionID == "" || !ok {
@@ -17,8 +14,6 @@ func resumeInjectionSteps(d engineagents.Agent, sessionID string) []engineagents
 	return sessionArgSteps(arg, sessionID)
 }
 
-// sessionArgSteps splits a session arg template ("<flag> {id}") into one
-// pass_arg per token: exec.Command never splits a string on whitespace.
 func sessionArgSteps(arg, sessionID string) []engineagents.InjectStep {
 	ctx := engineagents.TemplateCtx{ID: sessionID}
 	parts := strings.Fields(engineagents.Expand(arg, ctx))

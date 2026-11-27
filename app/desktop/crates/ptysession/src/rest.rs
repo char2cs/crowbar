@@ -1,5 +1,3 @@
-//! Creating and killing sessions through the shell's transport.
-
 mod binding;
 mod session_paths;
 

@@ -13,8 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestRegression_ReparentFailureIsVisible: a reparent the daemon cannot complete reports why;
-// the client used to infer it from a lastError change and a 30 s timeout.
 func TestRegression_ReparentFailureIsVisible(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -28,7 +26,6 @@ func TestRegression_ReparentFailureIsVisible(t *testing.T) {
 	require.NotEmpty(t, wsID)
 	chatID := owningChatID(t, h, wsID)
 
-	// Onto itself: guardReparent refuses it after the 202.
 	op := startOperation(t, h, f.repoBase()+"/chats/"+chatID+"/reparent", map[string]any{"newParentId": wsID})
 	require.Equal(t, domain.OpWorkspaceReparent, op.Kind)
 	require.Equal(t, domain.EntityRef{Kind: domain.EntityWorkspace, ID: wsID}, op.Subject)
@@ -45,8 +42,6 @@ func TestRegression_ReparentFailureIsVisible(t *testing.T) {
 	require.Equal(t, f.mainWSID, ws.ParentID, "a refused reparent keeps the parent")
 }
 
-// importedRows imports branches off main as one batch and returns each one's
-// chat row by branch, once the import has settled.
 func importedRows(
 	t *testing.T,
 	h *harness,
@@ -69,7 +64,6 @@ func importedRows(
 	return rows
 }
 
-// reparentSettled moves child's workspace under newParent's and waits for the move.
 func reparentSettled(
 	t *testing.T,
 	h *harness,
@@ -85,9 +79,6 @@ func reparentSettled(
 	return settled
 }
 
-// TestRegression_ReparentKeepsAnImportedBranchsCommits: an imported branch's
-// recorded fork point was its own tip, so the rebase replayed nothing and the
-// move reset the branch onto its new parent, dropping its commits.
 func TestRegression_ReparentKeepsAnImportedBranchsCommits(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)
@@ -105,11 +96,6 @@ func TestRegression_ReparentKeepsAnImportedBranchsCommits(t *testing.T) {
 	require.FileExists(t, filepath.Join(path, "b.txt"))
 }
 
-// TestRegression_ConflictingReparentIsShownAsAConflict: a move whose rebase
-// conflicts is aborted and lands "on paper"; the branch must read as
-// conflicting, as a conflicting merge-into-parent does. The merge-tree
-// prediction alone misses it: the final trees merge cleanly, a replayed commit
-// does not.
 func TestRegression_ConflictingReparentIsShownAsAConflict(t *testing.T) {
 	h := newHarness(t)
 	f := newImportFixture(t, h)

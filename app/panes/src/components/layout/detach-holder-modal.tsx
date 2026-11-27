@@ -31,7 +31,6 @@ function describeDetach(target: Target): string {
   return `The checkout at ${target.heldByPath} will move to a detached HEAD, releasing ${target.branch} so Crowbar can manage it in its own worktree. Your files are safe — only the working directory's current branch changes; uncommitted changes and commits are preserved.`
 }
 
-// The phone asks the same question in a native alert, over whichever sheet is on screen.
 function NativeDetachConfirm({ target, close }: { target: Target; close: () => void }) {
   const answer = useEffectEvent((yes: boolean) => {
     if (yes) detach(target)
@@ -55,8 +54,6 @@ function NativeDetachConfirm({ target, close }: { target: Target; close: () => v
   return null
 }
 
-// Consent to free a protected branch from a live holder: disruptive, not destructive — detach only
-// moves HEAD, so work is preserved (§3.7). A detach blocked mid-merge fails its operation.
 export function DetachHolderModal() {
   const target = useDetachModalStore((s) => s.target)
   const close = useDetachModalStore((s) => s.close)

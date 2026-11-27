@@ -4,11 +4,6 @@ use crate::error::Result;
 use crate::pane_host::PaneHost;
 
 impl PaneHost {
-    /// Replaces the hosts the shell paired and pushes the list to mounted panes; a pane mounted
-    /// later gets it on mount. An unchanged list sends nothing.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::Error::WebView) when a pane cannot be reached.
     pub fn set_paired_hosts(
         &mut self,
         hosts: Vec<PairedHost>,

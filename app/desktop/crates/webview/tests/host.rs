@@ -1,7 +1,3 @@
-//! Native web views against a real X server and `WebKitGTK`: where their keys go, what a press
-//! on them reports and the caret blink the desktop's settings manager announces.
-//!
-//! GTK runs on one thread per process, so one test drives every case on one host.
 #![cfg(target_os = "linux")]
 
 #[path = "support/keyboard_owner.rs"]

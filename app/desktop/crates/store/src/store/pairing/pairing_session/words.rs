@@ -1,5 +1,3 @@
-//! What a failed step of pairing says to the user, in plain words.
-
 pub(crate) mod already_paired;
 pub(crate) mod failure;
 mod refusal;

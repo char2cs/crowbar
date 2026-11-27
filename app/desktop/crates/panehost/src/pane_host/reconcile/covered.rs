@@ -1,21 +1,14 @@
 use webview::Bounds;
 
-/// What the shell's own overlays cover, so that no web view draws over them. Covered panes keep
-/// their stage and lifecycle; only their web view is hidden, and the keys stay with the shell.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Covered {
-    /// Nothing is open over the panes.
     #[default]
     Nothing,
-    /// A dialog or a drag is open: every web view is hidden.
     Everything,
-    /// Popovers are open: the web views whose rectangle meets one of these, in logical pixels
-    /// relative to the window, are hidden.
     Areas(Vec<Bounds>),
 }
 
 impl Covered {
-    /// Whether a pane at `bounds` is under what is open.
     #[must_use]
     pub fn hides(
         &self,

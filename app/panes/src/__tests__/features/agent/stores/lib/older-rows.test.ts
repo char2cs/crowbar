@@ -18,7 +18,6 @@ import type {
 
 vi.mock('@/features/agent/api/chat-rows-reads', () => ({ readOlderRows: vi.fn() }))
 
-/** A feed that opened on a window: it holds the rows after `from` only. */
 function windowOf(rows: LedgerRow[], from: number) {
   const fold = new FeedFold(emptyFeed())
   fold.startAt(from)

@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// PromptMatch opens an injected prompt by a regexp where no literal prefix
-// can: the text after the prefix varies. It is compiled when the descriptor loads.
 type PromptMatch struct {
 	re *regexp.Regexp
 }
@@ -26,8 +24,6 @@ func (m *PromptMatch) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// Anchored reports whether m compiled and starts at the beginning of the text,
-// so a person quoting the notice mid-sentence never matches.
 func (m *PromptMatch) Anchored() bool {
 	return m != nil && m.re != nil && strings.HasPrefix(m.re.String(), "^")
 }
@@ -36,14 +32,10 @@ func (m *PromptMatch) Matches(text string) bool {
 	return m != nil && m.re != nil && m.re.MatchString(text)
 }
 
-// TaskPattern finds every background task a prompt names: each match of its
-// pattern is one, by the named groups id (required), exit_code and status.
 type TaskPattern struct {
 	re *regexp.Regexp
 }
 
-// TaskRef is one task a prompt names. Status is the provider's word for how it
-// ended, "" when the match gave none; ExitCode is nil likewise.
 type TaskRef struct {
 	ID, Status string
 	ExitCode   *int
@@ -67,10 +59,8 @@ func (p *TaskPattern) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// Valid reports whether p compiled with its id group.
 func (p TaskPattern) Valid() bool { return p.re != nil }
 
-// FindAll is every task prompt names by p, in order.
 func (p TaskPattern) FindAll(prompt string) []TaskRef {
 	if p.re == nil {
 		return nil

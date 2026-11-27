@@ -1,5 +1,3 @@
-//! A pointer drag that may dismiss a toast.
-
 use gpui::{Pixels, Point, px};
 
 use crate::display::toast::toast_queue::toast_id::ToastId;

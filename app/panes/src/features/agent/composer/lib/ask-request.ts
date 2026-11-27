@@ -1,53 +1,41 @@
 import { diffLines } from '@/features/agent/composer/lib/line-diff'
 
-/** What a permission asks to run, from the ask's own copy of the call's input. */
 export interface AskRequest {
   toolName?: string
   toolTarget?: string
-  /** The call's input; with `truncated`, a string holding its leading text. */
   toolInput?: unknown
   truncated?: boolean
   mcpServer?: string
-  /** The agent's own sentence on why it asks, said when no input of the call is shown. */
   why?: string
 }
 
 export interface CodeLine {
   text: string
-  /** An MCP argument's name, on the first line of its value: drawn as a labelled row. */
   key?: string
   tone?: 'del' | 'add' | 'ctx'
-  /** In a diff: the line's number within the edit, and the span of it that changed. */
   n?: number
   mark?: [number, number]
-  /** Drawn short: the rest of the line is counted, not shown. */
   cut?: boolean
 }
 
-/** The card's body: a heading (an MCP server, a path), the lines, a note. */
 export interface RequestView {
   server?: string
   head?: string
   code: CodeLine[]
-  /** Prose the call carries, drawn as markdown rather than as lines of source. */
   markdown?: string
   note?: string
-  /** The code is a command, drawn with a shell prompt. */
   shell?: boolean
 }
 
-/** What a folded card draws before it says how much more there is. */
 const SHOWN_LINES = 12
 const LINE_CHARS = 240
 
 const str = (value: unknown) => (typeof value === 'string' ? value : '')
-// A CRLF pair is one break; a lone carriage return is left for the escapes.
 const lines = (text: string) => text.split(/\r?\n/)
 const plain = (text: string): CodeLine[] => lines(text).map((line) => ({ text: line }))
 
 const argText = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value))
 
-/** An MCP call's arguments: each value's lines, the first carrying the argument's name. */
 function mcpArgs(input: unknown): CodeLine[] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return []
   return Object.entries(input as Record<string, unknown>).flatMap(([key, v]) =>
@@ -66,7 +54,6 @@ function mcpView(req: AskRequest): RequestView {
 const toned = (text: string, tone: CodeLine['tone']): CodeLine[] =>
   text ? lines(text).map((line) => ({ text: line, tone })) : []
 
-/** One replacement as a line diff; past the diff's budget, the removed lines then the added. */
 const replacement = (edit: Record<string, unknown>) => {
   const [before, after] = [str(edit.old_string), str(edit.new_string)]
   const diff = diffLines(before, after)
@@ -75,7 +62,6 @@ const replacement = (edit: Record<string, unknown>) => {
     : [...toned(before, 'del'), ...toned(after, 'add')]
 }
 
-/** A file change: an edit, every edit of a multi-edit, a write, a notebook cell. */
 function fileView(input: Record<string, unknown>, target: string): RequestView | null {
   const head = target || str(input.file_path) || str(input.notebook_path) || undefined
   if (Array.isArray(input.edits)) {
@@ -89,15 +75,12 @@ function fileView(input: Record<string, unknown>, target: string): RequestView |
   return content ? { head, code: plain(content) } : null
 }
 
-/** The body of a permission card, by what the gated call is. */
 export function requestView(req: AskRequest): RequestView {
-  // A truncated input is the leading text of its JSON: shown, never parsed.
   if (req.truncated) return { code: plain(str(req.toolInput)), note: 'Input truncated' }
   if (req.mcpServer) return mcpView(req)
   const input = (req.toolInput ?? {}) as Record<string, unknown>
   const command = str(input.command)
   if (command) return { code: plain(command), shell: true }
-  // A plan approval asks about the plan it carries.
   const plan = str(input.plan)
   if (plan) return { code: [], markdown: plan }
   return (
@@ -109,11 +92,8 @@ export function requestView(req: AskRequest): RequestView {
   )
 }
 
-// What Unicode says draws as nothing or steers layout: shown raw it reorders or
-// hides what the command does, so each is written out. TAB and LF draw as themselves.
 const HIDDEN = /(?![\t\n])[\p{Default_Ignorable_Code_Point}\p{Cf}\p{Zl}\p{Zp}\p{Cc}]/gu
 
-/** `text` split into what draws as itself and the characters written out. */
 export function visibleParts(text: string): { text: string; escaped: boolean }[] {
   const parts: { text: string; escaped: boolean }[] = []
   let last = 0
@@ -127,14 +107,12 @@ export function visibleParts(text: string): { text: string; escaped: boolean }[]
   return parts
 }
 
-/** A folded card's lines, each cut to a budget, and what that leaves out. */
 export interface FoldedCode {
   lines: CodeLine[]
   moreLines: number
   moreChars: number
 }
 
-/** A line cut at `max` without splitting a surrogate pair. */
 function cutLine(line: CodeLine, max: number): CodeLine {
   let end = max
   const unit = line.text.charCodeAt(end - 1)
@@ -155,14 +133,12 @@ export function foldCode(code: CodeLine[]): FoldedCode {
 
 const count = (n: number, noun: string) => `${n} more ${noun}${n === 1 ? '' : 's'}`
 
-/** What a folded card leaves out, in words; empty when it leaves nothing. */
 export function foldedCue({ moreLines, moreChars }: FoldedCode): string {
   const parts = [moreLines && count(moreLines, 'line'), moreChars && count(moreChars, 'character')]
   const said = parts.filter(Boolean).join(' and ')
   return said && `${said} not shown`
 }
 
-/** The "show everything" label: by lines when lines are left out, else by characters. */
 export function showAllLabel(code: CodeLine[], folded: FoldedCode): string {
   if (folded.moreLines > 0) return `Show all ${code.length} lines`
   const chars = code.reduce((sum, line) => sum + line.text.length, 0)

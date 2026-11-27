@@ -56,9 +56,6 @@ func (s *server) didOpenParams(
 	return s.openParams[uri]
 }
 
-// trackDoc keeps the replay state for open documents: didOpen records the
-// params, didChange folds the new full text into them (so a restart reopens
-// what the editor holds now, not what it held at open), didClose drops them.
 func (s *server) trackDoc(
 	method string,
 	params json.RawMessage,
@@ -97,8 +94,6 @@ func (s *server) trackDoc(
 		delete(s.openParams, uri)
 		s.mu.Unlock()
 	case "textDocument/didChange":
-		// Only full-document syncs are sent; an incremental change (with a
-		// range) cannot be folded without the base text, so it is ignored.
 		if len(p.ContentChanges) != 1 || p.ContentChanges[0].Range != nil {
 			return
 		}

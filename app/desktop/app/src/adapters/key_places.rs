@@ -1,6 +1,3 @@
-//! Where the keys the shell hears sit on the keyboard, read from the X server's own keyboard
-//! mapping, so a shortcut on a shifted digit still names its digit as develop's `event.code`.
-
 use chord::{Modifier, Modifiers, PhysicalKey};
 use gpui::{App, Global};
 

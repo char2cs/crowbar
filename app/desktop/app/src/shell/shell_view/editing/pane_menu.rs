@@ -1,5 +1,3 @@
-//! Pops the menu a pane page asked for as the desktop's own, over the page, and answers it.
-
 use gpui::{Context, Window};
 use panehost::MenuAsk;
 

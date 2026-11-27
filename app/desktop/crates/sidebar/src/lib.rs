@@ -1,8 +1,3 @@
-//! The sidebar of the Crowbar shell without a window: what the shell hands the sidebar and is
-//! sent back ([`Source`], [`Sink`], [`Command`]) and every rule the views apply
-//! (tree folds, inline edits, removal countdowns, drop policy, Files keys and clipboard, panel
-//! geometry, peek zone, the preferences file). The `sidebarview` crate draws it with gpui.
-
 mod error;
 mod explorer;
 mod frame;

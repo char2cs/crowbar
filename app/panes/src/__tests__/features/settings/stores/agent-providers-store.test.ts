@@ -1,5 +1,3 @@
-// The global agent-provider list: providers are machine-level and Settings is global, so the list
-// must not depend on a workspace being in view.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { listProvidersFn, listGlobalProvidersFn } = vi.hoisted(() => ({
@@ -76,7 +74,6 @@ describe('agent providers store', () => {
     expect(state().providers.map((p) => p.id)).toEqual(['claude'])
   })
 
-  // "No providers available." is a claim about the daemon; a failed fetch must never look like it.
   it('reports FAILED when the fetch rejects and nothing was ever loaded', async () => {
     listProvidersFn.mockRejectedValueOnce(new Error('daemon is down'))
 
@@ -120,8 +117,6 @@ describe('agent providers store', () => {
   })
 
   it('does not flash LOADING over a settled EMPTY answer either', async () => {
-    // "The daemon has none" is a settled answer too. Flipping back to a spinner
-    // on every refresh makes the tab strobe between two sentences.
     listProvidersFn.mockResolvedValueOnce([])
     await state().load('w1')
 
@@ -186,8 +181,6 @@ describe('agent providers store', () => {
   })
 })
 
-// Providers belong to a daemon. The fields above are the LOCAL daemon's — what
-// Settings edits — and a remote daemon's list lives beside them, by host.
 describe('agent providers store across hosts', () => {
   beforeEach(() => {
     resetHostWorld()

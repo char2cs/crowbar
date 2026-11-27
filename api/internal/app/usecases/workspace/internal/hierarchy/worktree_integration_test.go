@@ -21,9 +21,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/provider/poll"
 )
 
-// stubProvider is a controllable engineprovider.Engine for the integration
-// matrix. Only ProtectedBranches participates in the usecase under test; the
-// remaining methods satisfy the interface and are unused.
 type stubProvider struct {
 	protected []string
 	prLinks   []engineprovider.PRLink
@@ -70,8 +67,6 @@ func (s *stubProvider) OpenPullRequests(
 	return s.prLinks, nil
 }
 
-// realHarness bundles the wired-up usecase plus the handles a scenario needs to
-// drive REAL git and inspect REAL read-model rows.
 type realHarness struct {
 	uc         hierarchy.Usecase
 	workspaces workspace.Workspace
@@ -82,11 +77,6 @@ type realHarness struct {
 	repoID     string
 	projectID  string
 
-	// quiesce blocks until the workspace repo's asynx has drained its dispatch
-	// queue and run every projection handler (WaitPublish). Workspace mutations are
-	// Sends, so the read model lands asynchronously: this is the read-your-writes
-	// barrier, and the ONLY correct thing to block on before asserting over the
-	// projection. No polling, no deadline.
 	quiesce func()
 }
 
@@ -161,7 +151,6 @@ func newRealUsecase(
 	}))
 
 	prov := &stubProvider{}
-	// One home for the harness's life: a teardown removes only worktrees under it.
 	home := t.TempDir()
 	uc := hierarchy.New(
 		workspaces,
@@ -205,9 +194,6 @@ func initRepo(
 	gitRun(t, dir, "config", "user.email", "t@t")
 	gitRun(t, dir, "config", "user.name", "t")
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
-	// Wire a bare `origin` remote so the usecase's RemoteBranchExists check has
-	// something to query. Feature branches are never pushed here, so every
-	// CreateChild in the integration matrix takes the create-local path.
 	bare := filepath.Join(t.TempDir(), "origin.git")
 	gitRun(t, t.TempDir(), "init", "--bare", bare)
 	gitRun(t, dir, "remote", "add", "origin", bare)
@@ -260,11 +246,6 @@ func (h *realHarness) createChild(
 	child, err := h.uc.CreateChild(context.Background(), in)
 	require.NoError(t, err)
 
-	// The store projection is async (Send, not SendWait). Block on the asynx
-	// publish barrier — dispatch queue drained, every projection handler run — so
-	// the new child is guaranteed visible in the read model and a later
-	// DeleteCascade (which lists to build the tree) sees the full tree. Polling on
-	// a 2s deadline used to stand in for this; the barrier is the real signal.
 	h.quiesce()
 
 	rows, listErr := h.workspaces.List(context.Background())
@@ -274,7 +255,6 @@ func (h *realHarness) createChild(
 	return child
 }
 
-// workspaceIDs projects a workspace slice down to its IDs for set assertions.
 func workspaceIDs(
 	rows []domain.Workspace,
 ) []string {
@@ -321,10 +301,6 @@ func TestIntegration_MergeStrategyAdvancesParent(t *testing.T) {
 	assert.Equal(t, parentTip, reloaded.ForkPointSha)
 }
 
-// TestIntegration_MergeResyncsParentReadModel proves FIX 3: after a merge the
-// PARENT worktree gains commits, so its read-model diff summary must be resynced
-// rather than going stale. The parent here is itself a child (so it has a real
-// fork point against the root), making the +N diff stats observable.
 func TestIntegration_MergeResyncsParentReadModel(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
@@ -477,14 +453,6 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 	assert.False(t, dirExists(t, descendant.WorktreePath), "unlocked descendant worktree gone")
 	assert.False(t, branchExists(t, h.repoPath, descendant.Branch), "unlocked descendant branch gone")
 
-	// Task 7: workspace Delete is a pure Send that tombstones the row (Status =
-	// deleted); the async purge reactor that Forgets the row is Task 8. So the
-	// deleted nodes linger in the read model as deleted-status tombstones (their
-	// worktrees/branches are already gone above), while the locked child stays
-	// active. The store projection is async — block on the asynx publish barrier
-	// (WaitPublish) and then assert ONCE. The old polling loop could not tell "the
-	// projection has not landed yet" from "the projection landed wrong": whichever
-	// came first within 2s decided the verdict.
 	h.quiesce()
 
 	all, err := h.workspaces.List(ctx)
@@ -503,10 +471,6 @@ func TestIntegration_DeleteCascadeSkipsLockedChild(t *testing.T) {
 		"the unlocked descendant must be tombstoned")
 }
 
-// TestIntegration_MergeConflictSetsPRConflicts proves the try-then-warn model
-// (H6/H7 guard): a conflicting merge-into-parent flags the CHILD pr-conflicts
-// AND leaves the PARENT worktree clean — the in-progress merge is aborted
-// automatically, so no manual abort is needed and the parent is never stuck.
 func TestIntegration_MergeConflictSetsPRConflicts(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
@@ -526,8 +490,6 @@ func TestIntegration_MergeConflictSetsPRConflicts(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusPRConflicts, reloaded.Status,
 		"a local merge conflict surfaces as Status=pr-conflicts")
 
-	// The parent is ALREADY clean: the conflicting merge was aborted internally,
-	// so there is no in-progress op to abort and no conflict markers remain.
 	require.ErrorContains(t, enginegit.New().OperationAbort(ctx, h.repoPath),
 		"no in-progress operation",
 		"the parent merge was already aborted; nothing left to abort")
@@ -535,12 +497,6 @@ func TestIntegration_MergeConflictSetsPRConflicts(t *testing.T) {
 	assert.Empty(t, trimNewline(status), "the parent worktree is clean after a conflicting merge")
 }
 
-// TestRegression_SquashMergeConflictDoesNotBrickParent encodes the core H6
-// guarantee: a conflicting `git merge --squash` writes AUTO_MERGE but neither
-// MERGE_HEAD nor SQUASH_HEAD, so a naive in-progress detector would miss it and
-// leave the parent's conflicted index permanently blocking commits/merges. The
-// fix detects AUTO_MERGE as a squash op and aborts it; this test proves the
-// parent worktree is clean afterward and a subsequent commit is NOT blocked.
 func TestRegression_SquashMergeConflictDoesNotBrickParent(t *testing.T) {
 	h := newRealUsecase(t)
 	ctx := context.Background()
@@ -553,7 +509,6 @@ func TestRegression_SquashMergeConflictDoesNotBrickParent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.ConflictsPending)
 
-	// Parent worktree is clean: no AUTO_MERGE, no unmerged paths.
 	gitDir := trimNewline(gitRun(t, h.repoPath, "rev-parse", "--git-dir"))
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(h.repoPath, gitDir)
@@ -562,7 +517,6 @@ func TestRegression_SquashMergeConflictDoesNotBrickParent(t *testing.T) {
 	assert.Empty(t, trimNewline(gitRun(t, h.repoPath, "status", "--porcelain")),
 		"parent must have no unmerged paths after the conflicting squash")
 
-	// The parent is NOT bricked: a fresh commit on it succeeds.
 	commitInWorktree(t, h.repoPath, "after.txt", "after\n", "post-conflict commit")
 	assert.True(t, fileExists(t, h.repoPath, "after.txt"),
 		"a subsequent commit on the parent must succeed (not blocked by a stuck index)")

@@ -1,6 +1,3 @@
-// Package safepath is the single containment validator for every fs operation taking a user-supplied
-// workspace-relative path: it rejects absolute paths and escapes via ".." or symlinks with
-// ErrPathEscapesWorkspace, so no op can read, write or delete outside the workspace.
 package safepath
 
 import (
@@ -12,26 +9,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ErrPathEscapesWorkspace is returned when a workspace-relative path is absolute, traverses above the
-// root, or resolves via a symlink outside it; it maps to HTTP 400.
 var ErrPathEscapesWorkspace = problem.New(problem.InvalidArgument, "path escapes the workspace")
 
-// ErrNotAbsolute is returned by the host-path reader and writer for a path that
-// is not absolute and clean: only a path the usecase resolved reaches the disk.
 var ErrNotAbsolute = problem.New(problem.InvalidArgument, "path is not absolute")
 
-// ErrDanglingSymlink is returned for a write through a symlink whose target does
-// not exist: creating it could put a file anywhere the link points.
 var ErrDanglingSymlink = problem.New(problem.InvalidArgument, "symlink target does not exist")
 
-// ErrFileTooLarge is returned by the content reader when a file exceeds the
-// maxReadBytes cap (25 MiB). The api libs error mapper maps it to HTTP 413
-// Request Entity Too Large.
 var ErrFileTooLarge = problem.New(problem.TooLarge, "file too large")
 
-// Resolve validates rel is a safe path inside root and returns filepath.Join(root, rel). Lexically rel
-// must satisfy filepath.IsLocal ("" is the root). Symlinks are checked on the deepest existing ancestor,
-// since the target may not exist yet; if canonicalizing fails, the lexical guarantee stands.
 func Resolve(
 	root string,
 	rel string,
@@ -79,9 +64,6 @@ func checkSymlinkContainment(
 	return nil
 }
 
-// Canonical is the one spelling of an absolute path: symlinks in its deepest
-// existing ancestor resolved, the not-yet-existing rest appended, so a file has
-// the same identity before and after it is created.
 func Canonical(
 	path string,
 ) string {
@@ -97,9 +79,6 @@ func Canonical(
 	return filepath.Join(canon, strings.TrimPrefix(clean, ancestor))
 }
 
-// Locate walks path's ancestors deepest-first to the first that is, by file identity (through symlinks,
-// firmlinks and case), the directory of one or more roots, returning their indexes and the rest of path
-// below it as the directory spells it. A nonexistent root matches nothing.
 func Locate(
 	path string,
 	roots []string,
@@ -132,7 +111,6 @@ func statAll(
 	return infos
 }
 
-// sameAs answers the indexes of the infos that are dir itself.
 func sameAs(
 	dir string,
 	infos []os.FileInfo,
@@ -150,7 +128,6 @@ func sameAs(
 	return hits
 }
 
-// spell joins names under dir, each as dir's own entry spells it.
 func spell(
 	dir string,
 	names []string,
@@ -163,9 +140,6 @@ func spell(
 	return filepath.Join(spelled...)
 }
 
-// entryName is the name of dir's entry that name reaches on a case- or
-// normalization-insensitive volume, else name. Case is tried first; any other
-// alias, such as NFC typed for an NFD entry, is matched by identity.
 func entryName(
 	dir string,
 	name string,

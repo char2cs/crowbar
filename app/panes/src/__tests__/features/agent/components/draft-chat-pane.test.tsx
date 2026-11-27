@@ -26,7 +26,6 @@ const claude: AgentProvider = {
 
 vi.mock('@/utils/platform', () => ({ IS_MOBILE: true }))
 vi.mock('@/features/agent/hooks/use-pane-providers', () => ({ usePaneProviders: () => [claude] }))
-// The document itself is the chat's own; only the controls the pane hands it matter here.
 vi.mock('@/features/agent/chat/agent-empty-document', () => ({
   AgentEmptyDocument: ({ controls, onSubmit }: { controls: ReactNode; onSubmit: () => void }) => (
     <div>
@@ -46,8 +45,6 @@ const boxText = () => chatValueToMarkdown(grabbed.editor!.children as never).tri
 const { DraftChatPane } = await import('@/features/agent/components/draft-chat-pane')
 
 describe('DraftChatPane', () => {
-  // The chip's layout lives under the pane scope; outside it the chip is an unstyled
-  // button whose chevron drops to a second line.
   it('draws the model chip inside the scope the chat pane styles it under', () => {
     render(<DraftChatPane paneId="p1" wsId="w1" hostId="local" belowOverlayHeader={false} />)
     const chip = screen.getByRole('button', { name: /Agent:/ })

@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A CLI with native HTTP hooks posts them to the recorder's own loopback server,
-// which keeps them as it keeps a relayed one: the event name and the raw payload.
 func TestRecorder_RecordsAHookPostedToItsLoopbackServer(t *testing.T) {
 	r, err := newRecorder(t.Context(), t.TempDir())
 	require.NoError(t, err)

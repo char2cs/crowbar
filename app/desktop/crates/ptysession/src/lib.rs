@@ -1,6 +1,3 @@
-//! Connects a native terminal to the daemon: creates the PTY session over the shell's transport
-//! and pumps its websocket through the loopback relay. No GPUI.
-
 mod connection;
 mod ends;
 mod error;

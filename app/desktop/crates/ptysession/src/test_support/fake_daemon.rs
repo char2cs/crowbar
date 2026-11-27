@@ -1,28 +1,20 @@
-//! A daemon that answers the terminal routes from memory and records every call.
-
 use std::sync::{Arc, Mutex};
 
 use protocol::{
     DaemonRequest, DaemonResponse, DaemonTransport, RelayEndpoint, RelayScope, Responder,
 };
 
-/// The status of a created session.
 pub(crate) const CREATED: u16 = 201;
-/// The status of a refused request.
 pub(crate) const FAILED: u16 = 500;
-/// A list naming session `s1` as running.
 pub(crate) const LISTED: &str = r#"{"success":true,"data":[{"id":"s1","status":"running"}]}"#;
-/// A list naming no session.
 pub(crate) const NONE_LISTED: &str = r#"{"success":true,"data":[]}"#;
 
 const OK: u16 = 200;
 const MADE: &str = r#"{"success":true,"data":{"sessionId":"s1"}}"#;
 const EMPTY: &str = r#"{"success":true,"data":{}}"#;
-/// What a daemon that refuses to kill a session says.
 pub(crate) const KILL_REFUSED: &str = "injected";
 const REFUSED: &str = r#"{"success":false,"error":"injected"}"#;
 
-/// Creates session `s1` with `create_status`, lists `listed`, and notes each call.
 pub(crate) struct FakeDaemon {
     pub(crate) seen: Mutex<Vec<String>>,
     create: (u16, &'static str),
@@ -30,12 +22,10 @@ pub(crate) struct FakeDaemon {
     kill: (u16, &'static str),
 }
 
-/// A daemon that creates and lists session `s1`.
 pub(crate) fn daemon() -> Arc<FakeDaemon> {
     daemon_answering(CREATED, LISTED)
 }
 
-/// A daemon that creates and lists session `s1` but refuses to kill it.
 pub(crate) fn daemon_refusing_kills() -> Arc<FakeDaemon> {
     Arc::new(FakeDaemon {
         kill: (FAILED, REFUSED),
@@ -43,7 +33,6 @@ pub(crate) fn daemon_refusing_kills() -> Arc<FakeDaemon> {
     })
 }
 
-/// A daemon answering creation with `create_status` and the list with `listed`.
 pub(crate) fn daemon_answering(
     create_status: u16,
     listed: &'static str,
@@ -51,7 +40,6 @@ pub(crate) fn daemon_answering(
     Arc::new(fake(create_status, listed))
 }
 
-/// A daemon answering creation with `status` and `body`.
 pub(crate) fn daemon_creating(
     status: u16,
     body: &'static str,

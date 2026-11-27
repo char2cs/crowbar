@@ -1,5 +1,3 @@
-//! The numbers the frame is laid out from.
-
 use sidebar::{DockSide, Panel, Presentation, Visibility};
 
 #[derive(Debug, Clone, Copy, PartialEq)]

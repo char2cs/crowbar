@@ -5,12 +5,9 @@ import { initializeSettingsStore } from '@/features/settings/store'
 import { startSettingsStorageSync } from '@/features/settings/lib/settings-storage-sync'
 import { MobileFilesPage } from '@/features/window/components/mobile-files-page'
 
-// Theme, fonts and icon theme from the settings the app keeps in the shared localStorage; read only.
 initializeIconThemes()
 void initializeSettingsStore()
 startSettingsStorageSync()
-// The page's surface on body too: its theme-color is read from it.
-// Crowbar paints this page's chrome dark in either mode (crowbar.css).
 document.documentElement.setAttribute('data-chrome-page', '')
 document.body.classList.add('bg-chrome-bg')
 

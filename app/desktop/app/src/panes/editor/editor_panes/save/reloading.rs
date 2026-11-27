@@ -8,7 +8,6 @@ use crate::shell::inbox::request_queue::send;
 use crate::shell::inbox::shell_request::ShellRequest;
 use store::FileDone;
 
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/features/editor/lib/reload-buffer.ts
 impl EditorPanes {
     pub(crate) fn reload(
         &self,

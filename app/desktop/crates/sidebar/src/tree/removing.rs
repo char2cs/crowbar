@@ -10,14 +10,11 @@ use crate::tree::deletion::WorkAtRisk;
 use crate::tree::editing::Editing;
 
 impl Tree {
-    /// The rows being deleted and the confirmation being asked, if any.
     #[must_use]
     pub fn removals(&self) -> &Removals {
         &self.removals
     }
 
-    /// Hold the row for deletion: a countdown, or a confirmation for repositories.
-    /// An inline input open on the row closes once it is held.
     pub fn request_removal(
         &mut self,
         row: &Row,
@@ -28,8 +25,6 @@ impl Tree {
         }
     }
 
-    /// Asks to delete the space `project`, named `label`.
-    /// A space has no row, so nothing is held; the confirmation alone decides.
     pub fn request_project_removal(
         &mut self,
         project: ProjectId,
@@ -38,8 +33,6 @@ impl Tree {
         self.removals.request_project(project, label);
     }
 
-    /// Asks again before removing the held `row`, naming the work `at_risk`.
-    /// Stops the row's countdown while asking; does nothing when the row is not held.
     pub fn ask_to_discard(
         &mut self,
         row: &RowId,
@@ -48,7 +41,6 @@ impl Tree {
         self.removals.ask_to_discard(row, at_risk);
     }
 
-    /// Undoes the removal of `row`, releasing its hold so the row shows again.
     pub fn keep(
         &mut self,
         row: &RowId,
@@ -56,18 +48,14 @@ impl Tree {
         self.removals.keep(row);
     }
 
-    /// Dismisses the confirmation and keeps the row it was asked about, if any.
     pub fn cancel_removal(&mut self) {
         self.removals.cancel();
     }
 
-    /// Accepts the confirmation and returns it, committing the removal of its row.
-    /// Returns `None` when no confirmation was waiting.
     pub fn accept_removal(&mut self) -> Option<Confirmation> {
         self.removals.accept()
     }
 
-    /// The rows whose countdown has run out by `now`, each returned once.
     pub fn take_due_removals(
         &mut self,
         now: Instant,

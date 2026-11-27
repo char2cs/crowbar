@@ -69,12 +69,10 @@ func TestMaterializeAttachmentsForDispatch_DuplicateReference(t *testing.T) {
 	fileName, _, err := repoattachments.Store(durableDir, "id1", "photo.png", []byte("bytes"))
 	require.NoError(t, err)
 
-	// Same reference appears twice in the text
 	ref := "chats/chat-1/attachments/" + fileName
 	text := "![](" + ref + ") and ![](" + ref + ")"
 	out := materializeAttachmentsForDispatch(home, "chat-1", text)
 
-	// Both occurrences should be rewritten
 	absRef := filepath.ToSlash(filepath.Join(durableDir, fileName))
 	count := 0
 	pos := 0
@@ -97,40 +95,27 @@ func TestMaterializeAttachmentsForDispatch_PartiallyMissingFiles(t *testing.T) {
 	fileName1, _, err := repoattachments.Store(durableDir, "id1", "photo1.png", []byte("bytes1"))
 	require.NoError(t, err)
 
-	// Reference to existing file and missing file
 	text := "![](chats/chat-1/attachments/" + fileName1 + ") and ![](chats/chat-1/attachments/missing.png)"
 	out := materializeAttachmentsForDispatch(home, "chat-1", text)
 
-	// Existing file should be rewritten
 	assert.Contains(t, out, filepath.ToSlash(filepath.Join(durableDir, fileName1)))
 	assert.NotContains(t, out, "]("+"chats/chat-1/attachments/"+fileName1+")")
 
-	// Missing file should stay unrewritten
 	assert.Contains(t, out, "chats/chat-1/attachments/missing.png")
 }
 
 func TestMaterializeAttachmentsForDispatch_RejectsPathTraversalInFileName(t *testing.T) {
-	// Security: a reference with the caller's own valid chatID but containing
-	// path traversal in the filename segment must never be processed. The
-	// tightened regex excludes "/" from the filename group, so this reference
-	// never matches the pattern. Even if a malformed ref somehow bypassed the
-	// regex, the belt-and-suspenders filepath.Base check in the loop would
-	// reject it before it reaches filepath.Join.
 	text := "![](chats/chat-1/attachments/../../chat-2/attachments/secret.png)"
 	out := materializeAttachmentsForDispatch(t.TempDir(), "chat-1", text)
-	// Text must be completely unrewritten: the traversal path never matches the tightened regex
 	assert.Equal(t, text, out, "a filename segment containing / must not match the pattern and must stay unrewritten")
 }
 
 func TestMaterializeAttachmentsForDispatch_RejectsAbsolutePathInFileName(t *testing.T) {
-	// Security: absolute paths in the filename segment (e.g., /etc/passwd)
-	// must also not match the regex pattern and must stay unrewritten.
 	text := "![](chats/chat-1/attachments//etc/passwd)"
 	out := materializeAttachmentsForDispatch(t.TempDir(), "chat-1", text)
 	assert.Equal(t, text, out, "a filename segment starting with / must not match and must stay unrewritten")
 }
 
-// findStringIndex finds the index of substr in s starting from startPos, returns -1 if not found.
 func findStringIndex(s, substr string, startPos int) int {
 	idx := findIndex([]byte(s[startPos:]), []byte(substr))
 	if idx == -1 {

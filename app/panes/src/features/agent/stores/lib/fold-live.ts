@@ -6,14 +6,11 @@ import {
   type TextItem,
 } from '@/features/agent/stores/lib/transcript-items'
 
-/** `next` when it extends `text`, else `text`; `next` fills an empty text. */
 export function fuller(text: string, next: string): string {
   if (text === '' || (next.length > text.length && next.startsWith(text))) return next
   return text
 }
 
-/** S1's Messages rule: the chunks 0..k when k is final, else the complete
- *  text, else the chunks present in index order. */
 export function textOf(item: Pick<TextItem, 'chunks' | 'finalIndex' | 'complete'>): {
   text: string
   settled: boolean
@@ -59,8 +56,6 @@ function liveItem(feed: ChatFeed, delta: FeedDelta): ChatFeed {
   return { ...feed, items: items.finish(), liveTail: [...feed.liveTail, id] }
 }
 
-/** Appends a delta that follows its stream's last, replaces on `replace`, and
- *  ignores a repeat or a gap (the next replace or the item's row repairs it). */
 export function applyDelta(feed: ChatFeed, delta: FeedDelta): ChatFeed {
   const key = liveKey(delta.stream, delta.id)
   const last = feed.liveN[key] ?? 0
@@ -77,7 +72,6 @@ export function applyDelta(feed: ChatFeed, delta: FeedDelta): ChatFeed {
   return liveItem(next, delta)
 }
 
-/** A new epoch is a restarted daemon: live text of the old one never resumes. */
 export function applyReady(feed: ChatFeed, epoch: string): ChatFeed {
   if (feed.epoch === epoch) return feed.status === 'live' ? feed : { ...feed, status: 'live' }
   if (feed.epoch === '') return { ...feed, epoch, status: 'live' }

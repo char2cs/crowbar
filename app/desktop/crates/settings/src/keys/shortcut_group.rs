@@ -1,9 +1,6 @@
-//! A titled list of shortcuts that share one overrides key.
-
 use crate::keys::shortcut::Shortcut;
 use crate::values::Key;
 
-/// A category of shortcuts; custom chords of every group live in the map stored under `overrides`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShortcutGroup {
     pub(crate) title: String,
@@ -13,13 +10,11 @@ pub struct ShortcutGroup {
 }
 
 impl ShortcutGroup {
-    /// The category title.
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
-    /// The shortcuts of the group, in order.
     #[must_use]
     pub fn shortcuts(&self) -> &[Shortcut] {
         &self.shortcuts

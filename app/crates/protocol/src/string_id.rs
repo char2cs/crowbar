@@ -31,17 +31,12 @@ macro_rules! string_id {
         pub struct $name(String);
 
         impl $name {
-            /// Validates and wraps `value`.
-            ///
-            /// # Errors
-            /// Returns an error when `value` is not a valid identifier of this kind.
             pub fn new(value: impl Into<String>) -> $crate::Result<Self> {
                 let value = value.into();
                 $validate(&value)?;
                 Ok(Self(value))
             }
 
-            /// The identifier as a string slice.
             #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0

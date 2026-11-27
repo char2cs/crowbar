@@ -1,5 +1,3 @@
-//! Placement of popups below their trigger and the click-away layer behind them.
-
 use std::rc::Rc;
 
 use gpui::{

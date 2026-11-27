@@ -1,5 +1,3 @@
-//! User settings of the terminal.
-
 mod ansi_colors;
 mod channel_byte;
 mod font;
@@ -17,24 +15,15 @@ const MAX_FONT_SIZE: f32 = 32.0;
 const DEFAULT_SCROLLBACK: usize = 10_000;
 const DEFAULT_CURSOR_WIDTH: f32 = 2.0;
 
-/// Font, spacing, scrollback and cursor of a terminal view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
-    /// Font family; Geist Mono unless the user chose another.
     pub font_family: String,
-    /// Font size in pixels, 8 to 32.
     pub font_size: f32,
-    /// Line height as a multiple of the font's natural height.
     pub line_height: f32,
-    /// Extra pixels after every glyph.
     pub letter_spacing: f32,
-    /// Lines of scrollback.
     pub scrollback: usize,
-    /// Cursor shape.
     pub cursor_shape: CursorShape,
-    /// Whether the cursor blinks.
     pub cursor_blink: bool,
-    /// Width of the bar cursor and thickness of the underline cursor, in pixels.
     pub cursor_width: f32,
 }
 
@@ -54,7 +43,6 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// The same settings with the font size moved by `delta` and kept within 8 to 32.
     #[must_use]
     pub fn zoomed(
         &self,
@@ -66,7 +54,6 @@ impl Settings {
         }
     }
 
-    /// The same settings at the default font size.
     #[must_use]
     pub fn zoom_reset(&self) -> Self {
         Self {

@@ -1,5 +1,3 @@
-//! The new-chat chord: a chat made at once in the workspace the focused chat runs in.
-
 use daemonapi::Call;
 use sidebar::ProjectId;
 

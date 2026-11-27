@@ -1,5 +1,3 @@
-//! Feeds daemon frames into the emulator.
-
 use alacritty_terminal::Term;
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::vte::ansi::Processor;

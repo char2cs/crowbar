@@ -20,7 +20,6 @@ vi.mock('@/utils/platform', async (importOriginal) => ({
   },
 }))
 
-// jsdom measures 0×0, and a zero-height viewport windows down to no rows.
 const rect = { top: 0, left: 0, right: 768, bottom: 800, width: 768, height: 800, x: 0, y: 0 }
 const originalRect = HTMLElement.prototype.getBoundingClientRect
 
@@ -66,7 +65,6 @@ const submitted = () =>
     .spyOn(commands, 'submitAgentPrompt')
     .mockResolvedValue({ runnerId: 'r1', terminalSessionId: 'pty1' })
 
-// A send with no staged pick and no retry.
 const plainSend = (text: string) => [text, expect.any(String), '', '', '', undefined]
 
 const transcriptReads = () =>
@@ -105,8 +103,6 @@ describe('AgentChatView', () => {
     expect(transcriptReads()).toEqual([])
   })
 
-  // The rows on screen stay, but nothing new will reach them: the bar says why
-  // instead of taking a prompt the pane would never show the answer to.
   it('says why a chat with rows stopped following its ledger, in place of the input', () => {
     seedFeed('c1', spokenIn('c1', 'an earlier answer'))
     draw('c1')
@@ -123,7 +119,6 @@ describe('AgentChatView', () => {
     expect(screen.queryByRole('textbox', { name: COMPOSER })).not.toBeInTheDocument()
   })
 
-  // A failed turn is history, not a lock: the bar stays an input, the row says why.
   it('keeps the composer after a failed turn, whose row says why', () => {
     const l = ledger('c1')
     const failed = { reason: 'turn_failed', kind: 'auth' }
@@ -152,13 +147,11 @@ describe('AgentChatView', () => {
     act(() => seedFeed('c1', [l.row('turn_ended', stopped, { turnId: 'turn-2' })]))
     expect(screen.queryByText('Stopping…')).toBeNull()
     expect(screen.getByText('Interrupted · you stopped this turn')).toBeInTheDocument()
-    // The next turn is not the one Stop was pressed on.
     act(() => void applyFeedFrame('c1', { type: 'row', row: l.start('turn-3') }))
     expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
     expect(screen.queryByText('Stopping…')).toBeNull()
   })
 
-  // The record has not reached the reply yet, but the agent is plainly busy.
   it('streams a reply ahead of its rows, and holds a prompt meanwhile', async () => {
     const submit = submitted()
     seedFeed('c1', spokenIn('c1'))
@@ -217,7 +210,6 @@ describe('AgentChatView', () => {
     act(() => seedFeed('c1', [l.prompt(requestId, long), l.start('turn-1', requestId)]))
     act(() => seedFeed('c1', [l.text('turn-1', 'm1', 0, '1\n2\n3', true), l.end('turn-1')]))
 
-    // The document's first line is its title, so the prompt leaves as `# title`.
     expect(submit.mock.calls[0]?.[2]).toBe(`# ${long}`)
     expect(await screen.findByText(/line 60 of the count/)).toBeInTheDocument()
     expect(String(consoleError.mock.calls)).not.toMatch(/Maximum update depth/)
@@ -323,8 +315,6 @@ describe('AgentChatView Esc', () => {
     expect(grabbed.editor!.selection).toEqual({ anchor: caret, focus: caret })
   })
 
-  // A drop or a menu paste edits the box with no key; the recalled-and-edited
-  // prompt must still come back from the walk it abandoned.
   it('abandons a history walk on an edit that came with no key', async () => {
     const l = ledger('c1', 4)
     seedFeed('c1', [...spokenIn('c1'), l.prompt('r1', 'first'), l.prompt('r2', 'second')])
@@ -380,7 +370,6 @@ describe('AgentChatView Esc', () => {
 })
 
 describe('AgentChatView type-to-focus', () => {
-  // The box takes focus on mount; these keys land while something else has it.
   const keys = (...pressed: string[]) => {
     act(() => (document.activeElement as HTMLElement | null)?.blur())
     for (const key of pressed) fireEvent.keyDown(window, { key })

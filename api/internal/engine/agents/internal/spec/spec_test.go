@@ -38,8 +38,6 @@ func TestInjectStep_RejectsAnythingButExactlyOneVerb(t *testing.T) {
 	}
 }
 
-// A descriptor's step list decodes as a plain YAML list would: absent or null
-// is no steps, anything but a list is refused, and a bad step fails the list.
 func TestInjectSteps_ADescriptorsStepListDecodesAsAYAMLList(t *testing.T) {
 	ok := map[string]int{"absent": 0, "null": 0, "two steps": 2}
 	docs := map[string]string{

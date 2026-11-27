@@ -7,16 +7,14 @@ import (
 	"time"
 )
 
-// The phases of a subagent row.
 const (
-	SubagentStart  = "start"  // a spawning call opened it, or it announced itself
-	SubagentBound  = "bound"  // its spawning call is known to run as Scope
-	SubagentResume = "resume" // a follow-up runs it again once it ended
-	SubagentResult = "result" // it handed its result back
-	SubagentStop   = "stop"   // it ended
+	SubagentStart  = "start"
+	SubagentBound  = "bound"
+	SubagentResume = "resume"
+	SubagentResult = "result"
+	SubagentStop   = "stop"
 )
 
-// SubagentStatus is where a subagent is in its life.
 type SubagentStatus string
 
 const (
@@ -28,8 +26,6 @@ const (
 	SubagentAbandoned   SubagentStatus = "abandoned"
 )
 
-// A Stop or a runner's exit interrupts a subagent that has not bound yet too.
-// One that ended runs again on a follow-up.
 var subagentEdges = map[SubagentStatus][]SubagentStatus{
 	SubagentStarting:    {SubagentRunning, SubagentFailed, SubagentAbandoned, SubagentInterrupted},
 	SubagentRunning:     {SubagentDone, SubagentFailed, SubagentInterrupted},
@@ -38,9 +34,6 @@ var subagentEdges = map[SubagentStatus][]SubagentStatus{
 	SubagentInterrupted: {SubagentRunning},
 }
 
-// Next reports the status a transition lands in and whether the lifecycle
-// allows it: starting→running|failed|abandoned|interrupted,
-// running→done|failed|interrupted, done|failed|interrupted→running; nothing else.
 func (s SubagentStatus) Next(to SubagentStatus) (SubagentStatus, bool) {
 	if slices.Contains(subagentEdges[s], to) {
 		return to, true
@@ -48,52 +41,41 @@ func (s SubagentStatus) Next(to SubagentStatus) (SubagentStatus, bool) {
 	return s, false
 }
 
-// Live reports whether the subagent may still work: starting or running.
 func (s SubagentStatus) Live() bool { return s == SubagentStarting || s == SubagentRunning }
 
-// SubagentUsage is what a subagent spent, as its provider reported it.
 type SubagentUsage struct {
 	Tokens     int64 `json:"tokens,omitempty"`
 	ToolUses   int64 `json:"toolUses,omitempty"`
 	DurationMs int64 `json:"durationMs,omitempty"`
 }
 
-// SubagentBody is the body of a subagent row. Its row's Scope is the
-// subagent's, "" while only its spawning call (SpawnToolID) names it.
 type SubagentBody struct {
 	Phase       string         `json:"phase"`
 	SpawnToolID string         `json:"spawnToolId,omitempty"`
 	Type        string         `json:"type,omitempty"`
 	Title       string         `json:"title,omitempty"`
-	Status      string         `json:"status,omitempty"` // a result's or a stop's: failed, interrupted, else done
+	Status      string         `json:"status,omitempty"`
 	Result      string         `json:"result,omitempty"`
 	Usage       *SubagentUsage `json:"usage,omitempty"`
 }
 
-// Subagent is one subagent as its rows left it: bound to the call that
-// spawned it, and living past the turn that did.
 type Subagent struct {
 	Scope, SpawnToolID, Type, Title, Result string
 	Status                                  SubagentStatus
-	TurnID                                  string // the turn that spawned it; it may outlive that turn
+	TurnID                                  string
 	StartedAt                               time.Time
 	EndedAt                                 time.Time
 	Usage                                   SubagentUsage
-	Seq, EndSeq                             int64 // its first row's, and the one that ended it
+	Seq, EndSeq                             int64
 
-	runnerID string
-	// outlived: a main-scope turn end came after it started running.
-	outlived bool
-	// forgotten: its turn was forgotten; once settled nothing can name it, so put
-	// drops it instead of keeping it.
+	runnerID  string
+	outlived  bool
 	forgotten bool
 }
 
-// SubagentBook folds the subagent rows of a chat into its subagents. It also
-// reads the turn and runner rows their lifecycle turns on.
 type SubagentBook struct {
-	agents  map[string]Subagent // by Scope, or by "\x00"+SpawnToolID until bound
-	runners map[string]string   // turn → the runner that ran it
+	agents  map[string]Subagent
+	runners map[string]string
 }
 
 func spawnKey(toolID string) string { return "\x00" + toolID }
@@ -108,20 +90,17 @@ func (b SubagentBook) clone() SubagentBook {
 	return SubagentBook{agents: maps.Clone(b.agents), runners: maps.Clone(b.runners)}
 }
 
-// All are the chat's subagents in the order they began.
 func (b SubagentBook) All() []Subagent {
 	out := slices.Collect(maps.Values(b.agents))
 	slices.SortFunc(out, func(a, c Subagent) int { return cmp.Compare(a.Seq, c.Seq) })
 	return out
 }
 
-// Of is the subagent bound as scope.
 func (b SubagentBook) Of(scope string) (Subagent, bool) {
 	a, ok := b.agents[scope]
 	return a, ok && scope != ""
 }
 
-// Spawned is the subagent the tool call toolID spawned, bound or not.
 func (b SubagentBook) Spawned(toolID string) (Subagent, bool) {
 	if a, ok := b.agents[spawnKey(toolID)]; ok {
 		return a, true
@@ -134,8 +113,6 @@ func (b SubagentBook) Spawned(toolID string) (Subagent, bool) {
 	return Subagent{}, false
 }
 
-// Apply folds r; a row of another kind, or one the lifecycle does not allow,
-// changes nothing.
 func (b *SubagentBook) Apply(r Row) {
 	if apply, ok := bookAppliers[r.Kind]; ok {
 		b.init()
@@ -176,8 +153,6 @@ func (b *SubagentBook) applyRow(r Row, body SubagentBody) {
 	}
 }
 
-// start opens a subagent: starting under its spawning call, or running as its
-// scope when the row names one (a start that also binds).
 func (b *SubagentBook) start(r Row, body SubagentBody) {
 	if r.Scope == "" {
 		if _, seen := b.Spawned(body.SpawnToolID); seen || body.SpawnToolID == "" {
@@ -204,8 +179,6 @@ func (b *SubagentBook) newAgent(r Row, body SubagentBody, status SubagentStatus)
 	}
 }
 
-// bind moves the subagent spawnToolID started onto its scope. One that
-// announced itself first keeps its own record, and takes the call's.
 func (b *SubagentBook) bind(r Row, body SubagentBody) {
 	if r.Scope == "" || body.SpawnToolID == "" {
 		return
@@ -231,8 +204,6 @@ func (b *SubagentBook) bind(r Row, body SubagentBody) {
 	b.agents[r.Scope] = a
 }
 
-// resume runs the subagent bound as r's scope again: its last run's end and
-// result are not this run's.
 func (b *SubagentBook) resume(r Row) {
 	a, ok := b.agents[r.Scope]
 	if !ok {
@@ -244,8 +215,6 @@ func (b *SubagentBook) resume(r Row) {
 	}
 }
 
-// finish ends a subagent with what it reported; a later report of one already
-// over only fills in what the earlier left out.
 func (b *SubagentBook) finish(r Row, body SubagentBody) {
 	key := r.Scope
 	if key == "" {
@@ -269,8 +238,6 @@ func (b *SubagentBook) finish(r Row, body SubagentBody) {
 	b.put(key, a)
 }
 
-// put stores a, unless its turn was forgotten and it is settled: nothing will
-// name it again.
 func (b *SubagentBook) put(key string, a Subagent) {
 	if a.forgotten && a.settled() {
 		delete(b.agents, key)
@@ -279,8 +246,6 @@ func (b *SubagentBook) put(key string, a Subagent) {
 	b.agents[key] = a
 }
 
-// settled reports whether nothing more reaches a: it ended without success,
-// or its result is in. A done one may still hand its result back.
 func (a Subagent) settled() bool {
 	switch a.Status {
 	case SubagentFailed, SubagentInterrupted, SubagentAbandoned:
@@ -293,8 +258,6 @@ func (a Subagent) settled() bool {
 	return false
 }
 
-// endTurn abandons what the ending turn started and never bound, and marks
-// what runs as outliving the end.
 func (b *SubagentBook) endTurn(r Row) {
 	if r.Scope != "" {
 		return
@@ -321,8 +284,6 @@ func (b *SubagentBook) interrupt(r Row, which func(Subagent) bool) {
 	}
 }
 
-// forgetTurn drops what turnID left that is settled, and marks the rest to go
-// once settled: nothing will name that turn again.
 func (b *SubagentBook) forgetTurn(turnID string) {
 	for key, a := range b.agents {
 		if a.TurnID != turnID {
@@ -334,44 +295,33 @@ func (b *SubagentBook) forgetTurn(turnID string) {
 	delete(b.runners, turnID)
 }
 
-// Subagents are the chat's subagents still starting or running, by their start.
 func (s State) Subagents() []Subagent {
 	return slices.DeleteFunc(s.agents.All(), func(a Subagent) bool { return !a.Status.Live() })
 }
 
-// SubagentRunning reports whether a bound subagent of the chat still runs.
 func (s State) SubagentRunning() bool {
 	return slices.ContainsFunc(s.Subagents(), func(a Subagent) bool { return a.Status == SubagentRunning })
 }
 
-// SubagentOf is the subagent bound as scope, in any status.
 func (s State) SubagentOf(scope string) (Subagent, bool) { return s.agents.Of(scope) }
 
-// SpawnedBy is the subagent the tool call toolID spawned, bound or not.
 func (s State) SpawnedBy(toolID string) (Subagent, bool) { return s.agents.Spawned(toolID) }
 
-// ScopeTurn is the turn that spawned scope.
 func (s State) ScopeTurn(scope string) (string, bool) {
 	a, ok := s.agents.Of(scope)
 	return a.TurnID, ok
 }
 
-// ScopeOpen reports whether scope is bound and has not ended on its own
-// report: an interrupted one's late reports still reach it.
 func (s State) ScopeOpen(scope string) bool {
 	a, ok := s.agents.Of(scope)
 	return ok && a.Status != SubagentDone && a.Status != SubagentFailed
 }
 
-// ScopeWaits reports whether scope runs and no turn end came after it began
-// running: what it asks is waited on.
 func (s State) ScopeWaits(scope string) bool {
 	a, ok := s.agents.Of(scope)
 	return ok && a.Status == SubagentRunning && !a.outlived
 }
 
-// Stopping is what a user's Stop records of the chat's live subagents: each
-// one interrupted.
 func Stopping(st State) ([]Row, error) {
 	var rows []Row
 	for _, a := range st.Subagents() {
@@ -386,7 +336,6 @@ func Stopping(st State) ([]Row, error) {
 	return rows, nil
 }
 
-// applySubagent closes what a stopped subagent was asking: nothing will answer.
 func (s *State) applySubagent(r Row) {
 	if body, err := DecodeBody[SubagentBody](r); err == nil && body.Phase == SubagentStop && r.Scope != "" {
 		s.abandonAsks(func(a PendingAsk) bool { return a.Scope == r.Scope })

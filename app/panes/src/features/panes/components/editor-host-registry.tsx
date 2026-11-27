@@ -11,8 +11,6 @@ import { EditorPane } from './editor-pane'
 const ID_DELIM = '\u0000'
 const EMPTY_IDS: string[] = []
 
-// Every pane id holding at least one editor buffer, keyed by membership so the array stays
-// referentially stable across unrelated pane/buffer mutations.
 function useEditorHostPaneIds(): string[] {
   const key = useStore(windowPaneStore, (s) => {
     const bufferTypeById = new Map(s.buffers.map((b) => [b.id, b.type]))
@@ -28,17 +26,12 @@ function useEditorHostPaneIds(): string[] {
   return useMemo(() => (key ? key.split(ID_DELIM) : EMPTY_IDS), [key])
 }
 
-// Portals this pane's retained EditorPane into the node PaneContainer registered for it. It lives
-// outside SplitViewRoot's layout, so a tab switch, split or fullscreen never unmounts it.
 function EditorHostSlot({ paneId }: { paneId: string }) {
   const entry = useSyncExternalStore(
     useCallback((cb) => subscribeEditorPortalEntry(paneId, cb), [paneId]),
     () => getEditorPortalEntry(paneId),
   )
 
-  // `entry` can read undefined between PaneContainer's effect cleanup and re-run; returning null
-  // then would unmount the editor. Keep the last good node, buffer and flag; only the pane
-  // leaving useEditorHostPaneIds (unmounting this slot) tears the portal down.
   const lastNodeRef = useRef<HTMLDivElement | null>(null)
   const lastShownRef = useRef<string | null>(null)
   const lastActiveSurfaceRef = useRef(false)
@@ -60,9 +53,6 @@ function EditorHostSlot({ paneId }: { paneId: string }) {
   )
 }
 
-// The window's one retained-editor host, a sibling of SplitViewRoot: it owns every pane's
-// EditorPane (and Monaco widget), portaled into PaneContainer's node, so rebuilding a
-// PaneContainer subtree never disposes and recreates a Monaco widget.
 export function EditorHostRegistry() {
   const paneIds = useEditorHostPaneIds()
   return (

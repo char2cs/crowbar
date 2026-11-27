@@ -51,8 +51,6 @@ func TestLeftFolderWrite_AChatThatNeverMovedIsNotGuarded(t *testing.T) {
 	assert.Empty(t, leftFolderWrite(ledger.State{}, toolPre("edit", "/anywhere/x", "")))
 }
 
-// codex's file change names no directory: the folder its process runs in is the
-// one its paths are named from, as a payload's own cwd is.
 func TestRecorder_ACallWhosePayloadNamesNoDirectoryIsNamedFromTheRunners(t *testing.T) {
 	f := newRecorderFixture(t, "codex")
 	_, _, err := f.dispatch(t, engineagents.CanonicalEvent{Kind: engineagents.HookUserPrompt, Message: "go"})
@@ -70,8 +68,6 @@ func TestRecorder_ACallWhosePayloadNamesNoDirectoryIsNamedFromTheRunners(t *test
 	assert.Equal(t, []string{"src/a.go"}, targets)
 }
 
-// codexApproval is a recorded codex approval request as its api driver hands it on: its
-// params, named by the wire method's tool.
 func codexApproval(t *testing.T, f *recorderFixture, name, tool string) (engineagents.CanonicalEvent, []byte) {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "engine", "agents", "internal", "protocol",
@@ -87,8 +83,6 @@ func codexApproval(t *testing.T, f *recorderFixture, name, tool string) (enginea
 	return ev, raw
 }
 
-// An agent whose sandbox asks before writing into the folder its chat left is refused
-// there and then: no card asks a person to allow what Crowbar would refuse.
 func TestRecorder_AnAskToWriteIntoAFolderTheChatLeftIsRefusedUnasked(t *testing.T) {
 	f := newRecorderFixture(t, "codex")
 	moved, err := ledger.NewRow(ledger.KindMove, "", "", ledger.Move{

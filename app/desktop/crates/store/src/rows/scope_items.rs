@@ -1,5 +1,3 @@
-//! The folders, workspaces and chats of one repository or project home, as tree items.
-
 use std::collections::HashMap;
 
 use crate::live::ChatRecord;

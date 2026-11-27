@@ -1,5 +1,3 @@
-//! A modal in a test window over a [`FakeBackend`].
-
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -52,7 +50,6 @@ fn config(
     .on_close(move |_, _| counter.set(counter.get() + 1))
 }
 
-/// The app's root: the modal portalled over the window, as `ShellView` covers it with its layers.
 struct Layers {
     modal: Entity<SettingsModal>,
 }
@@ -70,7 +67,6 @@ impl Render for Layers {
     }
 }
 
-/// Opens the modal in a window with the pop-up window installed, as the app shows it.
 pub(crate) fn open_floating(
     cx: &mut TestAppContext,
     page: &str,

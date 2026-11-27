@@ -2,7 +2,6 @@ import type { Value } from 'platejs'
 import { createMarkdownCodec } from '@/features/editor/markdown/plate/markdown-codec'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 
-// Its own codec: the plugin set decides which nodes survive a round trip.
 const codec = createMarkdownCodec(chatComposerPlugins)
 
 export function chatMarkdownToValue(md: string): Value {
@@ -11,7 +10,6 @@ export function chatMarkdownToValue(md: string): Value {
 
 type Node = { type?: string; text?: string; code?: boolean; children?: Node[] }
 
-/** Blocks whose whitespace is CONTENT. A code line's indent is the program. */
 const VERBATIM = new Set(['code_block', 'code_line'])
 
 function clone(node: Node): Node {
@@ -30,7 +28,6 @@ function trimLineEdges(node: Node): Node {
   if (node.type && VERBATIM.has(node.type)) return node
   const children = node.children
   if (!children) return node
-  // Slate keeps a text node beside every inline, so prose always has a direct leaf.
   if (!children.some((child) => typeof child.text === 'string')) {
     return { ...node, children: children.map(trimLineEdges) }
   }
@@ -46,8 +43,6 @@ function trimLineEdges(node: Node): Node {
   return { ...node, children: copied }
 }
 
-/** Line edges are trimmed on the nodes, since remark-stringify encodes them as `&#x20;`.
- *  U+200B is the codec's empty-paragraph placeholder, which `.trim()` won't strip. */
 const ZERO_WIDTH_SPACE = /\u200B/g
 
 export function chatValueToMarkdown(value: Value): string {

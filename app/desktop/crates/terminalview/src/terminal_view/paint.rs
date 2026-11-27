@@ -1,5 +1,3 @@
-//! Layout and painting of the grid.
-
 mod cell_size;
 pub(crate) mod colors;
 pub(crate) mod cursor;

@@ -1,5 +1,3 @@
-//! The agents a host can start a chat with.
-
 mod provider;
 mod surface;
 

@@ -21,20 +21,13 @@ func TestRenameBranch_MovesTheBranchAndLeavesThePathAlone(t *testing.T) {
 	got := commands.RenameBranch{ID: "w1", Branch: "feature/x"}.EmitEvent(cur)
 
 	assert.Equal(t, "feature/x", got.Branch)
-	// The directory is fixed at creation and never follows the branch, so the
-	// path a rename leaves behind is the one it started with.
 	assert.Equal(t, "/home/p/repo/testing/worktree", got.WorktreePath,
 		"a rename must not move the workspace")
-	// The rename must not disturb identity or lineage: children reference this
-	// workspace by ID, and the fork point still describes the same commit.
 	assert.Equal(t, "parent-1", got.ParentID, "lineage is untouched")
 	assert.Equal(t, "abc123", got.ForkPointSha, "fork point is untouched")
 	assert.Equal(t, domain.WorkspaceStatusNew, got.Status, "status is untouched")
 }
 
-// TestRenameBranch_RenamesIntoItsOwnNamespace pins the case the old
-// move-the-directory rename could not express at all: the destination was a
-// child of the source, and the kernel refuses that rename with EINVAL.
 func TestRenameBranch_RenamesIntoItsOwnNamespace(t *testing.T) {
 	cur := &domain.Workspace{
 		ID: "w1", Branch: "testing", WorktreePath: "/home/p/repo/testing/worktree",

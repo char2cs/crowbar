@@ -12,25 +12,12 @@ import (
 	dtree "github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// stubListChats answers tree.Chats.ListChats and LoadChat from a fixed row
-// set — the two methods ResolveForkParent's freshForest calls (walk.go), so
-// nothing else on the interface needs a body.
-//
-// LoadChat and ListChats are DELIBERATELY separate answers rather than one
-// derived from the other: freshForest's whole point is that they can disagree
-// (loaded is the log-true row, rows is what the list projection still
-// carries), and TestResolveForkParent_UsesTheLogFoldedRowNotTheStaleProjection
-// exercises exactly that gap.
 type stubListChats struct {
 	tree.Chats
 	rows    []domain.Chat
 	err     error
 	loadErr error
-	// loaded overrides LoadChat's answer for the ids it names, standing in for
-	// the log fold when it must read AHEAD of rows. An id not named here falls
-	// back to searching rows, which is enough for every test that doesn't care
-	// about the staleness gap.
-	loaded map[string]domain.Chat
+	loaded  map[string]domain.Chat
 }
 
 func (s stubListChats) ListChats(context.Context) ([]domain.Chat, error) {
@@ -100,9 +87,6 @@ func TestResolveForkParent_NoAncestorAtAll_ReportsNotFound(t *testing.T) {
 
 func TestResolveForkParent_PropagatesTheListError(t *testing.T) {
 	wantErr := context.Canceled
-	// "any" must resolve via LoadChat before ListChats ever runs (freshForest,
-	// walk.go), so it needs a row to be found in — otherwise LoadChat's own
-	// not-found would be the error this test observes, not ListChats'.
 	chats := stubListChats{rows: []domain.Chat{{ID: "any"}}, err: wantErr}
 
 	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "any")
@@ -112,9 +96,6 @@ func TestResolveForkParent_PropagatesTheListError(t *testing.T) {
 	}
 }
 
-// TestResolveForkParent_PropagatesTheLoadFailure is TestResolveForkParent_PropagatesTheListError's
-// counterpart for freshForest's OTHER read: LoadChat runs first, so its own
-// failure must surface without ever reaching ListChats.
 func TestResolveForkParent_PropagatesTheLoadFailure(t *testing.T) {
 	wantErr := context.Canceled
 	chats := stubListChats{loadErr: wantErr, err: errors.New("must never be reached")}
@@ -126,21 +107,11 @@ func TestResolveForkParent_PropagatesTheLoadFailure(t *testing.T) {
 	}
 }
 
-// TestResolveForkParent_UsesTheLogFoldedRowNotTheStaleProjection is the
-// direct unit-level pin for the race freshForest (walk.go) exists to close:
-// "self" was minted AND placed microseconds before this call, in the SAME
-// request — CreateChat's ownWorktree path (own_worktree.go) mints, places,
-// then immediately resolves the new row's fork parent — so the list
-// projection (rows) can still be serving "self" exactly as it stood BEFORE
-// that placement (no parent at all) while the log fold (loaded) already has
-// the truth. Before this fix, ResolveForkParent read straight off rows and
-// would report no fork parent at all here — the production bug the
-// integration suite (api/tests/regression_create_own_worktree_test.go) caught.
 func TestResolveForkParent_UsesTheLogFoldedRowNotTheStaleProjection(t *testing.T) {
 	chats := stubListChats{
 		rows: []domain.Chat{
 			{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
-			{ID: "self", Type: domain.ChatTypeBranch}, // stale: the pre-placement row, no parent
+			{ID: "self", Type: domain.ChatTypeBranch},
 		},
 		loaded: map[string]domain.Chat{
 			"self": {ID: "self", Type: domain.ChatTypeBranch, ParentID: "root"},
@@ -154,22 +125,9 @@ func TestResolveForkParent_UsesTheLogFoldedRowNotTheStaleProjection(t *testing.T
 	}
 }
 
-// TestResolveForkParent_WalksThroughAFolderAncestor is the SDD review's own
-// required regression, Critical finding fix round: a folder is Folder/Node-
-// backed now (never a Chat row — home-scoped since Task 5, repo-scoped too
-// since Task 8), so it is invisible to stubListChats' raw ListChats/LoadChat
-// reads. Before this fix, freshForest built its walk tree from that raw read
-// alone — the moment the walk reached "folder" (present in the Node forest
-// but absent from rows), t.Node("folder") answered not-found and the walk
-// stopped dead, even though "root" (a real fork parent/workspace) sits one
-// hop further up. This is the routine, expected shape a fork/promote hits
-// in production: a bubble chat filed under a folder nested inside a
-// branch's own subtree.
 func TestResolveForkParent_WalksThroughAFolderAncestor(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
-		// "self"'s own ParentID names "folder" -- a Folder+Node row, never a
-		// member of rows.
 		{ID: "self", Type: domain.ChatTypeChat, ParentID: "folder"},
 	}
 	chats := stubListChats{rows: rows}
@@ -187,11 +145,6 @@ func TestResolveForkParent_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 }
 
-// TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor is
-// TestResolveForkParent_WalksThroughAFolderAncestor's counterpart for the
-// OTHER walk the same review finding named — the spawn path's own cwd
-// resolution (cwd_resolver.go), which starts ON the subject itself rather
-// than one hop above it.
 func TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
@@ -212,8 +165,6 @@ func TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 }
 
-// TestCwdWorkspaceIDs_WalksThroughAFolderAncestor is the batch form
-// (repo_scope.go's ListChatsInRepo) of the same fix.
 func TestCwdWorkspaceIDs_WalksThroughAFolderAncestor(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
@@ -233,10 +184,6 @@ func TestCwdWorkspaceIDs_WalksThroughAFolderAncestor(t *testing.T) {
 	}
 }
 
-// TestResolveForkParent_NilFoldersAndNodesDegradesGracefully pins the
-// nil-safety contract both new params carry: a caller with neither wired
-// (an existing narrow test double, or Deps{} left zero-valued) gets the
-// pre-Task-8, Chat-only walk back, not a panic.
 func TestResolveForkParent_NilFoldersAndNodesDegradesGracefully(t *testing.T) {
 	rows := []domain.Chat{
 		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
@@ -251,7 +198,6 @@ func TestResolveForkParent_NilFoldersAndNodesDegradesGracefully(t *testing.T) {
 	}
 }
 
-// countingNodes counts how the walk reads the Node table.
 type countingNodes struct {
 	*mocks.NodePlacements
 	byParent, gets, all int
@@ -272,8 +218,6 @@ func (c *countingNodes) ListAll(ctx context.Context) ([]dtree.Node, error) {
 	return c.NodePlacements.ListAll(ctx)
 }
 
-// A walk over a whole list reads the Node table ONCE, however many folders and
-// workspace anchors it crosses: each read of it decodes every row.
 func TestCwdWorkspaceIDs_ReadsTheNodeTableOnce(t *testing.T) {
 	inner := mocks.NewNodePlacements()
 	inner.Rows = []dtree.Node{

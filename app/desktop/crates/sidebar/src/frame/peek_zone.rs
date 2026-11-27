@@ -1,24 +1,15 @@
-//! Where the pointer summons and keeps the peek card.
-
 use crate::frame::dock_side::DockSide;
 use crate::frame::metrics::PEEK_TRIGGER;
 
 const BOTTOM_CLEAR: f32 = 16.0;
 const SLACK: f32 = 8.0;
 
-/// The window-edge band that summons the peek card while the sidebar is hidden, and the wider
-/// area that keeps it open.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PeekZone {
-    /// The window's width and height in pixels.
     pub window: (f32, f32),
-    /// The peek card's width in pixels.
     pub card_width: f32,
-    /// The window edge the sidebar docks to.
     pub side: DockSide,
-    /// The height of the sidebar header in pixels; the band starts below it.
     pub header_height: f32,
-    /// The gap in pixels between the window edge and the card.
     pub card_inset: f32,
 }
 
@@ -33,8 +24,6 @@ impl PeekZone {
         }
     }
 
-    /// Whether a pointer at (`x`, `y`) summons the card: within a few pixels of the docked edge,
-    /// below the header and clear of the bottom corner.
     pub fn summons(
         &self,
         x: f32,
@@ -45,8 +34,6 @@ impl PeekZone {
             && y <= self.window.1 - BOTTOM_CLEAR
     }
 
-    /// Whether a pointer at `x` keeps an open card: over the card or within eight pixels of its
-    /// far edge. The height is ignored.
     pub fn keeps(
         &self,
         x: f32,
@@ -55,8 +42,6 @@ impl PeekZone {
         self.distance_from_edge(x) <= self.keep_width()
     }
 
-    /// How far from the docked edge an open card keeps the pointer: the card, its inset and
-    /// eight pixels past its far edge.
     pub fn keep_width(&self) -> f32 {
         self.card_inset + self.card_width + SLACK
     }

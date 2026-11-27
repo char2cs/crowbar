@@ -14,8 +14,6 @@ func TestAPITransport_AcceptsAServeOverStdioInNDJSON(t *testing.T) {
 	require.NoError(t, rules.Apply(withAPITransport(valid())))
 }
 
-// A serve Crowbar cannot speak to is a load failure, not a spawn that waits
-// on a channel nobody opened.
 func TestAPITransport_RejectsAServeThatDoesNotSayHowItIsSpokenTo(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mutate  func(*spec.APISpec)
@@ -135,7 +133,6 @@ func TestAPITransport_EventRequestReferencesMustExist(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing")
 }
 
-// A request may name what a step sends, and a reply request what its decision renders.
 func TestAPITransport_RequestPlaceholdersComeFromStepsAndReplies(t *testing.T) {
 	d := withHTTP(valid())
 	d.Events["user_prompt"] = spec.EventSpec{

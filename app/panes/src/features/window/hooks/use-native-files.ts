@@ -56,7 +56,6 @@ function toEntries(
   )
 }
 
-/** The chat's header with its icon as data, which the drawer page cannot fetch for itself. */
 function useDrawerHeader(chatId: string, wsId: string): NativeFiles['header'] {
   const model = useChatBranchHeaderModel(chatId, wsId)
   const { lead } = model
@@ -88,8 +87,6 @@ function useActiveFilePath(): string | null {
   return getExplorerTargetPath(buffer) ?? null
 }
 
-/** Feeds the phone's file drawer `wsId`'s tree, filtered and git-marked like the desktop explorer,
- *  and carries out its asks: fold a folder, open a file, close. */
 export function useNativeFiles(wsId: string, chatId: string) {
   const header = useDrawerHeader(chatId, wsId)
   const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
@@ -131,8 +128,6 @@ export function useNativeFiles(wsId: string, chatId: string) {
       if (intent.type === 'toggleDir') useFileTreeStore.getState().toggleFolder(wsId, intent.path)
       else if (intent.type === 'openFile') {
         const paneId = resolveOnscreenPaneForWorkspace(wsId) ?? undefined
-        // The IDE stays behind the drawer until the file's tab exists and its editor is loaded,
-        // so the pane is never seen empty or blank while it loads.
         void Promise.all([
           openDocument(workspaceRef(wsId, intent.path), { preview: true, paneId }),
           preloadEditorFor(intent.path).catch((err: unknown) =>

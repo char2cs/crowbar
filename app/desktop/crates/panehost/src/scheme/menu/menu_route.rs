@@ -1,7 +1,3 @@
-//! A page's ask for a native menu: only the shell's own core pages may make it. WebKit names no
-//! Origin to the scheme, so the ask must be JSON: a sandboxed frame could only send it after a
-//! preflight, which the scheme never grants.
-
 use protocol::PaneId;
 use webview::{ProtocolRequest, ProtocolResponder, ProtocolResponse};
 

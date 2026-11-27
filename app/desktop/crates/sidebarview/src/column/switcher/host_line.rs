@@ -1,8 +1,3 @@
-//! A remote space's host under its name: its icon and dot, its name and, short of online, its
-//! state in its tone; the way into Settings → Hosts.
-//!
-//! Spec: develop `web/src/components/layout/sidebar-project-switcher.tsx` (`ProjectHostLine`).
-
 use gpui::{
     AnyElement, Context, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, div, px,

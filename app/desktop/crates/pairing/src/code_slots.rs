@@ -1,6 +1,3 @@
-//! Develop's six-slot pairing code: one text input owns the code and the keyboard, laid
-//! unseen over six boxes that draw it, the next box to fill ringed while it has focus.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, BoxShadow, Div, Entity, Focusable as _, InteractiveElement as _, IntoElement,
@@ -9,7 +6,6 @@ use gpui::{
 use ui::{Palette, Surface, TextInput, Theme, radius};
 
 pub(crate) const CODE_LENGTH: usize = 6;
-// SPEC: https://github.com/char2cs/crowbar/blob/develop/web/src/components/ui/otp-field.tsx
 const SLOT: Pixels = px(32.0);
 const SLOT_GAP: Pixels = px(8.0);
 const SLOT_TEXT: Pixels = px(14.0);

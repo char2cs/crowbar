@@ -7,16 +7,12 @@ use protocol::{PaneId, PaneOrigin};
 
 use crate::scheme::origin_table::assignment::Assignment;
 
-/// Which origin each live web view currently acts for. The pane host writes it when it
-/// assigns a pane to a web view; the protocol router reads it to authorize requests, so a
-/// page never names its own identity.
 #[derive(Debug, Clone, Default)]
 pub struct OriginTable {
     entries: Arc<Mutex<HashMap<webview::Id, Assignment>>>,
 }
 
 impl OriginTable {
-    /// Records which pane and origin a web view acts for, replacing any earlier entry.
     pub fn set(
         &self,
         view: webview::Id,
@@ -26,7 +22,6 @@ impl OriginTable {
         self.lock().insert(view, Assignment { pane, origin });
     }
 
-    /// Forgets a web view.
     pub fn remove(
         &self,
         view: webview::Id,
@@ -34,7 +29,6 @@ impl OriginTable {
         self.lock().remove(&view);
     }
 
-    /// The assignment of a web view, if it has one.
     #[must_use]
     pub fn get(
         &self,

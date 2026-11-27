@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/testutil"
 )
 
-// open speaks over a stdio pipe whose child end is peer.
 func open(t *testing.T, opts ...jsonrpc.Option) (*jsonrpc.Conn, *testutil.LinePeer) {
 	t.Helper()
 	in, out, peer := testutil.StdioPipe(t)
@@ -22,7 +21,6 @@ func open(t *testing.T, opts ...jsonrpc.Option) (*jsonrpc.Conn, *testutil.LinePe
 	return conn, peer
 }
 
-// serve runs script as the child, on its own goroutine.
 func serve(t *testing.T, script func(*testutil.LinePeer), opts ...jsonrpc.Option) *jsonrpc.Conn {
 	t.Helper()
 	conn, peer := open(t, opts...)
@@ -35,7 +33,6 @@ type request struct {
 	Method string          `json:"method"`
 }
 
-// readRequest is the next request the child reads; safe off the test goroutine.
 func readRequest(peer *testutil.LinePeer) (request, error) {
 	msg, err := peer.Read()
 	if err != nil {
@@ -68,8 +65,6 @@ func TestCall_RoundTrips(t *testing.T) {
 	require.JSONEq(t, `{"home":"/fake"}`, string(<-answered))
 }
 
-// A child is ready only once it answers: a request written before it reads
-// waits in the pipe, and nothing answers it in the meantime.
 func TestCall_WaitsInThePipeUntilALateChildAnswers(t *testing.T) {
 	conn, peer := open(t)
 	answered := make(chan error, 1)
@@ -88,8 +83,6 @@ func TestCall_WaitsInThePipeUntilALateChildAnswers(t *testing.T) {
 	require.NoError(t, <-answered)
 }
 
-// A child that exits closes its stdout: a pending call fails at once, never
-// at its timeout.
 func TestCall_AChildThatHangsUpFailsTheCallAtOnce(t *testing.T) {
 	conn := serve(t, func(peer *testutil.LinePeer) {
 		_, _ = peer.Read()
@@ -170,8 +163,6 @@ func TestFrames_DeliversNotificationsAndAsksButNotOwnCallResponses(t *testing.T)
 	require.JSONEq(t, `{"decision":"approved"}`, string(reply.Result))
 }
 
-// A consumer that is not draining notifications must never hold up the
-// response to one of our own calls (Stop's interrupt, a prompt's turn/start).
 func TestCall_IsAnsweredWhileNotificationsBackUp(t *testing.T) {
 	conn := serve(t, func(peer *testutil.LinePeer) {
 		req, err := readRequest(peer)
@@ -195,8 +186,6 @@ func TestCall_IsAnsweredWhileNotificationsBackUp(t *testing.T) {
 	require.False(t, conn.Overflowed())
 }
 
-// Past its bound the mailbox does not grow without limit: the connection is
-// closed and reports why, so its runner ends with a recorded cause.
 func TestFrames_OverflowClosesTheConnection(t *testing.T) {
 	conn := serve(t, func(peer *testutil.LinePeer) {
 		for i := 0; i < 50; i++ {
@@ -206,7 +195,6 @@ func TestFrames_OverflowClosesTheConnection(t *testing.T) {
 		}
 	}, jsonrpc.WithMaxQueued(10))
 
-	// Nothing drains until the mailbox has overflowed.
 	require.Eventually(t, conn.Overflowed, 3*time.Second, 5*time.Millisecond)
 	delivered := 0
 	for range conn.Frames() {
@@ -229,8 +217,6 @@ func TestNotify_SendsNoID(t *testing.T) {
 	require.JSONEq(t, `"turn/interrupt"`, string(frame["method"]))
 }
 
-// A value encoding/json cannot marshal is reported before anything reaches
-// the child: the next line it reads is the next good message.
 func TestCallAndNotify_UnmarshalableParamsFailBeforeAnyWrite(t *testing.T) {
 	conn, peer := open(t)
 
@@ -258,15 +244,13 @@ func TestClose_UnblocksAPendingCall(t *testing.T) {
 		_, err := conn.Call(context.Background(), "thread/start", map[string]any{})
 		done <- err
 	}()
-	mustReadRequest(t, peer) // the call is waiting on an answer that never comes
+	mustReadRequest(t, peer)
 
 	require.NoError(t, conn.Close())
 
 	require.Error(t, <-done)
 }
 
-// The child accepts the request but never replies: only the caller's own
-// context ends the Call.
 func TestCall_ContextCanceled_UnblocksWithContextError(t *testing.T) {
 	conn, peer := open(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -282,8 +266,6 @@ func TestCall_ContextCanceled_UnblocksWithContextError(t *testing.T) {
 	require.ErrorIs(t, <-done, context.Canceled)
 }
 
-// A garbled line never kills the connection: the next well-formed one is
-// still delivered.
 func TestReadLoop_MalformedLine_IsDroppedNotFatal(t *testing.T) {
 	conn, peer := open(t)
 	require.NoError(t, peer.Write([]byte("not json at all")))
@@ -292,9 +274,6 @@ func TestReadLoop_MalformedLine_IsDroppedNotFatal(t *testing.T) {
 	assert.Equal(t, "progress", (<-conn.Frames()).Method)
 }
 
-// A response whose id is not a bare number (never produced by THIS client,
-// but not guaranteed of every peer) is dropped rather than wedging the read
-// loop, and the real response still resolves the Call.
 func TestDispatchResponse_NonNumericID_IsDroppedNotFatal(t *testing.T) {
 	conn := serve(t, func(peer *testutil.LinePeer) {
 		req, err := readRequest(peer)

@@ -59,7 +59,6 @@ describe('tokenizeToHast', () => {
     })
   })
 
-  // A streaming block grows at its end: the lines before it keep their tokens and state.
   it('resumes a block that grew from its first changed line, with that line’s state', () => {
     const tokenizeLine = vi.fn((line: string, prev: unknown) => ({
       tokens: [{ startIndex: 0, endIndex: line.length, scopes: ['source', 'comment'] }],

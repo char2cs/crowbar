@@ -17,7 +17,6 @@ function tapeGlobal(): TapeGlobal {
   return (window as unknown as { __crowbarInputTape: TapeGlobal }).__crowbarInputTape
 }
 
-/** The tape as the console sees it: through the window global the terminal mount installs. */
 export function dumpInputTape(): TapeDump {
   return tapeGlobal()()
 }

@@ -1,7 +1,3 @@
-//! Sync input and output: the layout snapshot, visible panes, what the shell's overlays cover
-//! and cut out,
-//! keyboard owner and where native focus goes, sync report, failures and pane display.
-
 pub(crate) mod covered;
 pub(crate) mod failures;
 pub(crate) mod keyboard;

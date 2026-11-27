@@ -3,8 +3,6 @@ import { chatIconIndex, type ChatIconFields } from './chat-icon-index'
 
 const iconCache = new WeakMap<readonly Repo[], Map<string, ChatIconFields>>()
 
-/** The tree's own branch/lock/PR glyph fields for a workspace-owning chat,
- *  shared across every row for one `repos` snapshot. */
 export function recentsChatIcon(
   repos: readonly Repo[],
   chatId: string,

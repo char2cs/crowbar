@@ -22,16 +22,12 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/problem"
 )
 
-// ── HomeReader mock ────────────────────────────────────────────────────────────
-
 type mockHomeReader struct{ mock.Mock }
 
 func (m *mockHomeReader) GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error) {
 	args := m.Called(ctx, projectID)
 	return args.Get(0).(domain.Workspace), args.Error(1)
 }
-
-// ── Files stub (no-op, always returns empty results) ──────────────────────────
 
 type stubFiles struct{}
 
@@ -59,19 +55,10 @@ func (s *stubFiles) Delete(_ context.Context, _, _ string, _ time.Time) error {
 	return nil
 }
 
-// ── WorkSignal stub — the working read the home read stamps from ──────────
-
 type stubWork struct{ working bool }
 
 func (s stubWork) WorkingFor(_ string) bool { return s.working }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-// TestGetHome_StampsWorkingFromSignal pins that GET /home stamps the workspace's
-// `working` field from the WorkSignal seam rather than from the stored row — the
-// overlay is derived (inflight mutation OR agent chat mid-turn) and lives only in
-// memory, so a home read that skipped it would report working=false while an
-// agent chat anchored to the project home was mid-turn.
 func TestGetHome_StampsWorkingFromSignal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -100,8 +87,6 @@ func TestGetHome_StampsWorkingFromSignal(t *testing.T) {
 	require.True(t, body.Data.Working, "GET /home must stamp the derived working overlay")
 }
 
-// TestGetHome_Returns200WithWorkspace verifies that a GET /home on an existing
-// project returns HTTP 200 and calls GetHomeForProject exactly once.
 func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -127,10 +112,6 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 	reader.AssertExpectations(t)
 }
 
-// TestGetHome_Returns404WhenNotFound verifies that a GET /home for a project
-// whose home workspace is missing returns HTTP 404. The handler lazily tries to
-// provision a home workspace; if the project itself is not found (stubProjectReader
-// returns ErrNotFound), the handler returns 404.
 func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -150,8 +131,6 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	reader.AssertExpectations(t)
 }
 
-// TestGetHome_Returns500OnStorageError verifies that a GET /home when storage
-// returns an unexpected error (not ErrNotFound) returns HTTP 500, not 404.
 func TestGetHome_Returns500OnStorageError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -171,8 +150,6 @@ func TestGetHome_Returns500OnStorageError(t *testing.T) {
 	reader.AssertExpectations(t)
 }
 
-// TestFileTree_Returns200WhenWorkspaceExists verifies that GET /home/files/tree
-// returns HTTP 200 when the home workspace is found.
 func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -198,11 +175,6 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	reader.AssertExpectations(t)
 }
 
-// ── RequireHomeWorkspace ───────────────────────────────────────────────────
-
-// TestRequireHomeWorkspace_SetsWsIdAndCallsNext verifies the middleware
-// injects the resolved home workspace id as the :wsId param and continues
-// the chain to the downstream handler.
 func TestRequireHomeWorkspace_SetsWsIdAndCallsNext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -230,9 +202,6 @@ func TestRequireHomeWorkspace_SetsWsIdAndCallsNext(t *testing.T) {
 	reader.AssertExpectations(t)
 }
 
-// TestRequireHomeWorkspace_AbortsChainOnFailure verifies that when the home
-// workspace cannot be resolved, the middleware aborts and the downstream
-// handler never runs.
 func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -257,8 +226,6 @@ func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	reader.AssertExpectations(t)
 }
 
-// missingFile is the error the fs engine hands up for a path that is not there:
-// the os error itself, whose errno alone makes it a 404.
 func missingFile(t *testing.T) error {
 	t.Helper()
 	_, err := os.Lstat(filepath.Join(t.TempDir(), "ghost.txt"))

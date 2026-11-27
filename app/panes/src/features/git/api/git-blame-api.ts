@@ -2,20 +2,15 @@ import { apiFetch } from '@/lib/api/fetch'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { chatBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
 
-/** One line's last-changing commit, as the daemon's GET /blame answers it. */
 export interface BlameEntry {
-  /** 1-based. */
   lineNumber: number
   commitHash: string
   author: string
   email: string
-  /** RFC 3339. */
   date: string
   commitMessage: string
 }
 
-/** Blame a workspace-relative file; null while the workspace can't be addressed yet (home
- *  workspace, owning chat not recorded). */
 export async function getBlame(
   wsId: string,
   path: string,

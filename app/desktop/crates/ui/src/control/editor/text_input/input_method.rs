@@ -1,5 +1,3 @@
-//! Input-method and text-service interface of [`TextInput`].
-
 use std::ops::Range;
 
 use gpui::{Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window};

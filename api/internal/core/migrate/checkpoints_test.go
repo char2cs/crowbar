@@ -79,8 +79,6 @@ func TestCheckpoints_FailedMarkLeavesTheKeyUndone(t *testing.T) {
 	assert.Empty(t, cp.total())
 }
 
-// A key marked before the step last completed is settled: that completion
-// verified it. One marked since is not, until the step completes again.
 func TestCheckpoints_KeysMarkedBeforeTheStepLastCompletedAreSettled(t *testing.T) {
 	l, err := openLedger(ledgerPathIn(t))
 	require.NoError(t, err)

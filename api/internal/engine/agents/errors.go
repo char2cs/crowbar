@@ -22,8 +22,6 @@ var (
 
 	ErrForeignConversation = protocol.ErrForeignPayload
 
-	// ErrHookVariantMismatch is a delivery a declared when: filter routed to
-	// another variant of the same wire hook.
 	ErrHookVariantMismatch = protocol.ErrVariantMismatch
 
 	ErrRequiredFieldMissing = protocol.ErrRequiredFieldMissing
@@ -54,11 +52,7 @@ var (
 
 	ErrAPITransportNotDeclared = errAPITransportNotDeclared
 
-	// ErrAPISessionLost is an api connection's provider refusing the session
-	// it was asked to resume or act on.
 	ErrAPISessionLost = protocol.ErrAPISessionLost
 )
 
-// APIFailureReason is the provider's own words for an api call it refused, false when
-// err is not such a refusal.
 func APIFailureReason(err error) (string, bool) { return protocol.APIFailureReason(err) }

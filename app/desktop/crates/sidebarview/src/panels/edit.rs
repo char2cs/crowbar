@@ -1,5 +1,3 @@
-//! Inline rename, make-a-branch and fork-name inputs.
-
 mod command;
 mod field;
 mod field_look;

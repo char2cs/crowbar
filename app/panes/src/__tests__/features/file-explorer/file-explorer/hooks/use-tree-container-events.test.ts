@@ -46,8 +46,6 @@ function press(events: ReturnType<typeof treeEvents>, key: string) {
 beforeEach(() => useFileClipboardStore.setState({ clipboard: null }))
 afterEach(() => vi.restoreAllMocks())
 
-// The keyboard twin of the context menu's Copy/Cut: paths mean something only in the explorer's
-// own workspace, so a paste anywhere else refuses before any request.
 describe('the tree’s copy, cut and paste keys', () => {
   it.each([
     ['c', 'copy'],

@@ -1,17 +1,13 @@
-//! Conversions between cell counts and floats without lossy `as` casts.
-
 const HALF_WORD_BITS: u32 = 16;
 const HALF_WORD_RANGE: f32 = 65_536.0;
 const SEARCH_STEPS: u32 = 32;
 
-/// A cell or line count as a float; counts of 2^32 and above saturate.
 pub fn cells_f32(count: usize) -> f32 {
     let high = u16::try_from(count >> HALF_WORD_BITS).unwrap_or(u16::MAX);
     let low = u16::try_from(count & usize::from(u16::MAX)).unwrap_or(u16::MAX);
     f32::from(high) * HALF_WORD_RANGE + f32::from(low)
 }
 
-/// The largest whole count not above `value`; negative and NaN values give 0.
 pub fn floor_cells(value: f32) -> usize {
     let upper = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
     let (floor, _) = (0..SEARCH_STEPS).fold((0_usize, upper), |range, _| narrow(range, value));

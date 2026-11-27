@@ -10,41 +10,28 @@ use crate::tree::geometry::rect::Rect;
 use crate::tree::split_node::SASH_THICKNESS;
 use crate::tree::split_node_place::divide;
 
-/// Height of every top chrome row of a group: the chat header and the tab bar.
 pub const TOP_ROW_HEIGHT: f32 = 42.0;
 
 const CHAT_MIN_BESIDE: f32 = 340.0;
 const CHAT_MIN_STACKED: f32 = 160.0;
 
-/// Below this many pixels on its longer side a group shows chat and editor one at a time.
 pub const SIDE_BY_SIDE_MIN: f32 = 780.0;
 
 const SEAM: f32 = 1.0;
 
-/// Where a group's parts sit inside its area, as develop's `usePanePresentation`. A part that is
-/// hidden is `None`; the chat and the editor stay open while hidden.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Presentation {
-    /// How chat and editor are arranged.
     pub mode: ViewMode,
-    /// The chat-only header, drawn over the top of the chat when the chat fills the group.
     pub chat_header: Option<Rect>,
-    /// The tab bar: across the group when one view shows, else at the top of the editor.
     pub tab_bar: Option<Rect>,
-    /// Whether the tab bar leads with a tab for the chat.
     pub chat_tab: bool,
-    /// The chat view.
     pub chat: Option<Rect>,
-    /// The sash between the chat and the editor.
     pub sash: Option<Rect>,
-    /// The editor view, below its tab bar.
     pub editor: Option<Rect>,
-    /// The 1 px line on the editor's edge facing the chat when both show together.
     pub seam: Option<Rect>,
 }
 
 impl Presentation {
-    /// The parts of `group` laid out in `area`.
     #[must_use]
     pub fn of(
         group: &PaneGroup,
@@ -64,8 +51,6 @@ impl Presentation {
         Self::together(mode, area, side, group.chat_share())
     }
 
-    /// The share that gives the chat `wanted` pixels of a group laid out in `area`, each side
-    /// keeping develop's minimum; a group too small for both splits in half.
     #[must_use]
     pub fn chat_share_for(
         mode: ViewMode,

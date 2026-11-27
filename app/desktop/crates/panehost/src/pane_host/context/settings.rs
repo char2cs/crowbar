@@ -7,11 +7,6 @@ use crate::pane_host::PaneHost;
 use crate::slot::HostEvent;
 
 impl PaneHost {
-    /// Replaces the settings every pane follows and pushes the whole set to mounted panes; a
-    /// pane mounted later gets it on mount. An unchanged set sends nothing.
-    ///
-    /// # Errors
-    /// [`Error::WebView`](crate::Error::WebView) when a pane cannot be reached.
     pub fn set_settings(
         &mut self,
         values: SettingValues,

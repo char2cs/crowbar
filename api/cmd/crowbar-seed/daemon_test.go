@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// stubTransport answers each path from a queue of canned replies, so the
-// create-then-poll flow can be exercised without a daemon. A path that runs out
-// of replies keeps serving the last one.
 type stubTransport struct {
 	replies    map[string][]string
 	postStatus int
@@ -45,9 +42,6 @@ func (s *stubTransport) PostJSON(
 	return s.postStatus, []byte(s.postBody), nil
 }
 
-// PatchJSON answers from the same replies queue GET reads from, keyed on
-// path: the branch rename is a synchronous mutation whose response the
-// caller decodes exactly like a GET's, not a fire-and-forget 202.
 func (s *stubTransport) PatchJSON(
 	_ context.Context,
 	path string,
@@ -85,8 +79,6 @@ func TestEnsureProjectReusesAnExistingSeedProject(t *testing.T) {
 	}
 }
 
-// The import answers 202 and finishes in the background, so the project only
-// shows up on a later GET — the tool has to poll rather than trust the 202.
 func TestEnsureProjectPollsUntilTheImportLands(t *testing.T) {
 	wire := &stubTransport{replies: map[string][]string{
 		projectsPath: {
@@ -144,9 +136,6 @@ func TestEnsureRepoReusesAnExistingSeedRepo(t *testing.T) {
 	}
 }
 
-// The provider list must be read before the fork POST: forking always starts
-// a runner (own_worktree.go has no empty-providerID skip the import path
-// gives itself), so ensureFeatureChat needs an enabled provider to hand it.
 func TestEnsureFeatureChatForksWithAnEnabledProvider(t *testing.T) {
 	repo := repoDTO{ID: "r1", ProjectID: "p1", DefaultBranch: seedBaseBranch}
 	path := chatsPath("p1", "r1")

@@ -9,8 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 )
 
-// SignatureHelp handles POST /v0/chats/:chatId/lsp/signatureHelp. The data
-// field carries the raw textDocument/signatureHelp result, or null.
 func (h *Handlers) SignatureHelp(
 	c *gin.Context,
 ) {
@@ -28,8 +26,6 @@ func (h *Handlers) SignatureHelp(
 	writeRaw(c, result, err)
 }
 
-// CodeLens handles POST /v0/chats/:chatId/lsp/codeLens. The data field carries
-// the raw textDocument/codeLens result, or null.
 func (h *Handlers) CodeLens(
 	c *gin.Context,
 ) {
@@ -46,9 +42,6 @@ func (h *Handlers) CodeLens(
 	writeRaw(c, result, err)
 }
 
-// CodeLensResolve handles POST /v0/chats/:chatId/lsp/codeLensResolve. The
-// body carries a lens CodeLens returned; the data field carries the resolved
-// lens.
 func (h *Handlers) CodeLensResolve(
 	c *gin.Context,
 ) {
@@ -66,9 +59,6 @@ func (h *Handlers) CodeLensResolve(
 	writeRaw(c, result, err)
 }
 
-// SemanticTokens handles POST /v0/chats/:chatId/lsp/semanticTokens: a delta
-// ({resultId, edits}) when previousResultId is set and the server supports it,
-// else the full set ({resultId, data}), or null when none are offered.
 func (h *Handlers) SemanticTokens(
 	c *gin.Context,
 ) {
@@ -86,9 +76,6 @@ func (h *Handlers) SemanticTokens(
 	writeRaw(c, result, err)
 }
 
-// SemanticTokensRange handles POST /v0/chats/:chatId/lsp/semanticTokensRange.
-// The data field carries the range's tokens ({data}) in the canonical legend,
-// or null when the server offers no range tokens.
 func (h *Handlers) SemanticTokensRange(
 	c *gin.Context,
 ) {
@@ -106,9 +93,6 @@ func (h *Handlers) SemanticTokensRange(
 	writeRaw(c, result, err)
 }
 
-// ExecuteCommand handles POST /v0/chats/:chatId/lsp/executeCommand, running a
-// code lens or code action command. It returns the server's result plus the
-// workspace edits the command applied, for the editor to apply.
 func (h *Handlers) ExecuteCommand(
 	c *gin.Context,
 ) {
@@ -131,8 +115,6 @@ func (h *Handlers) ExecuteCommand(
 	libs.WriteQueryOK(c, result)
 }
 
-// Formatting handles POST /v0/chats/:chatId/lsp/formatting. The data field
-// carries the raw textDocument/formatting result (TextEdit[]), or null.
 func (h *Handlers) Formatting(
 	c *gin.Context,
 ) {
@@ -150,8 +132,6 @@ func (h *Handlers) Formatting(
 	writeRaw(c, result, err)
 }
 
-// DidSave handles POST /v0/chats/:chatId/lsp/didSave, forwarding a
-// textDocument/didSave notification for an open document.
 func (h *Handlers) DidSave(
 	c *gin.Context,
 ) {
@@ -172,8 +152,6 @@ func (h *Handlers) DidSave(
 	libs.WriteQueryOK(c, syncOK{OK: true})
 }
 
-// Status handles GET /v0/chats/:chatId/lsp/status?path=. The data field
-// carries the ServerStatus of the server for the file's language.
 func (h *Handlers) Status(
 	c *gin.Context,
 ) {
@@ -191,9 +169,6 @@ func (h *Handlers) Status(
 	libs.WriteQueryOK(c, h.lsp.Status(h.lspOwnerID(c), path))
 }
 
-// Restart handles POST /v0/chats/:chatId/lsp/restart. It restarts the running
-// server for the file's language (reopening its documents) and answers with
-// the resulting ServerStatus. A server that is not running is not spawned.
 func (h *Handlers) Restart(
 	c *gin.Context,
 ) {

@@ -1,6 +1,3 @@
-// From the Plate registry (`https://platejs.org/r/floating-toolbar-kit.json`
-// -> `equation-toolbar-button`), verbatim. Inserts the same inline-equation
-// node `MathKit` already renders.
 'use client'
 
 import * as React from 'react'

@@ -1,8 +1,3 @@
-// summary_diffbase_internal_test.go is a white-box (package git) test file for
-// resolveDiffBase and looksLikeCommitSHA branches that a real git subprocess
-// cannot be made to hit through the public Engine surface: a `git merge-base`
-// invocation that exits zero with no output, and a base string shaped exactly
-// like a commit SHA (40 chars) except for one non-hex byte.
 package git
 
 import (
@@ -19,9 +14,6 @@ import (
 	gitexec "github.com/char2cs/crowbar/api/internal/engine/git/internal/exec"
 )
 
-// diffbaseInitRepo is a minimal stand-in for the git_test package's own
-// initRepo/makeCommit/headSHA helpers, which live in package git_test and so
-// are not visible from this white-box (package git) file.
 func diffbaseInitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -46,13 +38,6 @@ func diffbaseCommit(t *testing.T, dir, name, content string) {
 	diffbaseGitRun(t, dir, "commit", "-m", name)
 }
 
-// TestResolveDiffBase_MergeBaseSucceedsWithEmptyOutput_TreatedAsNoCandidate
-// pins resolveDiffBase's defense against a `git merge-base` that exits zero
-// but prints nothing: real git never does this, but the engine must not adopt
-// an empty string as a resolved base commit (which would then flow into
-// numstat/rev-list as a nonsensical revision) — it must simply skip the
-// candidate and keep looking, ending with no base at all when nothing else
-// resolves.
 func TestResolveDiffBase_MergeBaseSucceedsWithEmptyOutput_TreatedAsNoCandidate(t *testing.T) {
 	dir := diffbaseInitRepo(t)
 	diffbaseCommit(t, dir, "f.txt", "content\n")
@@ -70,12 +55,6 @@ func TestResolveDiffBase_MergeBaseSucceedsWithEmptyOutput_TreatedAsNoCandidate(t
 	assert.Empty(t, got, "an empty-but-successful merge-base must not be adopted as the resolved base")
 }
 
-// TestLooksLikeCommitSHA_FortyCharsButNonHex covers the byte-by-byte hex check:
-// a base string the right LENGTH for a commit SHA (40) but carrying one byte
-// outside [0-9a-fA-F] must not be classified as a SHA, or baseRefCandidates
-// would skip probing it as a branch name (origin/<base> and <base>) and only
-// ever try it verbatim — which cannot resolve a real branch whose name simply
-// happens to be 40 characters long.
 func TestLooksLikeCommitSHA_FortyCharsButNonHex(t *testing.T) {
 	fortyCharsOneBadByte := strings.Repeat("a", 39) + "g"
 	require.Len(t, fortyCharsOneBadByte, 40)
@@ -83,9 +62,6 @@ func TestLooksLikeCommitSHA_FortyCharsButNonHex(t *testing.T) {
 	assert.False(t, looksLikeCommitSHA(fortyCharsOneBadByte))
 }
 
-// TestBaseRefCandidates_NonHexFortyCharString_TreatedAsBranchName is the
-// behavioral pin for the above: baseRefCandidates must probe it as a branch
-// (origin/<base> and <base>), not treat it as a literal SHA.
 func TestBaseRefCandidates_NonHexFortyCharString_TreatedAsBranchName(t *testing.T) {
 	name := strings.Repeat("a", 39) + "g"
 	require.Len(t, name, 40)
@@ -97,9 +73,6 @@ func TestBaseRefCandidates_NonHexFortyCharString_TreatedAsBranchName(t *testing.
 	assert.Equal(t, name, got[1])
 }
 
-// TestComputeWorkingTreeSummary_BranchBase_SpawnBudget pins how many git
-// processes one summary costs. The watcher runs it after every burst of file
-// changes, so each extra spawn is paid per burst, per workspace.
 func TestComputeWorkingTreeSummary_BranchBase_SpawnBudget(t *testing.T) {
 	dir := diffbaseInitRepo(t)
 	diffbaseCommit(t, dir, "base.txt", "base\n")

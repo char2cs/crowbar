@@ -1,5 +1,3 @@
-//! The text part of a tree row: title, optional branch line and line counts, or the inline input.
-
 pub(super) mod row_input;
 pub(super) mod trailing;
 

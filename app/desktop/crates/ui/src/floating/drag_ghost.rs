@@ -1,5 +1,3 @@
-//! The lifted pill that follows the pointer while a tab or chat is dragged.
-
 use gpui::{
     App, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     Styled, Window, div, px,
@@ -19,15 +17,12 @@ const HEIGHT: f32 = 32.0;
 const SHADOW_ALPHA: f32 = 0.15;
 const PADDING: f32 = 12.0;
 
-/// A drag preview: the light "control surface" pill with a 1px outline and `shadow-md/15`,
-/// painted from the light palette in every theme. Return it from `on_drag`.
 pub struct DragGhost {
     label: SharedString,
     width: f32,
 }
 
 impl DragGhost {
-    /// A ghost `width` logical pixels wide showing `label`.
     pub fn new(
         label: impl Into<SharedString>,
         width: f32,

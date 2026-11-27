@@ -2,8 +2,6 @@ import { Switch } from '@/components/ui/switch'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
 import Section, { SettingRow } from '../settings-section'
 
-// Split shows the hook-reconstructed chat beside the CLI's TUI (the ground truth) to expose gaps.
-// A diagnostic, opt-in and off by default: the terminal keeps rendering instead of resting hidden.
 export function ChatSplitViewSetting() {
   const chatSplitPresentationEnabled = useSettingsStore(
     (s) => s.settings.chatSplitPresentationEnabled,

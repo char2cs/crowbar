@@ -3,10 +3,6 @@ import { convertNodesDeserialize, convertNodesSerialize, defaultRules } from '@p
 import { KEYS, getPluginType } from 'platejs'
 import type { TCalloutElement } from 'platejs'
 
-// Callouts round-trip as GitHub alerts (`> [!NOTE]` blockquotes), not @platejs/callout's MDX
-// `<callout>` tag, which without remark-mdx reloads as literal text; alerts also render natively
-// on GitHub/GitLab. Any `[!TOKEN]` is preserved, not just GitHub's five types.
-
 const ALERT_MARKER = /^\[!([A-Za-z][\w-]*)\](?:\n|$)/
 
 interface MdTextNode {
@@ -39,8 +35,6 @@ function isTextNode(node: unknown): node is MdTextNode {
   )
 }
 
-/** Splits a GitHub-alert blockquote into its lowercased type token and the mdast content minus
- *  the marker line; `undefined` for an ordinary blockquote, which takes the default handling. */
 function extractAlert(children: unknown[]): { variant: string; rest: unknown[] } | undefined {
   const [first, ...remainder] = children
   if (!isParagraphNode(first)) return undefined
@@ -52,8 +46,6 @@ function extractAlert(children: unknown[]): { variant: string; rest: unknown[] }
   const variant = match[1].toLowerCase()
   const strippedValue = firstText.value.slice(match[0].length)
   const rest: unknown[] = []
-  // Only keep the first paragraph if the marker line wasn't the whole of it —
-  // a marker alone on its own paragraph (the common case) leaves nothing behind.
   if (strippedValue.length > 0 || restOfFirstParagraph.length > 0) {
     rest.push({
       ...first,
@@ -67,21 +59,14 @@ function extractAlert(children: unknown[]): { variant: string; rest: unknown[] }
   return { variant, rest }
 }
 
-/** `blockquote`/`callout` rules for `MarkdownPlugin`'s `rules`, which Plate merges per key
- *  over `defaultRules`, so no other node type is affected. */
 export const calloutMarkdownRules: MdRules = {
   blockquote: {
     deserialize(mdastNode, deco, options) {
       const alert = extractAlert((mdastNode as { children: unknown[] }).children)
       if (!alert) {
-        // Not a GitHub alert — defer to Plate's own blockquote handling
-        // verbatim so ordinary blockquotes are completely unaffected.
         return defaultRules.blockquote!.deserialize!(mdastNode, deco, options)
       }
       return {
-        // `options.editor` is typed optional on `DeserializeMdOptions` but is
-        // always populated by the time a rule's `deserialize` runs — see
-        // `getMergedOptionsDeserialize`, which unconditionally sets it.
         type: getPluginType(options.editor!, KEYS.callout),
         variant: alert.variant,
         children: convertNodesDeserialize(alert.rest as MdRootContent[], deco, options),
@@ -99,9 +84,6 @@ export const calloutMarkdownRules: MdRules = {
       const bodyChildren = convertNodesSerialize(calloutNode.children, options)
       const [firstBody, ...restBody] = bodyChildren
 
-      // The marker becomes the first paragraph's leading soft-break line, exactly as
-      // extractAlert strips it, so output is canonical `> [!NOTE]\n> body` and a fixed point:
-      // reserializing it yields identical bytes.
       const children =
         firstBody && isParagraphNode(firstBody)
           ? [

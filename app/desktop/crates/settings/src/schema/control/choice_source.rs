@@ -1,14 +1,9 @@
-//! Where a select gets its options.
-
 use crate::values::Choice;
 
-/// Fixed options, or a named provider the backend answers at open (themes, fonts).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ChoiceSource {
-    /// Options known to the schema.
     Fixed(Vec<Choice>),
-    /// Options the backend lists under this name.
     Provided(String),
 }
 

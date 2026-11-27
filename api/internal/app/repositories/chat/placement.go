@@ -13,14 +13,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/tree"
 )
 
-// Placements is where each chat's placement lives (the Tree aggregate); the chat
-// aggregate does not store it, so this repository reads it onto every chat it returns.
 type Placements interface {
 	ChatPlacement(ctx context.Context, chatID string) (tree.Placement, error)
 	ChatPlacements(ctx context.Context, chatIDs []string) (map[string]tree.Placement, error)
 	SetChatPlacement(ctx context.Context, chatID, workspaceID string, p tree.Placement) error
 	SetChatOrder(ctx context.Context, chatID, workspaceID string, order int) error
-	// AdoptChat files chatID under its workspace's project once it has one.
 	AdoptChat(ctx context.Context, chatID, workspaceID string) error
 	DropChat(ctx context.Context, chatID string) error
 }
@@ -46,9 +43,6 @@ func (r *eventSourced) SetPlacement(
 	return chat, nil
 }
 
-// SetOrder reports a chat already gone as problem.ErrNotFound, apart from a
-// caller's mistake: a densify plans a level from one snapshot and a chat a
-// concurrent delete purged needs no order any more.
 func (r *eventSourced) SetOrder(
 	ctx context.Context,
 	chatID string,
@@ -68,7 +62,6 @@ func (r *eventSourced) SetOrder(
 	return chat, nil
 }
 
-// GetChats is every chat of ids that exists, placed in one placement read.
 func (r *eventSourced) GetChats(
 	ctx context.Context,
 	ids []string,
@@ -87,7 +80,6 @@ func (r *eventSourced) GetChats(
 	return r.placedAll(ctx, rows)
 }
 
-// placed is chat with its placement read back on.
 func (r *eventSourced) placed(ctx context.Context, chat domain.Chat) (domain.Chat, error) {
 	p, err := r.placements.ChatPlacement(ctx, chat.ID)
 	if err != nil {
@@ -97,7 +89,6 @@ func (r *eventSourced) placed(ctx context.Context, chat domain.Chat) (domain.Cha
 	return chat, nil
 }
 
-// placedAll is placed for a list, in one read of every placement.
 func (r *eventSourced) placedAll(ctx context.Context, chats []domain.Chat) ([]domain.Chat, error) {
 	ids := make([]string, len(chats))
 	for i, c := range chats {
@@ -114,8 +105,6 @@ func (r *eventSourced) placedAll(ctx context.Context, chats []domain.Chat) ([]do
 	return chats, nil
 }
 
-// placedWatch puts each event's chat in its place before it is announced, so
-// a frame never draws a chat at the root it is not in.
 func (r *eventSourced) placedWatch(ctx context.Context, watch WatchFunc) WatchFunc {
 	if watch == nil {
 		return nil

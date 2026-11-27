@@ -9,6 +9,6 @@ describe('isMarkdownPath', () => {
   it('excludes .mdx and non-markdown', () => {
     expect(isMarkdownPath('/a/page.mdx')).toBe(false)
     expect(isMarkdownPath('/a/main.ts')).toBe(false)
-    expect(isMarkdownPath('/a/markdown')).toBe(false) // no extension
+    expect(isMarkdownPath('/a/markdown')).toBe(false)
   })
 })

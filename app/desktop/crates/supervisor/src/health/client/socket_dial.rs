@@ -24,12 +24,6 @@ impl Dial for SocketDial {
     }
 }
 
-/// Reads `target` (an absolute path and query, for example `/v0/health`) from the daemon
-/// listening on `socket`, refusing an answer longer than `limit` bytes.
-///
-/// # Errors
-/// [`Error::Dial`] when the socket cannot be reached, [`Error::Status`] for a non-success
-/// status, [`Error::BodyTooLarge`] over the limit and [`Error::Exchange`] for a broken exchange.
 pub async fn fetch(
     socket: &Path,
     target: &str,

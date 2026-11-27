@@ -9,23 +9,11 @@ const MAX_PARAMS: usize = 16;
 
 const MAX_KEY_BYTES: usize = 64;
 
-/// The parameters a pane instance is identified by (`spaceId`, `threadId`, ...).
-///
-/// Values are ids only: panes fetch their data from the daemon. Keys are alphanumeric words
-/// (`-` and `_` allowed) of at most 64 bytes, values follow the id alphabet, and there are at
-/// most 16 entries; every value of the type, including ones read from the wire,
-/// holds these limits. The map is ordered so equal parameters always serialize and compare the
-/// same way.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct Params(BTreeMap<String, String>);
 
 impl Params {
-    /// Adds or replaces one entry.
-    ///
-    /// # Errors
-    /// An [`Error`] when the key or value is outside its alphabet or length, or the entry
-    /// would be the 16th plus one.
     pub fn with(
         mut self,
         key: impl Into<String>,
@@ -40,7 +28,6 @@ impl Params {
         Ok(self)
     }
 
-    /// Looks up one entry.
     #[must_use]
     pub fn get(
         &self,
@@ -49,13 +36,11 @@ impl Params {
         self.0.get(key).map(String::as_str)
     }
 
-    /// Whether there are no entries.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Iterates entries in key order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
         self.0.iter().map(|(k, v)| (k.as_str(), v.as_str()))
     }

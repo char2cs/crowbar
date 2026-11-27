@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 
-// Cmd+W must close the active tab, not fall through to the macOS menu's Window >
-// Close and quit the app.
 vi.mock('@/utils/platform', async () => {
   const actual = await vi.importActual<typeof import('@/utils/platform')>('@/utils/platform')
   return { ...actual, IS_MAC: true, APPLE_KEYBOARD: true }
@@ -19,17 +17,14 @@ const closePane = vi.fn()
 const setActivePane = vi.fn()
 const dropChatOnPane = vi.fn()
 const openChat = vi.fn()
-const minted = [expect.any(String), expect.any(String)] // chat id, operation id
+const minted = [expect.any(String), expect.any(String)]
 
 const createChat = vi.fn()
 const toastSpawnFailure = vi.fn()
 const presetChatLandingPresentation = vi.fn()
 const getOwningChatId = vi.fn()
-// providerCanStartOnTerminal runs for real: it is the gate under test below,
-// so only createChat is faked.
 import * as createsApi from '@/features/agent/api/agent-chat-creates'
 vi.spyOn(createsApi, 'createChat').mockImplementation(createChat)
-// The untitled document itself (its Monaco model, its free name) is open-document's own test.
 import * as openDocumentApi from '@/features/editor/documents/open-document'
 const openUntitled = vi.spyOn(openDocumentApi, 'openUntitledDocument').mockResolvedValue('')
 import * as spawnError from '@/features/agent/lib/spawn-error'
@@ -56,8 +51,6 @@ type FakeLayout =
       second: FakeLayout
     }
 
-// `panes` always holds both ROOT_PANE_ID and BOTTOM_PANE_ID, as in production;
-// "last remaining pane" is scoped per layout tree (`stage`, `bottomLayout`).
 const fakeState = {
   activePaneId: ROOT_PANE_ID,
   workspaceId: 'ws-1',
@@ -96,7 +89,6 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
   useWorkspaceStore: () => fakeStore,
 }))
 
-// Both stores read the same `fakeState`; the closure defers the read past hoisting.
 vi.mock('@/features/panes/stores/window-pane-store', () => ({
   windowPaneStore: { getState: () => fakeState },
 }))
@@ -112,8 +104,6 @@ vi.spyOn(keymap, 'useEffectiveChordMap').mockImplementation(() => ({
   'agent.newChatTerminal': 'mod+alt+n',
 }))
 
-// ensurePaneChatThenOpen runs for REAL: a new terminal/file attaches the pane
-// workspace's real owning chat (getOwningChatId, faked below), never a new one.
 import * as workspaceScope from '@/lib/workspace-scope'
 vi.spyOn(workspaceScope, 'getOwningChatId').mockImplementation(getOwningChatId)
 
@@ -135,7 +125,6 @@ afterEach(() => setActiveWorkspaceId(null))
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // The workspace in view is not the pane's: what a chord opens belongs to the pane's.
   setActiveWorkspaceId('ws-in-view')
   getOwningChatId.mockReset()
   fakeState.activePaneId = ROOT_PANE_ID
@@ -155,8 +144,6 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
   )
 const pressCmdW = () => press('w')
 
-/** Sets the root pane's tabs and splits `stage` into `paneCount` leaves; the bottom
- *  pane stays its own single-leaf tree, never counted in the root split. */
 function setPaneState({
   activeEditorTabId,
   editorTabIds,
@@ -188,8 +175,6 @@ function setPaneState({
   fakeState.bottomLayout = { type: 'pane', id: BOTTOM_PANE_ID }
 }
 
-/** Splits the BOTTOM panel itself into `paneCount` leaves (independent of the
- *  root tree), for the "sensibly handle the bottom pane" cases. */
 function setBottomPaneState({
   activeEditorTabId,
   editorTabIds,
@@ -225,9 +210,6 @@ describe('usePaneKeyboard — Cmd+W closes the active tab', () => {
   it('removes the active tab from its pane (so a neighbor activates) AND closes it', () => {
     renderHook(() => usePaneKeyboard())
     pressCmdW()
-    // removeEditorTabFromPane is what activates the adjacent tab — without it
-    // the pane is left with a dangling activeEditorTabId and falls to the
-    // empty state.
     expect(removeEditorTabFromPane).toHaveBeenCalledWith(ROOT_PANE_ID, 'buf-1')
     expect(closeBuffer).toHaveBeenCalledWith('buf-1')
   })
@@ -250,7 +232,6 @@ describe('usePaneKeyboard — Cmd+W closes the active tab', () => {
   })
 })
 
-// ⌘W on a pane with no tabs dismisses it in a split and is a no-op in the last one.
 describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
   it('mod+w on an empty pane in a split closes the split pane', () => {
     setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 2 })
@@ -273,8 +254,6 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
     expect(closePane).toHaveBeenCalledWith(ROOT_PANE_ID)
   })
 
-  // Counting `panes` (which holds the bottom pane too) closed the only editor
-  // pane and bricked the workspace; its own tree has one leaf.
   it('mod+w on an empty pane in the LAST pane does nothing', () => {
     setPaneState({ activeEditorTabId: null, editorTabIds: [], paneCount: 1 })
     renderHook(() => usePaneKeyboard())
@@ -283,7 +262,6 @@ describe('usePaneKeyboard — mod+w on a pane with no tabs', () => {
     expect(removeEditorTabFromPane).not.toHaveBeenCalled()
   })
 
-  // The two trees are scoped independently: a root split does not count here.
   it('mod+w on the ONLY (empty) bottom pane does nothing, even with a split root', () => {
     setPaneState({ activeEditorTabId: 'buf-1', editorTabIds: ['buf-1'], paneCount: 2 })
     fakeState.activePaneId = BOTTOM_PANE_ID
@@ -351,8 +329,6 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
   })
 
   it("mod+j opens a terminal, attaching the workspace's real owning chat", () => {
-    // The active pane has no chat yet, so ensurePaneChatThenOpen must attach
-    // the workspace's real owning chat first (Law 3) — never mint one.
     getOwningChatId.mockReturnValue('chat-1')
     renderHook(() => usePaneKeyboard())
     press('j')
@@ -395,15 +371,11 @@ describe('usePaneKeyboard — agent.newChat chord', () => {
     renderHook(() => usePaneKeyboard())
 
     pressChord()
-    // Picks the FIRST ENABLED provider without asking and names no surface: a
-    // plain new chat lands on the provider's own default face.
     expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', undefined)
 
     await createChat.mock.results[0]?.value
     await Promise.resolve()
 
-    // ⌘N opens the chat the way a click does — its own row — never into
-    // whatever the active pane is showing.
     expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
     expect(dropChatOnPane).not.toHaveBeenCalled()
     expect(openContent).not.toHaveBeenCalled()
@@ -419,7 +391,6 @@ describe('usePaneKeyboard — agent.newChat chord', () => {
   })
 
   it('picks the first ENABLED provider, skipping a disabled leading one', () => {
-    // p1 disabled, p2 enabled → the chord must open p2, never the disabled p1.
     setProviders([cli('p1', 'Claude', { enabled: false }), cli('p2', 'Codex')])
     createChat.mockResolvedValue('chat-9')
     renderHook(() => usePaneKeyboard())
@@ -450,8 +421,6 @@ describe('usePaneKeyboard — agent.newChat chord', () => {
   })
 })
 
-// agent.newChatTerminal is agent.newChat landing on Terminal: a per-chat choice
-// that leaves the global default untouched.
 describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
   const pressTerminalChord = () => press('n', { altKey: true })
 
@@ -461,14 +430,11 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     renderHook(() => usePaneKeyboard())
 
     pressTerminalChord()
-    // The surface rides the create: it decides which face the daemon forks.
     expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', 'terminal')
 
     await createChat.mock.results[0]?.value
     await Promise.resolve()
 
-    // Preset BEFORE the pane opens, or a pane mounted off the same microtask
-    // queue could seed from the global default first.
     expect(presetChatLandingPresentation).toHaveBeenCalledWith('chat-9', 'terminal')
     expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
   })
@@ -482,15 +448,11 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     await createChat.mock.results[0]?.value
     await Promise.resolve()
 
-    // Still an ordinary create — same as plain agent.newChat — just never
-    // told to land somewhere this provider cannot show.
     expect(createChat).toHaveBeenCalledWith(...minted, 'ws-1', 'p1', '', undefined)
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
     expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
   })
 
-  // hasTerminal alone is not a landing surface: a terminal reached only by
-  // switching after a turn lacks terminalStartHere.
   it('does not preset Terminal for a provider whose terminal is not a start_here surface, even though it has one', async () => {
     setProviders([cli('p1', 'Codex', { hasTerminal: true })])
     createChat.mockResolvedValue('chat-9')
@@ -517,8 +479,6 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
   })
 })
 
-// With Terminal as the default landing surface the plain chord must name it on the
-// create too, or the daemon forks a face with no PTY to land on.
 describe('usePaneKeyboard — agent.newChat honours the default landing surface', () => {
   const pressChord = () => press('n')
   function landingDefaultIsTerminal() {
@@ -544,8 +504,6 @@ describe('usePaneKeyboard — agent.newChat honours the default landing surface'
 
     await createChat.mock.results[0]?.value
     await Promise.resolve()
-    // Created on the terminal ⇒ lands on it: one invariant, not two facts that
-    // happen to agree while the preference sits where it does.
     expect(presetChatLandingPresentation).toHaveBeenCalledWith('chat-9', 'terminal')
   })
 

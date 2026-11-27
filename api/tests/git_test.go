@@ -18,9 +18,6 @@ type gitStatusDTO struct {
 	} `json:"files"`
 }
 
-// TestGit_StatusDiffStageCommit walks the git working-tree lifecycle over a real
-// repo: an edit shows up in status and diff, staging then committing it clears the
-// working tree, and the post-commit status reflects a clean branch.
 func TestGit_StatusDiffStageCommit(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
@@ -55,16 +52,11 @@ func TestGit_StatusDiffStageCommit(t *testing.T) {
 	assert.Empty(t, after.Files, "working tree must be clean after commit")
 }
 
-// TestGit_LockedWorkspaceRejectsWrite proves the locked-workspace guard: the
-// adopted "main" workspace is locked (a default protected branch), so reads
-// still succeed (200) while a git mutation is rejected with 409 (04 §5, 05 §3).
 func TestGit_LockedWorkspaceRejectsWrite(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)
 	base := wsBase(imported)
 
-	// The dedicated GET .../workspaces/:wsId detail route is gone (spec §8 step
-	// 6); worktreeOf reads the same answer off the chat list.
 	detail := worktreeOf(t, h, imported, imported.workspaceID)
 	require.Equal(t, "locked", detail.Status, "adopted main worktree must be locked")
 

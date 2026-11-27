@@ -1,5 +1,3 @@
-//! The row, repo, foot and filter menus, popped as the desktop's own.
-
 mod check;
 mod filter_menu;
 mod menu_entry;

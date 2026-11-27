@@ -1,6 +1,3 @@
-//! An element that tells where a card is: to the pop-up window it paints in, which shows it and
-//! lets the pointer reach it there, or to the cover of the overlay it belongs to.
-
 use gpui::{
     AnyElement, App, Bounds, DevicePixels, Element, ElementId, EntityId, GlobalElementId,
     InspectorElementId, IntoElement, LayoutId, Pixels, Window,
@@ -11,9 +8,6 @@ use crate::floating::layers::registry::Registry;
 use crate::floating::portal::cover::painting::Painting;
 use crate::foundation::opaque_debug;
 
-/// Wraps a floating card, laid out and painted as the card itself. In the pop-up window it
-/// marks the card's bounds as shown, and as taking the pointer when solid; in an overlay drawn
-/// in the window, the card covers the native views under it.
 pub struct Shaped {
     child: AnyElement,
     radius: Pixels,
@@ -22,7 +16,6 @@ pub struct Shaped {
 }
 
 impl Shaped {
-    /// A card that is seen and takes the pointer, such as a menu or a toast.
     pub fn solid(
         child: impl IntoElement,
         radius: Pixels,
@@ -33,7 +26,6 @@ impl Shaped {
         }
     }
 
-    /// A card that is seen but lets the pointer through, such as a tooltip or a drag ghost.
     pub fn seen(
         child: impl IntoElement,
         radius: Pixels,

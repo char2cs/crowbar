@@ -1,5 +1,3 @@
-//! Colour interpolation as CSS transitions do it: in sRGB with premultiplied alpha.
-
 use gpui::{Hsla, Rgba};
 
 pub(crate) fn mix(

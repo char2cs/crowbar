@@ -9,15 +9,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-// RuleFailure is one load rule a descriptor breaks. Rule is "parse" when the
-// document never reached the rules (YAML, the event vocabulary, a channel split).
 type RuleFailure struct {
 	Rule string
 	Err  error
 }
 
-// Check is Load that reports every failing rule instead of stopping at the
-// first, for a validator that shows the whole picture at once.
 func Check(raw []byte) (*spec.Descriptor, []RuleFailure) {
 	d, err := Parse(raw)
 	if err != nil {
@@ -32,17 +28,12 @@ func Check(raw []byte) (*spec.Descriptor, []RuleFailure) {
 	return d, out
 }
 
-// Source is one descriptor document Crowbar would load: the embedded default,
-// or the on-disk override that replaces it.
 type Source struct {
-	ID string
-	// Path is the override file, or "" for the embedded default.
+	ID   string
 	Path string
 	Raw  []byte
 }
 
-// Sources returns every descriptor document, sorted by id, with an override
-// shadowing the embedded default of the same id exactly as Resolve does.
 func Sources(homeDir string) ([]Source, error) {
 	entries, err := embedded.ReadDir(embeddedDir)
 	if err != nil {
@@ -64,8 +55,6 @@ func Sources(homeDir string) ([]Source, error) {
 	return out, nil
 }
 
-// SourceFor is the one document Crowbar would load for id: its override, else
-// the shipped default.
 func SourceFor(homeDir, id string) (Source, bool) {
 	if !validID(id) {
 		return Source{}, false
@@ -82,7 +71,6 @@ func source(homeDir, id string) (Source, bool) {
 	return EmbeddedSource(id)
 }
 
-// EmbeddedSource is the shipped default for id, whatever override shadows it.
 func EmbeddedSource(id string) (Source, bool) {
 	if !validID(id) {
 		return Source{}, false

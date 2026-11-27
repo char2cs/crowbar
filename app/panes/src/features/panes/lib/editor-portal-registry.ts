@@ -1,11 +1,5 @@
-// Where each pane wants its retained editor portaled, and with what props. PaneContainer writes;
-// EditorHostRegistry, outside the pane-layout tree, reads — so rebuilding a pane's subtree
-// re-targets the same live editor instead of disposing it.
-
 export interface EditorPortalEntry {
   node: HTMLDivElement
-  /** The pane's active buffer if it is an editor, else null. EditorHostSlot keeps the last
-   *  non-null id, so a hidden editor still shows its file rather than blanking. */
   activeEditorBufferId: string | null
   isActiveSurface: boolean
 }
@@ -22,13 +16,11 @@ function notify(paneId: string): void {
   for (const cb of set) cb(entry)
 }
 
-/** Publish (or update) the target + props for `paneId`. Called by PaneContainer. */
 export function setEditorPortalEntry(paneId: string, entry: EditorPortalEntry): void {
   entries.set(paneId, entry)
   notify(paneId)
 }
 
-/** Remove `paneId`'s entry — called on PaneContainer unmount. */
 export function clearEditorPortalEntry(paneId: string): void {
   if (!entries.has(paneId)) return
   entries.delete(paneId)
@@ -39,8 +31,6 @@ export function getEditorPortalEntry(paneId: string): EditorPortalEntry | undefi
   return entries.get(paneId)
 }
 
-/** Fires at once with the current entry (or undefined), then on every change, so subscribing to
- *  a different paneId picks up what is already published without waiting for a write. */
 export function subscribeEditorPortalEntry(paneId: string, cb: Listener): () => void {
   let set = listeners.get(paneId)
   if (!set) {

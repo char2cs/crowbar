@@ -11,7 +11,6 @@ use crate::memory_listener::{MemoryDialer, memory_listener};
 pub(crate) const CORE_ORIGIN: &str = "crowbar://app";
 const RELAY_PORT: u16 = 4343;
 
-/// A relay in front of an echo daemon, with the shell's origins configured.
 pub(crate) struct RelayRig {
     pub(crate) relay: Relay,
     pub(crate) dialer: MemoryDialer,

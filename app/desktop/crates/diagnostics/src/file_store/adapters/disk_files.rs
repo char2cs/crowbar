@@ -1,5 +1,3 @@
-//! [`FileStore`] on the local disk.
-
 use std::io;
 use std::path::{Path, PathBuf};
 

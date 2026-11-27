@@ -28,8 +28,6 @@ export interface TerminalTheme {
   brightMagenta: string
   brightCyan: string
   brightWhite: string
-  // xterm's scrollbar is its own element styled from these theme colours, not a CSS-stylable
-  // `::-webkit-scrollbar`, so they carry the app's scrollbar tokens.
   scrollbarSliderBackground: string
   scrollbarSliderHoverBackground: string
   scrollbarSliderActiveBackground: string
@@ -45,11 +43,9 @@ export interface TerminalUiTokens {
 const ANSI_FALLBACK = '#808080'
 
 function camel(key: TerminalAnsiKey): keyof TerminalTheme {
-  // 'bright-red' -> 'brightRed', 'black' -> 'black'
   return key.replace(/-([a-z])/g, (_, c) => c.toUpperCase()) as keyof TerminalTheme
 }
 
-/** #rrggbb -> rgba() with the given alpha (for the selection wash). */
 function withAlpha(hex: string, alpha: number): string {
   const h = hex.replace('#', '').slice(0, 6)
   const r = Number.parseInt(h.slice(0, 2), 16)
@@ -58,7 +54,6 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-/** Pure: turn resolved palettes into an xterm ITheme. */
 function buildTerminalTheme(
   ansi: Partial<Record<TerminalAnsiKey, string>>,
   ui: TerminalUiTokens,
@@ -105,25 +100,17 @@ function readUiTokens(): TerminalUiTokens {
   return {
     foreground: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
     cursor: resolveCssVar('--foreground') ?? (isDark ? '#f5f5f5' : '#141413'),
-    // #rrggbbaa — the app tokens are translucent by design so the glass reads
-    // through the slider. xterm's own fallback is foreground @ 20%, which is
-    // close but not the app's grey, hence resolving the real token.
     scrollbarThumb: resolveCssVar('--app-scrollbar-thumb') ?? '#8080806b',
     scrollbarThumbHover: resolveCssVar('--app-scrollbar-thumb-hover') ?? '#80808094',
   }
 }
 
-/** Pushed to the daemon so a foreground app's auto theme can follow it. `background`/`foreground`
- *  are the opaque colours OSC 11/10 answers with (not xterm's transparent one); `dark` is the
- *  polarity for the DEC 2031 theme-change report. */
 export interface TerminalThemePayload {
   background: string
   foreground: string
   dark: boolean
 }
 
-/** The reported background is the app's opaque `--background`: the terminal itself is
- *  transparent and has no colour of its own to report. */
 function buildTerminalThemePayload(
   resolve: (name: string) => string | null,
   isDark: boolean,
@@ -135,7 +122,6 @@ function buildTerminalThemePayload(
   }
 }
 
-/** Read the current terminal theme payload off the DOM. */
 export function readTerminalThemePayload(): TerminalThemePayload {
   const isDark =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')

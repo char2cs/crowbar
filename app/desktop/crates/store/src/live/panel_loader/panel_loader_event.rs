@@ -1,5 +1,3 @@
-//! What filling the Changes panel logs when the chat's git status cannot be read.
-
 use std::fmt;
 
 use journal::Level;

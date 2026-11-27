@@ -29,7 +29,6 @@ pub(crate) fn supervision() -> Supervision {
     }
 }
 
-/// A config whose binary does not exist, respawned after a millisecond.
 pub(crate) fn missing_binary() -> Config {
     let paths = DaemonPaths {
         socket: PathBuf::from("/crowbar-test-missing/d.sock"),

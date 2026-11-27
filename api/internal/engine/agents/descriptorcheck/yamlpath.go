@@ -8,7 +8,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// document answers "which line is this path on" over a parsed YAML tree.
 type document struct {
 	root *yaml.Node
 }
@@ -19,7 +18,6 @@ var (
 	indexRE   = regexp.MustCompile(`\[(\d+)\]`)
 )
 
-// lookup returns the node at a path like "session.refused.needles[0]", or nil.
 func (d document) lookup(path string) *yaml.Node {
 	n := d.body()
 	for _, seg := range strings.Split(path, ".") {
@@ -44,7 +42,6 @@ func (d document) lookup(path string) *yaml.Node {
 	return n
 }
 
-// line is the line of path, or of its nearest ancestor that exists.
 func (d document) line(path string) int {
 	for p := path; p != ""; p = parent(p) {
 		if n := d.lookup(p); n != nil {
@@ -54,8 +51,6 @@ func (d document) line(path string) int {
 	return 0
 }
 
-// keyLine is the line of the key naming a mapping value, so a finding about a
-// block points at its heading rather than its first child.
 func keyLine(d document, path string, value *yaml.Node) int {
 	up := d.body()
 	if parent(path) != "" {
@@ -72,8 +67,6 @@ func keyLine(d document, path string, value *yaml.Node) int {
 	return value.Line
 }
 
-// pathAt names the mapping key on line, for a finding the decoder reported by
-// line alone.
 func (d document) pathAt(line int) string {
 	return findLine(d.body(), "", line)
 }
@@ -150,7 +143,7 @@ func errorLine(msg string) int {
 	}
 	n, err := strconv.Atoi(m[1])
 	if err != nil {
-		return 0 // a line past int is no line to point at
+		return 0
 	}
 	return n
 }

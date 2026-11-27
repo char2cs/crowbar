@@ -1,5 +1,3 @@
-//! Selecting text and finding links under the pointer.
-
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
@@ -13,7 +11,6 @@ use crate::terminal::Terminal;
 use crate::terminal::snapshot_builder::viewport_of;
 
 impl Terminal {
-    /// Starts a selection at `point`.
     pub fn begin_selection(
         &mut self,
         point: ViewPoint,
@@ -29,7 +26,6 @@ impl Terminal {
         self.term.selection = Some(Selection::new(kind, at, side_of(side)));
     }
 
-    /// Extends the selection to `point`.
     pub fn extend_selection(
         &mut self,
         point: ViewPoint,
@@ -41,7 +37,6 @@ impl Terminal {
         }
     }
 
-    /// Selects the whole scrollback and screen.
     pub fn select_all(&mut self) {
         let start = Point::new(self.term.topmost_line(), Column(0));
         let end = Point::new(self.term.bottommost_line(), self.term.last_column());
@@ -50,7 +45,6 @@ impl Terminal {
         self.term.selection = Some(selection);
     }
 
-    /// Ends a drag: an empty selection (a plain click) is dropped; otherwise returns the selected text.
     pub fn finish_selection(&mut self) -> Option<String> {
         let empty = self
             .term
@@ -63,7 +57,6 @@ impl Terminal {
         self.selected_text()
     }
 
-    /// The selected text, when anything is selected.
     pub fn selected_text(&self) -> Option<String> {
         self.term
             .selection_to_string()
@@ -79,7 +72,6 @@ impl Terminal {
         Point::new(viewport_of(&self.term).line_of(row), Column(column))
     }
 
-    /// The link under `point`.
     pub fn link_at(
         &self,
         point: ViewPoint,

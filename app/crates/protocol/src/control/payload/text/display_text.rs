@@ -10,12 +10,7 @@ fn validate(value: &str) -> Result<()> {
     Ok(())
 }
 
-string_id!(
-    /// Human readable text of at most 1024 bytes, such as an error message
-    /// or the reason an extension is not running. It may be empty.
-    DisplayText,
-    validate
-);
+string_id!(DisplayText, validate);
 
 #[cfg(test)]
 mod tests {

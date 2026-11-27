@@ -14,12 +14,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// The pre-audit daemon recorded a workspace's owner lazily: the first read
-// that listed the workspace picked a row by heuristic and recorded it. A
-// workspace it never listed reaches the upgrade with its owner unrecorded.
-// Boot must record that same row — the conversation the user forked the branch
-// from, or the legacy branch row — not mint an empty chat that hijacks the
-// workspace's sidebar level.
 func TestRegression_Upgrade_BootRecordsTheLegacyOwnerInsteadOfMintingOne(t *testing.T) {
 	home := t.TempDir()
 	h := newHarnessAt(t, home)

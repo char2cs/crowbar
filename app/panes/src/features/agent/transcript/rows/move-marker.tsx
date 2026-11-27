@@ -5,7 +5,6 @@ import { branchOutChat, setChatPlacement } from '@/features/agent/api/agent-chat
 import { useChatField } from '@/features/agent/hooks/use-chat-entity'
 import { report } from '@/lib/errors/report'
 
-/** A move's line, in the words of where it went. */
 export function moveLabel(move: MoveBody | undefined): string {
   if (move?.branchOut) return branchOutLabel(move)
   const where = move?.label || 'another workspace'
@@ -21,7 +20,6 @@ export function moveLabel(move: MoveBody | undefined): string {
   }
 }
 
-/** A thread made a branch of its own: named by the branch it became. */
 function branchOutLabel(move: MoveBody): string {
   switch (move.phase) {
     case 'done':
@@ -37,7 +35,6 @@ function branchOutLabel(move: MoveBody): string {
   }
 }
 
-/** Asks for a failed move again, as its request named it, while no other move is waiting. */
 export function MoveRetry({ chatId, move }: { chatId: string; move: MoveBody }) {
   const [sent, setSent] = useState(false)
   const runsIn = useChatField(chatId, (c) => c?.workspaceId || null)
@@ -50,7 +47,6 @@ export function MoveRetry({ chatId, move }: { chatId: string; move: MoveBody }) 
       if (move.branchOut) await branchOutChat(runsIn, chatId, move.branch ?? '')
       else
         await setChatPlacement(runsIn, chatId, {
-          // The ledger omits a root parent; unsent, the daemon would keep the one it has here.
           parentId: move.parentId ?? '',
           ...(move.order !== undefined && { order: move.order }),
           workspaceId: to!,

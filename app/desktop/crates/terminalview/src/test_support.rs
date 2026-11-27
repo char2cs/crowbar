@@ -1,4 +1,3 @@
-//! A terminal view in a test window wired to a fake daemon peer.
 #![cfg(test)]
 
 mod harness;

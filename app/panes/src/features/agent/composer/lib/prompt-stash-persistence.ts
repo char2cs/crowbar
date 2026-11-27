@@ -2,8 +2,6 @@ import { IS_MAC } from '@/utils/platform'
 import { nanoid } from 'nanoid'
 import { readLocal, removeLocal, writeLocal } from '@/lib/local-storage'
 
-/** A durable, client-owned prompt stash. Its payload is the composer's own markdown, so structure
- *  and settled attachments round-trip exactly as a send would. */
 export interface PromptStash {
   id: string
   markdown: string
@@ -67,7 +65,6 @@ function fitsStorageBudget(key: string, value: string): boolean {
   return true
 }
 
-/** Every other chat's stash; none when storage is unavailable. */
 function otherStashes(key: string): [string, string][] {
   const found: [string, string][] = []
   try {
@@ -83,8 +80,6 @@ function otherStashes(key: string): [string, string][] {
   return found
 }
 
-// A blob URL is an upload preview that cannot survive a reload, and a `chats/...` ref outside the
-// durable grammar is not a real attachment: both are kept as explicit notes, never working links.
 function makePromptStashMarkdown(markdown: string): string {
   return markdown.replace(
     /(!?)\[([^\]]*)\]\(([^)]+)\)/g,
@@ -120,7 +115,6 @@ export function createPromptStash(
   return isPromptStash(item) ? item : null
 }
 
-/** Newest first, bounded. */
 export function addPromptStash(items: PromptStash[], item: PromptStash): PromptStash[] {
   return [item, ...items.filter((candidate) => candidate.id !== item.id)].slice(
     0,
@@ -149,7 +143,6 @@ function parsedItems(raw: string): PromptStash[] | null {
   }
 }
 
-// Storage is the one owner; an open composer renders it through these, never a copy of its own.
 const listeners = new Set<() => void>()
 const snapshots = new Map<string, { raw: string | null; items: PromptStash[] }>()
 
@@ -158,7 +151,6 @@ export function subscribePromptStashes(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-/** The stored list, the same array until it is written again (a render's snapshot). */
 export function promptStashesSnapshot(wsId: string, chatId: string): PromptStash[] {
   const key = promptStashStorageKey(wsId, chatId)
   const raw = readLocal(key)
@@ -169,7 +161,6 @@ export function promptStashesSnapshot(wsId: string, chatId: string): PromptStash
   return items
 }
 
-/** False means the caller must keep the current draft untouched. */
 export function savePromptStashes(wsId: string, chatId: string, items: PromptStash[]): boolean {
   if (!isValidCollection(items)) return false
   const key = promptStashStorageKey(wsId, chatId)
@@ -182,7 +173,6 @@ export function savePromptStashes(wsId: string, chatId: string, items: PromptSta
   return true
 }
 
-/** Keeps text whose composer is gone as the chat's newest stash; false when it cannot. */
 export function stashPrompt(wsId: string, chatId: string, markdown: string): boolean {
   const item = createPromptStash(markdown)
   if (!item) return false

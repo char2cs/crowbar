@@ -10,12 +10,6 @@ import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/atta
 import { useExcalidrawEditRequests } from '@/features/agent/composer/lib/excalidraw-edit-requests'
 import { useWorkspaceScopeStore } from '@/lib/workspace-scope-store'
 
-// The real `@excalidraw/excalidraw` needs Canvas/font-metrics APIs jsdom
-// doesn't implement — mocked so the live-render path is deterministic and
-// fast here, not dependent on how far jsdom happens to fake a canvas.
-// Default (no test overrides it): exportToSvg rejects, so every test not
-// specifically about the live-render path keeps seeing the placeholder,
-// exactly as before this path existed.
 const restoreMock = vi.hoisted(() =>
   vi.fn((data: { elements: unknown; appState: unknown }) => ({
     elements: data.elements,
@@ -50,11 +44,6 @@ const scene: ParsedExcalidrawScene = {
 
 const oneElementScene: ParsedExcalidrawScene = { elements: [{ type: 'rectangle' }], appState: {} }
 
-/** Lets a test control exactly when `resolve()` settles for a given `src`,
- *  to exercise the effect's cancel-on-dependency-change guard — the real
- *  `ChatMarkdownAssetProvider` + fetch stub (used below for the end-to-end
- *  resolution test) settles a microtask too fast to interleave a rerender
- *  in between. */
 function deferredAssetResolver() {
   const pending = new Map<string, (data: string | null) => void>()
   const asset = {
@@ -81,14 +70,10 @@ describe('ExcalidrawPreview', () => {
     expect(screen.getByText(/excalidraw diagram/i)).toBeInTheDocument()
     expect(screen.getByText(/2 elements/i)).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    // exportToSvgMock rejects by default (beforeEach) — let that settle and
-    // confirm the placeholder is still what's shown, not an empty box.
     await waitFor(() => expect(exportToSvgMock).toHaveBeenCalled())
     expect(screen.getByText(/excalidraw diagram/i)).toBeInTheDocument()
   })
 
-  // An agent-authored fence has no persisted PNG (no editor ever exported one), so the diagram
-  // must render live rather than show the placeholder.
   it('renders the scene live via exportToSvg when there is no PNG ref', async () => {
     exportToSvgMock.mockResolvedValue(fakeSvg())
     render(<ExcalidrawPreview scene={scene} />)
@@ -102,8 +87,6 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  // The svg renders through React (`dangerouslySetInnerHTML`), not a DOM mutation: this node sits
-  // in a Slate VOID element, and outside mutations desync slate-react's DOM<->node mapping.
   it('replaces the rendered svg when the scene changes, leaving exactly one in the DOM', async () => {
     exportToSvgMock.mockResolvedValueOnce(fakeSvg())
     const { rerender } = render(<ExcalidrawPreview scene={scene} />)
@@ -146,8 +129,6 @@ describe('ExcalidrawPreview', () => {
   })
 
   it('resolves and shows the persisted PNG once a pngRef and asset context are present', async () => {
-    // A stub, not `new Response(blob)`: jsdom's Blob does not survive undici's body
-    // handling (see chat-asset-resolver.test.ts).
     const blob = new Blob(['x'], { type: 'image/png' })
     vi.stubGlobal(
       'fetch',
@@ -181,14 +162,12 @@ describe('ExcalidrawPreview', () => {
       </MarkdownAssetContext.Provider>,
     )
 
-    // The fresh ('b') resolution settles first...
     await act(async () => {
       settle('chats/c1/attachments/b.png', 'data:image/png;base64,Qg==')
     })
     const img = await screen.findByRole('img', { name: /excalidraw diagram/i })
     expect(img.getAttribute('src')).toBe('data:image/png;base64,Qg==')
 
-    // ...and the stale ('a') resolution settling afterwards must not clobber it.
     await act(async () => {
       settle('chats/c1/attachments/a.png', 'data:image/png;base64,QQ==')
     })
@@ -197,8 +176,6 @@ describe('ExcalidrawPreview', () => {
     )
   })
 
-  // Scene JSON is attacker-controllable, and a `<script>` survives `.outerHTML`, so the live SVG
-  // goes through DOMPurify like every other dangerouslySetInnerHTML sink.
   it('sanitizes the live SVG render, stripping a script element the scene JSON could smuggle in', async () => {
     const svg = fakeSvg()
     const script = document.createElementNS('http://www.w3.org/2000/svg', 'script')
@@ -211,13 +188,8 @@ describe('ExcalidrawPreview', () => {
     await waitFor(() => expect(screen.getByTestId('live-excalidraw-render')).toBeInTheDocument())
     expect(document.querySelector('script')).not.toBeInTheDocument()
   })
-
-  // No unmount test: unmount runs the same cleanup the test above covers, and
-  // React 19 makes a set on an unmounted fiber a silent no-op either way.
 })
 
-// Excalidraw's dark mode is a CSS filter on its own canvas, never baked into exportToSvg /
-// exportToBlob output, so the preview reapplies that filter (to a PNG saved in either theme too).
 describe('ExcalidrawPreview dark mode', () => {
   it('applies the excalidraw dark-mode filter to the persisted PNG when the app is in dark mode', async () => {
     document.documentElement.classList.add('dark')
@@ -249,8 +221,6 @@ describe('ExcalidrawPreview dark mode', () => {
   })
 })
 
-// Diagrams are height-capped like every other attachment kind, aspect ratio preserved (not
-// cropped), on both render paths.
 describe('ExcalidrawPreview height cap', () => {
   it('caps the persisted PNG at a maximum height', async () => {
     const blob = new Blob(['x'], { type: 'image/png' })
@@ -281,8 +251,6 @@ describe('ExcalidrawPreview height cap', () => {
   })
 })
 
-// The reservation must follow a resize that lands before the async render resolves; a stale
-// width brings back the height jump the reservation exists to prevent.
 describe('ExcalidrawPreview reservation follows a resize while still loading', () => {
   const tallScene: ParsedExcalidrawScene = {
     elements: [{ type: 'rectangle', x: 0, y: 0, width: 400, height: 200 }],
@@ -334,26 +302,19 @@ describe('ExcalidrawPreview reservation follows a resize while still loading', (
     const { container } = render(<ExcalidrawPreview scene={tallScene} />)
     const box = container.querySelector('.excalidraw-preview') as HTMLElement
 
-    // scene is 400x200 (aspect 0.5) at width 400 → reserves 200px.
     expect(box.style.minHeight).toBe('200px')
 
-    // The pane narrows before exportToSvg (which never resolves in this
-    // test — see the default beforeEach mock) has settled.
     width = 200
     act(() => {
       for (const cb of observerCallbacks) cb()
     })
 
-    // Same 0.5 aspect ratio, now at the NEW 200px width → 100px, not the
-    // stale 200px a one-shot read would still be showing.
     expect(box.style.minHeight).toBe('100px')
 
     Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
   })
 })
 
-// The edit button lets someone iterate on an existing diagram (an agent's or their own) instead
-// of always starting fresh.
 describe('ExcalidrawPreview edit button', () => {
   const requested = (chatId: string) => useExcalidrawEditRequests.getState().requests[chatId]
   beforeEach(() => useExcalidrawEditRequests.setState({ requests: {} }))
@@ -396,8 +357,6 @@ describe('ExcalidrawPreview edit button', () => {
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
   })
 
-  // An icon button floating over the diagram, no wrap box, matching the drag/delete controls on
-  // every other attachment kind.
   it('is an icon button with no "Edit" text, floating with no wrap box around the diagram', () => {
     renderWithChat('c1', <ExcalidrawPreview scene={scene} />)
     const button = screen.getByRole('button', { name: /edit/i })

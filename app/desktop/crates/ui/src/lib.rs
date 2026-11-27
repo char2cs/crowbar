@@ -1,7 +1,3 @@
-//! GPUI design system of the Crowbar shell: theme tokens, fonts, icons, motion and base components.
-//!
-//! Entry point: [`init`]. See `README.md` for the public API status per component.
-
 mod control;
 mod display;
 mod error;

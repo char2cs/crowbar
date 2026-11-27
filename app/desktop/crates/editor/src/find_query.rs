@@ -8,10 +8,8 @@ use regex::{Regex, RegexBuilder};
 
 use crate::{Error, FindOption, FindOptions};
 
-// SPEC: https://github.com/microsoft/vscode/blob/main/src/vs/editor/contrib/find/browser/findModel.ts (MATCHES_LIMIT)
 const MATCHES_LIMIT: usize = 19_999;
 
-/// A text to find the occurrences of, and the toggles that shape the search.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FindQuery {
     text: String,
@@ -19,7 +17,6 @@ pub struct FindQuery {
 }
 
 impl FindQuery {
-    /// A query for `text` under `options`.
     #[must_use]
     pub fn new(
         text: &str,
@@ -31,10 +28,6 @@ impl FindQuery {
         }
     }
 
-    /// Every non-empty match in `haystack`, in order, up to a limit; none for an empty query.
-    ///
-    /// # Errors
-    /// [`Error::Pattern`] when the text is too large to search for.
     pub fn matches(
         &self,
         haystack: &str,

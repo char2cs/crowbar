@@ -1,5 +1,3 @@
-//! Public-API tests of `supervisor` against a fake `crowbar-api` binary.
-
 #[path = "support/real_infra/journal_lines.rs"]
 mod journal_lines;
 #[path = "support/real_infra/late_launch.rs"]

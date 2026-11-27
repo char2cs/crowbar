@@ -1,5 +1,3 @@
-//! The sidebar entity: frame, header, space switcher, mode bar and the three panels.
-
 mod act;
 mod clock;
 mod event;
@@ -43,8 +41,6 @@ use crate::sidebar::open_chats::OpenChats;
 
 const CAROUSEL_SPAN: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// The sidebar and the frame around it: it lays out the sidebar column, the resize handle and
-/// `content`, owns width and mode, and renders the data the shell provides.
 pub struct Sidebar {
     pub(crate) data: Rc<dyn sidebar::Source>,
     pub(crate) sink: Rc<dyn sidebar::Sink>,
@@ -78,8 +74,6 @@ pub struct Sidebar {
 impl EventEmitter<Event> for Sidebar {}
 
 impl Sidebar {
-    /// A sidebar over `data` that sends commands to `sink` and frames `content`, restoring the
-    /// width, mode and folds from `preferences`.
     pub fn new(
         data: Rc<dyn sidebar::Source>,
         sink: Rc<dyn sidebar::Sink>,
@@ -120,12 +114,10 @@ impl Sidebar {
         }
     }
 
-    /// The preferences matching the current state.
     pub fn preferences(&self) -> Preferences {
         self.preferences.updated(self.panel, self.mode, &self.tree)
     }
 
-    /// Opens or closes the sidebar (Mod+B, the header button).
     pub fn toggle(
         &mut self,
         window: &mut Window,
@@ -137,7 +129,6 @@ impl Sidebar {
         self.changed(cx);
     }
 
-    /// Asks again before discarding `row`, naming the work a refused removal would lose.
     pub fn ask_to_discard(
         &mut self,
         refused: (&RowId, Vec<WorkAtRisk>),
@@ -150,7 +141,6 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// Chooses a mode (Mod+1, Mod+2, Mod+3).
     pub fn set_mode(
         &mut self,
         mode: Mode,
@@ -163,7 +153,6 @@ impl Sidebar {
         self.changed(cx);
     }
 
-    /// Docks the sidebar to the other window edge.
     pub fn dock_to(
         &mut self,
         side: sidebar::DockSide,
@@ -173,9 +162,6 @@ impl Sidebar {
         self.changed(cx);
     }
 
-    /// Replaces the chats some pane shows: the shell reports them from its layout whenever it
-    /// renders, and the sidebar draws those rows, and the workspace rows they own, on the open
-    /// fill. It holds only the latest report.
     pub fn set_open_chats(
         &mut self,
         chats: impl IntoIterator<Item = RowId>,

@@ -18,7 +18,6 @@ beforeEach(() => {
 afterEach(() => resetWindowPaneStoreForTests())
 
 describe('MobileTopBar', () => {
-  // The context pill lives in the dock footer, so usage never shortens the title.
   it('runs the title up to the trailing button whether or not the chat reports usage', () => {
     render(<MobileTopBar />)
     expect(titleBox().style.paddingLeft).toBe('68px')

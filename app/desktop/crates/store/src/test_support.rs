@@ -1,4 +1,3 @@
-//! Fakes shared by the unit tests: a daemon that answers canned routes and a stream that replays frames.
 #![cfg(test)]
 
 mod fake_book;

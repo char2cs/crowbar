@@ -9,19 +9,12 @@ const KEEP_LOW_SIX: u8 = 0x3f;
 const VARIANT_RFC: u8 = 0x80;
 const GROUP_SIZES: [usize; 5] = [4, 2, 2, 2, 6];
 
-/// A random version-4 UUID minted by the client: chats and operations are created under an id
-/// the caller chooses.
-///
-/// It displays in its hyphenated lowercase form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Uuid {
     bytes: [u8; UUID_BYTES],
 }
 
 impl Uuid {
-    /// A fresh random UUID.
-    ///
-    /// Without system randomness it logs an error and the id is not random.
     pub fn random() -> Self {
         let mut bytes = [0_u8; UUID_BYTES];
         if let Err(error) = getrandom::fill(&mut bytes) {

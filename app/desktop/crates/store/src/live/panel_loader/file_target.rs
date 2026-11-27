@@ -1,5 +1,3 @@
-//! The chat, workspace and host a file operation of the Files panel runs against.
-
 use crate::live::plan_error::PlanError;
 use crate::live::state::State;
 

@@ -1,5 +1,3 @@
-//! Page state shown in the native chrome, folded from engine reports and agent answers.
-
 mod agent_answer;
 mod page_state;
 mod page_update;

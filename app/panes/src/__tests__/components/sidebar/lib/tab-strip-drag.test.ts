@@ -188,7 +188,6 @@ describe('createStripDrag', () => {
     drag.move(400, 16, ghost)
     drag.settle(400)
     drag.dispose()
-    // The ghost sat at 350; the tab lands in slot 2, which starts at 300.
     expect(tabs[0].tab.style.transform).toBe('translate(50px, 0px)')
     expect(tabs[0].tab.style.transition).toBe('none')
   })
@@ -274,7 +273,6 @@ describe('createStripDrag', () => {
   })
 
   describe('a pane dragged up into a strip with room to spare', () => {
-    // Tabs end at 500; the strip runs on to 900.
     const roomy = () => build(900)
 
     it('sits in the gap it opens at the end, not half over the last tab', () => {
@@ -327,7 +325,6 @@ describe('createStripDrag', () => {
 
   it('measures the band from the tabs, not from clip room the strip carries around them', () => {
     const { strip, tabs } = build()
-    // A real DOMRect keeps its fields on the prototype, so a spread of it is empty.
     class ProtoRect {
       constructor(
         readonly left: number,
@@ -351,7 +348,6 @@ describe('createStripDrag', () => {
     expect(ghostAt(ghost).x).toBe(100)
   })
 
-  // Queued, never run inline: an edge-scroll frame re-arms itself, so a synchronous clock never returns.
   let frames: FrameRequestCallback[] = []
   beforeEach(() => {
     frames = []
@@ -430,7 +426,6 @@ describe('createStripDrag', () => {
   })
 
   describe('a shell inset inside its slot', () => {
-    // Real tabs carry mx-0.5 on the shell: it sits 2px inside the slot the strip measures.
     function buildInset() {
       const made = build()
       made.tabs.forEach(({ tab, row }, i) => {
@@ -458,7 +453,6 @@ describe('createStripDrag', () => {
       const drag = createStripDrag(strip, tabs[0].row, { dx: 48, dy: 16 })!
       drag.move(400, 16, ghost)
       drag.settle(400)
-      // The ghost sat at 352; slot 2 starts at 300 and its shell 2px in.
       expect(tabs[0].tab.style.transform).toBe('translate(50px, 0px)')
     })
   })

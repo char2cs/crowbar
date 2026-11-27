@@ -11,30 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegression_ModelDiscoveryGoSourceCarriesNoProviderWireVocabulary is the
-// grep-style backstop for this feature's own hard law (mirrors
-// descriptor_test.go's TestRegression_NoShippedDescriptorContainsThe
-// AlternationGlyph): model.discover's whole point is that Go implements a
-// GENERIC "run a command, map its JSON" primitive, and every one of these
-// words — codex's own name, and codex's OWN wire field names for its model
-// list — belongs only in codex.yaml as DATA (a template placeholder or a
-// field path), never as a Go identifier or string literal. Scoped to the
-// files this feature actually touches: "priority", "visibility" etc. are
-// ordinary English words that legitimately appear elsewhere in this
-// codebase (e.g. domain.AgentProviderPreference.Priority) for reasons that
-// have nothing to do with codex's model wire shape, so scanning the whole
-// tree would false-positive on code this feature never touched.
-//
-// The file list below is every file this feature's GENERIC primitive lives
-// in — the ones whose entire content this feature wrote. It deliberately
-// excludes files this feature only ADDED a field or a call to (agents.go,
-// domain/agent_provider.go, provider.go, dto/agent.go, and the rest): those
-// carry substantial pre-existing prose from unrelated work that legitimately
-// uses these ordinary English words (e.g. "codex" as a worked example in a
-// comment written for a different feature entirely, or
-// AgentProviderPreference.Priority, a field this task never touched) — a
-// whole-file scan of those would be a standing false-positive trap, not a
-// meaningful check on this feature's own code.
 func TestRegression_ModelDiscoveryGoSourceCarriesNoProviderWireVocabulary(t *testing.T) {
 	root := apiModuleRoot(t)
 
@@ -72,7 +48,6 @@ func TestRegression_ModelDiscoveryGoSourceCarriesNoProviderWireVocabulary(t *tes
 	}
 }
 
-// A provider's name is data in its descriptor, never a word in the daemon's own Go source.
 func TestRegression_NoGoSourceNamesAProvider(t *testing.T) {
 	root := apiModuleRoot(t)
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
@@ -94,9 +69,6 @@ func TestRegression_NoGoSourceNamesAProvider(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// apiModuleRoot walks up from this test file's own directory to the api
-// module's go.mod, so the file list above resolves regardless of `go test`'s
-// working directory.
 func apiModuleRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

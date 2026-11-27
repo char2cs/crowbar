@@ -8,12 +8,9 @@ const PIN_GLYPH: f32 = 14.0;
 const PIN_OPACITY: f32 = 0.6;
 const CLOSE_CHORD: &str = "mod+w";
 
-/// What the button at the end of a tab does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TabEnd {
-    /// Closes the tab.
     Close,
-    /// Unpins a pinned tab.
     Unpin,
 }
 

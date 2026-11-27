@@ -26,9 +26,6 @@ describe('selection-drag', () => {
     expect(attr()).toBeNull()
   })
 
-  // A window holds several editor panes. A second pane starting a drag while the
-  // first is still holding one must not clear the flag (and the CALayer
-  // promotion that rides on it) out from under the first.
   it('refcounts overlapping drags from separate panes', () => {
     beginSelectionDrag()
     beginSelectionDrag()
@@ -48,14 +45,12 @@ describe('selection-drag', () => {
     expect(isSelectionDragging()).toBe(false)
     expect(attr()).toBeNull()
 
-    // …and is still able to start one afterwards (the count never went negative).
     beginSelectionDrag()
     expect(attr()).toBe('1')
     endSelectionDrag()
     expect(attr()).toBeNull()
   })
 
-  // A pane unmounted mid-drag would otherwise pin the attribute on forever.
   it('releaseSelectionDrag drops only a claim the caller actually held', () => {
     beginSelectionDrag()
     releaseSelectionDrag(false)

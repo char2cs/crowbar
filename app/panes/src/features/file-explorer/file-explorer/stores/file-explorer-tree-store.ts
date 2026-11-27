@@ -3,9 +3,6 @@ import { combine } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { FileEntry } from '@/features/file-system/types/app'
 
-// Expanded folders are keyed by workspace id and every action takes the caller's wsId (never an
-// "active workspace"), so expansions never leak between workspaces and a kept-alive workspace's
-// effects react to its own expansion.
 interface FileTreeState {
   expandedPathsByWorkspace: Record<string, Set<string>>
   selectedFiles: Set<string>
@@ -91,7 +88,6 @@ export const useFileTreeStore = create(
             const pathParts = targetPath.split(/[/\\]/)
             let currentPath = ''
 
-            // Expand all parent folders leading to the target
             for (let i = 0; i < pathParts.length - 1; i++) {
               if (i === 0) {
                 currentPath = pathParts[0]

@@ -1,5 +1,3 @@
-//! Sizes, colours and words of the first-run screens.
-
 use gpui::{Hsla, Pixels, hsla, px, rgb};
 
 pub(crate) const TAGLINE: &str = "The IDE where agents do the heavy lifting.";

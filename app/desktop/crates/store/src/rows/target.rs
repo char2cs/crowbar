@@ -1,5 +1,3 @@
-//! Finding the entity a row id names.
-
 mod kind;
 
 pub(crate) use kind::Kind;

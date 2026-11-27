@@ -1,5 +1,3 @@
-/* A signpost REPLACES the input: the pill's exact box (--pill-h, radius, padding, shadow) so
-   swapping them moves nothing. The message stays on one line; the full text is its title. */
 .agent-chat .pill.halted {
   display: flex;
   align-items: center;
@@ -24,7 +22,6 @@
 .agent-chat .pill.halted[data-touch] .msg {
   font-size: var(--touch-text);
 }
-/* Dark's --warning-foreground is the ink for a solid warning fill, not for text on this tint. */
 .dark .agent-chat .pill.halted .msg {
   color: var(--warning);
 }

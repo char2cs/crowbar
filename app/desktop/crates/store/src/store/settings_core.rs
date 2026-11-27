@@ -1,5 +1,3 @@
-//! Settings and record lists over the daemon and the shell's own settings file.
-
 mod agents;
 mod devices;
 pub(crate) mod json_file;

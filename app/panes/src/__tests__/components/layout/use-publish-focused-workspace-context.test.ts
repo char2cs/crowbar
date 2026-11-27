@@ -48,7 +48,6 @@ function seedHomeChat() {
   })
 }
 
-/** A view split into a home-chat pane and a branch-chat pane; returns both pane ids. */
 function openSplit() {
   const { paneActions } = windowPaneStore.getState()
   paneActions.openChat('home-chat', { workspaceId: 'ws-home' })

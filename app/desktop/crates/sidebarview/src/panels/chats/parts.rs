@@ -1,5 +1,3 @@
-//! The parts a chats row is built from: clusters, verbs, glyphs, labels, the shell, focus, input, reports and bounds.
-
 mod row_bounds;
 mod row_cluster;
 mod row_focus;

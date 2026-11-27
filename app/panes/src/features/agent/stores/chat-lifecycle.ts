@@ -10,12 +10,10 @@ type Chats = EntityState['byKind']['chat']
 
 const forgetters = new Set<(chatId: string) => void>()
 
-/** A lazily loaded owner of per-chat state joins the forgetting as it loads: unloaded, it holds none. */
 export function forgetWithChat(forget: (chatId: string) => void): void {
   forgetters.add(forget)
 }
 
-/** A chat the daemon deleted: everything this client keeps for it goes with it. */
 function forget(chatId: string) {
   for (const drop of forgetters) drop(chatId)
   clearScrollPosition(chatId)
@@ -32,14 +30,12 @@ function releaseRunner(runnerId: string, chatId: string) {
   }
 }
 
-/** A chat that started working with no pane showing it runs in the background, findable. */
 function adoptIfViewless(chat: ChatEntity) {
   const { panes, paneActions } = windowPaneStore.getState()
   if (chatPaneIndex(panes).has(chat.id) || !chat.projectId) return
   paneActions.adoptBackgroundChat(chat.id, chat.projectId, chat.workspaceId)
 }
 
-// Records are keyed by host (`entityKey`); what this client keeps per chat is by raw id.
 function followChats(next: Chats, prev: Chats, live: boolean) {
   for (const key of Object.keys(prev)) if (!(key in next)) forget(splitHostKey(key).id)
   for (const [key, { data }] of Object.entries(next)) {
@@ -52,9 +48,6 @@ function followChats(next: Chats, prev: Chats, live: boolean) {
   }
 }
 
-/** What follows a chat record changing: a deletion forgets its client state,
- *  a runner leaving frees its panes, and a chat starting work after the first snapshot
- *  (a live change, not history) is adopted. Returns the stop. */
 export function followChatLifecycle(): () => void {
   return entityStore.subscribe((s, prev) => {
     if (s.byKind.chat !== prev.byKind.chat) {

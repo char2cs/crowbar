@@ -1,29 +1,17 @@
-//! The git state of a file as the trees decorate it.
-
-/// A file's status letter and colour family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GitStatus {
-    /// Unchanged.
     #[default]
     Clean,
-    /// New and staged or tracked.
     Added,
-    /// Changed.
     Modified,
-    /// Changed, with the change staged.
     StagedModified,
-    /// Moved to another path.
     Renamed,
-    /// Removed.
     Deleted,
-    /// Not tracked.
     Untracked,
-    /// Matched by an ignore rule.
     Ignored,
 }
 
 impl GitStatus {
-    /// The badge letter, none for clean files.
     pub fn letter(self) -> Option<char> {
         match self {
             Self::Clean | Self::Ignored => None,
@@ -35,8 +23,6 @@ impl GitStatus {
         }
     }
 
-    /// Which status a folder shows when its files differ: the highest one wins, in develop's
-    /// order (untracked, added, renamed, modified, staged, deleted); clean and ignored rank 0.
     #[must_use]
     pub fn priority(self) -> usize {
         ROLL_UP

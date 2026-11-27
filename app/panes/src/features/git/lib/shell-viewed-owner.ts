@@ -3,7 +3,6 @@ import type { ViewedChange } from '@/sdk/viewed-change'
 import type { ViewedListener } from './viewed-listener'
 import type { ViewedOwner } from './viewed-owner'
 
-/** The shell owns the viewed maps; this page only hears them and asks for changes. */
 export class ShellViewedOwner implements ViewedOwner {
   private readonly heard = new Map<string, Record<string, string>>()
   private readonly listeners = new Map<string, Set<ViewedListener>>()

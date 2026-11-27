@@ -1,4 +1,3 @@
-//! Fakes shared by the unit tests: a window that renders one element and reports its bounds.
 #![cfg(test)]
 
 pub(crate) mod channels;

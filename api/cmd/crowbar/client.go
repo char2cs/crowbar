@@ -9,20 +9,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
-// clientTimeout bounds a CLI command's round trip to the local daemon; a human at
-// a terminal tolerates more than the hook callback's ipc.DefaultTimeout.
 const clientTimeout = 30 * time.Second
 
-// envelope is the {success,data,error} shape every /v0 route answers with.
 type envelope[T any] struct {
 	Success bool   `json:"success"`
 	Data    T      `json:"data"`
 	Error   string `json:"error"`
 }
 
-// postJSON issues a POST with no body against the daemon's unix socket and
-// decodes its envelope into T. Every route this CLI mutates through (pairing)
-// takes no request body of its own.
 func postJSON[T any](socket, path string) (T, error) {
 	var zero T
 	client, err := ipc.NewClientWithTimeout(socket, clientTimeout)
